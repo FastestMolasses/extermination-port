@@ -472,8 +472,10 @@ frame's parse on the game's thread while the previous frame is drawn).
 also with no frame being drawn, and hands over to the workers after n ops.
 `EM_GS_LIST_COUNTERS=<file>` writes one line per parsed frame waited for:
 the spans, segments, bands, splits, primitives, the band tasks' walks and
-draws, the parse's time, the workers' waits and the frame's times (the
-columns are named in the file's first line and in src/gs/em_gs_world.h).
+draws, the parse's time, the workers' waits, the frame's times, and (since
+2026-10-16, P17, a column before the last two) the parse's CLUT loads from
+pages the frame itself draws (the columns are named in the file's first
+line and in src/gs/em_gs_world.h).
 The same bytes in every case (`make test-gs-world` compares them);
 comparison and measurement aids.
 

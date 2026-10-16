@@ -79,7 +79,8 @@ enum {
     EM_GS_REFUSE_REGISTER   = 1u << 3, /* a register the model does not accept           */
     EM_GS_REFUSE_MEMORY     = 1u << 4, /* no memory for the address tables (EmGs.swz)    */
     EM_GS_REFUSE_ORDER      = 1u << 5, /* parsed list (EmGs.list): a CLUT load from memory
-                                          a span of the list draws, or a transfer      */
+                                          a span of the list draws, with no drain
+                                          (em_gs_list_drain), or a transfer            */
 };
 
 struct EmGsPending;                   /* a primitive waiting for its span's end */
@@ -259,8 +260,9 @@ void em_gs_memory_written(EmGs *gs, uint32_t first_block, uint32_t blocks);
  * be drawn while later ones are appended (em_gs_world orders that).
  *
  * The parsing EmGs reads memory only for CLUT loads; a load from a page a
- * span of the list writes is refused (EM_GS_REFUSE_ORDER: the drawing
- * would decide what it reads), and so is a transfer. */
+ * span of the list writes first has the spans so far drawn
+ * (em_gs_list_drain), or without that is refused (EM_GS_REFUSE_ORDER: the
+ * drawing would decide what it reads). A transfer is refused. */
 typedef struct EmGsList EmGsList;
 EmGsList *em_gs_list_create(void);
 void em_gs_list_destroy(EmGsList *l);
@@ -294,5 +296,13 @@ void em_gs_list_pass(EmGs *gs, const EmGsList *l, uint32_t s0, uint32_t s1);
  * writes calls wait(ctx) first, which returns once prior is drawn, and then
  * reads memory (prior is not consulted again). */
 void em_gs_list_prior(EmGsList *l, const EmGsList *prior, void (*wait)(void *), void *ctx);
+/* A CLUT load that reads a page a span appended to l since the last drain
+ * writes first calls drain(ctx), which returns 1 once every span appended so
+ * far is drawn into memory (the load then reads it, as one EmGs drawing
+ * directly reads it there: the spans before the load drawn, the span still
+ * queued not), or 0 when it cannot (the load is refused,
+ * EM_GS_REFUSE_ORDER). NULL (the default): refused. Kept by
+ * em_gs_list_clear. */
+void em_gs_list_drain(EmGsList *l, int (*drain)(void *), void *ctx);
 
 #endif

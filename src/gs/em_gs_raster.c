@@ -421,8 +421,9 @@ static void clut_load(EmGs *gs, uint64_t tex0)
         return;
     }
     if (gs->list && list_clut_drawn(gs, cpsm, cbp, t8)) {
-        /* parse once (section 12): memory a span of the list draws is not
-         * written yet; the drawing would decide what the load reads */
+        /* parse once (section 12): memory a span of the list draws, and no
+         * drain (em_gs_list_drain) that draws the list so far first: the
+         * drawing would decide what the load reads */
         refuse(gs, EM_GS_REFUSE_ORDER, "a CLUT load from memory the parsed list draws");
         return;
     }
@@ -3670,7 +3671,16 @@ static void vertex_kick(EmGs *gs, int draw)
  *
  * The storage is chunked and never moves: an appended span's data stay
  * where they are until em_gs_list_clear, so spans already appended can be
- * drawn while later ones are appended (em_gs_world publishes the count). */
+ * drawn while later ones are appended (em_gs_world publishes the count).
+ *
+ * The parsing EmGs reads memory for CLUT loads only. One EmGs drawing
+ * directly reads it there with every span that ended before the load drawn
+ * and the span still queued not (clut_load reads, then ends that span);
+ * appended, those are the spans of the list so far and the span appended
+ * next. A load from a page a span appended since the last drain writes
+ * therefore calls the drain (em_gs_list_drain), which returns once every
+ * span appended so far is drawn: the load then reads what the direct EmGs
+ * reads. */
 #define LS_PCHUNK 4096u                /* primitives a chunk               */
 #define LS_PCHUNKS 4096u
 #define LS_SCHUNK 1024u                /* spans a chunk                    */
@@ -3702,6 +3712,10 @@ struct EmGsList {
     uint64_t snap_changes;             /* the parsing EmGs's clut_changes at the last snapshot */
     int failed;
     uint64_t written[TC_PAGES / 64];   /* the pages the spans so far write */
+    uint64_t undrawn[TC_PAGES / 64];   /* ... those appended since the last drain */
+    /* em_gs_list_drain: draws the list so far, for a CLUT load from it */
+    int (*drain)(void *);
+    void *drain_ctx;
     /* em_gs_list_prior: a list still being drawn, and the wait for it */
     const struct EmGsList *prior;
     void (*prior_wait)(void *);
@@ -3735,6 +3749,7 @@ void em_gs_list_clear(EmGsList *l)
     l->nprims = l->nspans = l->ncluts = 0;
     l->failed = 0;
     memset(l->written, 0, sizeof l->written);
+    memset(l->undrawn, 0, sizeof l->undrawn);
 }
 
 uint32_t em_gs_list_spans(const EmGsList *l) { return l ? l->nspans : 0; }
@@ -3773,10 +3788,12 @@ static LsRows list_rows(const struct EmGsPending *p)
     return r;
 }
 
-/* A CLUT load (clut_load) reads a page a span of the list writes. One that
- * reads a page the prior list writes (em_gs_list_prior) first waits for it.
- * The pages are those of the CLUT's texels (clut_load's reads: 16 x 16
- * entries for T8, 8 x 2 for T4, at CBP with width 1), exactly. */
+/* A CLUT load (clut_load) reads a page a span of the list appended since
+ * the last drain writes, and no drain draws them first (em_gs_list_drain:
+ * none, or it could not). One that reads such a page with a drain, or a
+ * page the prior list writes (em_gs_list_prior), first waits for it. The
+ * pages are those of the CLUT's texels (clut_load's reads: 16 x 16 entries
+ * for T8, 8 x 2 for T4, at CBP with width 1), exactly. */
 static int list_clut_drawn(const EmGs *gs, unsigned cpsm, uint32_t cbp, int t8)
 {
     EmGsList *l = gs->list;
@@ -3790,8 +3807,12 @@ static int list_clut_drawn(const EmGs *gs, unsigned cpsm, uint32_t cbp, int t8)
             pages[pg >> 6] |= UINT64_C(1) << (pg & 63);
         }
     for (uint32_t j = 0; j < TC_PAGES / 64; j++)
-        if (pages[j] & l->written[j])
-            return 1;
+        if (pages[j] & l->undrawn[j]) {
+            if (!l->drain || !l->drain(l->drain_ctx))
+                return 1;
+            memset(l->undrawn, 0, sizeof l->undrawn);   /* every span so far is drawn */
+            break;
+        }
     for (uint32_t j = 0; l->prior && j < TC_PAGES / 64; j++)
         if (pages[j] & l->prior->written[j]) {
             l->prior_wait(l->prior_ctx);
@@ -3807,6 +3828,14 @@ void em_gs_list_prior(EmGsList *l, const EmGsList *prior, void (*wait)(void *), 
     l->prior = wait ? prior : NULL;
     l->prior_wait = wait;
     l->prior_ctx = ctx;
+}
+
+void em_gs_list_drain(EmGsList *l, int (*drain)(void *), void *ctx)
+{
+    if (!l)
+        return;
+    l->drain = drain;
+    l->drain_ctx = ctx;
 }
 
 /* Slot i of the span being queued (the primitive nprims + i), its chunk
@@ -3893,8 +3922,10 @@ static void list_close(EmGs *gs, uint32_t n, int stq_grid)
     sp->clut = l->ncluts - 1;
     sp->clut_serial = l->snap_changes + 1;
     sp->dimx = gs->dimx;
-    for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+    for (uint32_t j = 0; j < TC_PAGES / 64; j++) {
         l->written[j] |= sp->m[j];
+        l->undrawn[j] |= sp->m[j];
+    }
     l->nprims += n;
     l->nspans = s + 1;
 }

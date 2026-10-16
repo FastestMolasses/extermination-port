@@ -130,7 +130,12 @@ int em_gs_world_page_pass(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsE
  * checked as em_gs_world_prims checks a primitive. */
 void em_gs_world_gif(EmGsWorld *w, const void *gif, size_t bytes);
 /* Note a buffer the body draws into (FRAME_1), so a later texture read of
- * it is not a residency fault (the shadow's target). */
+ * it is not a residency fault (the shadow's target). Call it where the span
+ * has ended (after the FRAME_1 and SCISSOR_1 writes; em_gs_world_prims
+ * marks after the environment's writes): it orders the workers, with a barrier
+ * when the frame read the buffer since the last one, or when it draws over
+ * uploaded blocks for the first time after a texture read since the last
+ * one (the reads of uploaded blocks are not listed). */
 void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height);
 
 /* The kick (step V): the draw environment's and the clear's GIF packets, as
@@ -145,8 +150,11 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
  * for the previous frame's field before it kicks calls this first): while
  * the previous frame is still drawn, the calling thread parses this one
  * (docs/PERFORMANCE.md M4), up to where the previous frame is done, and
- * the workers go on from there. Nothing drawn changes. The kick must pass
- * the same head (it faults otherwise). 0. */
+ * the workers go on from there. Nothing drawn changes. A CLUT load from
+ * memory this frame itself draws waits for the previous frame and then has
+ * this frame's spans before it drawn on the calling thread, so local memory
+ * read before the kick (em_gs_world_read, em_gs_world_memory) may already
+ * hold them. The kick must pass the same head (it faults otherwise). 0. */
 int em_gs_world_preparse(EmGsWorld *w, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes);
 
 /* A frame whose whole GS list was walked with its environment (the load
@@ -293,8 +301,10 @@ void em_gs_world_stats(const EmGsWorld *w, EmGsWorldStats *out);
  * they drew (draw_one calls), the parse's CPU nanoseconds, the waits for a
  * task and for the parse, the frame's wall, busiest-worker and all-worker
  * CPU nanoseconds, the wall nanoseconds of those waits and of the readout's
- * (summed over the workers), the early parse's waits for the frame before
- * and the ops it parsed. Nothing drawn changes. Developer switches: EM_GS_LIST=1
+ * (summed over the workers), the parse's CLUT loads from pages its own
+ * spans draw (each waits for the spans so far to be drawn), the early
+ * parse's waits for the frame before and the ops it parsed. Nothing drawn
+ * changes. Developer switches: EM_GS_LIST=1
  * (one worker draws the parsed list too), EM_GS_EARLY_PARSE=0 (no early
  * parse), EM_GS_EARLY_OPS=<n> (a test switch: the early parse at every
  * kick, at most n ops); the same bytes with each. */

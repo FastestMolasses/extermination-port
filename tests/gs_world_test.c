@@ -38,7 +38,19 @@
  * EM_GS_LIST=1), the early parse off and 1 and 8 bands a worker
  * (EM_GS_BANDS), draw what one worker draws; and the list's texture-cache
  * stamps (em_gs_list_draw, em_gs_list_pass) with two drawing models in a
- * fixed band order leave the memory one model leaves. Also the refusals:
+ * fixed band order leave the memory one model leaves; with the early parse
+ * forced past each frame's end the second frame's CLUT load waits for the
+ * first frame (counted). Small frames over every block uploaded check the
+ * recorder's barriers and the parse's CLUT loads against one worker drawing
+ * directly, with one worker drawing the list (its bands one after another,
+ * so a missing barrier shows as wrong pixels every time), 3 and 8 workers:
+ * a barrier for a texture read, then a read of the drawing target drawn
+ * since (texture_read marks the target drawn again), and a read of the
+ * declared field before the first FRAME_1 write (the field is the drawing
+ * target: em_gs_world_field_declare), each in three segments, and a read of
+ * uploaded memory before its first draw (a barrier at that draw); and CLUT
+ * loads from pages the frame itself drew (own_drain: the spans so far drawn
+ * first), also parsed early, whole or handing over. Also the refusals:
  * a transfer register, an IMAGE packet and a texture outside the uploads
  * fault, and so do a field declared outside a recording, a second other
  * field, and a kick whose head draws another field than the declared one. */
@@ -742,6 +754,373 @@ static void head_probe(void)
     free(scratch);
 }
 
+/* ---- the recorder's barriers and the parse's CLUT loads, frame by frame
+ * (small world frames over every block uploaded, image_all) ---- */
+
+#define FIELD_OFS ((uint64_t)(1792 * 16) | (uint64_t)(1936 * 16) << 32)
+#define TARGET_OFS 0x7C0000007C00ull           /* the 128 x 128 target's: (1984, 1984) */
+#define FRAME_Y (0x38ull | 8ull << 16)         /* a second 512 x 224 buffer (field B's) */
+
+/* A CT32 buffer as a DECAL texture with TCC, its rows minv..maxv (REGION_CLAMP). */
+static uint64_t buf_tex(uint32_t fbp, uint32_t fbw, uint32_t tw, uint32_t th)
+{
+    return (uint64_t)fbp * 32u | (uint64_t)fbw << 14 | (uint64_t)tw << 26 | (uint64_t)th << 30 | 1ull << 34 |
+           1ull << 35;
+}
+static uint64_t region(uint32_t maxu, uint32_t minv, uint32_t maxv)
+{
+    return 2u | 2u << 2 | (uint64_t)maxu << 14 | (uint64_t)minv << 24 | (uint64_t)maxv << 34;
+}
+
+/* A sprite over window pixels [x0, x1) x [y0, y1) under the offset (ox, oy):
+ * flat, or (tex0 != 0) UV-textured one texel a pixel from texel (u0, v0),
+ * nearest; TEST_1 `test` (ZTE, ALWAYS; the caller alternates AREF so the
+ * write ends the span before it). */
+static EmGfxGsPrim sprite(int ox, int oy, int x0, int y0, int x1, int y1, uint32_t rgba, uint64_t tex0,
+                          uint64_t clamp, int u0, int v0, uint64_t test)
+{
+    EmGfxGsPrim p;
+    memset(&p, 0, sizeof p);
+    p.prim = 6u | (tex0 ? 1u << 4 | 1u << 8 : 0u);
+    p.set = EM_GFX_GS_TEST | EM_GFX_GS_COLCLAMP | (tex0 ? EM_GFX_GS_TEX0 | EM_GFX_GS_TEX1 | EM_GFX_GS_CLAMP : 0u);
+    p.tex0 = tex0;
+    p.tex1 = 0;
+    p.clamp = clamp;
+    p.test = test;
+    p.colclamp = 1;
+    p.count = 2;
+    const int xs[2] = { x0, x1 }, ys[2] = { y0, y1 };
+    for (unsigned k = 0; k < 2; ++k) {
+        p.v[k].x = (uint16_t)((ox + xs[k]) * 16);
+        p.v[k].y = (uint16_t)((oy + ys[k]) * 16);
+        memcpy(p.v[k].rgba, &rgba, 4);
+        p.v[k].q = 0x3F800000u;
+        p.v[k].u = (uint16_t)((u0 + xs[k] - x0) * 16 + 8);
+        p.v[k].v = (uint16_t)((v0 + ys[k] - y0) * 16 + 8);
+    }
+    return p;
+}
+
+/* The environment of a draw into a CT32 buffer (FRAME_1 with SCISSOR_1: the
+ * recorder marks it drawn; Z masked). */
+static EmGfxGsEnv buf_env(uint64_t frame, uint32_t width, uint32_t height, uint64_t xyoffset)
+{
+    EmGfxGsEnv e;
+    memset(&e, 0, sizeof e);
+    e.set = EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_ZBUF | EM_GFX_GS_ENV_XYOFFSET | EM_GFX_GS_ENV_SCISSOR |
+            EM_GFX_GS_ENV_PRMODECONT;
+    e.frame = frame;
+    e.zbuf = 0x101000070ull;
+    e.xyoffset = xyoffset;
+    e.scissor = (uint64_t)(width - 1u) << 16 | (uint64_t)(height - 1u) << 48;
+    e.prmodecont = 1;
+    return e;
+}
+
+#define C_TARGET 0x80406020u
+#define C_LATE 0x80F01020u
+
+/* A barrier for a texture read, then a later read of the drawing target in
+ * the same stretch (em_gs_world.c texture_read: the target's blocks are
+ * drawn ones again after the barrier). The 128 x 128 target drawn; buffer Y
+ * (FBP 0x38) drawn from it (a barrier: every band of the target first); Y's
+ * rows 150..223 drawn flat; the field's rows 0..40 drawn from Y's rows
+ * 150..190, which needs a barrier again: Y was drawn since the last one.
+ * Without it the field's rows read Y before Y's rows 150.. are drawn
+ * whenever a band of the field's rows comes before the band of Y's (one
+ * worker drawing the list: always). */
+static void body_remark(EmGsWorld *w, unsigned f)
+{
+    (void)f;
+    EmGfxGsPrim p;
+    EmGfxGsEnv e = buf_env(FRAME_TARGET, 128, 128, TARGET_OFS);
+    p = sprite(1984, 1984, 0, 0, 128, 128, C_TARGET, 0, 0, 0, 0, 0x30000);
+    em_gs_world_prims(w, &p, &e, 1);
+    e = buf_env(FRAME_Y, 512, 224, FIELD_OFS);
+    p = sprite(1792, 1936, 0, 0, 128, 64, 0, TEX_TARGET | 1ull << 35, region(127, 0, 63), 0, 0, 0x30010);
+    em_gs_world_prims(w, &p, &e, 1);
+    p = sprite(1792, 1936, 0, 150, 512, 224, C_LATE, 0, 0, 0, 0, 0x30000);
+    em_gs_world_prims(w, &p, NULL, 1);
+    e = buf_env(FRAME_FIELD(0), 512, 224, FIELD_OFS);
+    p = sprite(1792, 1936, 0, 0, 512, 41, 0, buf_tex(0x38, 8, 9, 8), region(511, 150, 223), 0, 150, 0x30010);
+    em_gs_world_prims(w, &p, &e, 1);
+}
+
+/* A barrier for a read of the declared field before the frame's first
+ * FRAME_1 write (em_gs_world_field_declare: the drawing target is the
+ * head's, the field). The field declared; through the head's FRAME_1 the
+ * field's rows 100..120 drawn from its rows 0..63 (a barrier: the field is
+ * a drawn buffer), its rows 150..223 drawn flat, and its rows 0..40 drawn
+ * from its rows 150..190, which needs a barrier again: the field was drawn
+ * since (and its rows 0..63 read). */
+static void body_declared(EmGsWorld *w, unsigned f)
+{
+    (void)f;
+    em_gs_world_field_declare(w, FRAME_FIELD(0), 224);
+    EmGfxGsPrim p = sprite(1792, 1936, 0, 100, 512, 121, 0, buf_tex(0, 8, 9, 8), region(511, 0, 63), 0, 0, 0x30010);
+    em_gs_world_prims(w, &p, NULL, 1);
+    p = sprite(1792, 1936, 0, 150, 512, 224, C_LATE, 0, 0, 0, 0, 0x30000);
+    em_gs_world_prims(w, &p, NULL, 1);
+    p = sprite(1792, 1936, 0, 0, 512, 41, 0, buf_tex(0, 8, 9, 8), region(511, 150, 223), 0, 150, 0x30010);
+    em_gs_world_prims(w, &p, NULL, 1);
+}
+
+/* A read of uploaded memory no draw has touched, then its first draw in
+ * the same stretch (em_gs_world.c em_gs_world_drawn_buffer: a barrier
+ * once a texture was read since the last one). The field's rows 150..213
+ * drawn from the uploaded 128 x 128 buffer U (FBP 0x180) never drawn
+ * before, then U's rows 0..63 drawn flat: every band must read U first.
+ * Without the barrier the band of U's rows, above the field's, draws U
+ * before the field's band reads it whenever it comes first (one worker
+ * drawing the list: always). */
+#define FRAME_U (0x180ull | 2ull << 16)
+static void body_upload(EmGsWorld *w, unsigned f)
+{
+    (void)f;
+    EmGfxGsEnv e = buf_env(FRAME_FIELD(0), 512, 224, FIELD_OFS);
+    EmGfxGsPrim p = sprite(1792, 1936, 0, 150, 128, 214, 0, buf_tex(0x180, 2, 7, 7), region(127, 0, 63), 0, 0, 0x30010);
+    em_gs_world_prims(w, &p, &e, 1);
+    e = buf_env(FRAME_U, 128, 128, TARGET_OFS);
+    p = sprite(1984, 1984, 0, 0, 128, 64, C_LATE, 0, 0, 0, 0, 0x30000);
+    em_gs_world_prims(w, &p, &e, 1);
+}
+
+/* CLUT loads from memory the frame itself draws (em_gs_world.c own_drain):
+ * the 128 x 128 target drawn and read into the field (a barrier), the
+ * field's rows 32..47, columns 0..15 (block 0x100: the CLUT of
+ * TEX_T8_PREV) drawn in four colours, T8 triangles over the resident texels
+ * through that CLUT (CLD 1) into the field's rows 100.., the CLUT's pixels
+ * drawn again in four other colours, and the CLUT loaded again (CSA
+ * changes TEX0; a T8 CT32 load reads the same entries) for more T8
+ * triangles. Each load reads what one worker drawing directly reads: the
+ * frame's spans before it drawn. A blended sprite before each load would
+ * show a span drawn twice. */
+static uint32_t own_colour(unsigned f, unsigned pass, unsigned k)
+{
+    return 0x80000000u | (0x30u + 0x40u * k) | (0x20u + 0x50u * pass + 0x10u * f) << 8 | (0xC0u - 0x28u * k) << 16;
+}
+static void body_own_clut(EmGsWorld *w, unsigned f)
+{
+    for (unsigned pass = 0; pass < 2; ++pass) {
+        /* the 128 x 128 target drawn, and read into the field's rows
+         * 192..223 (a barrier: the load below has two segments to draw) */
+        EmGfxGsEnv e = buf_env(FRAME_TARGET, 128, 128, TARGET_OFS);
+        EmGfxGsPrim t0 = sprite(1984, 1984, 0, 0, 128, 128, own_colour(f, pass, 0) ^ 0x00FFFF00u, 0, 0, 0, 0, 0x30000);
+        em_gs_world_prims(w, &t0, &e, 1);
+        e = buf_env(FRAME_FIELD(0), 512, 224, FIELD_OFS);
+        t0 = sprite(1792, 1936, 0, 192, 128, 224, 0, TEX_TARGET | 1ull << 35, region(127, 0, 127), 0, 32 * (int)pass,
+                    0x30010);
+        em_gs_world_prims(w, &t0, &e, 1);
+        for (unsigned k = 0; k < 4; ++k) {
+            EmGfxGsPrim p = sprite(1792, 1936, 0, 32 + 4 * (int)k, 16, 36 + 4 * (int)k, own_colour(f, pass, k), 0, 0,
+                                   0, 0, k & 1 ? 0x30010 : 0x30000);
+            em_gs_world_prims(w, &p, k ? NULL : &e, 1);
+        }
+        /* a blended sprite over rows 60..89 (drawn twice, it would show) */
+        EmGfxGsPrim b = sprite(1792, 1936, 0, 60, 512, 90, 0x40806040u + 0x2000u * pass + 0x10u * f, 0, 0, 0, 0,
+                               0x30010);
+        b.prim |= 1u << 6;
+        b.set |= EM_GFX_GS_ALPHA;
+        b.alpha = 0x44;
+        em_gs_world_prims(w, &b, NULL, 1);
+        for (unsigned i = 0; i < 4; ++i) {
+            const int x = (int)((i * 97u + f * 31u + pass * 200u) % 400u), y = 100 + (int)((i * 23u) % 60u);
+            EmGfxGsPrim t = tri(0x01C, TEX_T8_PREV | (uint64_t)pass << 56,
+                                vtx(x, y, 3000, 200, 128, 128, 128, 128, 0.0f, 0.0f, 1.0f),
+                                vtx(x + 90, y + 9, 3000, 200, 128, 128, 128, 128, 1.0f, 0.2f, 1.0f),
+                                vtx(x + 13, y + 60, 3000, 200, 128, 128, 128, 128, 0.2f, 1.0f, 1.0f));
+            t.test = 0x30000;
+            t.tex1 = 0;                /* (nearest, no fog: the palette's colours as drawn) */
+            em_gs_world_prims(w, &t, NULL, 1);
+        }
+    }
+}
+
+/* EM_GS_LIST_COUNTERS per frame: segments, the parse's CLUT loads from its
+ * own spans, its waits for the frame before, the early parse's ops. */
+typedef struct { unsigned frames; unsigned long long segs[4], own[4], prior[4], early[4]; } ListCounts;
+static void list_counts(const char *path, ListCounts *c)
+{
+    memset(c, 0, sizeof *c);
+    FILE *fp = fopen(path, "r");
+    CHECK(fp);
+    char line[1024];
+    while (fgets(line, sizeof line, fp)) {
+        if (line[0] == '#') continue;
+        unsigned long long v[32];
+        unsigned n = 0;
+        for (char *t = strtok(line, " \n"); t && n < 32; t = strtok(NULL, " \n")) v[n++] = strtoull(t, NULL, 10);
+        CHECK(n == 22 && c->frames < 4);
+        c->segs[c->frames] = v[3];
+        c->own[c->frames] = v[19];
+        c->prior[c->frames] = v[20];
+        c->early[c->frames] = v[21];
+        c->frames++;
+    }
+    fclose(fp);
+}
+
+enum { SM_DIRECT, SM_LIST, SM_THREADS };
+
+/* `frames` world frames of `body` (each its head: the field FBP 0, the half
+ * line on odd frames), with `workers` workers: SM_DIRECT one worker drawing
+ * directly, SM_LIST one worker drawing the parsed list (EM_GS_LIST=1: its
+ * bands one after another, top first), SM_THREADS the parsed list on
+ * `workers` threads; `piped`: each next frame recorded and parsed early
+ * while the one before is drawn (em_gs_world_preparse). The local memory
+ * after the last frame into `mem`; the counters into `lc` (SM_DIRECT: none);
+ * each frame's pixels drawn (EmGsWorldStats) into `pixels`. */
+static void run_small(void (*body)(EmGsWorld *, unsigned), unsigned frames, int mode, unsigned workers, int piped,
+                      uint8_t *mem, ListCounts *lc, unsigned long long *pixels)
+{
+    char n[8];
+    snprintf(n, sizeof n, "%u", mode == SM_THREADS ? workers : 1u);
+    setenv("EM_GS_THREADS", n, 1);
+    if (mode == SM_LIST) setenv("EM_GS_LIST", "1", 1);
+    const char *const lcp = "build/gs_world_test/small_counters.txt";
+    if (mode != SM_DIRECT) setenv("EM_GS_LIST_COUNTERS", lcp, 1);
+    EmGsWorld *w = em_gs_world_create();
+    unsetenv("EM_GS_LIST");
+    unsetenv("EM_GS_LIST_COUNTERS");
+    CHECK(w && em_gs_world_workers(w) == (mode == SM_THREADS ? workers : 1u));
+    CHECK(em_gs_world_memory_load(w, image_all) == 0);
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    for (unsigned f = 0; f < frames; ++f) {
+        em_gs_world_begin(w);
+        body(w, f);
+        CHECK(!em_gs_world_fault(w));
+        head(env, &env_n, clr, &clr_n, 0, (int)(f & 1u));
+        if (piped) CHECK(em_gs_world_preparse(w, env, env_n, clr, clr_n) == 0);
+        CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+        if (!piped) CHECK(em_gs_world_wait(w) == 0);
+        /* the frame waited for last: this one, or (piped) the one before */
+        EmGsWorldStats st;
+        em_gs_world_stats(w, &st);
+        if (!piped) pixels[f] = st.pixels;
+        else if (f) pixels[f - 1] = st.pixels;
+    }
+    CHECK(em_gs_world_wait(w) == 0);
+    EmGsWorldStats st;
+    em_gs_world_stats(w, &st);
+    pixels[frames - 1] = st.pixels;
+    const uint8_t *m = em_gs_world_memory(w);
+    CHECK(m);
+    memcpy(mem, m, EM_GS_MEM_BYTES);
+    em_gs_world_destroy(w);
+    if (lc) {
+        if (mode == SM_DIRECT) memset(lc, 0, sizeof *lc);
+        else list_counts(lcp, lc);
+    }
+}
+
+/* A CT32 pixel of a buffer in a local memory image. */
+static uint32_t mem_pixel(const uint8_t *mem, uint32_t fbp, uint32_t fbw, uint32_t x, uint32_t y)
+{
+    uint32_t v;
+    memcpy(&v, mem + (size_t)em_gs_addr32(fbp * 32u, fbw, x, y, 0) * 4u, 4);
+    return v;
+}
+
+/* The barrier cases (body_remark, body_declared, body_upload): one worker
+ * drawing the list, 3 and (full) 8 workers draw what one worker draws
+ * directly, in three segments (the head's; the first read's; the second
+ * read's), or two for body_upload (the head's and the read's; U's draw). */
+static unsigned g_barrier_px[3];
+static void barrier_cases(int full)
+{
+    uint8_t *ref = malloc(EM_GS_MEM_BYTES), *got = malloc(EM_GS_MEM_BYTES);
+    CHECK(ref && got);
+    for (int c = 0; c < 3; ++c) {
+        void (*body)(EmGsWorld *, unsigned) = c == 2 ? body_upload : c ? body_declared : body_remark;
+        unsigned long long px_ref[1], px[1];
+        run_small(body, 1, SM_DIRECT, 1, 0, ref, NULL, px_ref);
+        unsigned late = 0;
+        if (c < 2) {
+            /* the second read took the late rows: the field's rows 0..40
+             * hold C_LATE, read from rows 150..190 (of Y, or of the field) */
+            for (uint32_t y = 0; y <= 40; ++y)
+                for (uint32_t x = 0; x < 512; ++x) late += mem_pixel(ref, 0, 8, x, y) == C_LATE;
+            CHECK(late == 512u * 41u);
+        } else {
+            /* the field's rows 150..213 took U as uploaded (zero), and U's
+             * rows 0..63 hold C_LATE */
+            for (uint32_t y = 0; y < 64; ++y)
+                for (uint32_t x = 0; x < 128; ++x) {
+                    late += mem_pixel(ref, 0x180, 2, x, y) == C_LATE;
+                    CHECK(mem_pixel(ref, 0, 8, x, 150 + y) == 0);
+                }
+            CHECK(late == 128u * 64u);
+        }
+        g_barrier_px[c] = late;
+        static const int modes[3] = { SM_LIST, SM_THREADS, SM_THREADS };
+        static const unsigned wk[3] = { 1, 3, 8 };
+        for (unsigned i = 0; i < (full ? 3u : 2u); ++i) {
+            ListCounts lc;
+            run_small(body, 1, modes[i], wk[i], 0, got, &lc, px);
+            CHECK(memcmp(got, ref, EM_GS_MEM_BYTES) == 0 && px[0] == px_ref[0]);
+            CHECK(lc.frames == 1 && lc.segs[0] == (c == 2 ? 2u : 3u) && lc.own[0] == 0);
+        }
+    }
+    free(ref);
+    free(got);
+}
+
+/* The CLUT loads from the frame's own spans (body_own_clut, two frames, two
+ * loads each): one worker drawing the list (its parse draws the spans so far
+ * itself), 3 workers (the parsing worker waits for the others), the frames
+ * parsed early whole (EM_GS_EARLY_OPS past the frame: the game's thread
+ * waits for the frame before, then draws the spans so far itself) with 3
+ * workers and one worker drawing the list, the early parse handing over
+ * after 37 ops (8 workers), and (full) 8 workers, 8 bands a worker and the
+ * early parse off: each the memory and the per-frame pixel counts one
+ * worker drawing directly leaves, the loads counted. */
+static unsigned g_own_px, g_own_waits;
+static void own_clut_cases(int full)
+{
+    uint8_t *ref = malloc(EM_GS_MEM_BYTES), *got = malloc(EM_GS_MEM_BYTES);
+    CHECK(ref && got);
+    unsigned long long px_ref[2], pxs[2];
+    run_small(body_own_clut, 2, SM_DIRECT, 1, 0, ref, NULL, px_ref);
+    /* the T8 triangles took the second frame's second palette: its colours
+     * are in the field's rows 100.. */
+    unsigned px = 0;
+    for (uint32_t y = 100; y < 224; ++y)
+        for (uint32_t x = 0; x < 512; ++x) {
+            const uint32_t v = mem_pixel(ref, 0, 8, x, y);
+            for (unsigned k = 0; k < 4; ++k) px += (v & 0xFFFFFFu) == (own_colour(1, 1, k) & 0xFFFFFFu);
+        }
+    CHECK(px > 1000);
+    g_own_px = px;
+    static const struct { int mode; unsigned workers; int piped; const char *ops, *bands, *early; } m[7] = {
+        { SM_LIST, 1, 0, NULL, NULL, NULL },      { SM_THREADS, 3, 0, NULL, NULL, NULL },
+        { SM_THREADS, 3, 1, "100000", NULL, NULL }, { SM_LIST, 1, 1, "100000", NULL, NULL },
+        { SM_THREADS, 8, 1, "37", NULL, NULL },   { SM_THREADS, 8, 1, NULL, "8", NULL },
+        { SM_THREADS, 8, 1, NULL, NULL, "0" },
+    };
+    for (unsigned i = 0; i < (full ? 7u : 5u); ++i) {
+        if (m[i].ops) setenv("EM_GS_EARLY_OPS", m[i].ops, 1);
+        if (m[i].bands) setenv("EM_GS_BANDS", m[i].bands, 1);
+        if (m[i].early) setenv("EM_GS_EARLY_PARSE", m[i].early, 1);
+        ListCounts lc;
+        run_small(body_own_clut, 2, m[i].mode, m[i].workers, m[i].piped, got, &lc, pxs);
+        unsetenv("EM_GS_EARLY_OPS");
+        unsetenv("EM_GS_BANDS");
+        unsetenv("EM_GS_EARLY_PARSE");
+        CHECK(memcmp(got, ref, EM_GS_MEM_BYTES) == 0);
+        /* (each frame's pixels are its own, also those an early parse drew) */
+        CHECK(pxs[0] == px_ref[0] && pxs[1] == px_ref[1]);
+        CHECK(lc.frames == 2 && lc.own[0] == 2 && lc.own[1] == 2);
+        g_own_waits += (unsigned)(lc.own[0] + lc.own[1]);
+        /* parsed early whole: the second frame's first load waited for the
+         * first frame before its thread drew the spans so far */
+        if (m[i].ops && m[i].ops[0] == '1')
+            CHECK(lc.early[0] > 0 && lc.early[1] > 0 && (m[i].mode != SM_THREADS || lc.prior[1] >= 1));
+    }
+    free(ref);
+    free(got);
+}
+
 int main(void)
 {
     (void)system("mkdir -p build/gs_world_test");
@@ -901,9 +1280,13 @@ int main(void)
      * one at a time: 3 and 8 workers as the backend kicks them; the early
      * parse forced to stop after 37 ops (EM_GS_EARLY_OPS, the workers go on
      * from there) with 3 and 8 workers and with one worker drawing the
-     * parsed list (EM_GS_LIST=1); the early parse off; and 1 and 8 bands a
-     * worker (EM_GS_BANDS) */
-    static Result rp_ref, rp_plain, rp[8];
+     * parsed list (EM_GS_LIST=1); the early parse off; 1 and 8 bands a
+     * worker (EM_GS_BANDS); and the early parse forced past each frame's
+     * end (EM_GS_EARLY_OPS 100000, 3 workers): every frame parsed whole on
+     * the game's thread, the second while the first is drawn, so its CLUT
+     * load from the first frame's field waits for that frame whatever the
+     * timing (the waits of the default early parse depend on it) */
+    static Result rp_ref, rp_plain, rp[9];
     image_path = image_all;
     run(1, &rp_plain);
     g_clut_prev = 1;
@@ -911,12 +1294,13 @@ int main(void)
     unsigned clut_px = 0;
     for (unsigned i = 0; i < 512 * 224; ++i) clut_px += memcmp(rp_ref.field[1] + 4 * i, rp_plain.field[1] + 4 * i, 3) != 0;
     CHECK(clut_px > 1000);
-    unsigned long long eops[8] = {0}, pwaits[8] = {0};
-    unsigned eframes[8] = {0};
+    unsigned long long eops[9] = {0}, pwaits[9] = {0};
+    unsigned eframes[9] = {0};
     const char *const lc = "build/gs_world_test/list_counters.txt";
-    for (unsigned i = 0; i < 8; ++i) {
-        static const unsigned wk[8] = { 3, 8, 3, 8, 1, 8, 3, 8 };
+    for (unsigned i = 0; i < 9; ++i) {
+        static const unsigned wk[9] = { 3, 8, 3, 8, 1, 8, 3, 8, 3 };
         if (i == 2 || i == 3 || i == 4) setenv("EM_GS_EARLY_OPS", "37", 1);
+        if (i == 8) setenv("EM_GS_EARLY_OPS", "100000", 1);
         if (i == 4) setenv("EM_GS_LIST", "1", 1);
         if (i == 5) setenv("EM_GS_EARLY_PARSE", "0", 1);
         if (i == 6) setenv("EM_GS_BANDS", "1", 1);
@@ -937,6 +1321,11 @@ int main(void)
     /* the forced early parses parsed 37 ops of every frame; with it off, none */
     CHECK(eframes[2] == 3 && eops[2] == 3 * 37 && eframes[3] == 3 && eops[3] == 3 * 37);
     CHECK(eframes[4] == 3 && eops[4] == 3 * 37 && eframes[5] == 0);
+    /* parsed whole early: the second frame's CLUT load waited for the first */
+    CHECK(eframes[8] == 3 && pwaits[8] >= 1);
+    /* the recorder's barriers and the parse's CLUT loads from its own spans */
+    barrier_cases(full);
+    own_clut_cases(full);
     list_stamps();
     refusals();
     field_refusals();
@@ -953,9 +1342,17 @@ int main(void)
            "by the generic path too, the same (%s workers); parse once: frames parsed early while the one before "
            "is drawn, with a CLUT loaded from that one's field (%u pixels), the same with 3 and 8 workers (early "
            "ops %llu and %llu, waits for the frame before %llu and %llu), forced to hand over after 37 ops (3, 8 workers and one worker drawing the list), "
-           "the early parse off (8), and 1 and 8 bands a worker (3, 8); the list's texture-cache stamps with two "
-           "drawing models in a fixed band order: the same as one model)\n", g_host_workers, blended[0], blended[1],
-           MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8",
-           full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1", clut_px, eops[0], eops[1], pwaits[0], pwaits[1]);
+           "the early parse off (8), 1 and 8 bands a worker (3, 8), and parsed whole early (3; waits for the frame "
+           "before %llu); the list's texture-cache stamps with two drawing models in a fixed band order: the same as "
+           "one model; a barrier for a read, then a read of the drawing target, and a read of the declared field "
+           "before the first FRAME_1 write (%u and %u pixels read after the second barrier): three segments; a read "
+           "of uploaded memory, then its first draw (%u pixels drawn after the read): two segments; each the "
+           "same with one worker drawing the list and %s workers; CLUT loads from the frame's own spans (%u pixels "
+           "of the last palette, %u loads counted): the same with one worker drawing the list, %s, parsed early "
+           "whole (3 workers, one drawing the list) and handing over after 37 ops (8))\n", g_host_workers,
+           blended[0], blended[1], MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8",
+           full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1", clut_px, eops[0], eops[1],
+           pwaits[0], pwaits[1], pwaits[8], g_barrier_px[0], g_barrier_px[1], g_barrier_px[2], full ? "3 and 8" : "3", g_own_px,
+           g_own_waits, full ? "3 and 8 workers, 8 bands a worker and the early parse off" : "3 workers");
     return 0;
 }

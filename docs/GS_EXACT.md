@@ -1303,11 +1303,22 @@ test-gs-world`: 1, 2, 3 and 8 workers draw the same fields and memory,
 under the thread sanitizer, also with frames parsed early, 1 and 8 bands a
 worker and one worker drawing the list; a random differential against the
 previous path, PERFORMANCE.md P15). The parser reads memory only for CLUT
-loads: one from a page a span of the frame's list draws is refused
-(`EM_GS_REFUSE_ORDER`: what it would read depends on the drawing; the
-first level has none), and the next frame's parse may start on the game's
-thread while this frame is drawn (`em_gs_world_preparse`; a CLUT load that
-reads a page the frame being drawn writes waits for that frame first).
+loads. One worker drawing directly reads a CLUT with every span that ended
+before the load drawn and the span still queued not; so a load from a page
+a span of the frame's own list draws ends the segment there and waits
+until every segment so far is drawn, then reads (em_gs_world.c own_drain;
+since 2026-10-16, PERFORMANCE.md "Progress" P17: before, it was refused
+with `EM_GS_REFUSE_ORDER` whenever more than one worker drew, so the worker
+count decided whether such a frame was drawn; the first level has none).
+A worker's parse waits for the other workers' bands; where no other thread
+draws the frame (one worker drawing the list, or the early parse below) the
+parsing thread draws those segments itself, every row, through worker 0's
+model, and the bands skip them. The next frame's parse may start on the
+game's thread while this frame is drawn (`em_gs_world_preparse`; a CLUT
+load that reads a page the frame being drawn writes waits for that frame
+first; one from the frame's own spans waits for it too and then draws
+them, so local memory read before the kick may already hold them: nothing
+in the port reads it there).
 Where a primitive
 reads a buffer drawn earlier in the frame, or a draw goes into a buffer read
 earlier in the frame (the shadow's target, between its passes), the
@@ -1322,7 +1333,18 @@ are drawn ones again: the draws after the barrier write them, so a read of
 them later in the stretch needs a barrier too (since 2026-10-15, found by
 the P15 differential: before, such a read in the same stretch was not
 ordered; the demo's frames keep their barrier counts, and the level smoke
-and the fb2 harness pass as before). The
+and the fb2 harness pass as before). Until the frame writes FRAME_1 or
+SCISSOR_1 (and after the environment again) the target is the head's,
+which the recorder does not read: it is the declared field
+(em_gs_world_field_declare, checked against the head at the kick; since
+2026-10-16, P17: before, a barrier for a read before the first FRAME_1
+write left the field out. The live path declares the field only for the
+depth-of-field pass, whose copy writes its target's FRAME_1 and SCISSOR_1
+before its first read, so the first level never met that case). `make
+test-gs-world` holds both rules with frames whose second read needs the
+barrier, drawn by one worker drawing the list (its bands one after another,
+the top first: a missing barrier gives wrong pixels every time) and by 3
+and 8 workers. The
 worker count is EM_GS_THREADS, else a host default: on Apple hosts the
 performance cores less two (6 on an M1 Pro), or every core less two where
 that leaves fewer than 4 (4 on the iPhone Air); elsewhere the processors
@@ -1339,6 +1361,14 @@ the player texture packet, 5,504 blocks, hold no block of either field,
 the Z buffer or the 256 x 256 copy and shadow buffer), but a frame drawn
 over uploaded memory raced (found by `test_dof_pass_reference` part C;
 `make test-gs-world` now also draws its frames with every block uploaded).
+The reads of uploaded blocks no draw has touched are not listed (every
+resident texture would be), so a buffer marked drawn (FRAME_1 with
+SCISSOR_1, `em_gs_world_drawn_buffer`) over uploaded blocks for the first
+time, after a texture read since the last barrier, gets a barrier (since
+2026-10-16, found by the P17 differential: such a read and the draw over
+it in one stretch raced; the first level draws over no upload, so its
+frames keep their segments). The declared field is exempt: it is the
+head's target, drawn from the frame's start.
 
 **Pipelining.** As the GS draws a kicked list while the EE builds the next
 one, the kick hands the frame to the workers and returns; the next kick
@@ -2146,8 +2176,10 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   capture packet through row-range bands; a 6,000-frame random
   differential through the world's API against HEAD's path (1, 3, 6 and
   8 workers, band settings, the early parse forced and off, and under
-  the thread sanitizer) leaves equal memory, fields and counts, with
-  fifteen negative controls caught. One worker draws directly (its GS
+  the thread sanitizer) leaves equal memory, fields and counts; fifteen
+  negative controls were caught, fourteen by the differential and the
+  fifteenth (skipped spans' pages not stamped) by gs_world_test's stamp
+  case. One worker draws directly (its GS
   frame 16.1-17.2 ms of CPU in the AREA11 cinematic and calm). With 3
   workers the AREA11 tick fell 8.4 -> 6.6 ms (busiest worker 8.0 -> 6.1
   ms) and the AREA01 fire peak's 11.0 -> 10.1-10.2 ms; at the default 6
@@ -2177,6 +2209,16 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
     AREA11 and 50-61 % in AREA01).
   - *Still below real time:* one worker, where the frame is drawn on the
     game's thread: 73-78 % in AREA11 and 49-57 % in AREA01.
+- **The parse-once follow-up (2026-10-16, PERFORMANCE.md "Progress" P17;
+  no path of the first level's frames changed, so nothing re-measured).**
+  A CLUT load from memory the frame itself draws is drawn exactly with any
+  worker count (more than one refused it before); the recorder takes the
+  declared field as the drawing target before the first FRAME_1 write, and
+  places a barrier where a buffer is first drawn over uploaded memory after
+  a texture read (a race the follow-up's differential found, outside the
+  first level); `make test-gs-world` holds the barrier rules and those
+  loads deterministically. The proof set and a HEAD-against-follow-up random
+  differential give the same bytes (P17).
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
@@ -2558,7 +2600,10 @@ was compared with real hardware.
   with every block of local memory uploaded, and past the recorder's
   texture table's end (1,100 texture keys); the decoded texture cache off
   against on, an upload between frames, and the specialized span loops off
-  against on and checked against the generic path (5.4).
+  against on and checked against the generic path (5.4); the parsed list
+  (section 9, "Workers and order"): frames parsed early, band settings, the
+  list's stamps, the recorder's barriers after a read (the target, the
+  declared field) and CLUT loads from the frame's own spans.
 - `tools/test_dof_pass_reference.py` with `tests/dof_pass_reference_bridge.c`
   (`make test-dof-pass-reference`): 001DDE10's depth-of-field pass against
   the original's captured GS memory (section 7).

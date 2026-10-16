@@ -75,6 +75,9 @@ typedef struct {
     int quiet;                       /* early_parse: no worker draws the frame yet (no wake-ups) */
     size_t early_ops;                /* ops early_parse parsed (EM_GS_LIST_COUNTERS) */
     uint32_t prior_waits;            /* its waits for the frame before (a CLUT load) */
+    uint32_t own_waits;              /* its CLUT loads from its own spans (own_drain) */
+    gsw_au predrawn;                 /* segments [0, predrawn) drawn by own_drain's thread */
+    uint64_t early_pixels;           /* pixels own_drain drew before the frame was handed over */
     size_t op_next;                  /* the next op to parse */
     uint32_t k;                      /* the segment being parsed */
     double ns;                       /* the parse's CPU time */
@@ -168,6 +171,7 @@ struct EmGsWorld {
     int parse_once;                  /* the frame is parsed once (else worker 0 runs it) */
     uint32_t bands_per_worker;       /* EM_GS_BANDS */
     EmGs parser;                     /* the parsing model (EmGs.list): registers, span, CLUT */
+    Job *parsing;                    /* the job the parser takes (own_drain) */
     int early;                       /* the game's thread parses while it waits (EM_GS_EARLY_PARSE) */
     size_t early_max;                /* EM_GS_EARLY_OPS (a test switch): always, at most this many ops */
     gsw_au waiters;                  /* workers waiting on cv */
@@ -205,6 +209,9 @@ struct EmGsWorld {
      * be done: a barrier. */
     uint8_t fdrawn[BLOCKS], fread[BLOCKS];
     int fdrawn_any, fread_any;
+    /* A textured primitive since the last barrier (its reads of uploaded
+     * blocks no draw has touched are not in fread: em_gs_world_drawn_buffer) */
+    int tread_any;
     /* Buffers marked since the last barrier (or the frame's start): a mark
      * of one of them again changes nothing (its blocks are in fdrawn and
      * drawn, and fread holds none of them: a read of one barriers, which
@@ -221,10 +228,13 @@ struct EmGsWorld {
     uint8_t tex0_known[2], clamp_known[2];
     uint32_t prim;                   /* PRIM as written last (for GIF data's vertex kicks) */
     /* The drawing target (FRAME_1 and SCISSOR_1 as written last in the frame
-     * being recorded; unknown at its start and after the environment again,
-     * whose packets the recorder does not read, unless the field is
-     * declared): a barrier for a read empties fdrawn, and the target's
-     * blocks go back into it, as the draws after the barrier write them. */
+     * being recorded): a barrier for a read empties fdrawn, and the target's
+     * blocks go back into it, as the draws after the barrier write them.
+     * Before such a write, at the frame's start and after the environment
+     * again, the GS holds the head's, which the recorder does not read: a
+     * register not written since is unknown until the field is declared,
+     * and is then the field's (em_gs_world_field_declare; the kick checks
+     * the declared field against the head's FRAME_1 and SCISSOR_1). */
     uint64_t tgt_frame, tgt_scissor;
     uint8_t tgt_frame_known, tgt_scissor_known;
     int prim_known;
@@ -379,10 +389,12 @@ static void run_direct(Worker *k)
  * into a block read since it, start a segment). Every worker's decoded
  * texture cache sees every span's pages (em_gs_list_draw stamps the spans
  * of a band it skips, em_gs_list_pass the segments it drew none of). The
- * parser reads memory only for CLUT loads, and refuses one from a page the
- * list draws (EM_GS_REFUSE_ORDER), so what it reads is the frame's start's,
- * as the direct worker reads it. The bands are a host matter, as the worker
- * count is: any partition draws the same bytes. */
+ * parser reads memory only for CLUT loads. The direct worker reads a CLUT
+ * with every span that ended before the load drawn and the span still
+ * queued not; so one from a page the list draws first ends the segment
+ * there and has every segment so far drawn (own_drain), and reads what the
+ * direct worker reads. The bands are a host matter, as the worker count
+ * is: any partition draws the same bytes. */
 
 static void lk(EmGsWorld *w)
 {
@@ -459,6 +471,9 @@ static void parse_reset(Parse *p)
     p->ns = 0;
     p->early_ops = 0;
     p->prior_waits = 0;
+    p->own_waits = 0;
+    AU_STORE(p->predrawn, 0u);
+    p->early_pixels = 0;
 }
 
 /* The parse: the head and the ops from p->op_next through the parser, the
@@ -474,8 +489,8 @@ static void parse_ops(EmGsWorld *w, Job *j, int early)
     Parse *p = &j->p;
     EmGs *gs = &w->parser;
     int failed = p->failed;
-    uint32_t k = p->k;
     gs->list = p->list;
+    w->parsing = j;
     if (!p->began) {
         p->began = 1;
         p->prims0 = gs->drawn_prims;
@@ -489,11 +504,13 @@ static void parse_ops(EmGsWorld *w, Job *j, int early)
         const Op *o = &j->ops[i];
         if (o->op == OP_BARRIER) {
             if (gs->pend_n) failed = 1;
-            if (k + 2u < SEG_MAX) close_seg(w, p, k++);
+            if (p->k + 2u < SEG_MAX) close_seg(w, p, p->k++);
             else failed = 1;
             continue;
         }
         if (failed) continue;
+        /* (a CLUT load from the frame's own spans closes a segment here:
+         * own_drain) */
         if (o->op == OP_WRITE)
             em_gs_write(gs, o->reg, o->value);
         else if (o->op == OP_GIF) {
@@ -503,7 +520,6 @@ static void parse_ops(EmGsWorld *w, Job *j, int early)
         publish(w, p);
     }
     p->op_next = i;
-    p->k = k;
     p->failed = failed;
     p->ns += cpu_now_ns() - c0;
     if (i < j->op_count) {
@@ -518,7 +534,7 @@ static void parse_ops(EmGsWorld *w, Job *j, int early)
     p->refused = gs->refused_prims;
     p->span_faults = gs->span_faults;
     memcpy(p->reason, gs->reason, sizeof p->reason);
-    close_seg(w, p, k);
+    close_seg(w, p, p->k);
     AU_STORE(p->done, 1u);             /* (the parser is free from here) */
     if (!p->quiet) wake(w, 0);
 }
@@ -539,6 +555,55 @@ static void prior_wait(void *ctx)
 #endif
 }
 
+/* A CLUT load the parse meets reads a page a span of the frame's own list
+ * writes (em_gs_list_drain). The direct worker reads it with every span
+ * that ended before the load drawn and the span still queued not: so the
+ * segment ends here (the spans so far; the queued span goes into the next
+ * one), and the load waits until every segment so far is drawn. A worker's
+ * parse waits for the other workers to draw them. Where no other thread
+ * draws this frame (one worker, or the early parse on the game's thread,
+ * once the frame before is drawn) the parsing thread draws them itself,
+ * every row, through worker 0's EmGs (its decoded texture cache sees their
+ * pages; the other workers pass them, run_tasks), and the schedule skips
+ * them (Parse.predrawn). 1, or 0 (no segment left: the load is refused and
+ * the frame faults, as at a barrier). */
+static int own_drain(void *ctx)
+{
+    EmGsWorld *w = ctx;
+    Job *j = w->parsing;
+    Parse *p = &j->p;
+    if (p->k + 2u >= SEG_MAX) return 0;
+    const uint32_t k = p->k++;
+    close_seg(w, p, k);
+    p->own_waits++;
+#if GSW_THREADS
+    if (w->threaded && !p->quiet) {
+        pthread_mutex_lock(&w->lock);
+        AU_ADD(w->waiters, 1u);
+        while (w->seg_cur < (int32_t)k || (w->seg_cur == (int32_t)k && w->band_done < w->band_n))
+            pthread_cond_wait(&w->cv, &w->lock);
+        AU_SUB(w->waiters, 1u);
+        pthread_mutex_unlock(&w->lock);
+        return 1;
+    }
+    if (p->quiet && w->threaded && w->busy && w->run != j) {
+        prior_wait(w);                 /* (the frame before draws first) */
+        em_gs_list_prior(p->list, NULL, NULL, NULL);
+    }
+#endif
+    Worker *d = &w->worker[0];
+    const uint32_t from = AU_LOAD(p->predrawn);
+    const uint64_t px0 = d->gs.drawn_pixels;
+    d->gs.band_rows = 0;
+    (void)em_gs_list_draw(&d->gs, p->list, p->seg[from].first, p->seg[k].end, NULL, NULL);
+    if (p->quiet)
+        p->early_pixels += d->gs.drawn_pixels - px0;   /* (this frame's: em_gs_world_wait, start) */
+    else
+        d->seg_seen = (int32_t)k;      /* (worker 0 parses: run_tasks) */
+    AU_STORE(p->predrawn, k + 1u);
+    return 1;
+}
+
 /* Early parse (docs/PERFORMANCE.md M4): the game's thread, about to wait
  * for the running frame (a kick waits for it), parses the next frame
  * meanwhile, until the running frame is drawn; its workers then go on from
@@ -546,8 +611,9 @@ static void prior_wait(void *ctx)
  * done, so the early parse waits for that. The parse reads memory only for
  * CLUT loads: one that reads a page the running frame draws waits for the
  * frame first (em_gs_list_prior), so it reads what it would read after the
- * frame. EM_GS_EARLY_PARSE=0 turns it off (a developer switch; the same
- * bytes either way). */
+ * frame; one from a page this frame draws has its spans so far drawn first
+ * (own_drain). EM_GS_EARLY_PARSE=0 turns it off (a developer switch; the
+ * same bytes either way). */
 static void early_parse(EmGsWorld *w, Job *j)
 {
     if (!w->parse_once || !w->early || j->p.began) return;
@@ -565,11 +631,15 @@ static void early_parse(EmGsWorld *w, Job *j)
 /* Segment `k`'s bands (under the lock): workers x bands_per_worker bands of
  * equal rows (at least BAND_MIN_ROWS) over the rows it draws, the first open
  * to the top and the last to the bottom. Segment 0 may still be parsed: its
- * bands cover the field's rows (its rows past them are the last band's). */
+ * bands cover the field's rows (its rows past them are the last band's). A
+ * segment that draws no rows, or that own_drain drew, has no band. */
 static void seg_start(EmGsWorld *w, uint32_t k)
 {
     int32_t lo, hi;
-    if (AU_LOAD(w->run->p.segs_closed) > k) {
+    if (k < AU_LOAD(w->run->p.predrawn)) {
+        lo = 0;                        /* drawn already (own_drain) */
+        hi = -1;
+    } else if (AU_LOAD(w->run->p.segs_closed) > k) {
         lo = w->run->p.seg[k].ylo;
         hi = w->run->p.seg[k].yhi;
     } else {
@@ -581,7 +651,10 @@ static void seg_start(EmGsWorld *w, uint32_t k)
     w->band_planned = w->band_n = 0;
     w->band_lo = lo;
     w->band_hi = hi;
-    if (lo > hi) return;
+    if (lo > hi) {
+        wake(w, 1);                    /* (a parse waiting for this segment: own_drain) */
+        return;
+    }
     const int64_t rows = (int64_t)hi - lo + 1, want = (int64_t)w->workers * w->bands_per_worker;
     int64_t h = (rows + want - 1) / want;
     if (h < BAND_MIN_ROWS) h = BAND_MIN_ROWS;
@@ -858,7 +931,8 @@ static void run_tasks(Worker *k)
     EmGsWorld *w = k->w;
     const double c0 = cpu_now_ns();
     k->failed = 0;
-    k->seg_seen = -1;
+    /* (worker 0's EmGs drew the segments an early parse drew: own_drain) */
+    k->seg_seen = k->index == 0 ? (int32_t)AU_LOAD(w->run->p.predrawn) - 1 : -1;
     Task t;
     while (claim(w, k->index, &t)) {
         if (t.kind == T_PARSE)
@@ -1007,7 +1081,7 @@ EmGsWorld *em_gs_world_create(void)
         if (w->lc_file)
             fprintf(w->lc_file, "# frame workers spans segments bands splits prims spans_walked spans_drawn prims_drawn "
                                 "parse_ns waits_claim waits_progress wall_ns busiest_ns cpu_sum_ns wait_claim_ns wait_progress_ns "
-                                "wait_read_ns prior_waits early_ops\n");
+                                "wait_read_ns own_clut_waits prior_waits early_ops\n");
     }
     const char *zc = getenv("EM_GS_Z_COUNTERS");
     if (zc && zc[0]) {
@@ -1051,7 +1125,10 @@ EmGsWorld *em_gs_world_create(void)
             em_gs_init(&w->parser, w->mem);
             w->parser.strict = 1;
             w->parser.tc_off = 1;      /* it draws nothing */
-            for (int i = 0; i < 2; ++i) parse_reset(&w->job[i].p);
+            for (int i = 0; i < 2; ++i) {
+                parse_reset(&w->job[i].p);
+                em_gs_list_drain(w->job[i].p.list, own_drain, w);
+            }
         } else {
             for (int i = 0; i < 2; ++i) {
                 em_gs_list_destroy(w->job[i].p.list);
@@ -1128,6 +1205,9 @@ void em_gs_world_destroy(EmGsWorld *w)
     }
 #endif
     for (uint32_t i = 0; i < w->workers; ++i) em_gs_release(&w->worker[i].gs);
+    /* (a span the parser queued in a list's storage, an early parse having
+     * stopped inside it before a fault, goes with that list: not flushed) */
+    if (w->parse_once) w->parser.pend_n = 0;
     if (w->parse_once) em_gs_release(&w->parser);
     for (int i = 0; i < 2; ++i) {
         em_gs_list_destroy(w->job[i].p.list);
@@ -1341,6 +1421,7 @@ void em_gs_world_begin(EmGsWorld *w)
     memset(w->fdrawn, 0, sizeof w->fdrawn);
     memset(w->fread, 0, sizeof w->fread);
     w->fdrawn_any = w->fread_any = 0;
+    w->tread_any = 0;
     w->marked_count = 0;
     memset(w->tex0_known, 0, sizeof w->tex0_known);
     memset(w->clamp_known, 0, sizeof w->clamp_known);
@@ -1456,6 +1537,7 @@ static void barrier_op(EmGsWorld *w)
     memset(w->fdrawn, 0, sizeof w->fdrawn);
     memset(w->fread, 0, sizeof w->fread);
     w->fdrawn_any = w->fread_any = 0;
+    w->tread_any = 0;
     w->marked_count = 0;
 }
 
@@ -1464,8 +1546,9 @@ static void barrier_op(EmGsWorld *w)
  * uploaded block is drawn over for the first time, the checks are made
  * again, so the workers' ordering covers it too. (No upload writes a buffer
  * the first level draws, GS_EXACT.md section 9; this keeps the ordering
- * right if one did.) */
-static void mark_drawn(EmGsWorld *w, uint32_t fbp, uint32_t fbw, uint32_t height)
+ * right if one did.) 1 when an uploaded block was drawn over for the first
+ * time. */
+static int mark_drawn(EmGsWorld *w, uint32_t fbp, uint32_t fbw, uint32_t height)
 {
     int over_upload = 0;
     for (uint32_t y = 0; y < height; y += 8u)
@@ -1478,18 +1561,26 @@ static void mark_drawn(EmGsWorld *w, uint32_t fbp, uint32_t fbw, uint32_t height
     if (over_upload) {
         checked_reset(w);
     }
+    return over_upload;
 }
 
-void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
+/* A buffer drawn from here on (em_gs_world_drawn_buffer), or (head 1) the
+ * declared field: the head's drawing target, drawn from the frame's start,
+ * so no read of the frame comes before its first draw. */
+static void drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height, int head)
 {
-    if (!w) return;
     const uint32_t fbp = (uint32_t)frame & 0x1FFu, fbw = (uint32_t)(frame >> 16) & 0x3Fu;
     if (w->recording)
         for (uint32_t i = 0; i < w->marked_count; ++i)
             if (w->marked[i].fbp == fbp && w->marked[i].fbw == fbw && w->marked[i].height >= height) return;
-    mark_drawn(w, fbp, fbw, height);
+    const int over_upload = mark_drawn(w, fbp, fbw, height);
     if (!w->recording) return;
-    if (w->fread_any) {
+    if (over_upload && w->tread_any && !head) {
+        /* uploaded blocks drawn over for the first time, after a texture
+         * read since the last barrier: the read may have taken them (fread
+         * lists drawn blocks only), so every band reads first */
+        barrier_op(w);
+    } else if (w->fread_any) {
         /* a draw into blocks a band may still read: every band reads first */
         static uint8_t scratch[BLOCKS];
         memset(scratch, 0, sizeof scratch);
@@ -1508,6 +1599,11 @@ void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
         w->marked[w->marked_count].height = height;
         w->marked_count++;
     }
+}
+
+void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
+{
+    if (w) drawn_buffer(w, frame, height, 0);
 }
 
 /* The texel indices a coordinate can reach on one axis under CLAMP_1's
@@ -1643,7 +1739,10 @@ static int texture_read(EmGsWorld *w, uint64_t tex0, uint64_t clamp)
     } else if (texture_entry(w, tex0, clamp, &first, &n) < 0) {
         return -1;
     }
-    if (!n) return 0;
+    if (!n) {
+        w->tread_any = 1;
+        return 0;
+    }
     if (w->fdrawn_any)
         for (uint32_t i = 0; i < n; ++i)
             if (w->fdrawn[w->pool[first + i]]) {
@@ -1664,6 +1763,7 @@ static int texture_read(EmGsWorld *w, uint64_t tex0, uint64_t clamp)
                 }
                 break;
             }
+    w->tread_any = 1;                  /* (after its barrier: this read is the new stretch's) */
     for (uint32_t i = 0; i < n; ++i) w->fread[w->pool[first + i]] = 1;
     w->fread_any = 1;
     return 0;
@@ -1690,11 +1790,7 @@ void em_gs_world_prims(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv 
         const EmGfxGsPrim *p = &prims[i];
         if (envs) {
             const EmGfxGsEnv *e = &envs[i];
-            if (e->set & EM_GFX_GS_ENV_FRAME) {
-                em_gs_world_write(w, EM_GS_FRAME_1, e->frame);
-                if (e->set & EM_GFX_GS_ENV_SCISSOR)
-                    em_gs_world_drawn_buffer(w, e->frame, (uint32_t)(e->scissor >> 48 & 0x7FFu) + 1u);
-            }
+            if (e->set & EM_GFX_GS_ENV_FRAME) em_gs_world_write(w, EM_GS_FRAME_1, e->frame);
             if (e->set & EM_GFX_GS_ENV_ZBUF) em_gs_world_write(w, EM_GS_ZBUF_1, e->zbuf);
             if (e->set & EM_GFX_GS_ENV_XYOFFSET) em_gs_world_write(w, EM_GS_XYOFFSET_1, e->xyoffset);
             if (e->set & EM_GFX_GS_ENV_SCISSOR) em_gs_world_write(w, EM_GS_SCISSOR_1, e->scissor);
@@ -1704,6 +1800,13 @@ void em_gs_world_prims(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv 
             if (e->set & EM_GFX_GS_ENV_PABE) em_gs_world_write(w, EM_GS_PABE, e->pabe);
             if (e->set & EM_GFX_GS_ENV_TEXA) em_gs_world_write(w, EM_GS_TEXA, e->texa);
             if (e->set & EM_GFX_GS_ENV_SCANMSK) em_gs_world_write(w, EM_GS_SCANMSK, e->scanmsk);
+            /* the buffer drawn, after the environment's writes: a FRAME_1 or
+             * SCISSOR_1 change has ended the span where the mark places a
+             * barrier (the same buffer with taller rows changes SCISSOR_1
+             * alone) */
+            if ((e->set & (EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_SCISSOR)) ==
+                (EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_SCISSOR))
+                em_gs_world_drawn_buffer(w, e->frame, (uint32_t)(e->scissor >> 48 & 0x7FFu) + 1u);
         }
         if (p->set & EM_GFX_GS_TEX0) em_gs_world_write(w, EM_GS_TEX0_1, p->tex0);
         if (p->set & EM_GFX_GS_CLAMP) em_gs_world_write(w, EM_GS_CLAMP_1, p->clamp);
@@ -1751,7 +1854,7 @@ void em_gs_world_env_again(EmGsWorld *w)
     w->tgt_scissor = (uint64_t)(w->field_decl_height - 1u) << 48;
     /* the field is the drawing target again: a read of it earlier since the
      * last barrier waits for every band before the draws that follow */
-    if (w->field_declared) em_gs_world_drawn_buffer(w, w->field_decl, w->field_decl_height);
+    if (w->field_declared) drawn_buffer(w, w->field_decl, w->field_decl_height, 1);
 }
 
 void em_gs_world_field_declare(EmGsWorld *w, uint64_t frame, uint32_t height)
@@ -1774,7 +1877,18 @@ void em_gs_world_field_declare(EmGsWorld *w, uint64_t frame, uint32_t height)
     w->field_decl = key;
     w->field_decl_height = height;
     w->field_declared = 1;
-    em_gs_world_drawn_buffer(w, key, height);
+    /* a drawing target register not written since the frame's start or the
+     * environment again is the head's: the field's (a barrier for a read
+     * before the first FRAME_1 write puts the field back into fdrawn) */
+    if (!w->tgt_frame_known) {
+        w->tgt_frame = key;
+        w->tgt_frame_known = 1;
+    }
+    if (!w->tgt_scissor_known) {
+        w->tgt_scissor = (uint64_t)(height - 1u) << 48;
+        w->tgt_scissor_known = 1;
+    }
+    drawn_buffer(w, key, height, 1);
 }
 
 int em_gs_world_page_pass(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
@@ -1946,7 +2060,9 @@ static void start(EmGsWorld *w)
     w->busy = 1;
     w->t_start = now_ns();
     w->prims0 = front(w)->drawn_prims;
-    w->pixels0 = pixels_drawn(w);
+    /* (pixels an early parse drew for this frame are this frame's: own_drain) */
+    w->pixels0 = pixels_drawn(w) - (w->parse_once ? w->run->p.early_pixels : 0);
+    w->run->p.early_pixels = 0;
     if (w->parse_once) {
         /* (the workers wait for the go: nothing below races them) the
          * frame's parse goes on where early_parse left it, or is done */
@@ -2026,7 +2142,8 @@ int em_gs_world_wait(EmGsWorld *w)
     w->have_field = 1;
     w->stats.writes = j->op_count;
     w->stats.prims = w->parse_once ? j->p.prims1 - j->p.prims0 : gs->drawn_prims - w->prims0;
-    w->stats.pixels = pixels_drawn(w) - w->pixels0;
+    /* (less the pixels an early parse drew meanwhile for the next frame) */
+    w->stats.pixels = pixels_drawn(w) - w->pixels0 - (w->parse_once ? w->job[w->rec].p.early_pixels : 0);
     w->stats.span_faults = span_faults;
     w->stats.refused = refused;
     w->stats.ns = now_ns() - w->t_start;
@@ -2100,9 +2217,9 @@ int em_gs_world_wait(EmGsWorld *w)
             fprintf(w->lc_file, " %llu", (unsigned long long)(sum[k] - w->lc_prev[k]));
             w->lc_prev[k] = sum[k];
         }
-        fprintf(w->lc_file, " %.0f %u %u %.0f %.0f %.0f %.0f %.0f %.0f %u %zu\n", j->p.ns, w->waits_claim, w->waits_avail,
-                w->stats.ns, w->stats.cpu_max_ns, w->stats.cpu_sum_ns, w->wait_claim_ns, w->wait_avail_ns,
-                w->wait_read_ns, j->p.prior_waits, j->p.early_ops);
+        fprintf(w->lc_file, " %.0f %u %u %.0f %.0f %.0f %.0f %.0f %.0f %u %u %zu\n", j->p.ns, w->waits_claim,
+                w->waits_avail, w->stats.ns, w->stats.cpu_max_ns, w->stats.cpu_sum_ns, w->wait_claim_ns,
+                w->wait_avail_ns, w->wait_read_ns, j->p.own_waits, j->p.prior_waits, j->p.early_ops);
     }
     w->lc_frames++;
     w->stats.runs++;
@@ -2150,7 +2267,7 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
     if (w->field_declared &&
         ((j->frame & UINT64_C(0x3F3F01FF)) != w->field_decl || j->height != w->field_decl_height))
         return fail(w, "the field the frame declared is not the kicked head's FRAME_1 / SCISSOR_1", j->frame);
-    mark_drawn(w, (uint32_t)j->frame & 0x1FFu, (uint32_t)(j->frame >> 16) & 0x3Fu, j->height);
+    (void)mark_drawn(w, (uint32_t)j->frame & 0x1FFu, (uint32_t)(j->frame >> 16) & 0x3Fu, j->height);
     start(w);
     return 0;
 }
