@@ -2170,7 +2170,8 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
     of PERFORMANCE.md section 2's counts.
   - *6 workers:* the busiest worker is 3.7-4.1 ms in AREA11 and 4.2-5.1
     ms in AREA01 (10.3-11.7 and 14.1-16.6 at the baseline). No tick of
-    any range runs over, headless or windowed. The tick is the game
+    any range runs over headless, nor windowed in AREA11 (the only scene
+    measured windowed). The tick is the game
     thread's: 5.8-6.3 ms in AREA11, 9.7-10.2 ms in AREA01.
   - *3 workers:* every range runs at full speed (the baseline 83-84 % in
     AREA11 and 50-61 % in AREA01).

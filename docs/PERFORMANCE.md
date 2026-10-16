@@ -52,12 +52,13 @@ On the iPhone Air the port got only 3 drawing threads, and every tick measured t
 
 **The medium items together (Progress P16, 2026-10-16).** Every scene was measured again against both baselines (the report's b9fd9f9 and the quick wins' 4af6bc3), interleaved on a quiet machine.
 - *One worker:* the GS frame is 3.0-3.9x cheaper than the report's. It now takes 15.7-17.2 ms of CPU in AREA11 and 18.9-24.4 ms in AREA01, about 10-12 ns a pixel, against 35-38 ns.
-- *This Mac, 6 workers:* every scene runs at full speed headless and windowed, with no tick over. The busiest worker is 3.7-5.1 ms, and the game thread (5.8-6.3 ms in AREA11, 9.7-10.2 ms in AREA01) sets the tick.
+- *This Mac, 6 workers:* every scene runs at full speed headless, with no tick over (windowed was measured in AREA11 only, also with none over). The busiest worker is 3.7-5.1 ms, and the game thread (5.8-6.3 ms in AREA11, 9.7-10.2 ms in AREA01) sets the tick.
 - *The 3-worker iPhone proxy:* full speed everywhere, against 83-84 % in AREA11 and 50-61 % in AREA01 at the report.
 - *Against the emulator:* the port's single-core GS cost is now 2.0-2.4x the fork's software renderer (6-8x at the report).
 - *Not real time yet:* one worker, at 49-78 % speed with the frame drawn on the game's thread. That is the Windows path, which has no worker threads yet, and a Linux host with 4 or fewer cores.
 - *Not measured:* the phone itself.
-- *L1 (NEON) is not needed on this Mac.* It would be the phone's margin for its efficiency cores and sustained clocks, and older iPhones' route. Section 4's L1 entry and P16 say what it would still be for.
+- *L1 (NEON) is not being done* (user decision 2026-10-15). It is not needed on this Mac; section 4's L1 entry and P16 record what it would have been for.
+- *Next: L2* (user decision 2026-10-15): explore an exact GS model on the GPU, judged by energy and CPU time as well as by ticks over. A faster route that keeps the Original profile exact is always taken, so the port runs as efficiently as it can on battery (laptops, the phone), not just fast enough on this Mac.
 
 ## 2. Where the time goes, scene by scene
 
@@ -251,7 +252,8 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* estimated 2-4x on those loops.
 - *Effort:* weeks. *Risk:* medium to high.
 - *Proof:* the same set, plus the M2 differential check.
-- *What it is still for (Progress P16):*
+- *Status:* not pursued (user decision 2026-10-15: no L1; after the medium items, explore L2).
+- *What it would have been for (Progress P16):*
   - *This Mac:* not needed. The game thread sets every tick, and the busiest worker is 3.7-5.1 ms.
   - *The iPhone:* by throughput on the Mac's figures, the phone's two performance cores should hold AREA11's frame and nearly all of AREA01's, with the efficiency cores for the rest. L1 (estimated 0.36-0.58 of today's GS work) is the margin for the efficiency cores' speed and sustained clocks. Measure the device first (section 7, item 2).
   - *Older iPhones* (iOS 17 reaches back to the A12): likely needed, or the GPU renderer.
@@ -259,7 +261,8 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 
 **L2. Optional: an exact GS model as Metal compute.**
 - The GS pixel pipeline is integer arithmetic, so it can run exactly on the GPU in principle. stq_div would need an exact formulation, because Metal's float division is not correctly rounded.
-- *Effort:* months. *Risk:* high. Only if L1 does not reach the phone's budget.
+- *Effort:* months. *Risk:* high.
+- *Next (user decision 2026-10-15):* explore it. Not only for the phone's budget: an exact GPU model would draw the frame with far less CPU time and energy on every host, and the work should carry over to other PS2 projects. Measure energy (powermetrics needs the user's sudo) or CPU time as its stand-in, not only ticks over.
 
 ### Where this lands (estimate)
 
@@ -276,7 +279,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Mac busiest worker:* 3-5 ms estimated for AREA11, measured 3.7-4.1 ms at 6 workers; 5-7 ms for the fire, measured 4.5-5.1 ms.
 - *iPhone proxy:* AREA11 fits, as estimated, and so does AREA01. The device itself is not measured.
 
-**Order:** Q1-Q5, then M1, M3, M2, M4, then L1. Done through M4 (Progress P15), measured together in P16.
+**Order:** Q1-Q5, then M1, M3, M2, M4: done (Progress P11-P15), measured together in P16. L1 is not pursued (user decision 2026-10-15); L2 is next to explore.
 
 ## 5. iPhone Air (A19 Pro)
 
