@@ -1196,7 +1196,16 @@ only shows that field.
   busiest of 6 workers is 3.8 to 5.0 ms per frame, with 3 workers the
   AREA11 tick is 6.5 to 6.6 ms (8.1 to 8.4 before) and with 10 (more
   than this Mac's performance cores) 6.0 to 6.4 ms (7.8 to 8.4 before,
-  when the frame waited for a straggling worker). Since 2026-10-11 the
+  when the frame waited for a straggling worker). Measured together
+  against the report's baseline (2026-10-16, P16: no code changed, three
+  binaries interleaved on a quiet machine), the GS frame on one worker is
+  3.0-3.9 times cheaper. At the default count no tick of any measured
+  AREA11 or AREA01 range runs over, headless or windowed (AREA11), and
+  the game thread sets the tick. With 3 workers every range runs at full
+  speed (83-84 % and 50-61 % before). With one worker (the Windows path,
+  which has no worker threads yet, and Linux hosts with 4 or fewer cores)
+  the frame is drawn on the game's thread and runs at 73 to 78 % speed in
+  AREA11 and 49 to 57 % in AREA01. Since 2026-10-11 the
   default worker count follows the core types (6 on this M1 Pro, 4 on the
   iPhone Air) and the workers run at USER_INTERACTIVE QoS; the same bytes
   for any count (PERFORMANCE.md "Progress" P3). Since 2026-10-12 the

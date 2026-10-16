@@ -2158,6 +2158,24 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   worker). The differential also found that a barrier for a texture read
   left the drawing target out of the drawn set (the recorder, HEAD's
   too; fixed; the demo's frames keep their barrier counts).
+- **The medium items together (2026-10-16, PERFORMANCE.md "Progress"
+  P16; headless and windowed on a quiet machine, no code changed).**
+  Every scene was measured again on three binaries, interleaved: the
+  report's baseline b9fd9f9, the quick wins 4af6bc3 and the medium items
+  8ed78b8, whose GS sources are the ones P15's proof set ran on; the short part of the
+  proof set and the AREA01 smoke pass again.
+  - *One worker:* the GS frame takes 16.8-17.2 ms of CPU in the AREA11
+    cinematic (50.9-52.0 at the baseline, 3.0x less) and 24.4 ms at the
+    AREA01 fire peak (91.0, 3.7x less). That is about 10-12 ns a pixel
+    of PERFORMANCE.md section 2's counts.
+  - *6 workers:* the busiest worker is 3.7-4.1 ms in AREA11 and 4.2-5.1
+    ms in AREA01 (10.3-11.7 and 14.1-16.6 at the baseline). No tick of
+    any range runs over, headless or windowed. The tick is the game
+    thread's: 5.8-6.3 ms in AREA11, 9.7-10.2 ms in AREA01.
+  - *3 workers:* every range runs at full speed (the baseline 83-84 % in
+    AREA11 and 50-61 % in AREA01).
+  - *Still below real time:* one worker, where the frame is drawn on the
+    game's thread: 73-78 % in AREA11 and 49-57 % in AREA01.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
