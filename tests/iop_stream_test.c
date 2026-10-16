@@ -552,12 +552,57 @@ static void test_bank_transfer(void)
     em_iop_stream_destroy(s);
 }
 
+/* The SIF DMA with the PS2 disc-drive timing switch (user decision
+ * 2026-10-15; IOP_STREAM.md "The sound-bank transfer"): the measured
+ * transfer's (0x492D0 bytes) first sceSifDmaStat answers pending (0), every
+ * later one done; a new measured transfer starts over; a transfer of
+ * another size is done at its first query (no measurement: host speed) and
+ * counted as unmeasured; the copy lands at the queueing; the counters.
+ * Off: done at the first query (test_bank_transfer). */
+static void test_bank_transfer_ps2(void)
+{
+    EmIopStream *s = em_iop_stream_create();
+    EmIopDriveStats d;
+    int32_t id = 0, id2 = 0, st = 1;
+    static uint8_t bank[0x492D0];
+    for (unsigned i = 0; i < sizeof bank; i++) bank[i] = (uint8_t)(i * 13 + 5);
+    CHECK(s != NULL);
+    em_iop_stream_set_ps2_drive_timing(s, 1);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id) == 0 && id > 0);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xDE800, bank, sizeof bank));
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st == 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id2) == 0 && id2 > id);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);     /* an older transfer: done */
+    CHECK(em_iop_stream_sif_dma_stat(s, id2, &st) == 0 && st == 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id2, &st) == 0 && st < 0);
+    /* Another size (the level exit's AREA01 bank load has three): done at
+     * its first query with the switch on too. */
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, 0x100, &id) == 0 && id > id2);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xDE800, bank, 0x100));
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank - 0x10, &id) == 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    em_iop_stream_drive_stats(s, &d);
+    CHECK(d.sif_dma == 2 && d.sif_dma_unmeasured == 2);
+    em_iop_stream_set_ps2_drive_timing(s, 0);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id) == 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);     /* off: the measured size done at once */
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, 0x100, &id) == 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    em_iop_stream_drive_stats(s, &d);
+    CHECK(d.sif_dma == 2 && d.sif_dma_unmeasured == 2);
+    em_iop_stream_destroy(s);
+}
+
 int main(void)
 {
     EmIopStreamDisc disc;
     build_disc(&disc);
     test_heap_and_table();
     test_bank_transfer();
+    test_bank_transfer_ps2();
     test_directory(&disc);
     test_commands();
     test_reader(&disc);

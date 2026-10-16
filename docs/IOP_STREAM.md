@@ -124,7 +124,7 @@ derived from the captures.
 | Loop flags | bit 2 sets LSA at block start; bit 0 jumps to LSA; without bit 1 the voice stops with ENVX 0 | SPU2 register semantics |
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
 | IOP heap | first free block 0x85B00, 0x100-byte units, first fit; after the boot buffers the IOP holds 0x900 bytes (0xDDF00..0xDE800), a **measured occupancy whose owner is not established**: only its end, 0xDE800, is pinned by the captures, and 0x900 is the size that puts the next first fit there. The port allocates it once at start-up (em_iop_stream_boot_driver), before the first bank upload. Hypothesis only: the block's top in the title capture's IOP RAM holds IOP return addresses, like a thread stack (perhaps the driver thread command 0x1E creates). Follow-up for the lead: confirm the owner from the IRX's thread creation (its stack size and the allocation order); 0010F968 frees a block | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00; the title capture and every route capture: `D_00282194` = 0xDE800 (the bank uploads' block, allocated and freed each time: first fit), and route 00's IOP RAM there holds the AREA11 bank |
-| SIF DMA | `sceSifSetDma` of one descriptor copies the EE bytes into IOP RAM when queued; `sceSifDmaStat` answers done at its first query; the id is the port's own count | Host speed (the PS2's transfer time is hardware timing, port CLAUDE.md 2026-09-27). The kernel's ids (`D_002821A0` = 0x527C1602 in the fork's title state, 0x530D1702 in v2.6.3's slot 01) are not modelled; 001FB910 only tests the id against 0 |
+| SIF DMA | `sceSifSetDma` of one descriptor copies the EE bytes into IOP RAM when queued; `sceSifDmaStat` answers done at its first query; with the PS2 disc-drive timing switch on, the first query of the one measured transfer (0x492D0 bytes, the AREA11 bank) answers pending (0) and every later one done, and a transfer of any other size is done at its first query as at host speed (user decision 2026-10-15, section "The sound-bank transfer"); the id is the port's own count | Host speed (the PS2's transfer time is hardware timing, port CLAUDE.md 2026-09-27). The switch's one pending answer is the fork's measured New Game transfer (0x492D0 bytes); a transfer of another size has no measurement, keeps the host-speed answer and is counted (`EmIopDriveStats.sif_dma_unmeasured`, the run's `stream drive:` SIF DMA line; the level exit's AREA01 bank load has three). The kernel's ids (`D_002821A0` = 0x527C1602 in the fork's title state, 0x530D1702 in v2.6.3's slot 01) are not modelled; 001FB910 only tests the id against 0 |
 | Drive | By default host speed: a read is done at the first query after its issue. With the PS2 disc-drive timing switch on: one read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position (17 for the first read after a screen-module loader read), then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned. In both modes 00113478 drops the read | Host speed: the Original profile's policy (the code is the oracle; PS2 hardware timing is not reproduced). The model: measured in the original (the C7 stream capture), section "Drive model" below |
 
 ## Host speed and the PS2 disc-drive timing switch
@@ -158,7 +158,8 @@ at launch from `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher sets it; `em_stre
   capture); the switch on gives AE+1324, the original's frame (since 2026-10-09; AE+1313 before). newgame-control:
   locked_ticks 1301 (1322 with the switch on; 1311 before 2026-10-09), the 30-tick displacement unchanged at
   9.599849. The frame-order post-control window is at native index 1393 (counter 2650, first control + 11) since
-  chain step H7 (1330 before; the New Game's loads take ticks); 1676 with the switch on (1665 before 2026-10-09).
+  chain step H7 (1330 before; the New Game's loads take ticks); 1677 with the switch on (1676 before the sound-bank
+  DMA's pending query, 2026-10-16; 1665 before 2026-10-09).
 
 ## Drive model (measured, 2026-09-27)
 
@@ -288,7 +289,7 @@ The area load's first bank step, 001FF590(0xAB, 0), hands the area's sound bank 
 | `D_002817C0 + 0x1C0` | this backend's EE status copy, word 112 |
 | 0010F8F8 / 0010F968 | the heap model (`em_iop_stream_0010F8F8` / `_0010F968`) |
 | 0010BC00 (sceSifSetDChain), 0010BAA0 (FlushCache) | no host effect (the SIF0 receive chain and the EE caches are not host state) |
-| 0010BBE0 / 0010BBC0 (sceSifSetDma / sceSifDmaStat) | `em_iop_stream_sif_set_dma` / `_sif_dma_stat` from the bank file's bytes as the loader delivered them |
+| 0010BBE0 / 0010BBC0 (sceSifSetDma / sceSifDmaStat) | `em_iop_stream_sif_set_dma` / `_sif_dma_stat` from the bank file's bytes as the loader delivered them (with the PS2 disc-drive timing switch, the measured 0x492D0-byte transfer's first query answers pending: below) |
 | `D_0027CCC0` (001195A8's scan: `+0x00`, `+0x22`) | `em_sfx_voice_record`: the SFX driver's records as its audio thread last published them |
 
 The EE sound library functions, each read from the original's instructions (the decomp's C for 00119450, 001194B8,
@@ -323,10 +324,49 @@ queued with the count 6), calls 6 and 7 wait for the acknowledgement (it arrives
 the call that queued it), call 8 sets the handle's volume (001199F0(4, 0x64)), frees the heap block and returns
 the bank's end 0x1335F40 (`D_0028A73C`). At host speed that is 8 of the loader's dispatches.
 
-The PS2 took 9 (the New Game capture holds 001FF590's sub-state 5 over nine frames): the one more is most likely
-the SIF DMA of 0x492D0 bytes, not done at 001FB910's first `sceSifDmaStat` in the same call (the wait before the
-acknowledgement is pinned by route 00's `D_00275B18`, so the extra call is not there). That is DMA hardware time,
-which neither the Original profile nor the PS2 disc-drive timing switch reproduces (LAUNCHER_OPTIONS.md).
+The PS2 took 9 (v2.6.3's New Game capture holds 001FF590's sub-state 5 over nine frames). **The one more call is
+the SIF DMA (confirmed 2026-10-16).** The fork probe of the New Game load (decomp
+`build/fork_refs/probes_1016/newgame/d0` and `d1`, two runs, `bank_events.json`; the probe's tables and
+`tools/analyze_bank.py` there) shows 15 calls of 001FB370 there; call 3 runs 001FB910(0x1335F20, 0xDE800, 299728)
+with `D_0028215C` = 0: it starts the transfer, its own `sceSifDmaStat` returns 0 (pending), so 001FB910 returns 1
+and `D_00282151` stays 2; call 4 enters with `D_0028215C` = 1 and its query returns -1 (done). (The fork's other 6
+extra calls are the acknowledgement wait after call 5's command 0x20: `D_00275B18` counts down from 0x50 to 0x48,
+the finding in the Verification below.) 001FB910 is byte-matched from C in the decomp (`src/func_001FB910.c`,
+mwcc 2.3.3): the pending answer is the only way that call returns 1.
+
+**User decision (2026-10-15, "Only with the switch").** The transfer time is DMA hardware time, not disc time, so
+the Original profile keeps the host-speed rule (done at the first query, 8 calls). With the PS2 disc-drive timing
+switch on, that transfer's first query answers pending, as the fork measured, and every later query done
+(`em_iop_stream_sif_set_dma` / `_sif_dma_stat`; the bytes land at the queueing in both modes, since nothing reads
+them before the transfer is done): 9 calls, the PS2's. Only that one call is added: the countdown `D_00275B18`
+starts at call 5 (now call 6), so the wait for the acknowledgement and its pin are unchanged (0x4E after the
+chain). The rule is limited to the measured transfer, the one of 0x492D0 bytes (`EM_IOP_SIF_DMA_MEASURED_SIZE`):
+a transfer of any other size has no measurement, so with the switch on it keeps the host-speed answer (done at
+its first query) and is counted as unmeasured on the run's `stream drive:` SIF DMA line. The first level has three
+such transfers, in the level exit's AREA01 bank load (001FF080(1, 0) for area 1): with the switch that load makes
+22 001FB370 calls, as at host speed and as before the rule, against the EXIT capture's 26 (LEVEL_SMOKE.md "exit";
+its four extra calls are not measured, so they stay unmodelled). Checked 2026-10-16 with
+`EM_PS2_DISC_DRIVE_TIMING=1 EM_LEVEL_SMOKE_UNTIL=exit make test-level-smoke` (PASS, 19 live phases through exit):
+its run log reports "1 SIF DMA transfers of the measured 0x492D0 bytes pending at their first status query, 3 of
+another size done at their first query (unmeasured)" and 31 001FB370 calls in all (9 + 22; the same run before the
+rule: 30, 8 + 22; host speed: 30). A first version of the rule answered pending for every transfer: it gave that
+load 3 unmeasured pending answers and 25 calls (34 in all), an unmeasured change, so it was not kept.
+
+What it gives with the switch on (2026-10-16): the module loader's New Game loads take 68 + 186 dispatches (185
+before), and with the recorded drive every captured loader state now appears on the capture's own frame, the
+states after the sound-bank step included (`test_module_loader_reference.py` part H; one frame early before; the
+8-call model is refuted there by the capture: (2, 1, 4, 2, 2) on port frame 31 against the capture's 32); the
+load veil draws 258 frames, v2.6.3's (257 before), and leaves phase 0.805996 (0.798996 before); the area entry,
+first control and every later window come one tick later (the level smoke's phases pass on the same capture rows;
+the frame-order windows below); newgame-control's locked_ticks stay 1322 (they count from the opening).
+
+**The fork's veil is longer and the model stays on v2.6.3's busy fields.** The fork's New Game veil runs 265
+frames (266 in a second run): 6 more frames are its late IOP acknowledgement of the upload (the countdown to 0x48
+instead of 0x4E: 6 more waits, the Verification below), and 1 is unexplained. The drive model's busy fields come
+from v2.6.3's New Game capture (MODULE_LOADER.md 1.7), which the port keeps: the fork's IOP and disc timing are
+emulator timing too, neither is evidence of the PS2's, and v2.6.3's 258 frames are what the switch's other
+measurements (the C7 stream capture's drive fields, the 17-field seek) were taken with. So under the switch the
+veil equals v2.6.3's 258, not the fork's 265.
 
 **Verification.** `make test-sound-bank-reference` (`tools/test_sound_bank_reference.py`, about 3 s):
 - the seven library functions executed over the title RAM (001157F0 and 00121A28 as original code) on the
@@ -335,7 +375,9 @@ which neither the Original profile nor the PS2 disc-drive timing switch reproduc
   command equal;
 - the ORIGINAL 001FB370 chain (001FB3E0, 001FB910, the library, 001157F0) over the title RAM with the AREA11 bank at
   0x13351C0, one call per frame, against `em_sound_bank` on this backend: every modelled global, the result, the
-  queued commands after each of the 8 calls equal. Only the kernel and RPC leaves are hooked, answered by an
+  queued commands after each of the 8 calls equal; and again with the PS2 disc-drive timing switch, the model's
+  `sceSifDmaStat` answering pending at the transfer's first query: 9 calls, each equal, one pending answer, the same
+  end state and `D_00275B18`. Only the kernel and RPC leaves are hooked, answered by an
   independent model of the stated rules, and the acknowledgement comes from an independent model of the exchange;
 - the seeds equal the title capture; after the chain every modelled global equals route capture 00 (except the
   kernel's DMA id and `D_002819C0`, which the SFX sequencer consumes before that capture); the SPU RAM at 0x1A0000
@@ -482,7 +524,8 @@ Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
   (the SPU-to-IOP read of a bank) and 0x22 (a transfer status query), which no first-level caller sends; its PCM
   input path (0x46..0x4F, the `+0x8680` records); and the non-0x64 RPC function.
 - Not modelled: SPU2 reverb, which makes 0x16 inaudible; Gaussian interpolation; core master volumes; the drive's
-  sub-field timing (the one-field spreads of section "Drive model"); the SIF DMA's timing inside a field; and the
+  sub-field timing (the one-field spreads of section "Drive model"); the SIF DMA's timing (at host speed it is done
+  at its first query; the switch's one pending query is the measured case, section "The sound-bank transfer"); and the
   driver tick's phase against the field.
 - One EE queue is shared with SFX in the original (255 commands per field). In the port the SFX driver has its
   own path, so that shared limit is not modelled; the stream lanes and the sound-bank upload share it, as in the

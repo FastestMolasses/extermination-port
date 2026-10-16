@@ -32,7 +32,9 @@
  *     completion (at the next driver tick), the IOP heap (first fit in 0x100
  *     units above the measured first free block; the driver's start-up
  *     block after the boot buffers, measured) and the EE kernel's SIF DMA
- *     (done when queued: host speed).
+ *     (done when queued: host speed; with the PS2 disc-drive timing switch
+ *     the measured 0x492D0-byte transfer's first status query answers
+ *     pending, as measured; any other size is done when queued).
  *  4. A sector reader standing in for the libcdvd calls 00113280 / 00112610 /
  *     00112D18 / 00113478 / 00111C28 over the locally exported EMST file
  *     (tools/export_streams.py); it never reads the disc at run time. By
@@ -252,6 +254,12 @@ typedef struct {
      * served by that rule instead of the distance classes, and how many of
      * them followed a load no capture measured. */
     uint32_t after_loader, after_loader_unmeasured;
+    /* Switch on only (em_iop_stream_sif_set_dma): the SIF DMA transfers of
+     * the measured size EM_IOP_SIF_DMA_MEASURED_SIZE, whose first status
+     * query answered "pending", and the transfers of another size, which
+     * no capture measured and which answered "done" at their first query
+     * (host speed). */
+    uint32_t sif_dma, sif_dma_unmeasured;
 } EmIopDriveStats;
 void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out);
 /* The screen-module loader's reads (00112440 through 00200780; the loader
@@ -300,11 +308,17 @@ int em_iop_stream_0010F968(EmIopStream *s, uint32_t block);
  * the backend's start-up, which begins with command 0x1E's effects done:
  * call after em_iop_stream_boot_buffers. */
 int em_iop_stream_boot_driver(EmIopStream *s);
-/* The EE kernel's SIF DMA at host speed: sceSifSetDma of one descriptor
- * {src, dst, size, 0} copies `size` EE bytes (`src`, the caller's storage of
- * that EE memory) into IOP RAM at `dst` and returns a nonzero id;
- * sceSifDmaStat(id) answers done (negative). 0, or -1 (a size or
+/* The EE kernel's SIF DMA: sceSifSetDma of one descriptor {src, dst, size,
+ * 0} copies `size` EE bytes (`src`, the caller's storage of that EE memory)
+ * into IOP RAM at `dst` and returns a nonzero id; sceSifDmaStat(id) answers
+ * done (negative). With the PS2 disc-drive timing switch on, the first
+ * query of a transfer of EM_IOP_SIF_DMA_MEASURED_SIZE bytes answers
+ * pending (0) instead (the one measured transfer: the fork's New Game
+ * load, the AREA11 bank; docs/IOP_STREAM.md "The sound-bank transfer");
+ * a transfer of any other size is done at its first query in both modes
+ * and counted as unmeasured. 0, or -1 (a size or
  * destination that is not whole quadwords, or outside IOP RAM, faults). */
+enum { EM_IOP_SIF_DMA_MEASURED_SIZE = 0x492D0 };
 int em_iop_stream_sif_set_dma(EmIopStream *s, const uint8_t *src, uint32_t dst, uint32_t size,
                               int32_t *id);
 int em_iop_stream_sif_dma_stat(EmIopStream *s, int32_t id, int32_t *stat);

@@ -61,8 +61,10 @@ struct EmIopStream {
      * command 0x1E registered, at the next driver tick. */
     uint8_t ch0_busy;
     uint64_t ch0_tick;
-    /* SIF DMA ids handed out (sceSifSetDma at host speed completes at once) */
-    int32_t sif_ids;
+    /* SIF DMA ids handed out (sceSifSetDma at host speed completes at once)
+     * and, with the PS2 disc-drive timing switch, the id whose first
+     * sceSifDmaStat has not run yet (0: none; em_iop_stream_sif_set_dma) */
+    int32_t sif_ids, sif_first_query;
     /* time */
     uint64_t half_lines, ticks, samples;
     /* EE side */
@@ -664,10 +666,23 @@ int em_iop_stream_boot_driver(EmIopStream *s)
  * descriptor {src, dst, size, attr 0}): EE bytes into IOP RAM. At host
  * speed the copy is done when it is queued, so sceSifDmaStat (0x76 at
  * 0010BBC0) answers "done" (negative) at its first query; the PS2's
- * transfer time is hardware timing (port CLAUDE.md, 2026-09-27). The id is
- * the port's own nonzero count (the kernel's ids are not modelled; the
- * caller only tests it against 0). A size that is not whole quadwords, or a
- * destination outside IOP RAM, faults. */
+ * transfer time is hardware timing (port CLAUDE.md, 2026-09-27). With the
+ * PS2 disc-drive timing switch on (user decision 2026-10-15, "Only with
+ * the switch"; docs/IOP_STREAM.md "The sound-bank transfer") the first
+ * query of the measured transfer answers "pending" (0, the value the
+ * fork's kernel returned) and every later one "done": the fork probe of the New Game
+ * load (2026-10-16) saw 001FB910's query in the call that starts the
+ * AREA11 bank's 0x492D0-byte transfer answer 0 and the next call's -1,
+ * which is the PS2's ninth 001FB370 call (v2.6.3's nine frames of
+ * 001FF590's sub-state 5). Only that measured transfer, of
+ * EM_IOP_SIF_DMA_MEASURED_SIZE bytes, takes the rule: a transfer of
+ * another size (the level exit's AREA01 bank load has three) has no
+ * measurement, so it keeps the host-speed answer, done at its first query,
+ * and the drive stats count it as unmeasured. The bytes are copied at the
+ * queueing in both modes (no reader looks at them before the transfer is
+ * done). The id is the port's own nonzero count (the kernel's ids are not
+ * modelled; the caller only tests it against 0). A size that is not whole
+ * quadwords, or a destination outside IOP RAM, faults. */
 int em_iop_stream_sif_set_dma(EmIopStream *s, const uint8_t *src, uint32_t dst, uint32_t size,
                               int32_t *id)
 {
@@ -679,6 +694,15 @@ int em_iop_stream_sif_set_dma(EmIopStream *s, const uint8_t *src, uint32_t dst, 
     if (++s->sif_ids <= 0)
         s->sif_ids = 1;
     *id = s->sif_ids;
+    s->sif_first_query = 0;
+    if (s->ps2_drive_timing) {
+        if (size == EM_IOP_SIF_DMA_MEASURED_SIZE) {
+            s->sif_first_query = s->sif_ids;
+            s->drive.sif_dma += 1;
+        } else {
+            s->drive.sif_dma_unmeasured += 1;   /* host speed: done at once */
+        }
+    }
     return 0;
 }
 
@@ -688,6 +712,11 @@ int em_iop_stream_sif_dma_stat(EmIopStream *s, int32_t id, int32_t *stat)
         return -1;
     if (id <= 0 || id > s->sif_ids)
         return fault(s, 0x0010BBC0u, EM_IOP_FAULT_BAD_INDEX);
+    if (id == s->sif_first_query) {
+        s->sif_first_query = 0;
+        *stat = 0;   /* pending (the switch on only) */
+        return 0;
+    }
     *stat = -1;
     return 0;
 }

@@ -40,15 +40,16 @@ load 001FF080(1, 0) through the same task:
   1.9), its workers bound here: the overlay file, the area header, the
   sound bank through **001FB370** (the EE sound library and the IOP's
   command 0x20: `em_sound_bank` on `em_stream_live`'s backend, IOP_STREAM.md
-  "The sound-bank transfer"; 8 calls), the A entry (the area's texture
+  "The sound-bank transfer"; 8 calls at host speed, 9 with the PS2
+  disc-drive timing switch, whose SIF DMA answers pending at its first
+  status query: user decision 2026-10-15), the A entry (the area's texture
   upload) and the resident region, then 00200890's player packet: **20
-  dispatches** at host speed, 185 with the recorded drive (the capture
-  takes one more: 001FB370's ninth call, most likely the PS2's SIF DMA
-  time);
+  dispatches** at host speed, 186 with the recorded drive, the capture's
+  (185 before 2026-10-16, when the ninth 001FB370 call was missing);
 - D_00275BD8 clears at the area record's 0x63, so 001ADF50's veil 0021B550
   ramps for as many ticks as the load takes (LOAD_VEIL_PARTICLES.md
-  section 5): 55 veil frames at host speed, 257 with the switch (the
-  captures: 258).
+  section 5): 55 veil frames at host speed, 258 with the switch (the
+  captures' 258; 257 before 2026-10-16).
 The port's own assets of the area (em_game_legacy_area_load: the
 renderer's and the collision's formats) load in the dispatch whose
 001FFCD0 step completes the area, where the original's data are all in
@@ -209,11 +210,12 @@ area files of D_0028A3C0 (file 0x10 + area in the table).
 
   The test derives the same table from the capture itself and requires the
   whole load's rows to reach every captured state at the captured frame
-  (relative to each load's first dispatch), except one frame early after
-  the sound-bank step (above). A sample's frame label is only known within
+  (relative to each load's first dispatch), the states after the
+  sound-bank step included since the switch's SIF DMA rule (2026-10-16;
+  one frame early before). A sample's frame label is only known within
   its frame (two samples per frame, read while the VM runs), which the
-  veil's phase bounds: the switch's New Game load leaves the veil 257
-  steps, the captures 258, the one being 001FB370's ninth call.
+  veil's phase bounds: the switch's New Game load leaves the veil 258
+  steps, the captures' 258 (257 before the rule: 001FB370's ninth call).
 - Any other read is answered at host speed and counted as `unmeasured`.
   Nothing is extrapolated. The page modules other than 0x21 have no
   recording (no capture shows a status page open): with the switch their
@@ -630,16 +632,20 @@ then 001FF080(1, 0)'s: the original 001FF0D0 + 001FF830 + 001FFCD0 +
 FlushCache hooked, its memset 00121A28 as original code) against
 em_module_loader with its area workers. 001FB370 answers alike on both
 sides (7 pending calls, then the bank's end, what test_sound_bank_reference
-shows the real chain does). Compared as in part B, plus the area bytes
+shows the real chain does at host speed; 8 pending with the recorded
+drive, the switch's SIF DMA pending at its first query). Compared as in part B, plus the area bytes
 D_00810700 / 701 / 703 / 704 after every frame, the overlay's bss clear
 (original stores inside it allowed, its bytes equal and zero) and the two
 DMA sends (the A entry at 0x1335F40 and the player packet at D_0028A4B0).
 The final cursors equal every route capture's (D_0028A73C = 0x1335F40,
 D_0028A740 / 744 / 748 = 0x19A3F40, D_0028A5A0 = 0x1516F40). Host speed:
 8 + 20 dispatches. With the recorded drive (the test derives the reads'
-busy counts from `newgame_samples.jsonl` itself): 68 + 185, and every
+busy counts from `newgame_samples.jsonl` itself): 68 + 186, and every
 captured loader state appears at its captured frame relative to its load's
-first dispatch, one frame early after the sound-bank step. A pinned case
+first dispatch, the sound-bank step's and the later ones included (since
+2026-10-16; 68 + 185 and one frame early after the sound-bank step
+before; the old 8-call script is refuted by the capture: the state
+(2, 1, 4, 2, 2) on frame 31 against the capture's 32). A pinned case
 with D_00810CA6 = 1 checks the 001FEF70 chaining. The run takes about 8 s
 in all.
 
@@ -808,11 +814,13 @@ contain the load, with these names:
 
 ## 5. Known gaps
 
-- **001FB370's ninth call.** The PS2 took one more call on AREA11's bank
-  than the port (section 1.9; IOP_STREAM.md "The sound-bank transfer"):
-  most likely its SIF DMA's hardware time. Neither the Original profile nor
-  the PS2 disc-drive timing switch reproduces it, so with the switch the
-  New Game's veil runs 257 frames against the captures' 258.
+- **001FB370's ninth call at host speed.** The PS2 takes one more call on
+  AREA11's bank than the Original profile (section 1.9; IOP_STREAM.md
+  "The sound-bank transfer"): its SIF DMA is not done at 001FB910's first
+  status query (the fork probe, 2026-10-16). That is DMA hardware time:
+  the Original profile does not reproduce it; the PS2 disc-drive timing
+  switch does (user decision 2026-10-15, "Only with the switch"), so with
+  the switch the New Game's veil runs the captures' 258 frames.
 - **The recorded New Game reads are frame-exact only within the capture's
   sampling** (section 1.7): two samples a frame, read while the VM ran.
   Only the New Game's reads of module 3 and AREA11 and module 0x21's are

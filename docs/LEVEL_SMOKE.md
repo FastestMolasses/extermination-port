@@ -373,7 +373,7 @@ Measured 2026-09-27 (full route, both modes; newgame-control):
 | 0x7F key-on and teardown (s) | 8 rows early (6 drive + 2 lane 0) | 2 rows early (lane 0) |
 | 0x97, 0x99 key-on and teardown (s) | 6 rows early | on the capture's rows |
 | stream reads over the full route | 420, all at host speed | 420 (328 contiguous, 19 fast, 73 full seeks) |
-| the frame-order post-control window | native index 1330 (1393 since chain step H7: the New Game's loads and veil take ticks) | native index 1340 (1665 since chain step H7, 1676 since 2026-10-09) |
+| the frame-order post-control window | native index 1330 (1393 since chain step H7: the New Game's loads and veil take ticks) | native index 1340 (1665 since chain step H7, 1676 since 2026-10-09, 1677 since 2026-10-16: the sound-bank DMA's pending query) |
 
 The 30-tick displacement is 9.599849 in both modes. The side runs pass in
 both modes too.
@@ -2828,13 +2828,24 @@ Measured (2026-09-29, chain step H7: the New Game's module 3 and area
 load run the loader task's own steps, MODULE_LOADER.md 1.9): at host
 speed **55 veil frames**, none at level 0 (the ramp over the area load's 20
 dispatches, then the decay), the phase the load leaves 0.385; with the PS2
-disc-drive timing switch (the recorded New Game reads) **257 frames**,
-phase 0.799, where the captures, after the PS2 disc load, hold 0.806 (258
-steps: the one more is the PS2's ninth sound-bank call, IOP_STREAM.md "The
-sound-bank transfer"). Every one of those frames passes the checks above.
-The run log's "module loader:" line gives the dispatches and the area's
-uploads (1 A entry, 1 player packet) and 001FB370's calls (8) and
-command 0x20s (1).
+disc-drive timing switch (the recorded New Game reads) 257 frames, phase
+0.799. **Since 2026-10-16** (user decision 2026-10-15, "Only with the
+switch": the sound-bank SIF DMA answers pending at its first status
+query, IOP_STREAM.md "The sound-bank transfer") the switch's load takes
+the PS2's ninth sound-bank call and the veil runs **258 frames**, phase
+0.805996, the 258 steps of v2.6.3's New Game capture; host speed is
+unchanged. (The fork's captures hold 0.855 after the fork's longer load,
+265 frames: its late IOP acknowledgement, which the drive model does not
+take.) Every one of those frames passes the checks above. The run log's
+"module loader:" line gives the dispatches and the area's uploads (1 A
+entry, 1 player packet) and 001FB370's calls (8 at host speed, 9 with
+the switch) and command 0x20s (1); with the switch the third `stream
+drive:` line counts the SIF DMA transfers of the measured 0x492D0 bytes
+pending at their first query (1) and the transfers of another size,
+done at their first query as at host speed (0 through roger; through
+exit 3, the AREA01 bank load's, which keeps its 22 001FB370 calls
+against the EXIT capture's 26: IOP_STREAM.md "The sound-bank
+transfer").
 
 ### The sound state (`level_smoke_audio.check`, chain step AUDIO; FIRST_LEVEL_AUDIT.md 1b item 1)
 
@@ -2943,7 +2954,7 @@ own relaxations are in their sections ("The AIM side runs' whole records",
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's depth-of-field pass (slot 0xFFF): drawn by the GS model since step DOF (its walk re-walked in the model's pass mode); its pixels are not compared in the smoke | the smoke's frames are not at a capture's position; the pass's pixels are compared on the fork capture instead (`make test-dof-pass-reference`, bit-exact in 7 frames; CHAIN_PAGE.md section 6.2) | none needed for the pass's rules (a capture at the smoke's own positions would compare its inputs, which follow the camera and the player) |
 | check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
-| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the veil runs as long as the loader's steps take (chain step H7): 55 frames at host speed (the user's policy: the disc answers at host speed), 257 with the PS2 disc-drive timing switch where the PS2 drew 258 (its ninth sound-bank call, most likely SIF DMA time, which no mode reproduces) | a capture of a frame mid-load (the decomp's fb2 method) for the pixels |
+| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the veil runs as long as the loader's steps take (chain step H7): 55 frames at host speed (the user's policy: the disc answers at host speed), 258 with the PS2 disc-drive timing switch, the PS2's (v2.6.3's; its ninth sound-bank call is the SIF DMA pending at its first query, which the switch reproduces since 2026-10-16; 257 before) | a capture of a frame mid-load (the decomp's fb2 method) for the pixels |
 
 Not compared at all: the sounds' audible output (the smoke compares the
 EE sound state at the command level since chain step AUDIO, "The sound
@@ -3004,7 +3015,15 @@ waits on the area music's read for the measured 17-field seek
 (IOP_STREAM.md "Drive model"), so with the switch first control and the
 windows come 11 ticks later: idle04 1676, walk04 1738, st03 1667, cut02
 372 (the spawn at AE+31, as in the original); all five PASS there (cut15
-at 345); the host-speed windows are unchanged and PASS.
+at 345); the host-speed windows are unchanged and PASS. **Since
+2026-10-16** the switch's New Game load takes the PS2's ninth sound-bank
+call (the SIF DMA pending at its first query; IOP_STREAM.md "The
+sound-bank transfer"), so with the switch the area entry (counter 1599)
+and every window come one tick later: idle04 1677, walk04 1739, st03
+1668, cut02 373, cut15 346; all five PASS there with the empty allow
+list (at the old indices walk04, st03, cut02 and cut15 fail); the
+host-speed windows 1393, 1455, 1384, 89 and cut15's 83 are unchanged
+and PASS.
 
 ## Adding a phase (the contract for WP-4 onward)
 

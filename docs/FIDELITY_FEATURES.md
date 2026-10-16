@@ -309,7 +309,9 @@ timing.
   2026-09-29: the windows moved 63 ticks with the New Game's loads; with the
   PS2 disc-drive timing switch on: 1665, 1727, 1656, 361 and cut15, also
   PASS; 1676 / 1738 / 1667 / 372 and cut15 since 2026-10-09, the switch's
-  17-field seek after a module-loader read, all PASS). Decomp `CAPTURES_C7.md` 1:
+  17-field seek after a module-loader read, all PASS; 1677 / 1739 / 1668 /
+  373 / 346 since 2026-10-16, the switch's ninth sound-bank call, all
+  PASS). Decomp `CAPTURES_C7.md` 1:
   every main-loop frame in the four stream stretches is exactly one field.
 - Status: **PARTIAL**. `tools/frame_order_allow.json` holds no entry since
   chain C8b ROUTE: the last one (the walking footstep's effect node in
@@ -758,20 +760,24 @@ own GS list, at the GS's resolution.
   command 0x20; MODULE_LOADER.md 1.9, IOP_STREAM.md "The sound-bank
   transfer"), so the veil ramps and decays for as long as those steps take:
   55 frames at host speed (the Original profile: the disc answers at host
-  speed), 257 with the PS2 disc-drive timing switch (the recorded New Game
-  reads), where the PS2 drew 258. Evidence: the whole New Game load against
-  the ORIGINAL loader code (`make test-module-loader-reference` part H:
-  with the switch, every captured loader state appears at its captured
-  frame up to the sound-bank step, and one frame earlier after it, the
-  PS2's ninth 001FB370 call); the
-  sound-bank chain against the ORIGINAL code and route capture 00, its
-  SPU and IOP RAM included (`make test-sound-bank-reference`); the loader's
+  speed), and with the PS2 disc-drive timing switch (the recorded New Game
+  reads and, since 2026-10-16, the sound-bank SIF DMA pending at its first
+  status query: user decision 2026-10-15) 258, the frames the PS2 drew in
+  v2.6.3's New Game capture (257 before). Evidence: the whole New Game load
+  against the ORIGINAL loader code (`make test-module-loader-reference`
+  part H: with the switch, every captured loader state appears at its
+  captured frame, the sound-bank step's and the later ones included; the
+  old 8-call model put them one frame early); the fork probe of the New
+  Game load (2026-10-16: the byte-matched 001FB910's query pending in the
+  call that starts the transfer, done in the next); the sound-bank chain
+  against the ORIGINAL code and route capture 00 in both modes, its SPU
+  and IOP RAM included (`make test-sound-bank-reference`); the loader's
   states in the live run equal the New Game capture's (`make
   test-area-load-reference`).
 - Status: **PARTIAL**. The veil runs, ramps and is drawn for the load's
-  own length. The one frame the switch still misses is the PS2's ninth
-  sound-bank call (most likely its SIF DMA's hardware time, reproduced by
-  no mode). No capture holds a frame taken during a load, so the pixels
+  own length (with the switch, the PS2's 258 frames; the fork's emulator
+  draws 265, its later IOP acknowledgement, which the model does not
+  take: IOP_STREAM.md "The sound-bank transfer"). No capture holds a frame taken during a load, so the pixels
   are proven against the GS model, not against a recorded frame. Since
   chain step GSFRAME (2026-10-03) the veil's list frames are drawn by the
   CPU GS model into the 512x224 field (GS_EXACT.md section 9, `gsw_list_frame`);
@@ -2655,4 +2661,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-15 (the specialized span loops step, PERFORMANCE.md "Progress" P14: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-15 (the decoded texture cache step, PERFORMANCE.md "Progress" P13: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-12 (the early Z test step, PERFORMANCE.md "Progress" P12: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-10 (the like-for-like fb2 step: the GS-frame entry's status (each point against the same-phase original; point 10 95.47 %), no new claim. Before, the fork switch's second stage: the GS model entry's evidence names part G, the half-pixel scissor edge against the fork, no new claim. Before, 2026-10-09, the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-16 (the sound-bank DMA step: the load veil entry with the switch runs the PS2's 258 frames (the SIF DMA pending at its first query, user decision 2026-10-15), its evidence and status; the frame-order entry's switch windows one tick later; no new claim at host speed). Before, 2026-10-15 (the specialized span loops step, PERFORMANCE.md "Progress" P14: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-15 (the decoded texture cache step, PERFORMANCE.md "Progress" P13: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-12 (the early Z test step, PERFORMANCE.md "Progress" P12: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-10 (the like-for-like fb2 step: the GS-frame entry's status (each point against the same-phase original; point 10 95.47 %), no new claim. Before, the fork switch's second stage: the GS model entry's evidence names part G, the half-pixel scissor edge against the fork, no new claim. Before, 2026-10-09, the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

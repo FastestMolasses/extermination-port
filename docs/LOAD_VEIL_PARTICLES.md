@@ -29,8 +29,9 @@ streamer 001FFCD0 with its sound-bank upload 001FB370; MODULE_LOADER.md
 At host speed (the Original profile) the New Game load draws **55 veil
 frames**: the ramp over the load's 20 dispatches reaches levels 0.2 /
 0.16 / 0.12, then the decay. With the PS2 disc-drive timing switch the
-loader takes the recorded New Game reads and the veil runs **257 frames**
-(the captures' phase says 258: section 5).
+loader takes the recorded New Game reads and the PS2's nine sound-bank
+calls, and the veil runs **258 frames**, as v2.6.3's captures' phase says
+(257 before 2026-10-16: section 5).
 
 ## 1. What the original does
 
@@ -385,14 +386,15 @@ lines, bent outward from the centre and glowing, over black.
   (all 0x1C bytes, the seed included) must equal it after every tick.
 - **The level smoke** (`check_load_veil`, tools/level_smoke_load_veil.py;
   LEVEL_SMOKE.md "The load veil"): every veil frame of the run (the New Game
-  load: 55 at host speed, 257 with the switch) had its run re-made by the ORIGINAL 0021B1B0 at that call
+  load: 55 at host speed, 258 with the switch) had its run re-made by the ORIGINAL 0021B1B0 at that call
   (the tick's block, slot and cursor) byte for byte, except the strips'
   ST lane 3; its seed and the original 0021B500's phase equal the port's;
   the list drew the clear, 512 lines, two copies and 900 triangles into the
   slot's frame buffer; a level-0 veil lit no line; the seed the load leaves
   equals every route capture's. It prints the phase the load left against
-  the captures' (0.385 after the host-speed load's 55 frames, 0.799 after
-  the switch's 257; 0.806 after the PS2's 258).
+  the captures' (0.385 after the host-speed load's 55 frames, 0.805996
+  after the switch's 258 (0.799 after 257 before 2026-10-16); 0.806 in
+  v2.6.3's captures after the PS2's 258, 0.855 in the fork's).
 - **`make test-area-load-reference`** replays every veil step of the
   logged loads (two in its run: New Game and the area-change reload) through
   the executed 0021B550 / 0021B180 / 0021B840; each 0021B1B0 on the way is
@@ -418,10 +420,13 @@ lines, bent outward from the centre and glowing, over black.
   load drew 258 (every route capture's phase 0.806: 258 executed 0021B500
   steps) and the AREA01 load about 142. With the PS2 disc-drive timing
   switch the New Game's reads take their recorded fields
-  (MODULE_LOADER.md 1.7) and the veil runs 257 frames (phase 0.799): the
-  one frame short is the sound-bank upload's ninth call on the PS2, most
-  likely its SIF DMA's hardware time, which no mode reproduces
-  (IOP_STREAM.md "The sound-bank transfer"). The level smoke checks every
+  (MODULE_LOADER.md 1.7) and, since 2026-10-16 (user decision 2026-10-15,
+  "Only with the switch"), the sound-bank upload's SIF DMA answers pending
+  at its first status query, which gives the PS2's ninth sound-bank call:
+  the veil runs 258 frames (phase 0.805996; 257 and 0.799 before;
+  IOP_STREAM.md "The sound-bank transfer"). The fork's captures hold
+  0.855 (its load ran 265 frames: its late IOP acknowledgement, which
+  the drive model does not take). The level smoke checks every
   one of those frames against the executed original (section 4).
 - **Rasterization.** Metal rasterizes at the GS's resolution with the GS
   sample points, but its triangle and line rules and its float

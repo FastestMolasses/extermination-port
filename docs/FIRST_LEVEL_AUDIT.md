@@ -773,7 +773,9 @@ sections 3-5, census 1.35):**
   does for a load that ends at once (the PS2 drew 258 frames at New Game).
   Item 3 of section 1b (the loader task's own steps) is what makes it
   visible. (Superseded by chain step H7, 2026-09-29: the veil now draws 55
-  frames at host speed, 257 with the switch.)
+  frames at host speed, 257 with the switch; 258, the PS2's, with the
+  switch since 2026-10-16: the sound-bank SIF DMA pending at its first
+  query, IOP_STREAM.md "The sound-bank transfer".)
 - **Evidence.** The level smoke's `check_load_veil` (every run): the live
   run is byte-equal to the ORIGINAL 0021B1B0 executed at the same call, its
   seed equals the port's and all 15 route captures', the original 0021B500
@@ -2149,9 +2151,11 @@ pool's free list (item 5): those are port work that needs no new recording
 8. **Hardware timing not reproduced, by the user's policy** (not
    differences to fix; recorded so they are not mistaken for bugs): the
    page modules' and the level exit's AREA01 load answer at host speed in
-   both drive modes (no recording of their reads); the New Game's veil is
-   one frame shorter than the PS2's with the switch (the ninth sound-bank
-   call, most likely SIF DMA time); the IOP heap's 0x900-byte start-up
+   both drive modes (no recording of their reads); the sound-bank SIF
+   DMA's transfer time at host speed (one sound-bank call fewer than the
+   PS2's; the switch reproduces that call since 2026-10-16, user decision
+   2026-10-15 "Only with the switch", so its New Game veil runs the PS2's
+   258 frames); the IOP heap's 0x900-byte start-up
    occupancy is a measured occupancy whose owner is not established
    (IOP_STREAM.md "Stated models").
    **The music's resume after a status page** (measured 2026-10-09, the

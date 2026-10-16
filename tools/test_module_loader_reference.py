@@ -1101,9 +1101,11 @@ def check_packet_after_load(elf, lib, full_pack):
 def check_new_game_rows(rows):
     """The recorded drive's rows against the capture: every distinct
     loader state first appears at the capture's frame (relative to module
-    3's first dispatch), except that the states after the sound-bank step
-    come one frame earlier: the PS2 made 9 001FB370 calls where the port's
-    host-speed SIF DMA makes 8 (IOP_STREAM.md "The sound-bank transfer")."""
+    3's first dispatch). The states after the sound-bank step too: with
+    the PS2 disc-drive timing switch the SIF DMA's first status query
+    answers pending (user decision 2026-10-15), so 001FB370 takes the
+    PS2's 9 calls (IOP_STREAM.md "The sound-bank transfer"); before that
+    rule they came one frame early (8 calls)."""
     cap = new_game_transitions()
     first = {}
     for k, snap in enumerate(rows):
@@ -1112,15 +1114,12 @@ def check_new_game_rows(rows):
     # Each load from its own first dispatch (the slot-0 task's frames between
     # the two loads are not this test's).
     starts = {0: (2, 0, 1, 0, 0, 3), 1: (2, 1, 1, 0, 0, 0)}
-    after_bank = False
     checked = 0
     for state, k in sorted(first.items(), key=lambda e: e[1]):
         if state not in cap or state[0] != 2:
             continue
-        if state[:5] == (2, 1, 4, 2, 2):
-            after_bank = True
         ref = starts[0 if state[5] == 3 else 1]
-        want = cap[state] - cap[ref] - (1 if after_bank else 0)
+        want = cap[state] - cap[ref]
         got = k - first[ref]
         assert got == want, ('New Game row', state, 'port frame', got, 'capture frame', cap[state] - cap[ref])
         checked += 1
@@ -1136,7 +1135,9 @@ def check_new_game_loads(elf, lib, pack, measured=False):
     hooked, its memset 00121A28 original) against em_module_loader with its
     area workers. 001FB370 is scripted alike on both sides (7 pending calls,
     then the bank's end, as test_sound_bank_reference shows the real chain
-    does); the drive is the model of the pack under test. Compared as for
+    does at host speed; 8 pending with the recorded drive, the PS2 disc-drive
+    timing switch's SIF DMA pending at its first query); the drive is the
+    model of the pack under test. Compared as for
     the module loads: every callee entry with the modelled memory, the
     snapshot after every frame, every original store (the area latches and
     the overlay's bss clear included), every delivered byte and every DMA
@@ -1150,11 +1151,12 @@ def check_new_game_loads(elf, lib, pack, measured=False):
         assert m3 is not None
         st = lib.em_module_loader_state(w.ml).contents
         assert st.d28A490[0xAB] == 0x13351C0 == w.o.load(0x28A73C), hex(st.d28A490[0xAB])
-        w.bank_script = [0] * 7 + [0x1335F40]
+        pending = 8 if measured else 7
+        w.bank_script = [0] * pending + [0x1335F40]
         sent_before = len(w.sent_o)
         area = w.run(0, limit=800, area=True)
         assert area is not None
-        assert w.bank_calls == w.o_bank_calls == 8, (w.bank_calls, w.o_bank_calls)
+        assert w.bank_calls == w.o_bank_calls == pending + 1, (w.bank_calls, w.o_bank_calls)
         sends = w.sent_o[sent_before:]
         assert len(sends) == 2 and sends[0][0] == 0x1335F40 and sends[1][0] == w.o.load(0x28A4B0), \
             [(hex(c), n) for c, n, _ in sends]
@@ -1176,7 +1178,7 @@ def check_new_game_loads(elf, lib, pack, measured=False):
         assert w.run(3, limit=800) is not None
         w.o.save(0x810CA6, 1, 1)
         w.ca6.value = 1
-        w.bank_script = [0] * 7 + [0x1335F40]
+        w.bank_script = [0] * (8 if measured else 7) + [0x1335F40]
         chained = w.run(0, limit=800, area=True,
                         stop=lambda o: o.load(SLOT + 8, 1) == 0 and o.load(SLOT + 0xE, 1) == 0x32)
         assert chained is not None and w.o.load(SLOT + 0xE, 1) == 0x32 and w.slot_state() == 2
@@ -1672,7 +1674,7 @@ def main():
            f"3 module-0x2B spad loads, {counts['packet_after_module3']} 00200890 after module 3",
            f"New Game at host speed: module 3 in {ng_host[0]} dispatches, AREA11 in {ng_host[1]} "
            f"(001FFCD0 with 8 001FB370 calls); with the recorded drive {ng_measured[0]} and {ng_measured[1]} "
-           f"(the capture's reads {NEW_GAME_READS()})")
+           f"(9 001FB370 calls; the capture's reads {NEW_GAME_READS()}, every loader state on the capture's frame)")
     print(f"Module loader: PASS; host-speed rows = captured rows minus {busy} busy polls; "
           f"upload = panel GS capture ({words} words, {toks} atlas TEX0 inside) "
           f"({time.time() - started:.1f} s)")

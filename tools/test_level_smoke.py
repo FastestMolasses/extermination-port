@@ -5121,7 +5121,10 @@ def main():
         # The drive's mode and counters (IOP_STREAM.md "Drive model"): reads
         # outside the measured distances take the nearest measured class;
         # with the switch on, a second line counts the first reads after a
-        # module-loader read.
+        # module-loader read, and a third the SIF DMA transfers of the
+        # measured size pending at their first status query (and those of
+        # another size, done at once: IOP_STREAM.md "The sound-bank
+        # transfer").
         print(f'level smoke: {drive.group(0)}')
     loader = re.search(r'^module loader: .*$', run, re.M)
     if loader:

@@ -30,7 +30,13 @@ B. Chain. The ORIGINAL 001FB370 (with 001FB3E0, 001FB910, the library and
    the result and every modelled byte (D_00282150 .. D_002821A7,
    D_00281D30, D_00281D50, D_00275B18 / 1C, D_0027C6C0, D_002819C0, the
    count and the acknowledgement), the queued commands and the IOP heap
-   block must be equal.
+   block must be equal. The chain runs twice: at host speed (8 calls), and
+   with the PS2 disc-drive timing switch (user decision 2026-10-15), where
+   the model's sceSifDmaStat answers pending (0) at the first query of the
+   measured 0x492D0-byte transfer (any other size: done at once), as the
+   fork's New Game load did (decomp build/fork_refs/
+   probes_1016/newgame): 9 calls, the PS2's (v2.6.3's nine frames of
+   001FF590's sub-state 5), the same end state.
 C. Captures (EM_REFERENCE, tools/reference_root.py: the fork's title state
    slot01_title and route 00 by default; v263 for the 2.6.3 slot 01 and
    route 00, where the seed D_002821A0, the kernel's SIF DMA id, is the
@@ -80,6 +86,10 @@ BANK_END = 0x1335F40         # D_0028A73C after the bank (route 00)
 LIB = {'00119400': 0x119400, '001193A8': 0x1193A8, '00119528': 0x119528, '001194B8': 0x1194B8,
        '00119450': 0x119450, '001195A8': 0x1195A8, '001199F0': 0x1199F0}
 KERNEL = (0x10BC00, 0x10BAA0, 0x10BBE0, 0x10BBC0, 0x10F8F8, 0x10F968)
+# The one measured SIF DMA (the AREA11 bank's samples, the fork's New Game
+# probe; IOP_STREAM.md "The sound-bank transfer"): the size the PS2
+# disc-drive timing switch answers pending for at its first query.
+SIF_DMA_MEASURED_SIZE = 0x492D0
 BASES = (0x15040, 0x15040, 0x1A0000, 0x122000, 0x132000)
 HEAP_BOOT = ((0x85B00, 0x28100), (0xADC00, 0x10100), (0xBDD00, 0x10100), (0xCDE00, 0x10100),
              (0xDDF00, 0x900))
@@ -105,6 +115,7 @@ int nb_init(const int32_t *base)
     return 0;
 }
 int nb_field(void) { return em_iop_stream_field(S); }
+void nb_ps2(int on) { em_iop_stream_set_ps2_drive_timing(S, on); }
 int nb_call(uint32_t at, const uint8_t *bytes, uint32_t size, uint32_t *res)
 { return em_sound_bank_001FB370(&B, at, bytes, size, res); }
 int nb_fault(uint32_t *at) { int32_t code = 0; em_sound_bank_failed(&B, at, &code); return code; }
@@ -416,12 +427,19 @@ def library_cases(elf, ram, native, rng):
 class HostModel:
     """The oracle side's independent model of the port's stated host-speed
     rules: sceSifSetDma copies at once and returns ids 1, 2, ...;
-    sceSifDmaStat answers -1 (done); 0010F8F8 / 0010F968 are first fit in
-    0x100 units above the measured boot blocks; the exchange delivers the
-    IOP's count one field after the field that ran the command
-    (`ack_fields` = 2 is the stated rule; 1 and 3 are the mutants)."""
+    sceSifDmaStat answers -1 (done), or with `ps2` (the PS2 disc-drive
+    timing switch) 0 (pending) at the first query of a transfer of the
+    measured 0x492D0 bytes and -1 after (any other size: -1 at once);
+    0010F8F8 / 0010F968 are first fit in 0x100 units above the measured
+    boot blocks; the exchange delivers the IOP's count one field after the
+    field that ran the command (`ack_fields` = 2 is the stated rule; 1 and
+    3 are the mutants)."""
 
-    def __init__(self, ack_fields=2):
+    def __init__(self, ack_fields=2, ps2=False):
+        self.ps2 = ps2
+        self.queried = set()       # the ids whose first status query ran
+        self.sizes = {}            # id -> the transfer's size
+        self.pending_answers = 0
         self.blocks = list(HEAP_BOOT)
         self.iop = bytearray(0x200000)
         self.spu = bytearray(0x200000)
@@ -456,10 +474,18 @@ class HostModel:
             assert count == 1 and attr == 0 and size % 16 == 0 and dst % 16 == 0
             self.iop[dst:dst + size] = ee.read(src, size)
             self.ids += 1
+            self.sizes[self.ids] = size
             ee.ret_int(self.ids)
 
         def dma_stat(ee):
-            assert 1 <= (ee.r[4] & MASK) <= self.ids
+            i = ee.r[4] & MASK
+            assert 1 <= i <= self.ids
+            if self.ps2 and i not in self.queried and self.sizes[i] == SIF_DMA_MEASURED_SIZE:
+                self.queried.add(i)
+                self.pending_answers += 1
+                ee.ret_int(0)    # pending: the transfer's first query
+                return
+            self.queried.add(i)
             ee.ret_int(-1)   # done
 
         def alloc(ee): ee.ret_int(self.alloc(ee.r[4] & MASK))
@@ -492,13 +518,14 @@ class HostModel:
         return count
 
 
-def run_chain(elf, native, bank, ack_fields=2, compare=True):
+def run_chain(elf, native, bank, ack_fields=2, compare=True, ps2=False):
     o = SoundEE(elf, bytearray(RAM['title']['eeMemory.bin']))
     o.write(BANK_AT, bank)
-    model = HostModel(ack_fields)
+    model = HostModel(ack_fields, ps2)
     model.hooks(o, bank)
     if compare:
         assert native.lib.nb_init((C.c_int32 * 5)(*BASES)) == 0
+        native.lib.nb_ps2(1 if ps2 else 0)
         n, ref = native.dump(), oracle_dump(o)
         if not refs.FORK_MODE:
             # The seed D_002821A0 (the kernel's SIF DMA id) is the fork
@@ -535,9 +562,11 @@ def run_chain(elf, native, bank, ack_fields=2, compare=True):
     return o, model, calls, result
 
 
-def check_chain(elf, native, bank):
-    o, model, calls, result = run_chain(elf, native, bank)
+def check_chain(elf, native, bank, ps2=False):
+    o, model, calls, result = run_chain(elf, native, bank, ps2=ps2)
     assert result == BANK_END, hex(result)
+    # The PS2 disc-drive timing switch: exactly one query answered pending.
+    assert model.pending_answers == (1 if ps2 else 0), ('pending answers', ps2, model.pending_answers)
     route = RAM['route00']
     ee = route['eeMemory.bin']
     # C. The end state against route 00.
@@ -601,9 +630,16 @@ def main():
     ran, total = library_cases(elf, bytearray(RAM['title']['eeMemory.bin']), native, rng)
     calls, size, wait = check_chain(elf, native, bank)
     assert wait == 0x4E == TIMING_PIN_B18, hex(wait)
+    assert calls == 8, ('host speed: 001FB370 calls', calls)
+    # The PS2 disc-drive timing switch: one more call (the SIF DMA's first
+    # status query pending), the same end state, the same countdown (the
+    # extra call comes before 001FB3E0 starts it).
+    calls_ps2, size_ps2, wait_ps2 = check_chain(elf, native, bank, ps2=True)
+    assert (calls_ps2, size_ps2, wait_ps2) == (calls + 1, size, wait), ('PS2 drive', calls_ps2, hex(wait_ps2))
     mutants = check_mutants(elf, native, bank, wait)
     banner(part(ran, total, 'library cases'),
-           f'the chain: {calls} 001FB370 calls on the AREA11 bank (0x{size:X} bytes uploaded), every modelled '
+           f'the chain: {calls} 001FB370 calls on the AREA11 bank at host speed, {calls_ps2} with the PS2 '
+           f'disc-drive timing switch (the SIF DMA pending at its first query; 0x{size:X} bytes uploaded), every modelled '
            f'byte equal to the original after each; reference {refs.MODE}: seeds equal the title capture; the end '
            'state equal to route 00 (SPU RAM at 0x1A0000 and IOP RAM at 0xDE800 included; D_00275B18 against '
            'v2.6.3\'s, the exchange-timing pin)',

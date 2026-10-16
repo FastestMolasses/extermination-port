@@ -531,6 +531,12 @@ void em_stream_live_drive_report(FILE *out)
         fprintf(out, "stream drive: %u first reads after a module-loader read (%u seek fields), %u of them after a "
                      "load no capture measured\n",
                 d.after_loader, (unsigned)EM_IOP_SEEK_AFTER_LOADER_READ, d.after_loader_unmeasured);
+    /* The SIF DMA's first status query (switch on only: the sound-bank
+     * upload, IOP_STREAM.md "The sound-bank transfer"). */
+    if (ps2)
+        fprintf(out, "stream drive: %u SIF DMA transfers of the measured 0x%X bytes pending at their first status "
+                     "query, %u of another size done at their first query (unmeasured)\n",
+                d.sif_dma, (unsigned)EM_IOP_SIF_DMA_MEASURED_SIZE, d.sif_dma_unmeasured);
 }
 
 int32_t em_stream_live_cue(int lane)

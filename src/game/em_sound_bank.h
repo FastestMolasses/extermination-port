@@ -13,7 +13,10 @@
  *   0010BC00 (sceSifSetDChain), 0010BAA0 (FlushCache): no host effect
  *              (the EE caches and the SIF0 chain are not modelled);
  *   0010BBE0 / 0010BBC0 (sceSifSetDma / sceSifDmaStat): em_iop_stream's SIF
- *              DMA at host speed, from the bank file's bytes.
+ *              DMA from the bank file's bytes: at host speed by default;
+ *              with the PS2 disc-drive timing switch its first status
+ *              query answers pending (one more 001FB370 call, the PS2's
+ *              nine against eight).
  *
  * The upload's pace is the code's: 001FB3E0 moves one state per call, and
  * its acknowledgement waits for the IOP's count, which the per-field
