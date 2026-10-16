@@ -77,6 +77,7 @@ static void span_end(EmGs *gs, int measured);
 static void tc_written_rect(EmGs *gs, unsigned psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y,
                             uint32_t w, uint32_t h);
 static void tc_clut_changed(EmGs *gs);
+static int list_clut_drawn(const EmGs *gs, unsigned cpsm, uint32_t cbp, int t8);
 
 static void refuse(EmGs *gs, uint32_t why, const char *what)
 {
@@ -419,6 +420,12 @@ static void clut_load(EmGs *gs, uint64_t tex0)
         refuse(gs, EM_GS_REFUSE_FORMAT, "CSM2 CLUT storage");
         return;
     }
+    if (gs->list && list_clut_drawn(gs, cpsm, cbp, t8)) {
+        /* parse once (section 12): memory a span of the list draws is not
+         * written yet; the drawing would decide what the load reads */
+        refuse(gs, EM_GS_REFUSE_ORDER, "a CLUT load from memory the parsed list draws");
+        return;
+    }
     unsigned n = t8 ? 256 : 16;
     const uint32_t *crow = NULL;           /* CT32, width 1 (section 1b) */
     uint16_t next[512];
@@ -469,8 +476,10 @@ static void clut_load(EmGs *gs, uint64_t tex0)
     gs->clut_src = src;
     gs->clut_src_valid = 1;
     memcpy(gs->clut, next, sizeof next);
-    if (changed)
+    if (changed) {
+        gs->clut_changes++;            /* section 12: the list's CLUT snapshots */
         tc_clut_changed(gs);           /* section 4b: the palettes are compared again */
+    }
 }
 
 /* HOST -> LOCAL transfer (section 2.2): pixels in raster order over the
@@ -500,6 +509,11 @@ static void trx_start(EmGs *gs)
     gs->trx_x = gs->trx_y = 0;
     gs->trx_nibble = 0;
     gs->trx_active = 0;
+    if (gs->list) {
+        /* parse once (section 12): the parsing EmGs writes no memory */
+        refuse(gs, EM_GS_REFUSE_ORDER, "a transfer in a parsed list");
+        return;
+    }
     if (dir == 0) {
         gs->trx_active = 1;
     } else if (dir == 1) {
@@ -1167,17 +1181,18 @@ void em_gs_memory_written(EmGs *gs, uint32_t first_block, uint32_t blocks)
     tc_written(gs, s);
 }
 
-/* A page range the current span writes (dropping repeats). */
-static int tc_add_w(Tc *t, PgSpan s)
+/* A page range a span writes (dropping repeats): w[0 .. *nw), or *w_all
+ * once more than TC_SPAN_W ranges were given. */
+static int pg_add(PgSpan *w, uint32_t *nw, int *w_all, PgSpan s)
 {
-    for (uint32_t i = 0; i < t->nw; i++)
-        if (t->w[i].pg0 == s.pg0 && t->w[i].npg == s.npg)
+    for (uint32_t i = 0; i < *nw; i++)
+        if (w[i].pg0 == s.pg0 && w[i].npg == s.npg)
             return 0;
-    if (t->nw == TC_SPAN_W) {
-        t->w_all = 1;
+    if (*nw == TC_SPAN_W) {
+        *w_all = 1;
         return 0;
     }
-    t->w[t->nw++] = s;
+    w[(*nw)++] = s;
     return 1;
 }
 
@@ -1495,10 +1510,28 @@ static int zmax_of(uint32_t zpsm)
     return zpsm == EM_GS_PSMZ32 ? 0 : zpsm == EM_GS_PSMZ24 ? 0xFFFFFF : 0xFFFF;
 }
 
-/* The row is this EmGs's band's (EmGs.band_count). */
+/* The row is this EmGs's band's (EmGs.band_rows: a row range; else
+ * EmGs.band_count: interleaved bands). */
 static inline int own_row(const EmGs *gs, int y)
 {
+    if (gs->band_rows)
+        return y >= gs->band_y0 && y <= gs->band_y1;
     return gs->band_count <= 1 || (((uint32_t)y >> gs->band_shift) % gs->band_count) == gs->band_index;
+}
+
+/* No row y0 <= y <= y1 is this EmGs's band's (a primitive drawing only those
+ * rows draws nothing here). */
+static int band_misses(const EmGs *gs, int y0, int y1)
+{
+    if (gs->band_rows)
+        return y0 > y1 || y1 < gs->band_y0 || y0 > gs->band_y1;
+    if (gs->band_count > 1) {
+        int any = 0;
+        for (int y = y0; y <= y1 && !any; y = ((y >> gs->band_shift) + 1) << gs->band_shift)
+            any = own_row(gs, y);
+        return !any;
+    }
+    return 0;
 }
 
 /* plot() in two parts (docs/PERFORMANCE.md P12). A pixel is written only
@@ -2328,13 +2361,8 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
     if (py0 < d->sy0) py0 = d->sy0;
     if (py1 > d->sy1) py1 = d->sy1;
     /* a triangle with no row in this EmGs's band draws nothing here */
-    if (gs->band_count > 1) {
-        int any = 0;
-        for (int y = py0; y <= py1 && !any; y = ((y >> gs->band_shift) + 1) << gs->band_shift)
-            any = own_row(gs, y);
-        if (!any)
-            return;
-    }
+    if ((gs->band_rows || gs->band_count > 1) && band_misses(gs, py0, py1))
+        return;
     /* planes */
     Plane pc[4], pf, pz, pu, pv;
     const EmGsVertex *flat = v2;
@@ -2865,13 +2893,8 @@ static inline __attribute__((always_inline)) void sp_tri(EmGs *gs, const Draw *d
     int py0 = (int)floordiv64(ymin + 15, 16), py1 = (int)floordiv64(ymax, 16);
     if (py0 < d->sy0) py0 = d->sy0;
     if (py1 > d->sy1) py1 = d->sy1;
-    if (gs->band_count > 1) {
-        int any = 0;
-        for (int y = py0; y <= py1 && !any; y = ((y >> gs->band_shift) + 1) << gs->band_shift)
-            any = own_row(gs, y);
-        if (!any)
-            return;
-    }
+    if ((gs->band_rows || gs->band_count > 1) && band_misses(gs, py0, py1))
+        return;
     Plane pc[4], pf, pz, pu, pv;
     const EmGsVertex *flat = v2;
     for (int q = 0; q < 4; q++)
@@ -3091,55 +3114,82 @@ struct EmGsPending {
  * pages a decoded copy reads (section 4b). Within a span FRAME, ZBUF, TEST
  * and SCISSOR do not change (a write of one ends it, section 3.7), but every
  * primitive is taken. */
+/* The pages a span's primitive d writes, added to w[0 .. *nw) (or *w_all);
+ * *q is the span's previous primitive (NULL before the first). */
+static void span_writes_add(const Draw *d, const Draw **q, PgSpan *w, uint32_t *nw, int *w_all)
+{
+    const Draw *p = *q;
+    if (p && d->fbp == p->fbp && d->fbw == p->fbw && d->fpsm == p->fpsm && d->sx0 == p->sx0 && d->sx1 == p->sx1
+        && d->sy0 == p->sy0 && d->sy1 == p->sy1 && d->zte == p->zte && d->zmsk == p->zmsk && d->zbp == p->zbp
+        && d->zpsm == p->zpsm)
+        return;                        /* the same pages as the previous primitive */
+    *q = d;
+    PgSpan s;
+    if (pg_span(d->fpsm, d->fbp, d->fbw, d->sx0, d->sx1, d->sy0, d->sy1, &s))
+        pg_add(w, nw, w_all, s);
+    if (d->zte && !d->zmsk && pg_span(d->zpsm, d->zbp, d->fbw, d->sx0, d->sx1, d->sy0, d->sy1, &s))
+        pg_add(w, nw, w_all, s);
+}
+
+/* The bitmap m of the pages in w[0 .. nw) (all of them with w_all). */
+static void span_writes_mask(const PgSpan *w, uint32_t nw, int w_all, uint64_t m[TC_PAGES / 64])
+{
+    memset(m, 0, TC_PAGES / 64 * sizeof *m);
+    if (w_all) {
+        memset(m, 0xFF, TC_PAGES / 64 * sizeof *m);
+    } else {
+        for (uint32_t i = 0; i < nw; i++) {
+            const PgSpan r = w[i];
+            if (r.npg >= TC_PAGES) {
+                memset(m, 0xFF, TC_PAGES / 64 * sizeof *m);
+                break;
+            }
+            for (uint32_t k = 0; k < r.npg;) {           /* the range, a word at a time */
+                const uint32_t pg = (r.pg0 + k) & (TC_PAGES - 1), b = pg & 63;
+                const uint32_t run = 64 - b < r.npg - k ? 64 - b : r.npg - k;
+                m[pg >> 6] |= (run == 64 ? ~UINT64_C(0) : ((UINT64_C(1) << run) - 1)) << b;
+                k += run;
+            }
+        }
+    }
+}
+
+/* The pages primitives p[0 .. n) of a span write: the ranges w[0 .. *nw)
+ * (or *w_all) and the bitmap m of their pages. */
+static void span_writes(const struct EmGsPending *p, uint32_t n, PgSpan *w, uint32_t *nw, int *w_all,
+                        uint64_t m[TC_PAGES / 64])
+{
+    *nw = 0;
+    *w_all = 0;
+    const Draw *q = NULL;
+    for (uint32_t i = 0; i < n; i++)
+        span_writes_add(&p[i].d, &q, w, nw, w_all);
+    span_writes_mask(w, *nw, *w_all, m);
+}
+
+/* The pages in m that a copy reads (refmap: pref nonzero), stamped with the
+ * current span. */
+static void tc_stamp(Tc *t, const uint64_t m[TC_PAGES / 64])
+{
+    for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+        for (uint64_t r = m[j] & t->refmap[j]; r; r &= r - 1)
+            t->pstamp[j * 64 + (uint32_t)__builtin_ctzll(r)] = t->sigma;
+}
+
 static void tc_span(EmGs *gs, const struct EmGsPending *p, uint32_t n)
 {
     Tc *t = tc_get(gs);
     if (!t)
         return;
     t->sigma++;
-    t->nw = 0;
-    t->w_all = 0;
     /* one primitive stands for the span when queue_prim saw them all with the
      * same registers (a write of one ends the span, so that is the rule) */
     if (t->q_valid && !t->q_mixed && n > 1)
         n = 1;
     t->q_valid = 0;
-    const Draw *q = NULL;
-    for (uint32_t i = 0; i < n; i++) {
-        const Draw *d = &p[i].d;
-        if (q && d->fbp == q->fbp && d->fbw == q->fbw && d->fpsm == q->fpsm && d->sx0 == q->sx0 && d->sx1 == q->sx1
-            && d->sy0 == q->sy0 && d->sy1 == q->sy1 && d->zte == q->zte && d->zmsk == q->zmsk && d->zbp == q->zbp
-            && d->zpsm == q->zpsm)
-            continue;                  /* the same pages as the previous primitive */
-        q = d;
-        PgSpan s;
-        if (pg_span(d->fpsm, d->fbp, d->fbw, d->sx0, d->sx1, d->sy0, d->sy1, &s))
-            tc_add_w(t, s);
-        if (d->zte && !d->zmsk && pg_span(d->zpsm, d->zbp, d->fbw, d->sx0, d->sx1, d->sy0, d->sy1, &s))
-            tc_add_w(t, s);
-    }
-    /* the pages written that a copy reads (refmap: pref nonzero), stamped */
-    uint64_t m[TC_PAGES / 64] = {0};
-    if (t->w_all) {
-        memset(m, 0xFF, sizeof m);
-    } else {
-        for (uint32_t i = 0; i < t->nw; i++) {
-            const PgSpan w = t->w[i];
-            if (w.npg >= TC_PAGES) {
-                memset(m, 0xFF, sizeof m);
-                break;
-            }
-            for (uint32_t k = 0; k < w.npg;) {           /* the range, a word at a time */
-                const uint32_t pg = (w.pg0 + k) & (TC_PAGES - 1), b = pg & 63;
-                const uint32_t run = 64 - b < w.npg - k ? 64 - b : w.npg - k;
-                m[pg >> 6] |= (run == 64 ? ~UINT64_C(0) : ((UINT64_C(1) << run) - 1)) << b;
-                k += run;
-            }
-        }
-    }
-    for (uint32_t j = 0; j < TC_PAGES / 64; j++)
-        for (uint64_t r = m[j] & t->refmap[j]; r; r &= r - 1)
-            t->pstamp[j * 64 + (uint32_t)__builtin_ctzll(r)] = t->sigma;
+    uint64_t m[TC_PAGES / 64];
+    span_writes(p, n, t->w, &t->nw, &t->w_all, m);
+    tc_stamp(t, m);
 }
 
 
@@ -3342,6 +3392,9 @@ static void draw_one(EmGs *gs, struct EmGsPending *p)
  * change the grid decision of any of them (one span has one Z and uses STQ,
  * and the chain's Z are not all equal), the result depends on an
  * unmeasured rule and strict mode faults (EM_GS_REFUSE_UNMEASURED). */
+static struct EmGsPending *list_slot(struct EmGsList *l, uint32_t i);
+static void list_close(EmGs *gs, uint32_t n, int stq_grid);
+
 static void span_end(EmGs *gs, int measured)
 {
     uint32_t n = gs->pend_n;
@@ -3369,6 +3422,12 @@ static void span_end(EmGs *gs, int measured)
     gs->pend_n = 0;
     for (int k = 0; k < 3; k++)
         gs->pend_lo[k] = gs->pend_hi[k] = 0;
+    if (gs->list) {
+        /* parse once (section 12): appended, not drawn */
+        if (n)
+            list_close(gs, n, (int)gs->pend_zconst);
+        return;
+    }
     if (n && !gs->tc_off)
         tc_span(gs, gs->pend, n);      /* section 4b: the pages the span writes */
     for (uint32_t i = 0; i < n; i++) {
@@ -3407,7 +3466,11 @@ static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex 
     const EmGsVertex *vs[3] = {a, b, c};
     if (gs->pend_n && (attr != gs->pend_attr || cls != gs->pend_class))
         span_end(gs, 1);               /* measured: p7_flush prim_iip, p8_span prim_* / rev_*, p8_class */
-    if (gs->pend_n == gs->pend_cap) {
+    /* parse once (section 12): the span is queued in the list's storage */
+    struct EmGsPending *p = gs->list ? list_slot(gs->list, gs->pend_n) : NULL;
+    if (gs->list && !p)
+        return;                        /* (no memory: the list is marked failed) */
+    if (!gs->list && gs->pend_n == gs->pend_cap) {
         uint32_t cap = gs->pend_cap ? gs->pend_cap * 2 : 256;
         struct EmGsPending *np = realloc(gs->pend, (size_t)cap * sizeof *np);
         if (!np) {
@@ -3454,7 +3517,9 @@ static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex 
             t->q_mixed = 1;
         }
     }
-    struct EmGsPending *p = &gs->pend[gs->pend_n++];
+    if (!p)
+        p = &gs->pend[gs->pend_n];
+    gs->pend_n++;
     p->d = *d;
     p->c = *d->c;
     p->kind = kind;
@@ -3468,6 +3533,10 @@ static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex 
         if (kind != 6 && vs[i]->z != gs->pend_z)
             gs->pend_zconst = 0;
     }
+    /* the memory the span uses decides only whether a transfer ends it
+     * (trx_start); a parsing EmGs refuses transfers (section 12) */
+    if (gs->list)
+        return;
     uint64_t lo, hi;
     mem_range(d->fbp, d->fbw, d->fpsm, (uint32_t)d->sy1 + 1, &lo, &hi);
     range_add(gs, 0, lo, hi);
@@ -3570,4 +3639,366 @@ static void vertex_kick(EmGs *gs, int draw)
         refuse(gs, EM_GS_REFUSE_REGISTER, "PRIM type 7");
         break;
     }
+}
+
+/* ------------------------------------------------------------------------
+ * 12. Parse once (docs/PERFORMANCE.md M4; em_gs_raster.h EmGsList).
+ *
+ * A parsing EmGs (EmGs.list set) runs the stream as any EmGs does (the
+ * registers, the vertex queue, draw_setup and its refusals, the span and
+ * its chain, the CLUT loads) and, where span_end would draw the span, hands
+ * it here. A span is kept as the primitives exactly as span_end would have
+ * drawn them (EmGsPending: the Draw with its grid decision, the context
+ * copied at the kick, the vertices), plus the two pieces of EmGs state the
+ * drawing reads besides those (the CLUT buffer, through fetch_rgba and the
+ * decoded palettes, and DIMX, through the dither), as they are when the span
+ * ends, and the pages it writes (span_writes, as tc_span computes them).
+ * em_gs_list_draw gives a drawing EmGs that state and calls draw_one on each
+ * primitive: the same calls the parsing EmGs would have made, in the same
+ * order, so it writes what they write in its rows. A primitive whose rows
+ * (list_rows: its vertices' rows two rows wider on each side, inside the
+ * scissor, which every draw function stays within) miss the band is not
+ * called: it would draw nothing there (a textured line is called in every
+ * band: draw_line flags it whatever its rows).
+ *
+ * The decoded texture cache (section 4b) of a drawing EmGs must see every
+ * span that writes memory, also those it draws nothing of: a span with no
+ * primitive in its band is not drawn, but its pages are stamped (together
+ * with the other such spans before the next span it draws: one stamp marks
+ * the same copies out of date as one stamp each, as nothing is bound in
+ * between). em_gs_list_pass stamps the pages of spans an EmGs drew none of.
+ *
+ * The storage is chunked and never moves: an appended span's data stay
+ * where they are until em_gs_list_clear, so spans already appended can be
+ * drawn while later ones are appended (em_gs_world publishes the count). */
+#define LS_PCHUNK 4096u                /* primitives a chunk               */
+#define LS_PCHUNKS 4096u
+#define LS_SCHUNK 1024u                /* spans a chunk                    */
+#define LS_SCHUNKS 4096u
+#define LS_CCHUNK 64u                  /* CLUT snapshots a chunk           */
+#define LS_CCHUNKS 1024u
+
+typedef struct { int32_t lo, hi; } LsRows;
+typedef struct {
+    uint32_t first, n;                 /* primitives first .. first + n - 1 */
+    int32_t ylo, yhi;                  /* their rows (union)                */
+    uint32_t clut;                     /* the CLUT snapshot it is drawn with */
+    uint64_t clut_serial;              /*   and its key (EmGs.list_clut): the parsing EmGs's
+                                          clut_changes + 1, one CLUT content per key, in
+                                          every list that EmGs fills */
+    uint64_t dimx;
+    uint32_t nw;                       /* the pages it writes (tc_span)     */
+    int w_all;
+    PgSpan w[TC_SPAN_W];
+    uint64_t m[TC_PAGES / 64];
+} LsSpan;
+
+struct EmGsList {
+    struct EmGsPending *prim[LS_PCHUNKS];
+    LsRows *rows[LS_PCHUNKS];
+    LsSpan *span[LS_SCHUNKS];
+    uint16_t (*clut[LS_CCHUNKS])[512];
+    uint32_t nprims, nspans, ncluts;
+    uint64_t snap_changes;             /* the parsing EmGs's clut_changes at the last snapshot */
+    int failed;
+    uint64_t written[TC_PAGES / 64];   /* the pages the spans so far write */
+    /* em_gs_list_prior: a list still being drawn, and the wait for it */
+    const struct EmGsList *prior;
+    void (*prior_wait)(void *);
+    void *prior_ctx;
+};
+
+EmGsList *em_gs_list_create(void)
+{
+    return calloc(1, sizeof(EmGsList));
+}
+
+void em_gs_list_destroy(EmGsList *l)
+{
+    if (!l)
+        return;
+    for (uint32_t i = 0; i < LS_PCHUNKS; i++) {
+        free(l->prim[i]);
+        free(l->rows[i]);
+    }
+    for (uint32_t i = 0; i < LS_SCHUNKS; i++)
+        free(l->span[i]);
+    for (uint32_t i = 0; i < LS_CCHUNKS; i++)
+        free(l->clut[i]);
+    free(l);
+}
+
+void em_gs_list_clear(EmGsList *l)
+{
+    if (!l)
+        return;
+    l->nprims = l->nspans = l->ncluts = 0;
+    l->failed = 0;
+    memset(l->written, 0, sizeof l->written);
+}
+
+uint32_t em_gs_list_spans(const EmGsList *l) { return l ? l->nspans : 0; }
+int em_gs_list_failed(const EmGsList *l) { return !l || l->failed; }
+
+static inline struct EmGsPending *ls_prim(const EmGsList *l, uint32_t i)
+{
+    return &l->prim[i / LS_PCHUNK][i % LS_PCHUNK];
+}
+static inline const LsRows *ls_rows(const EmGsList *l, uint32_t i) { return &l->rows[i / LS_PCHUNK][i % LS_PCHUNK]; }
+static inline const LsSpan *ls_span(const EmGsList *l, uint32_t s) { return &l->span[s / LS_SCHUNK][s % LS_SCHUNK]; }
+
+/* The rows a queued primitive can draw: its vertices' rows (window Y in
+ * 1/16 pixel, floor), two rows wider each side (points round to the nearest
+ * row, lines take a row next to the rounded one, sprites and triangles the
+ * rows whose centres they cover), inside the scissor. */
+static LsRows list_rows(const struct EmGsPending *p)
+{
+    if (p->kind == 1 && p->d.tme) {
+        /* a textured line flags its refusal in every band that takes it
+         * (draw_line; strict mode refuses it at the setup) */
+        LsRows all = { INT32_MIN, INT32_MAX };
+        return all;
+    }
+    const unsigned nv = p->kind == 0 ? 1 : p->kind == 3 ? 3 : 2;
+    int64_t ymin = INT64_MAX, ymax = INT64_MIN;
+    for (unsigned i = 0; i < nv; i++) {
+        const int64_t Y = wy(&p->c, p->v[i].y);
+        if (Y < ymin) ymin = Y;
+        if (Y > ymax) ymax = Y;
+    }
+    int64_t lo = floordiv64(ymin, 16) - 2, hi = floordiv64(ymax, 16) + 2;
+    if (lo < p->d.sy0) lo = p->d.sy0;
+    if (hi > p->d.sy1) hi = p->d.sy1;
+    LsRows r = { (int32_t)lo, (int32_t)hi };
+    return r;
+}
+
+/* A CLUT load (clut_load) reads a page a span of the list writes. One that
+ * reads a page the prior list writes (em_gs_list_prior) first waits for it.
+ * The pages are those of the CLUT's texels (clut_load's reads: 16 x 16
+ * entries for T8, 8 x 2 for T4, at CBP with width 1), exactly. */
+static int list_clut_drawn(const EmGs *gs, unsigned cpsm, uint32_t cbp, int t8)
+{
+    EmGsList *l = gs->list;
+    uint64_t pages[TC_PAGES / 64] = {0};
+    const unsigned w = t8 ? 16 : 8, h = t8 ? 16 : 2;
+    for (unsigned y = 0; y < h; y++)
+        for (unsigned x = 0; x < w; x++) {
+            const uint32_t byte = cpsm == EM_GS_PSMCT32 || cpsm == EM_GS_PSMCT24 ? addr32_(cbp, 1, x, y, 0) * 4u
+                                                                                 : em_gs_addr16(cbp, 1, x, y, cpsm) * 2u;
+            const uint32_t pg = (byte / 8192u) & (TC_PAGES - 1);
+            pages[pg >> 6] |= UINT64_C(1) << (pg & 63);
+        }
+    for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+        if (pages[j] & l->written[j])
+            return 1;
+    for (uint32_t j = 0; l->prior && j < TC_PAGES / 64; j++)
+        if (pages[j] & l->prior->written[j]) {
+            l->prior_wait(l->prior_ctx);
+            l->prior = NULL;
+        }
+    return 0;
+}
+
+void em_gs_list_prior(EmGsList *l, const EmGsList *prior, void (*wait)(void *), void *ctx)
+{
+    if (!l)
+        return;
+    l->prior = wait ? prior : NULL;
+    l->prior_wait = wait;
+    l->prior_ctx = ctx;
+}
+
+/* Slot i of the span being queued (the primitive nprims + i), its chunk
+ * allocated: NULL (the list marked failed) without memory or room. The
+ * slots are not drawable until list_close appends the span. */
+static struct EmGsPending *list_slot(EmGsList *l, uint32_t i)
+{
+    if (l->failed)
+        return NULL;
+    const uint64_t k = (uint64_t)l->nprims + i;
+    if (k >= (uint64_t)LS_PCHUNK * LS_PCHUNKS) {
+        l->failed = 1;
+        return NULL;
+    }
+    const uint32_t c = (uint32_t)(k / LS_PCHUNK);
+    if (!l->prim[c]) {
+        l->prim[c] = malloc(LS_PCHUNK * sizeof(struct EmGsPending));
+        l->rows[c] = malloc(LS_PCHUNK * sizeof(LsRows));
+        if (!l->prim[c] || !l->rows[c]) {
+            free(l->prim[c]);
+            free(l->rows[c]);
+            l->prim[c] = NULL;
+            l->rows[c] = NULL;
+            l->failed = 1;
+            return NULL;
+        }
+    }
+    return ls_prim(l, (uint32_t)k);
+}
+
+/* The span queued in slots 0 .. n - 1 ends (span_end): its grid decision,
+ * the CLUT and DIMX it is drawn with, its rows and pages, appended. */
+static void list_close(EmGs *gs, uint32_t n, int stq_grid)
+{
+    EmGsList *l = gs->list;
+    if (l->failed)
+        return;
+    if (l->nspans == LS_SCHUNK * LS_SCHUNKS) {
+        l->failed = 1;
+        return;
+    }
+    /* the CLUT the span is drawn with: a new snapshot when the parsing EmGs's
+     * CLUT changed since the last one (or this list has none yet) */
+    if (!l->ncluts || gs->clut_changes != l->snap_changes) {
+        const uint32_t c = l->ncluts;
+        if (c == LS_CCHUNK * LS_CCHUNKS) {
+            l->failed = 1;
+            return;
+        }
+        if (!l->clut[c / LS_CCHUNK] && !(l->clut[c / LS_CCHUNK] = malloc(LS_CCHUNK * sizeof *l->clut[0]))) {
+            l->failed = 1;
+            return;
+        }
+        memcpy(l->clut[c / LS_CCHUNK][c % LS_CCHUNK], gs->clut, sizeof gs->clut);
+        l->ncluts++;
+        l->snap_changes = gs->clut_changes;
+    }
+    const uint32_t s = l->nspans;
+    if (!l->span[s / LS_SCHUNK] && !(l->span[s / LS_SCHUNK] = malloc(LS_SCHUNK * sizeof(LsSpan)))) {
+        l->failed = 1;
+        return;
+    }
+    LsSpan *sp = &l->span[s / LS_SCHUNK][s % LS_SCHUNK];
+    sp->first = l->nprims;
+    sp->n = n;
+    sp->ylo = INT32_MAX;
+    sp->yhi = INT32_MIN;
+    sp->nw = 0;
+    sp->w_all = 0;
+    const Draw *q = NULL;
+    for (uint32_t i = 0; i < n; i++) {
+        const uint32_t k = l->nprims + i;
+        struct EmGsPending *p = ls_prim(l, k);
+        p->d.stq_grid = stq_grid;
+        const LsRows r = list_rows(p);
+        l->rows[k / LS_PCHUNK][k % LS_PCHUNK] = r;
+        if (r.lo <= r.hi) {
+            if (r.lo < sp->ylo) sp->ylo = r.lo;
+            if (r.hi > sp->yhi) sp->yhi = r.hi;
+        }
+        span_writes_add(&p->d, &q, sp->w, &sp->nw, &sp->w_all);
+    }
+    span_writes_mask(sp->w, sp->nw, sp->w_all, sp->m);
+    sp->clut = l->ncluts - 1;
+    sp->clut_serial = l->snap_changes + 1;
+    sp->dimx = gs->dimx;
+    for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+        l->written[j] |= sp->m[j];
+    l->nprims += n;
+    l->nspans = s + 1;
+}
+
+void em_gs_list_rows(const EmGsList *l, uint32_t s0, uint32_t s1, int32_t *ylo, int32_t *yhi)
+{
+    int32_t lo = INT32_MAX, hi = INT32_MIN;
+    for (uint32_t s = s0; l && s < s1 && s < l->nspans; s++) {
+        const LsSpan *sp = ls_span(l, s);
+        if (sp->ylo > sp->yhi)
+            continue;
+        if (sp->ylo < lo) lo = sp->ylo;
+        if (sp->yhi > hi) hi = sp->yhi;
+    }
+    *ylo = lo;
+    *yhi = hi;
+}
+
+/* The rows lo..hi miss this EmGs's band (conservative for interleaved bands:
+ * those are drawn). */
+static int list_misses(const EmGs *gs, int32_t lo, int32_t hi)
+{
+    if (lo > hi)
+        return 1;
+    return gs->band_rows && (hi < gs->band_y0 || lo > gs->band_y1);
+}
+
+/* The decoded texture cache's stamp of pages m (a span of their own). */
+static void list_stamp(EmGs *gs, const uint64_t m[TC_PAGES / 64], const PgSpan *w, uint32_t nw, int w_all)
+{
+    Tc *t = tc_get(gs);
+    if (!t)
+        return;
+    t->sigma++;
+    t->nw = nw;
+    t->w_all = w_all;
+    if (nw)
+        memcpy(t->w, w, nw * sizeof *w);
+    t->q_valid = 0;
+    tc_stamp(t, m);
+}
+
+uint32_t em_gs_list_draw(EmGs *gs, const EmGsList *l, uint32_t s0, uint32_t s1, int (*before)(void *, uint32_t),
+                         void *ctx)
+{
+    if (!gs || !l)
+        return s0;
+    uint64_t pass[TC_PAGES / 64] = {0};
+    int passed = 0;
+    uint32_t s = s0;
+    for (; s < s1; s++) {
+        if (before && !before(ctx, s))
+            break;
+        gs->lsc.spans++;
+        const LsSpan *sp = ls_span(l, s);
+        if (list_misses(gs, sp->ylo, sp->yhi)) {
+            if (!gs->tc_off) {
+                for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+                    pass[j] |= sp->m[j];
+                passed = 1;
+            }
+            continue;
+        }
+        if (!gs->tc_off) {
+            if (passed) {
+                list_stamp(gs, pass, NULL, 0, 0);
+                memset(pass, 0, sizeof pass);
+                passed = 0;
+            }
+            list_stamp(gs, sp->m, sp->w, sp->nw, sp->w_all);
+        }
+        if (gs->list_clut != sp->clut_serial) {
+            memcpy(gs->clut, l->clut[sp->clut / LS_CCHUNK][sp->clut % LS_CCHUNK], sizeof gs->clut);
+            gs->list_clut = sp->clut_serial;
+            tc_clut_changed(gs);
+        }
+        gs->dimx = sp->dimx;
+        gs->lsc.spans_drawn++;
+        for (uint32_t i = sp->first; i < sp->first + sp->n; i++) {
+            const LsRows *r = ls_rows(l, i);
+            if (list_misses(gs, r->lo, r->hi))
+                continue;
+            struct EmGsPending q = *ls_prim(l, i);
+            gs->lsc.prims++;
+            draw_one(gs, &q);
+        }
+    }
+    if (passed)
+        list_stamp(gs, pass, NULL, 0, 0);
+    return s;
+}
+
+void em_gs_list_pass(EmGs *gs, const EmGsList *l, uint32_t s0, uint32_t s1)
+{
+    if (!gs || !l || gs->tc_off)
+        return;
+    uint64_t pass[TC_PAGES / 64] = {0};
+    int passed = 0;
+    for (uint32_t s = s0; s < s1; s++) {
+        const LsSpan *sp = ls_span(l, s);
+        for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+            pass[j] |= sp->m[j];
+        passed = 1;
+    }
+    if (passed)
+        list_stamp(gs, pass, NULL, 0, 0);
 }

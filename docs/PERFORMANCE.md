@@ -48,6 +48,8 @@ On the iPhone Air the port got only 3 drawing threads, and every tick measured t
 
 **After the specialized span loops (Progress P14, 2026-10-15).** 85-87 % of the drawn pixels now go through 18 dedicated loops (the depth-of-field pass, the snow and fire sprites, the textured triangles, gsw_alpha_clear's strip), the same bytes. The pixel cost is 15.9 ns (26.8 before, -41 %); the GS frame on one worker takes 17.6 ms of CPU in the AREA11 cinematic and 25.2 ms at the AREA01 fire peak. At the default 6 workers the busiest worker is 5.7-6.1 ms in AREA11 and 6.0-7.0 ms in AREA01, where the game thread (about 10 ms) sets the tick. The 3-worker iPhone proxy now runs every measured range at full speed with no tick over (busiest worker 7.8-8.3 ms in AREA11, 8.8-10.6 ms in AREA01). M4 and L1 remain.
 
+**After parse once and bands from a queue (Progress P15, 2026-10-15).** The frame is parsed once and drawn in bands the workers take from a queue, a band still being drawn split for a worker that has none, and the next frame's parse starts on the game's thread while it waits; the same bytes. At 3 workers (the iPhone proxy) the AREA11 tick fell from 8.1-8.4 to 6.5-6.6 ms (busiest worker 7.8-8.1 -> 6.0-6.1 ms) and AREA01's fire peak from 11.0 to 10.1-10.2 ms, where the game thread now sets the tick. With 10 workers on this Mac (more than its 8 performance cores: the straggler case) the AREA11 tick fell from 7.8-8.4 to 6.0-6.4 ms. At the default 6 workers the busiest worker is 3.8-4.1 ms in AREA11 and 4.2-5.0 ms in AREA01; the game thread sets the tick everywhere. L1 remains.
+
 ## 2. Where the time goes, scene by scene
 
 Quiet M1 Pro, default 7 GS workers, means per tick.
@@ -125,6 +127,7 @@ The AREA01 runs without the pass had a load spike to 15.
    - Every worker replays every register write and sets up every primitive: +2.1 ms of CPU per extra worker, about 75 % efficiency at 7 workers, and 8 workers is worse than 7.
    - Bands are static 4-row interleaves, so the frame and each of the pass's 8 barriers wait for the slowest worker, including one on an efficiency core.
    - Workers are idle 13.6-21.5 % of the time.
+   - Measured and changed since (Progress P15): the frame is parsed once and drawn in bands from a queue, with splits; at 10 workers the tick no longer waits for a straggler (8.2 -> 6.0 ms in the cinematic).
 5. **The main-thread budget, which is the bottleneck in AREA01.**
    - AREA01 uses 13.3-14.0 ms per tick, leaving about 3 ms of headroom.
    - The VU1 page programs (snow, sprite/flame, kind-6, lane, streak, kind-2) still use the integer float model. The level and object kernels already use proven host floats, which took them from 15.9 to 5.6 ms.
@@ -231,6 +234,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* the duplicated front end is about 13 ms of the 67 ms all-worker sum at 7 workers (measured basis), about 1.5-1.8 ms of busiest worker, plus part of the idle and straggler time.
 - *Effort:* 1-2 weeks. *Risk:* medium.
 - *Proof:* gs_world_test.c, raster test part F with EM_TEST_FULL=1.
+- *Done (Progress P15):* the parse once into a list of spans, two bands a worker in each segment taken from a queue, a band still being drawn split for an idle worker, and the next frame's parse begun on the game's thread while it waits for the previous frame. The same bytes (the proof set; part F with row-range bands; gs_world_test with frames parsed early, band settings and the list's stamps; a 6,000-frame HEAD-against-M4 world differential at 1, 3, 6 and 8 workers, also under the thread sanitizer, with fifteen negative controls caught). The busiest worker 1.4-1.9 ms lower at 3 and 6 workers; at 3 workers the AREA11 tick 1.5-1.8 ms lower (8.4 -> 6.6 ms); at 10 workers the AREA11 tick 1.5-2.2 ms lower (the stragglers no longer set it). The differential also found a recorder ordering gap shared with HEAD (fixed; the demo's frames keep their barrier counts).
 
 ### Large work
 
@@ -252,7 +256,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - **Is that realistic?** The fork already draws the same frames at 8.5-13 ms of single-core GS CPU, as Rosetta-translated code. That is evidence the hardware can do it, not a promise.
 - **AREA01** also needs Q1 and Q2.
 
-**Order:** Q1-Q5, then M1, M3, M2, M4, then L1.
+**Order:** Q1-Q5, then M1, M3, M2, M4, then L1. Done through M4 (Progress P15).
 
 ## 5. iPhone Air (A19 Pro)
 
@@ -273,6 +277,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - **After the early Z test** (Progress P12, the same proxy): busiest worker cinematic 13.1-13.2 ms (99.9-100 % speed, 30-40 of 1,310 ticks over), calm 12.3-12.4 ms and slide 13.3 ms (100 %, none over), AREA01 beat 15.6 ms (93.4-93.7 %), fire 17.5-17.6 ms (89.1-89.3 %), fire peak 20.5-20.6 ms (79.6-79.8 %).
 - **After the decoded texture cache** (Progress P13, the same proxy): busiest worker cinematic 11.9 ms (0-1 of 1,310 ticks over), calm 11.5 ms and slide 11.8-11.9 ms (none over), AREA01 beat 13.7 ms (98.6 %, 84 of 781 over), fire 15.0 ms (97.1-97.2 %), fire peak 17.2 ms (93.1 %, 81 of 149 over). Each worker holds up to 10.2 MiB of decoded texels on the route to a01_00, so 4 workers on the phone add about 41 MiB.
 - **After the specialized span loops** (Progress P14, the same proxy): busiest worker cinematic 8.1-8.3 ms, calm 8.0-8.2 ms, slide 7.8-7.9 ms, AREA01 beat 8.8-8.9 ms, fire 9.4 ms, fire peak 10.6 ms; no tick over in any range (100 % speed; the same day's HEAD ran AREA01 at 92.8-98.6 %).
+- **After parse once** (Progress P15, the same proxy): tick wall cinematic 6.61 ms (8.41-8.43 before), calm 6.51-6.54, slide 6.59; busiest worker 6.0-6.1 ms; AREA01 beat 10.3-10.5, fire 10.2-10.3, fire peak 10.1-10.2 ms (11.0 before), set by the game thread; no tick over in any range except one of the beat's in one run. The game thread now parses about 46 % of an AREA11 frame while it waits for the previous one (its CPU +0.4-0.7 ms). The 4 workers on the phone's 2 performance and 4 efficiency cores are the case the queue and the splits are for: a band on a slow core is split for a faster worker, and the frame no longer waits for the slowest core's whole share. Measured on this Mac with 10 workers (more than its 8 performance cores) as a proxy: the AREA11 tick 6.0-6.3 ms against HEAD's 7.8-8.4 ms; not measured on the device.
 - **Per-core speed.** A19 Pro P-cores are faster per core than the M1 Pro's (IOS.md world steps p50 6.99 vs 7.52 ms, before the GS frame), but the E-cores are much slower. On balance the device is probably worse than these numbers; not measured on it.
 - **Stale doc.** IOS.md "Frame time" (2026-10-04, 7.6 ms headroom) predates the GS frame on main (2026-10-08) and the depth-of-field pass (2026-10-10).
 - **Thermals.** The Air is a thin phone. Sustained all-core load will throttle; not measured.
@@ -280,7 +285,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 **What to do:**
 1. **User decision:** default to, or offer prominently, EM_GPU_RENDERER=1 on the phone until the exact path fits. It is not exact, so it is a profile-policy decision for LAUNCHER_OPTIONS.md. Nothing has been changed.
 2. **Q5:** worker QoS and a perflevel-based count. Done (P3: 4 workers by default); still to measure 2-5 workers on the device.
-3. **M4** dynamic bands, so E-cores do not set the frame time.
+3. **M4** dynamic bands, so E-cores do not set the frame time. Done (P15): bands from a queue and splits; measured on this Mac with 10 workers, not on the device.
 4. **Q2** frees P-core time. Done (P5): 1.1-1.5 ms of game thread per tick on the Mac.
 5. **M1, M3, M2 and L1** are the only route to an exact Original profile at full speed on the phone. Estimate: GS CPU must drop 2-3x for AREA11 and 3-4x for the fire.
 
@@ -1409,6 +1414,84 @@ The rest are P7's fills (the field's Z clear, the full clears, the colour fills)
 - *The iPhone proxy* (3 workers, M1 performance cores): the busiest worker fell 3.7-4.3 ms in AREA11 (7.8-8.3 ms) and 5.0-6.6 ms in AREA01 (8.8-10.6 ms). AREA01 now runs at full speed (no tick over in any range; HEAD 92.8-98.6 % with 80-103 ticks over), and the GS frame fits the period with 6 ms to spare at the fire peak. Not measured on the device, where the efficiency cores make it worse (section 5).
 - *What is left.* The textured triangles' exact coordinate arithmetic (STQ: barycentric weights, binary32 sums and two quotients per pixel), now the largest cost (55 % of the census's GS CPU before, DATE ones included, and 66 % after); the duplicated front end and the static bands (M4); NEON (L1). The DOF sprites would gain about 0.1-2.6 ns a pixel from the first version's pixel stage (plot_src's switches, measured above) while the triangles keep the final one: a per-loop choice left for later.
 - *Not covered:* nothing was measured on the iPhone, and the iOS build was not re-run (plain C in files already in the project). The 18 loops make the binary 130 KiB larger (4,667,760 -> 4,800,416 bytes); the generic path is unchanged.
+
+### P15. Parse once, bands from a queue (M4) (2026-10-15)
+
+**The frame's structure** (EM_GS_LIST_COUNTERS, a diagnostic added with this step; m4/lc_demo3.txt, lc_demo.txt, lc_demo10.txt, lc_a01.txt, lc_a013.txt; the in-level AREA11 frames 400-1600 of the demo, the AREA01 frames of the route). An AREA11 frame holds about 605 spans and 12,200 primitives in 10.1 segments (the stretches between the recorder's barriers: the world, then the depth-of-field pass's copies and blends), an AREA01 frame 940 spans and 12,100 primitives in 10.2 segments. Parsing a frame once takes 1.6-1.8 ms of CPU (the register decode, the setup and the queue that every worker ran before).
+
+**What changed** (em_gs_raster.c section 12, em_gs_world.c; GS_EXACT.md section 9, "Workers and order").
+- *Parse once.* With more than one worker, one EmGs (the parser) takes the frame's writes and, where a span ends, appends the span to a list instead of drawing it: the primitives as queued (Draw, context, vertices, the grid decision), the CLUT buffer and DIMX they are drawn with, the rows each can reach (its vertices' rows, two rows wider, inside the scissor) and the pages the span writes. The storage is chunked and never moves, so the workers draw spans the parse has published while it goes on. With one worker the frame is drawn directly, as before.
+- *Bands from a queue.* Each segment is cut into two bands a worker (EM_GS_BANDS) over the rows it draws, the first open to the top and the last to the bottom. The workers take bands in order; a worker left without one asks the band with the most work left for the lower half of its rows, which its owner gives at its next span (it keeps the upper half). Each band is drawn by one worker, its primitives in the list's order with their state; every band of a segment ends before any band of the next starts (the barrier); the field is read out in 16-row pieces after the last segment.
+- *The decoded copies.* A band's walk gives its worker's copies (P13) the pages of the spans it skips, and a worker passes them the pages of the segments it drew none of, so a copy is renewed after every span that wrote its pages, as in the direct path.
+- *The early parse.* The Metal backend calls em_gs_world_preparse before it waits for the previous frame's field: the game's thread parses the next frame while the previous one is drawn, until that frame is done, and the workers go on from there. A CLUT load that reads a page the previous frame draws waits for it first.
+- *The parse's one memory read.* A CLUT load from a page a span of the frame's own list draws is refused (EM_GS_REFUSE_ORDER, fail-stop): what it would read depends on the drawing. The first level has none (the proof set below).
+- *Developer switches* (STARTUP.md "Developer switches"): EM_GS_BANDS=<n>, EM_GS_LIST=1 (one worker draws the parsed list), EM_GS_EARLY_PARSE=0, EM_GS_EARLY_OPS=<n> (a test switch: the early parse at every kick, handing over after n ops), EM_GS_LIST_COUNTERS=<file>.
+
+**Same bytes.**
+- *The GS proof set* (EM_TEST_FULL=1, 2026-10-15, on these exact sources; receipts in build/perf_investigation/m4/proof/, src_md5.txt): the raster reference, the DOF pass, fog, GS memory, gs_display_test, the texture reference (11,129 decodes) and `make test-gs-swizzle` (2,153,286,588 addresses) give P14's logs line for line; part F of the raster reference now also draws every capture packet through row-range bands (3 cut at seeded rows; with EM_TEST_FULL=1 also 8, and 5 cut in the first 40 rows): 0 differ. gs_world_test passes with its new parts: frames parsed early while the one before is drawn (a CLUT loaded from that frame's field, so the early parse waits for it) at 3 and 8 workers, the early parse forced to hand over after 37 ops (3 and 8 workers, and one worker drawing the list), the early parse off, 1 and 8 bands a worker, and the list's texture-cache stamps with two drawing models in a fixed band order. The fb2 harness passes at 8 of 19 points with every exact-pixel line equal to P14's except the level exit's presented frame, 113,053 exact pixels instead of 113,002: HEAD's binary gives 113,053 today too, with byte-identical port images (m4/fb2check: HEAD, M4, HEAD, M4); the headless frame follows the display's backing scale (P13). The AREA01 smoke: 20 live phases, its PASS line equal to P14's. The full level smoke: the same 404 PASS lines as P14, no failures (48 minutes). One comment-only edit (the header of tests/gs_world_test.c) came after the proofs; `make test-gs-world` passes again with it (m4/proof/test-gs-world-after-comment.log, src_md5_after_comment.txt).
+- *A random differential* (m4/sweep/wsweep.c; build.sh, run.sh, all.sh; final.txt). The world's own API, as the renderer drives it: each seeded batch restores a random 4 MiB memory and records four frames (world frames with a head, list frames; fields A and B alternating), each a random sequence of primitives with their environment (five buffers, among them a 512 x 300 one taller than the field, CT32 and CT16 frames, Z32 / Z24 with ZMSK, points, lines, triangles, sprites, UV and STQ, nearest and bilinear, every wrap mode, CT32 / T8 / T4 textures with CLD 0-5 and CSA, render to texture through the recorder's barriers, every Z test, the alpha test, DATE, every blend), FOGCOL and DIMX writes, GIF state blocks, the environment again, CLUTs loaded from a buffer an earlier frame drew, and a depth-of-field-like pass; after each frame the hash of all 4 MiB, the field and the counts. 1,500 batches (6,000 frames, 246,149 primitives, 1.08 billion pixels): HEAD at 1, 3 and 8 workers and M4 at 1 (direct), 3, 8 and the host default (6), with one worker drawing the list, with 1 and 8 bands a worker, with the early parse forced after 37 ops (3 and 8 workers), with it off and without em_gs_world_preparse: every line equal. Under the thread sanitizer (8 workers, 400 batches): no warning, every line equal. What it exercised at 8 workers: 2,776 frames with barriers, 15,648 segments, 242,722 bands, 29,469 splits, the early parse in 1,465 frames (643,043 ops) with 280 waits for the frame before.
+- *Negative controls* (m4/sweep/neg/): fifteen plausible mistakes, each in a copy of the sources. Fourteen are caught by the differential (lines of 1,200 that differ at 3 workers / 8 workers / one worker drawing the list): a primitive's rows without the two-row margin 58 / 175 / 18; a band's top row off by one 13 / 82 / 4; a span's rows without its first primitive 1,194 in every configuration; the next segment started while one band still draws 63 / 334; the span's CLUT not taken 1,071; the CLUT snapshots keyed per list 29 / 45 / 14; DIMX not taken 44; the grid decision not stored 681; split rows drawn from the segment's first span 1,067 / 1,076; the split's owner keeping its rows 817 / 957; the last band closed at the partition's end 300 / 352; the early parse reading a CLUT the frame before still draws 9 / 8; the readout's pieces a row short 1,200; the segments a worker drew none of not passed to its copies 15 / 187. The fifteenth, the skipped spans' pages not stamped, draws the same in the differential (no batch had a worker skip a span that wrote pages its copies held and then sample them) and is caught by gs_world_test's stamp case, which catches the unpassed segments too.
+- *Three defects the differential found during the step* (fixed before the proofs above; the first is also one of the controls): the CLUT snapshots were first keyed per list, and the two frames' lists (double-buffered for the early parse) gave equal keys to different palettes; a band read the segment's end before the published count, so it could draw the next segment's first spans before the barrier (seen as a few duplicate pixels under load); and the recorder's own ordering: after a barrier for a texture read, the drawing target's blocks were not drawn ones again, so a read of them later in the same stretch had no barrier. The last is HEAD's recorder too (its replaying workers did not show it in the differential); the recorder now marks the target again after such a barrier (GS_EXACT.md section 9). Over the demo the first level has the same segment counts as before (9, 10 or 12 a frame in level, frame for frame over the first 1,450 frames: m4/segs_before_remark.txt against m4/lc_demo3.txt).
+
+**Live** (m4/batch.sh at 19:04-20:17 on 2026-10-15 and one re-run at 20:18, headless, uncapped; each group HEAD, M4, M4, HEAD; binaries m4/head_extermination, HEAD 8bc6ded from git archive, and m4/m4_extermination, a copy of build/extermination, both built with the Makefile's command, 0 warnings). The quiet gate held before every kept run: idle 70.2-76.7 %, 1-minute load 3.9-15.1. Excluded: m4_a01_t3_m4_b (it started at 67.4 % idle; re-run as m4_a01_t3_m4_c at 70.9 %, used below; the excluded run's figures agree within 0.2 ms). Mean ms per tick; busiest = the busiest worker's CPU per frame.
+
+One worker (the GS frame's CPU per frame; the direct path in both builds):
+
+| Range | HEAD a / b | M4 a / b |
+|---|---|---|
+| AREA11 cinematic (1,310) | 17.57 / 17.69 | 16.92 / 17.22 |
+| AREA11 calm (85) | 16.64 / 16.67 | 16.05 / 16.17 |
+| AREA11 slide (121) | 16.92 (110) / 17.10 | 16.60 / 16.59 |
+| AREA01 beat (781) | 19.68 / 19.94 | 18.91 / 18.88 |
+| AREA01 fire (376) | 21.64 / 21.83 | 20.97 / 20.95 |
+| AREA01 fire peak (149) | 25.08 / 25.28 | 24.47 / 24.40 |
+
+The direct path's work is HEAD's (this step only regroups its code); its 2-4 % lower CPU here is not claimed as a gain of the step.
+
+Default 6 workers. Each cell: busiest worker / tick wall / ticks over:
+
+| Range | HEAD a, b | M4 a, b |
+|---|---|---|
+| AREA11 cinematic | 5.49, 5.50 / 6.32, 6.28 / 0, 0 | 4.14, 4.14 / 5.81, 5.90 / 0, 0 |
+| AREA11 calm | 5.54, 5.58 / 6.39, 6.41 / 0, 0 | 3.94, 3.91 / 6.08, 6.18 / 0, 0 |
+| AREA11 slide | 5.28 (118), 5.26 / 6.19, 6.18 / 0, 0 | 3.82, 3.81 / 6.04, 6.08 / 0, 0 |
+| AREA01 beat | 6.01, 5.91 / 10.70, 10.36 / 1, 0 | 4.22, 4.22 / 10.08, 10.13 / 0, 0 |
+| AREA01 fire | 6.16, 6.15 / 10.16, 10.20 / 0, 0 | 4.49, 4.48 / 9.91, 9.95 / 0, 0 |
+| AREA01 fire peak | 6.76, 6.73 / 9.86, 9.88 / 0, 0 | 4.99, 5.00 / 9.62, 9.65 / 0, 0 |
+
+Three workers (EM_GS_THREADS=3, the iPhone proxy). Busiest worker / tick wall / ticks over, and the game thread's CPU:
+
+| Range | HEAD a, b | M4 a, b (AREA01: a, c) | Game thread HEAD -> M4 |
+|---|---|---|---|
+| AREA11 cinematic | 8.05, 8.04 / 8.43, 8.41 / 0, 0 | 6.13, 6.13 / 6.61, 6.61 / 0, 0 | 5.81 -> 6.49 |
+| AREA11 calm | 7.95, 7.92 / 8.32, 8.30 / 0, 0 | 6.01, 6.03 / 6.51, 6.54 / 0, 0 | 6.05 -> 6.44 |
+| AREA11 slide | 7.77, 7.75 / 8.12, 8.12 / 0, 0 | 6.07, 6.08 / 6.59, 6.59 / 0, 0 | 6.00 -> 6.57 |
+| AREA01 beat | 8.79, 8.78 / 10.53, 10.52 / 0, 0 | 7.05, 7.24 / 10.32, 10.53 / 0, 1 | 10.26 -> 10.35 |
+| AREA01 fire | 9.39, 9.37 / 10.61, 10.61 / 0, 0 | 7.74, 7.80 / 10.22, 10.28 / 0, 0 | 10.09 -> 10.20 |
+| AREA01 fire peak | 10.60, 10.57 / 11.04, 11.03 / 0, 0 | 8.89, 8.99 / 10.12, 10.22 / 0, 0 | 9.78 -> 10.10 |
+
+Ten workers (EM_GS_THREADS=10: every core of this Mac, more than its 8 performance cores, so some workers share cores with the game's threads or run on the 2 efficiency cores: the mixed-core straggler case). Busiest worker / tick wall:
+
+| Range | HEAD a, b | M4 a, b |
+|---|---|---|
+| AREA11 cinematic | 5.54, 5.49 / 8.24, 8.21 | 3.86, 3.86 / 6.00, 6.02 |
+| AREA11 calm | 5.74, 5.73 / 8.36, 8.35 | 3.71, 3.71 / 6.28, 6.36 |
+| AREA11 slide | 5.28, 5.24 / 7.80, 7.83 | 3.54, 3.56 / 6.29, 6.26 |
+| AREA01 beat | 5.98, 5.95 / 10.91, 10.81 | 4.05, 4.01 / 10.67, 10.70 |
+| AREA01 fire | 6.05, 6.08 / 10.82, 10.70 | 4.26, 4.21 / 10.54, 10.56 |
+| AREA01 fire peak | 6.41, 6.48 / 10.55, 10.58 | 4.67, 4.62 / 10.34, 10.25 |
+
+No tick ran over in either build at 10 workers. Every range ran at full speed at 3, 6 and 10 workers in both builds (HEAD a's AREA01 beat at 6 workers: 98.4 %, one tick over).
+
+**The schedule** (the counters above, means per frame). At 3 workers an AREA11 frame has 60.5 bands and 6.0 splits, its primitives are drawn 1.00 times each (HEAD's every worker set up every primitive that reached its interleaved rows), the workers' CPU sums to 18.0 ms against 17.0-17.2 ms for one worker, they wait 1.25 ms for a task and 0.42 ms for the parse (summed), and the game's thread parses 58,166 of the frame's ops early (about 46 % of its 126,000 register writes). At 6 workers: 121 bands, 8.9 splits, each primitive 1.27 times, 21.2 ms summed, the early parse 310 ops (the game's thread is not waiting). At 10: 196 bands, 8.8 splits, 1.55 times, 27.8 ms. In AREA01 at 3 workers the early parse takes 4,294 ops (the game thread sets the tick).
+
+**Reading.**
+- *Exactness.* Only who draws which rows, and when, changed: the parser makes the calls the direct path makes, each band draws its rows in the list's order with the same state, and the barriers order the bands as before. The evidence is the proof set, the differential against HEAD's path with its controls, and the thread sanitizer, not the label. One worker draws directly, as before.
+- *The iPhone proxy* (3 workers): the tick fell 1.5-1.8 ms in AREA11 (cinematic 8.4 -> 6.6 ms, -21 %): the busiest worker 1.7-1.9 ms lower, and the parse partly moved to the game's thread, which waited for the frame anyway (its CPU +0.4-0.7 ms; the tick is now about the game thread's). In AREA01 the game thread (10.1-10.4 ms) sets the tick in both builds; the fire peak's tick fell 0.8-0.9 ms (11.0 -> 10.1-10.2 ms), where HEAD's busiest worker (10.6 ms) set it.
+- *The Mac* (6 workers): the busiest worker fell 1.4-1.6 ms in AREA11 (cinematic 5.5 -> 4.1 ms) and 1.7-1.8 ms in AREA01 (fire peak 6.7 -> 5.0 ms). The tick, already the game thread's, fell 0.1-0.5 ms (cinematic 6.3 -> 5.8-5.9 ms).
+- *The straggler case* (10 workers): HEAD's tick ran 2.6-2.7 ms above its busiest worker's CPU in AREA11 (cinematic 8.2 ms against 5.5 ms of work): with equal interleaved bands, the frame and each barrier waited for the worker that lost its core. With bands from a queue and splits the tick is the game thread's (6.0-6.3 ms, -20 to -27 %), and the busiest worker does 3.5-3.9 ms. In AREA01 the game thread sets the tick in both builds (10.3-10.9 ms).
+- *What it costs.* The worker CPU summed over a frame is now about one worker's plus 0.8 ms at 3 workers (each band walks the segment's span list and sets up the primitives that reach it: the parse is done once, but a primitive across two bands is set up twice). More workers set up more primitives twice (1.27 times at 6, 1.55 at 10). The parse itself (1.6-1.8 ms) is serial; the early parse hides it where the game's thread waits.
+- *Not covered:* nothing was measured on the iPhone, and the iOS build was not re-run (plain C in files already in the project, and one call in the Metal backend shared with iOS). The phone's 4 workers over 2 performance and 4 efficiency cores are the case the queue and the splits are for; the 10-worker run on this Mac is a proxy for it, not a measurement. Windows has no worker threads yet (one worker: the direct path).
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

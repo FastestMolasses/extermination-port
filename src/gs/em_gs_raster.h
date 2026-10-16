@@ -78,6 +78,8 @@ enum {
     EM_GS_REFUSE_GIF        = 1u << 2, /* a malformed GIF packet                         */
     EM_GS_REFUSE_REGISTER   = 1u << 3, /* a register the model does not accept           */
     EM_GS_REFUSE_MEMORY     = 1u << 4, /* no memory for the address tables (EmGs.swz)    */
+    EM_GS_REFUSE_ORDER      = 1u << 5, /* parsed list (EmGs.list): a CLUT load from memory
+                                          a span of the list draws, or a transfer      */
 };
 
 struct EmGsPending;                   /* a primitive waiting for its span's end */
@@ -128,6 +130,27 @@ typedef struct EmGs {
      * every band, so N EmGs over one local memory, each fed the same writes
      * with its own band, draw exactly what one EmGs draws. 0 or 1: all rows. */
     uint32_t band_count, band_index, band_shift;
+    /* Row range bands (docs/PERFORMANCE.md M4): with band_rows 1 this EmGs
+     * writes only the window rows y with band_y0 <= y <= band_y1, and
+     * band_count, band_index and band_shift are not read. em_gs_world's
+     * workers draw a frame's parsed list (EmGsList below) a band at a time
+     * this way. */
+    int band_rows;
+    int32_t band_y0, band_y1;
+    /* Parse once (EmGsList below): with `list` set, a span that ends is
+     * appended to the list, with what drawing it reads (the primitives as
+     * queued, the CLUT, DIMX, the pages it writes), instead of drawn; the
+     * EmGs then draws nothing and writes no memory (a transfer is refused,
+     * EM_GS_REFUSE_ORDER). NULL: drawn. clut_changes counts the changes of
+     * the CLUT buffer: a list's CLUT snapshot is keyed by the parsing EmGs's
+     * clut_changes + 1 (one content per key, in every list it fills);
+     * list_clut is the key of the snapshot an EmGs drawing lists holds in
+     * its CLUT (0: none). */
+    struct EmGsList *list;
+    uint64_t clut_changes, list_clut;
+    /* em_gs_list_draw's counts (a diagnostic): spans walked, spans drawn
+     * (some primitive reaches the band), primitives drawn (draw_one calls). */
+    struct { uint64_t spans, spans_drawn, prims; } lsc;
     /* Test hook (tools/test_gs_raster_reference.py part F): every register
      * write, IMAGE transfer and flush this EmGs takes is passed on to `tee`
      * after it, so a chain of band EmGs takes one stream in lockstep. NULL:
@@ -222,5 +245,54 @@ void em_gs_write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_
  * wrapping at the 4 MiB. The decoded textures that read them are dropped.
  * Call it between drawing calls, for every EmGs over that memory. */
 void em_gs_memory_written(EmGs *gs, uint32_t first_block, uint32_t blocks);
+
+/* Parse once (docs/PERFORMANCE.md M4; em_gs_raster.c section 12). One EmGs
+ * with EmGs.list set takes a stream (em_gs_write / em_gs_gif) and appends
+ * every span that ends to the list instead of drawing it: the primitives as
+ * queued (their Draw, context and vertices, the span's grid decision), the
+ * CLUT buffer and DIMX they are drawn with, the rows each can draw and the
+ * pages the span writes. Other EmGs over the same local memory then draw
+ * the spans with em_gs_list_draw, each its band of rows (EmGs.band_rows),
+ * which draws in those rows exactly what the parsing EmGs would have drawn
+ * itself: the same primitives in the same order, with the same state. A
+ * span's appended data never moves, so spans below em_gs_list_spans() can
+ * be drawn while later ones are appended (em_gs_world orders that).
+ *
+ * The parsing EmGs reads memory only for CLUT loads; a load from a page a
+ * span of the list writes is refused (EM_GS_REFUSE_ORDER: the drawing
+ * would decide what it reads), and so is a transfer. */
+typedef struct EmGsList EmGsList;
+EmGsList *em_gs_list_create(void);
+void em_gs_list_destroy(EmGsList *l);
+/* Empties the list (its storage is kept); the next appended span is span 0. */
+void em_gs_list_clear(EmGsList *l);
+/* Spans appended so far. */
+uint32_t em_gs_list_spans(const EmGsList *l);
+/* 1 when a span could not be appended (no memory): the list is incomplete. */
+int em_gs_list_failed(const EmGsList *l);
+/* The window rows the primitives of spans [s0, s1) can draw: *ylo..*yhi
+ * (an empty range, *ylo > *yhi, when they draw none). Conservative: every
+ * row they draw is in it. */
+void em_gs_list_rows(const EmGsList *l, uint32_t s0, uint32_t s1, int32_t *ylo, int32_t *yhi);
+/* (s1 at most em_gs_list_spans() when the spans were appended: the caller
+ * orders the appending EmGs's thread and the drawing ones, which read only
+ * those spans.) Draws spans [s0, s1) into gs's rows (EmGs.band_rows; all rows without
+ * bands): gs takes the CLUT and DIMX each span was drawn with, and its
+ * decoded texture cache the pages each span writes, also for spans with no
+ * primitive in its rows (section 4b keeps a copy good only while no span
+ * wrote its pages). `before` (NULL: none) is called with ctx and each span's
+ * number before the span is drawn: it may change gs's rows (EmGs.band_y0,
+ * band_y1) for that span and the later ones, or return 0 to stop there.
+ * Returns the span it stopped at (s1 when it drew them all). */
+uint32_t em_gs_list_draw(EmGs *gs, const EmGsList *l, uint32_t s0, uint32_t s1, int (*before)(void *, uint32_t),
+                         void *ctx);
+/* The pages spans [s0, s1) write, given to gs's decoded texture cache, for
+ * an EmGs that drew none of them (another drew all their rows). */
+void em_gs_list_pass(EmGs *gs, const EmGsList *l, uint32_t s0, uint32_t s1);
+/* While l is appended to, `prior` (a whole list another thread may still be
+ * drawing; NULL: none) comes before it: a CLUT load that reads a page prior
+ * writes calls wait(ctx) first, which returns once prior is drawn, and then
+ * reads memory (prior is not consulted again). */
+void em_gs_list_prior(EmGsList *l, const EmGsList *prior, void (*wait)(void *), void *ctx);
 
 #endif

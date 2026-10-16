@@ -24,8 +24,14 @@
  * REFs carries the field's half-line XYOFFSET, which 001D2300 writes at step
  * V after the frame's draws were built; the GS executes the whole list after
  * the kick. Recording keeps that order. The kick hands the frame to worker
- * threads (row bands, EmGs.band_*), which draw it while the game builds the
- * next frame; the next kick waits for it.
+ * threads, which draw it while the game builds the next frame; the next
+ * kick waits for it. With more than one worker the frame is parsed once
+ * into a list of spans (EmGsList, em_gs_raster.h) and drawn in bands of
+ * rows the workers take from a queue, each band of a segment (the work
+ * between two barriers) by one worker in the list's order, a band still
+ * being drawn split for a worker that has none (docs/PERFORMANCE.md M4);
+ * the next frame's parse may begin on the caller's thread while this one is
+ * drawn (em_gs_world_preparse).
  *
  * Fail-stop: a refused primitive, a span fault (GS_EXACT.md section 6), a
  * texture that reads GS memory no upload wrote, a register write outside a
@@ -135,6 +141,14 @@ void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height);
  * recording, or the previous frame's drawing). */
 int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes);
 
+/* Before the kick, with the head the kick will pass (a backend that waits
+ * for the previous frame's field before it kicks calls this first): while
+ * the previous frame is still drawn, the calling thread parses this one
+ * (docs/PERFORMANCE.md M4), up to where the previous frame is done, and
+ * the workers go on from there. Nothing drawn changes. The kick must pass
+ * the same head (it faults otherwise). 0. */
+int em_gs_world_preparse(EmGsWorld *w, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes);
+
 /* A frame whose whole GS list was walked with its environment (the load
  * veil's, em_gfx_gs_frame): the primitives and environments in GS order,
  * handed to the workers as a kick does; its field is (display_frame's FBP,
@@ -197,12 +211,13 @@ static inline int em_gs_vif_direct(const uint8_t *p, size_t bytes, size_t word, 
 }
 
 
-/* The number of workers drawing a frame (row bands, EmGs.band_*): EM_GS_THREADS,
+/* The number of workers drawing a frame (in bands of rows, EmGs.band_rows): EM_GS_THREADS,
  * else a host default (em_gs_world.c worker_count: on Apple hosts the
  * performance cores less two, or every core less two where that leaves fewer
  * than 4; elsewhere the online processors less three), at least one and at
  * most 8. Every count draws the same bytes (tools/test_gs_raster_reference.py
- * part F, tests/gs_world_test.c). */
+ * part F, tests/gs_world_test.c), and so does every band setting
+ * (EM_GS_BANDS=<n>: n bands a worker in each segment, 1..64; default 2). */
 uint32_t em_gs_world_workers(const EmGsWorld *w);
 
 /* Test hooks (tools/test_gs_memory_reference.py): the local memory after
@@ -243,6 +258,19 @@ void em_gs_world_stats(const EmGsWorld *w, EmGsWorldStats *out);
  * uploaded block drawn over) since the previous line, the entries and pool
  * blocks held, and the nanoseconds of the hits and of the misses (timed only
  * while the file is open). Nothing recorded or drawn changes. */
+
+/* EM_GS_LIST_COUNTERS=<file> (a diagnostic, read at em_gs_world_create;
+ * docs/PERFORMANCE.md M4): one line per parsed frame waited for: the frame,
+ * the workers, the spans, the segments, the bands planned and the splits,
+ * the primitives, the spans the band tasks walked and drew, the primitives
+ * they drew (draw_one calls), the parse's CPU nanoseconds, the waits for a
+ * task and for the parse, the frame's wall, busiest-worker and all-worker
+ * CPU nanoseconds, the wall nanoseconds of those waits and of the readout's
+ * (summed over the workers), the early parse's waits for the frame before
+ * and the ops it parsed. Nothing drawn changes. Developer switches: EM_GS_LIST=1
+ * (one worker draws the parsed list too), EM_GS_EARLY_PARSE=0 (no early
+ * parse), EM_GS_EARLY_OPS=<n> (a test switch: the early parse at every
+ * kick, at most n ops); the same bytes with each. */
 
 /* EM_GS_Z_COUNTERS=<file> (a diagnostic, read at em_gs_world_create;
  * docs/PERFORMANCE.md P12): one line per frame waited for, summed over the

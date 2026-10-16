@@ -1275,22 +1275,54 @@ there). The movie's own GS memory writes are not modelled (the port
 presents its frames with the GPU); the next world frame's head clears and
 redraws the field.
 
-**Workers and order.** The model runs on worker threads, each an EmGs with
-its own registers and span over the one local memory, each drawing the
-rows (y >> 2) % n == k of whatever buffer it draws (EmGs.band_*; triangles
-and sprites skip other rows, lines and points do not plot them). Every
-worker takes every write, so their registers, spans, CLUTs and counters
-stay equal; the bands partition the pixels, so they write exactly what one
-EmGs writes (tools/test_gs_raster_reference.py part F: every capture packet
-in lockstep bands; `make test-gs-world`: 1, 2, 3 and 8 workers draw the
-same fields and memory, under the thread sanitizer). Where a primitive
+**Workers and order.** The model runs on worker threads over the one local
+memory. With one worker it takes the frame's writes itself and draws every
+row. With more (since 2026-10-15, PERFORMANCE.md "Progress" P15; before,
+every worker took every write and drew the rows (y >> 2) % n == k) the
+frame is parsed once: one EmGs, the parser, takes every write (registers,
+vertex queue, setup, the span and its chain, CLUT loads) and, where a span
+ends, appends it to a list instead of drawing it (EmGsList, em_gs_raster.c
+section 12): its primitives as queued, the CLUT buffer and DIMX they are
+drawn with, the rows each can reach (its vertices' rows, two rows wider,
+inside the scissor) and the pages the span writes. The workers draw the
+list in bands of rows (EmGs.band_rows; triangles and sprites skip other
+rows, lines and points do not plot them): each segment (the spans between
+two barriers) is cut into two bands a worker (EM_GS_BANDS) over the rows it
+draws, the first band open to the top and the last to the bottom; the
+workers take bands from a queue, and a worker left without one splits a
+band still being drawn (the band's owner gives the lower half of its rows
+at its next span and keeps drawing the upper half). Each band is drawn by
+one worker, its primitives in the list's order with the state they were
+queued with, and every band of a segment is done before any band of the
+next starts; a band's walk gives its worker's decoded copies (section 4.8)
+the pages of the spans it skips, and a worker passes them the pages of the
+segments it drew none of. So each pixel takes the writes one EmGs makes,
+in its order (tools/test_gs_raster_reference.py part F: every capture
+packet in lockstep bands, interleaved and as row ranges; `make
+test-gs-world`: 1, 2, 3 and 8 workers draw the same fields and memory,
+under the thread sanitizer, also with frames parsed early, 1 and 8 bands a
+worker and one worker drawing the list; a random differential against the
+previous path, PERFORMANCE.md P15). The parser reads memory only for CLUT
+loads: one from a page a span of the frame's list draws is refused
+(`EM_GS_REFUSE_ORDER`: what it would read depends on the drawing; the
+first level has none), and the next frame's parse may start on the game's
+thread while this frame is drawn (`em_gs_world_preparse`; a CLUT load that
+reads a page the frame being drawn writes waits for that frame first).
+Where a primitive
 reads a buffer drawn earlier in the frame, or a draw goes into a buffer read
 earlier in the frame (the shadow's target, between its passes), the
 recording inserts a barrier (a buffer is marked as drawn once per stretch
 between barriers: marking it again changes nothing, so a list whose every
-primitive carries FRAME_1 and SCISSOR_1, the load veil's, costs one mark): every worker reaches it before any goes on;
-it must fall where the span has already ended (a worker with queued
-primitives there faults, so a barrier never moves a span boundary). The
+primitive carries FRAME_1 and SCISSOR_1, the load veil's, costs one mark):
+every band before it is drawn before any band after it; it must fall where
+the span has already ended (a parser or worker with queued primitives there
+faults, so a barrier never moves a span boundary). After a barrier for a
+read, the drawing target's blocks (FRAME_1 and SCISSOR_1 as last written)
+are drawn ones again: the draws after the barrier write them, so a read of
+them later in the stretch needs a barrier too (since 2026-10-15, found by
+the P15 differential: before, such a read in the same stretch was not
+ordered; the demo's frames keep their barrier counts, and the level smoke
+and the fb2 harness pass as before). The
 worker count is EM_GS_THREADS, else a host default: on Apple hosts the
 performance cores less two (6 on an M1 Pro), or every core less two where
 that leaves fewer than 4 (4 on the iPhone Air); elsewhere the processors
@@ -2102,6 +2134,30 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   thread's. With 3 workers (the iPhone proxy, not the device) every
   measured range runs at full speed with no tick over (AREA01 92.8-98.6 %
   before).
+- **Parse once, bands from a queue (2026-10-15, PERFORMANCE.md "Progress"
+  P15; every figure here headless on a quiet machine).** With more than one worker the frame is parsed once into a list
+  of spans and drawn in bands of rows the workers take from a queue, a
+  band still being drawn split for a worker that has none; the next
+  frame's parse begins on the game's thread while it waits for the
+  previous frame (section 9, "Workers and order"). The bytes are the
+  same: the GS proof set gives P14's results (the fb2 level exit's
+  presented frame 113,053 exact pixels with HEAD's binary too, byte-identical
+  port images: the display's backing scale); part F also draws every
+  capture packet through row-range bands; a 6,000-frame random
+  differential through the world's API against HEAD's path (1, 3, 6 and
+  8 workers, band settings, the early parse forced and off, and under
+  the thread sanitizer) leaves equal memory, fields and counts, with
+  fifteen negative controls caught. One worker draws directly (its GS
+  frame 16.1-17.2 ms of CPU in the AREA11 cinematic and calm). With 3
+  workers the AREA11 tick fell 8.4 -> 6.6 ms (busiest worker 8.0 -> 6.1
+  ms) and the AREA01 fire peak's 11.0 -> 10.1-10.2 ms; at the default 6
+  the busiest worker is 3.8-4.1 ms in AREA11 and 4.2-5.0 ms in AREA01,
+  and the game thread sets every tick; with 10 workers, more than this
+  Mac's 8 performance cores, the AREA11 tick fell 7.8-8.4 -> 6.0-6.4 ms
+  (with equal interleaved bands the frame waited for a straggling
+  worker). The differential also found that a barrier for a texture read
+  left the drawing target out of the drawn set (the recorder, HEAD's
+  too; fixed; the demo's frames keep their barrier counts).
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

@@ -458,6 +458,25 @@ file's first line). The counts are always kept (EmGs.spc); only the file
 needs the switch. The same bytes in every case (`make test-gs-world`
 compares them); comparison and measurement aids.
 
+### EM_GS_BANDS=<n>, EM_GS_LIST=1, EM_GS_EARLY_PARSE=0, EM_GS_EARLY_OPS=<n>, EM_GS_LIST_COUNTERS=<file>: the GS frame's parse once
+
+Added 2026-10-15 (PERFORMANCE.md "Progress" P15). With more than one
+worker the Original profile's GS frame is parsed once into a list of spans
+and drawn in bands of rows the workers take from a queue (GS_EXACT.md
+section 9, "Workers and order"). `EM_GS_BANDS=<n>` (1..64, default 2) sets
+the bands a worker in each segment. `EM_GS_LIST=1` makes one worker draw
+the parsed list too (with one worker the frame is otherwise drawn
+directly). `EM_GS_EARLY_PARSE=0` turns off the early parse (the next
+frame's parse on the game's thread while the previous frame is drawn).
+`EM_GS_EARLY_OPS=<n>` is a test switch: the early parse runs at every kick,
+also with no frame being drawn, and hands over to the workers after n ops.
+`EM_GS_LIST_COUNTERS=<file>` writes one line per parsed frame waited for:
+the spans, segments, bands, splits, primitives, the band tasks' walks and
+draws, the parse's time, the workers' waits and the frame's times (the
+columns are named in the file's first line and in src/gs/em_gs_world.h).
+The same bytes in every case (`make test-gs-world` compares them);
+comparison and measurement aids.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

@@ -4136,6 +4136,9 @@ int em_gfx_gs_world_kick(EmGfx *g, const void *env, size_t env_bytes, const void
 {
     if (!g || !g->gswFrame) return 0;
     g->gswFrame = false;
+    /* while the frame before is drawn, this thread parses this one (it
+     * waits for that frame's field next) */
+    (void)em_gs_world_preparse(g->gsw, env, env_bytes, clear, clear_bytes);
     /* the frame before ends first: its field drawn, uploaded, committed */
     gsw_complete(g);
     if (g->gswWhy[0]) return -1;

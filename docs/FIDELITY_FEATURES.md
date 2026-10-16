@@ -1109,8 +1109,10 @@ only shows that field.
   records each world frame's register writes, the original state blocks
   its lists REF (read from the boot builder's GS blocks), the kicked list's
   draw environment and clear, and runs them at the kick on worker threads
-  (row bands that draw exactly what one model draws), while the game builds
-  the next frame. The area load's texture uploads reach GS memory through
+  (since 2026-10-15 parsed once into a list of spans and drawn in bands of
+  rows the workers take from a queue, each band by one worker in the list's
+  order: exactly what one model draws, PERFORMANCE.md "Progress" P15),
+  while the game builds the next frame. The area load's texture uploads reach GS memory through
   the loader as the original sends them; the boot's library comes from the
   disc export (GS_EXACT.md section 9). The field is shown line-doubled at
   its interlaced height and placed by the display registers (the entry
@@ -1123,7 +1125,9 @@ only shows that field.
   the port follows the fork by the user's decision, GS_EXACT.md 3.8),
   `make test-gs-world` (1, 2, 3 and 8 workers draw the same
   fields, thread sanitizer; since 2026-10-12 also past the recorder's
-  texture table's end), `make test-gs-swizzle` (since 2026-10-12: the
+  texture table's end; since 2026-10-15 also frames parsed early while the
+  one before is drawn, 1 and 8 bands a worker, one worker drawing the
+  parsed list, and the list's texture-cache stamps in a fixed band order), `make test-gs-swizzle` (since 2026-10-12: the
   pixel path's separable address tables equal the model's address
   functions at every position and width; part A of the raster reference
   checks the CT32 and Z32 tables against the measured maps), `make test-dof-pass-reference` (001DDE10's
@@ -1186,7 +1190,13 @@ only shows that field.
   (2026-10-15, P14: the same bytes, checked live against the generic path
   over the route; the pixel cost 41 % lower) the busiest of 6 workers is
   5.7 to 7.0 ms per frame, and with 3 workers every measured AREA11 and
-  AREA01 range runs at full speed. Since 2026-10-11 the
+  AREA01 range runs at full speed. Since the frame is parsed once and
+  drawn in bands taken from a queue (2026-10-15, P15: the same bytes,
+  checked by a 6,000-frame differential against the previous path) the
+  busiest of 6 workers is 3.8 to 5.0 ms per frame, with 3 workers the
+  AREA11 tick is 6.5 to 6.6 ms (8.1 to 8.4 before) and with 10 (more
+  than this Mac's performance cores) 6.0 to 6.4 ms (7.8 to 8.4 before,
+  when the frame waited for a straggling worker). Since 2026-10-11 the
   default worker count follows the core types (6 on this M1 Pro, 4 on the
   iPhone Air) and the workers run at USER_INTERACTIVE QoS; the same bytes
   for any count (PERFORMANCE.md "Progress" P3). Since 2026-10-12 the

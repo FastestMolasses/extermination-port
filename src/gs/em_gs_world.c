@@ -9,6 +9,7 @@
 #include <time.h>
 #if !defined(_WIN32)
 #include <pthread.h>
+#include <stdatomic.h>
 #include <unistd.h>
 #define GSW_THREADS 1
 #else
@@ -25,9 +26,62 @@
 #define CHECKED_SLOTS 4096u           /* checked[]'s hash (a power of two, 4 x CHECKED_MAX) */
 #define MARKED_MAX 8u
 #define WORKERS_MAX 16u
-#define BAND_SHIFT 2u                 /* bands of 4 rows, interleaved over the workers */
+#define SEG_MAX 1024u                 /* barriers a frame may hold, plus one */
+#define BANDS_PER_WORKER 2u           /* a segment's bands (EM_GS_BANDS): workers x this */
+#define BAND_MIN_ROWS 4               /* the least rows a band takes */
+#define LIST_CHUNK 32u                /* spans a worker waits for while the parse leads */
+#define READ_ROWS 16u                 /* rows of the field a readout task copies */
+
+/* The parse's progress, read by the workers without the lock (seq_cst, so a
+ * worker that announces its wait and a parser that publishes see each other). */
+#if GSW_THREADS
+typedef atomic_uint gsw_au;
+#define AU_LOAD(a) atomic_load(&(a))
+#define AU_STORE(a, v) atomic_store(&(a), (v))
+#define AU_ADD(a, v) atomic_fetch_add(&(a), (v))
+#define AU_SUB(a, v) atomic_fetch_sub(&(a), (v))
+#else
+typedef unsigned gsw_au;
+#define AU_LOAD(a) (a)
+#define AU_STORE(a, v) ((a) = (v))
+#define AU_ADD(a, v) ((a) += (v))
+#define AU_SUB(a, v) ((a) -= (v))
+#endif
 
 enum { OP_WRITE = 0, OP_ENV = 1, OP_GIF = 2, OP_BARRIER = 3 };
+
+/* A segment of a parsed frame: spans [first, end) and the rows they can
+ * draw (ylo > yhi: none), known once the parse closed it. */
+typedef struct {
+    uint32_t first, end;
+    int32_t ylo, yhi;
+} Seg;
+
+/* A frame's parse (docs/PERFORMANCE.md M4): its list and segments, how far
+ * the parse got (published spans, closed segments, done; read by the
+ * drawing workers without the lock), and where it goes on (a parse that
+ * the game's thread began while the previous frame was drawn, early_parse,
+ * is finished by a worker). The parser's counts are taken at its start and
+ * end, so a frame's outcome is its own (the parser goes on to the next
+ * frame before this one is waited for). */
+typedef struct {
+    EmGsList *list;
+    Seg *seg;                        /* SEG_MAX */
+    gsw_au published, segs_closed, done;
+    uint32_t last_wake;              /* published at the parser's last wake-up */
+    int failed;                      /* a malformed packet, a barrier inside a span, no memory */
+    int began;                       /* the head was parsed */
+    int started;                     /* the frame was handed to the workers */
+    int quiet;                       /* early_parse: no worker draws the frame yet (no wake-ups) */
+    size_t early_ops;                /* ops early_parse parsed (EM_GS_LIST_COUNTERS) */
+    uint32_t prior_waits;            /* its waits for the frame before (a CLUT load) */
+    size_t op_next;                  /* the next op to parse */
+    uint32_t k;                      /* the segment being parsed */
+    double ns;                       /* the parse's CPU time */
+    uint64_t prims0, prims1;         /* the parser's drawn_prims at the start and the end */
+    uint32_t refusals, refused, span_faults;
+    char reason[128];
+} Parse;
 
 typedef struct {
     uint32_t op, reg;
@@ -50,23 +104,50 @@ typedef struct {
     uint64_t xyoffset;               /* the field's XYOFFSET_1 (em_gs_world_field_xyoffset) */
     int xyoffset_known;              /* 0: a list frame drew nothing into its displayed buffer */
     int list;                        /* a list frame (no head) */
+    Parse p;
 } Job;
 
 struct EmGsWorld;
 
-/* One worker: its own EmGs (registers, span, CLUT) over the shared local
- * memory, drawing its band of rows (EmGs.band_*). Every worker runs every
- * write of every frame, so all their register states stay equal; together
- * they write what one EmGs writes (the bands partition the rows). */
+/* One worker: its own EmGs over the shared local memory. With one worker
+ * (and no EM_GS_LIST=1) it runs the frame's stream itself and draws every
+ * row. Otherwise the frame is parsed once (EmGsWorld.parser, by whichever
+ * worker takes the parse) into the list (EmGsList, em_gs_raster.h), and the
+ * workers draw it a band of rows at a time (EmGs.band_rows), each band of a
+ * segment (the ops between two barriers) by one worker, its primitives in
+ * the list's order (docs/PERFORMANCE.md M4). */
 typedef struct {
     struct EmGsWorld *w;
     EmGs gs;
-    int failed;                       /* its run of the frame stopped */
+    int failed;                       /* its run of the frame stopped (direct) */
+    int32_t seg_seen;                 /* the frame's segments [0, seg_seen] its texture cache saw */
+    uint32_t index;
+    /* The band it draws (under the lock, except pos and split): its segment
+     * and rows, the span it draws next, and a split another worker (thief)
+     * asked for. The answer goes to the asker's hand: 1 with the rows
+     * [hy0, hy1] from span hspan on, -1 when there were none to give. */
+    int active;
+    uint32_t aseg;
+    int32_t ay0, ay1;
+    gsw_au pos, split;
+    uint32_t thief;
+    int hand;
+    int32_t hy0, hy1;
+    uint32_t hspan;
     double cpu_ns;                    /* its CPU time in the last frame */
 #if GSW_THREADS
     pthread_t thread;
 #endif
 } Worker;
+
+/* A worker's piece of the frame. */
+enum { T_NONE, T_PARSE, T_BAND, T_READ };
+typedef struct {
+    int kind;
+    uint32_t seg;                     /* T_BAND: its segment */
+    int32_t y0, y1;                   /* T_BAND, T_READ: its rows */
+    uint32_t start;                   /* T_BAND: its first span (the segment's, or a split's) */
+} Task;
 
 struct EmGsWorld {
     uint8_t *mem;
@@ -77,16 +158,39 @@ struct EmGsWorld {
     int threaded;                    /* the workers are threads (else the caller runs them) */
 #if GSW_THREADS
     pthread_mutex_t lock;
-    pthread_cond_t go, done, bar;
+    pthread_cond_t go, done, cv;
     uint64_t generation;             /* bumped for every frame the workers run */
     uint32_t running;                /* workers still running the frame */
-    uint32_t bar_count;
-    uint64_t bar_generation;
     int quit;
 #endif
+    gsw_au live;                     /* running, read without the lock (early_parse) */
+    /* Parse once (docs/PERFORMANCE.md M4; the Worker comment) */
+    int parse_once;                  /* the frame is parsed once (else worker 0 runs it) */
+    uint32_t bands_per_worker;       /* EM_GS_BANDS */
+    EmGs parser;                     /* the parsing model (EmGs.list): registers, span, CLUT */
+    int early;                       /* the game's thread parses while it waits (EM_GS_EARLY_PARSE) */
+    size_t early_max;                /* EM_GS_EARLY_OPS (a test switch): always, at most this many ops */
+    gsw_au waiters;                  /* workers waiting on cv */
+    /* the schedule, under the lock: the segment being drawn, its bands (the
+     * rows [band_base + i band_h, band_base + (i + 1) band_h), the first from
+     * the top, the last to the bottom), then the readout of the field */
+    int parse_claimed;
+    int32_t seg_cur;
+    uint32_t band_next, band_planned, band_n, band_done;   /* band_n: planned plus split off */
+    int32_t band_base, band_h, band_lo, band_hi;          /* band_lo..band_hi: the rows split */
+    uint32_t splits;                                      /* this frame's (EM_GS_LIST_COUNTERS) */
+    int read_phase;
+    uint32_t read_next, read_n, read_done;
+    /* EM_GS_LIST_COUNTERS=<file> (docs/PERFORMANCE.md M4): one line per
+     * frame waited for. A diagnostic: it changes nothing drawn. */
+    FILE *lc_file;
+    uint64_t lc_frames, lc_prev[3];
+    uint32_t bands_total, waits_claim, waits_avail;   /* this frame's (under the lock) */
+    double wait_claim_ns, wait_avail_ns, wait_read_ns; /* their wall time, summed over the workers */
+
     Job job[2];
     int rec;                         /* job[rec] is recorded; job[rec ^ 1] may be running */
-    const Job *run;                  /* the job the workers run */
+    Job *run;                        /* the job the workers run */
     int busy;                        /* a job was started and not yet waited for */
     double t_start;
     uint64_t prims0, pixels0;
@@ -116,6 +220,13 @@ struct EmGsWorld {
     uint64_t tex0[2], clamp[2];
     uint8_t tex0_known[2], clamp_known[2];
     uint32_t prim;                   /* PRIM as written last (for GIF data's vertex kicks) */
+    /* The drawing target (FRAME_1 and SCISSOR_1 as written last in the frame
+     * being recorded; unknown at its start and after the environment again,
+     * whose packets the recorder does not read, unless the field is
+     * declared): a barrier for a read empties fdrawn, and the target's
+     * blocks go back into it, as the draws after the barrier write them. */
+    uint64_t tgt_frame, tgt_scissor;
+    uint8_t tgt_frame_known, tgt_scissor_known;
     int prim_known;
     uint8_t drawn[BLOCKS];           /* blocks of buffers the model has drawn into */
     /* The field declared in the frame being recorded (em_gs_world_field_declare). */
@@ -209,35 +320,21 @@ static void checked_reset(EmGsWorld *w)
 
 /* ------------------------------------------------------------ the workers */
 
-/* All workers reach OP_BARRIER before any goes on. At a barrier no worker
- * may hold queued primitives: the span must have ended there by itself (a
- * flush here would end it where the GS does not). */
-static void barrier(Worker *k)
+/* The field's rows y0..y1 out of local memory (the frame's last draw is done). */
+static void read_rows(EmGsWorld *w, const Job *j, uint32_t y0, uint32_t y1)
 {
-    EmGsWorld *w = k->w;
-    if (k->gs.pend_n) k->failed = 1;
-#if GSW_THREADS
-    if (w->threaded && w->workers > 1) {
-        pthread_mutex_lock(&w->lock);
-        const uint64_t gen = w->bar_generation;
-        if (++w->bar_count == w->workers) {
-            w->bar_count = 0;
-            w->bar_generation++;
-            pthread_cond_broadcast(&w->bar);
-        } else {
-            while (gen == w->bar_generation) pthread_cond_wait(&w->bar, &w->lock);
-        }
-        pthread_mutex_unlock(&w->lock);
+    const uint32_t fbp = (uint32_t)j->frame & 0x1FFu, fbw = (uint32_t)(j->frame >> 16) & 0x3Fu;
+    for (uint32_t y = y0; y <= y1 && y < j->height; ++y) {
+        uint8_t *row = w->field + (size_t)y * 64u * fbw * 4u;
+        for (uint32_t x = 0; x < 64u * fbw; ++x)
+            memcpy(row + 4u * x, w->mem + (size_t)em_gs_addr32(fbp * 32u, fbw, x, y, 0) * 4u, 4);
     }
-#else
-    (void)w;
-#endif
 }
 
-/* One worker's run of the job: the head, every op, the end of the span,
- * then its band's rows of the field. A worker that stops (a malformed GIF
- * packet) still meets every barrier, so the others finish. */
-static void run_frame(Worker *k)
+/* One worker alone (direct): the head, every op, the end of the span, then
+ * the field. At a barrier no primitive may be queued: the span must have
+ * ended there by itself (a flush here would end it where the GS does not). */
+static void run_direct(Worker *k)
 {
     EmGsWorld *w = k->w;
     const Job *j = w->run;
@@ -249,7 +346,7 @@ static void run_frame(Worker *k)
     for (size_t i = 0; i < j->op_count; ++i) {
         const Op *o = &j->ops[i];
         if (o->op == OP_BARRIER) {
-            barrier(k);
+            if (gs->pend_n) k->failed = 1;
             continue;
         }
         if (k->failed) continue;
@@ -261,14 +358,529 @@ static void run_frame(Worker *k)
             k->failed = 1;
     }
     em_gs_flush(gs);
-    const uint32_t fbp = (uint32_t)j->frame & 0x1FFu, fbw = (uint32_t)(j->frame >> 16) & 0x3Fu;
-    for (uint32_t y = 0; y < j->height; ++y) {
-        if (gs->band_count > 1 && ((y >> gs->band_shift) % gs->band_count) != gs->band_index) continue;
-        uint8_t *row = w->field + (size_t)y * 64u * fbw * 4u;
-        for (uint32_t x = 0; x < 64u * fbw; ++x)
-            memcpy(row + 4u * x, w->mem + (size_t)em_gs_addr32(fbp * 32u, fbw, x, y, 0) * 4u, 4);
-    }
+    read_rows(w, j, 0, j->height ? j->height - 1u : 0u);
     k->cpu_ns = cpu_now_ns() - c0;
+}
+
+/* ---- parse once (docs/PERFORMANCE.md M4) ----
+ *
+ * Why the bytes cannot change. The parser runs the frame's stream as the
+ * direct worker does (the same EmGs calls: registers, vertex queue, setup,
+ * span and chain, CLUT loads) and appends each span instead of drawing it;
+ * em_gs_list_draw then makes the calls the direct worker's span_end would
+ * have made, with the same state, for the primitives that can reach a
+ * band's rows, and draws only those rows. Each row of a segment is drawn by
+ * one worker, in the list's order, so each pixel of the segment's buffers
+ * sees the direct worker's writes in the direct worker's order. Between the
+ * segments every band of the earlier one is done before any band of the
+ * later one starts (the schedule below), which orders the frame's reads of
+ * drawn buffers against their draws as the barriers did before
+ * (barrier_op: a read of a block drawn since the last barrier, and a draw
+ * into a block read since it, start a segment). Every worker's decoded
+ * texture cache sees every span's pages (em_gs_list_draw stamps the spans
+ * of a band it skips, em_gs_list_pass the segments it drew none of). The
+ * parser reads memory only for CLUT loads, and refuses one from a page the
+ * list draws (EM_GS_REFUSE_ORDER), so what it reads is the frame's start's,
+ * as the direct worker reads it. The bands are a host matter, as the worker
+ * count is: any partition draws the same bytes. */
+
+static void lk(EmGsWorld *w)
+{
+#if GSW_THREADS
+    if (w->threaded) pthread_mutex_lock(&w->lock);
+#else
+    (void)w;
+#endif
+}
+
+static void ulk(EmGsWorld *w)
+{
+#if GSW_THREADS
+    if (w->threaded) pthread_mutex_unlock(&w->lock);
+#else
+    (void)w;
+#endif
+}
+
+/* Wakes the workers waiting on cv (with the lock held, or taking it). */
+static void wake(EmGsWorld *w, int locked)
+{
+#if GSW_THREADS
+    if (!w->threaded) return;
+    if (!locked) pthread_mutex_lock(&w->lock);
+    pthread_cond_broadcast(&w->cv);
+    if (!locked) pthread_mutex_unlock(&w->lock);
+#else
+    (void)w;
+    (void)locked;
+#endif
+}
+
+/* The parser: the spans appended so far are drawable (a parse that runs
+ * while no worker draws its frame, early_parse, wakes nobody). */
+static void publish(EmGsWorld *w, Parse *p)
+{
+    const uint32_t n = em_gs_list_spans(p->list);
+    if (n == AU_LOAD(p->published)) return;
+    AU_STORE(p->published, n);
+    if (!p->quiet && AU_LOAD(w->waiters) && n >= p->last_wake + LIST_CHUNK) {
+        p->last_wake = n;
+        wake(w, 0);
+    }
+}
+
+/* The parser: segment `k` ends here (a barrier, or the frame's end). */
+static void close_seg(EmGsWorld *w, Parse *p, uint32_t k)
+{
+    const uint32_t n = em_gs_list_spans(p->list);
+    Seg *g = &p->seg[k];
+    g->end = n;
+    em_gs_list_rows(p->list, g->first, n, &g->ylo, &g->yhi);
+    if (k + 1u < SEG_MAX) p->seg[k + 1u].first = n;
+    AU_STORE(p->published, n);
+    AU_STORE(p->segs_closed, k + 1u);
+    if (!p->quiet) wake(w, 0);
+}
+
+/* A frame's parse, empty (em_gs_world_begin: the job is recorded again). */
+static void parse_reset(Parse *p)
+{
+    em_gs_list_clear(p->list);
+    p->seg[0].first = 0;
+    AU_STORE(p->published, 0u);
+    AU_STORE(p->segs_closed, 0u);
+    AU_STORE(p->done, 0u);
+    p->last_wake = 0;
+    p->failed = 0;
+    p->began = 0;
+    p->started = 0;
+    p->op_next = 0;
+    p->k = 0;
+    p->ns = 0;
+    p->early_ops = 0;
+    p->prior_waits = 0;
+}
+
+/* The parse: the head and the ops from p->op_next through the parser, the
+ * spans appended to the job's list; a barrier closes a segment. A worker's
+ * parse (early 0) runs to the frame's end; the game's thread's (early 1,
+ * early_parse) stops at an op boundary once the running frame is drawn
+ * (EmGsWorld.live 0), or (EM_GS_EARLY_OPS) after early_max ops, and a
+ * worker goes on from there. */
+static void parse_ops(EmGsWorld *w, Job *j, int early)
+{
+    const size_t stop = early && w->early_max ? j->p.op_next + w->early_max : (size_t)-1;
+    const double c0 = cpu_now_ns();
+    Parse *p = &j->p;
+    EmGs *gs = &w->parser;
+    int failed = p->failed;
+    uint32_t k = p->k;
+    gs->list = p->list;
+    if (!p->began) {
+        p->began = 1;
+        p->prims0 = gs->drawn_prims;
+        if (j->env_bytes && em_gs_gif(gs, j->env, j->env_bytes) != j->env_bytes) failed = 1;
+        if (j->clear_bytes && em_gs_gif(gs, j->clear, j->clear_bytes) != j->clear_bytes) failed = 1;
+        publish(w, p);
+    }
+    size_t i = p->op_next;
+    for (; i < j->op_count; ++i) {
+        if (early && (i >= stop || (!w->early_max && !(i & 63u) && !AU_LOAD(w->live)))) break;
+        const Op *o = &j->ops[i];
+        if (o->op == OP_BARRIER) {
+            if (gs->pend_n) failed = 1;
+            if (k + 2u < SEG_MAX) close_seg(w, p, k++);
+            else failed = 1;
+            continue;
+        }
+        if (failed) continue;
+        if (o->op == OP_WRITE)
+            em_gs_write(gs, o->reg, o->value);
+        else if (o->op == OP_GIF) {
+            if (em_gs_gif(gs, j->gif + o->value, o->reg) != o->reg) failed = 1;
+        } else if (em_gs_gif(gs, j->env, j->env_bytes) != j->env_bytes)
+            failed = 1;
+        publish(w, p);
+    }
+    p->op_next = i;
+    p->k = k;
+    p->failed = failed;
+    p->ns += cpu_now_ns() - c0;
+    if (i < j->op_count) {
+        gs->list = NULL;               /* (early: a worker goes on) */
+        return;
+    }
+    em_gs_flush(gs);
+    gs->list = NULL;
+    p->failed = failed || em_gs_list_failed(p->list);
+    p->prims1 = gs->drawn_prims;
+    p->refusals = gs->refusals;
+    p->refused = gs->refused_prims;
+    p->span_faults = gs->span_faults;
+    memcpy(p->reason, gs->reason, sizeof p->reason);
+    close_seg(w, p, k);
+    AU_STORE(p->done, 1u);             /* (the parser is free from here) */
+    if (!p->quiet) wake(w, 0);
+}
+
+/* The running frame is drawn (early_parse's wait before a CLUT load that
+ * reads memory the frame draws). */
+static void prior_wait(void *ctx)
+{
+#if GSW_THREADS
+    EmGsWorld *w = ctx;
+    if (!w->threaded) return;
+    pthread_mutex_lock(&w->lock);
+    w->job[w->rec].p.prior_waits++;    /* (the early parse's job is the recorded one) */
+    while (w->running) pthread_cond_wait(&w->done, &w->lock);
+    pthread_mutex_unlock(&w->lock);
+#else
+    (void)ctx;
+#endif
+}
+
+/* Early parse (docs/PERFORMANCE.md M4): the game's thread, about to wait
+ * for the running frame (a kick waits for it), parses the next frame
+ * meanwhile, until the running frame is drawn; its workers then go on from
+ * there. The parser is the running frame's until that frame's parse is
+ * done, so the early parse waits for that. The parse reads memory only for
+ * CLUT loads: one that reads a page the running frame draws waits for the
+ * frame first (em_gs_list_prior), so it reads what it would read after the
+ * frame. EM_GS_EARLY_PARSE=0 turns it off (a developer switch; the same
+ * bytes either way). */
+static void early_parse(EmGsWorld *w, Job *j)
+{
+    if (!w->parse_once || !w->early || j->p.began) return;
+    const int running = w->busy && w->run && w->run != j;
+    if (running && !AU_LOAD(w->run->p.done)) return;        /* the parser is the running frame's */
+    if (!w->early_max && (!w->threaded || !running || !AU_LOAD(w->live))) return;
+    em_gs_list_prior(j->p.list, running && w->threaded ? w->run->p.list : NULL, prior_wait, w);
+    j->p.quiet = 1;
+    parse_ops(w, j, 1);
+    j->p.quiet = 0;
+    j->p.early_ops = j->p.op_next;
+    em_gs_list_prior(j->p.list, NULL, NULL, NULL);
+}
+
+/* Segment `k`'s bands (under the lock): workers x bands_per_worker bands of
+ * equal rows (at least BAND_MIN_ROWS) over the rows it draws, the first open
+ * to the top and the last to the bottom. Segment 0 may still be parsed: its
+ * bands cover the field's rows (its rows past them are the last band's). */
+static void seg_start(EmGsWorld *w, uint32_t k)
+{
+    int32_t lo, hi;
+    if (AU_LOAD(w->run->p.segs_closed) > k) {
+        lo = w->run->p.seg[k].ylo;
+        hi = w->run->p.seg[k].yhi;
+    } else {
+        lo = 0;
+        hi = (int32_t)w->run->height - 1;
+    }
+    w->seg_cur = (int32_t)k;
+    w->band_next = w->band_done = 0;
+    w->band_planned = w->band_n = 0;
+    w->band_lo = lo;
+    w->band_hi = hi;
+    if (lo > hi) return;
+    const int64_t rows = (int64_t)hi - lo + 1, want = (int64_t)w->workers * w->bands_per_worker;
+    int64_t h = (rows + want - 1) / want;
+    if (h < BAND_MIN_ROWS) h = BAND_MIN_ROWS;
+    w->band_base = lo;
+    w->band_h = (int32_t)h;
+    w->band_planned = w->band_n = (uint32_t)((rows + h - 1) / h);
+    w->bands_total += w->band_n;
+}
+
+/* The rows of a band that the segment can draw: the band's, inside the
+ * segment's (band_lo..band_hi). */
+static int32_t band_rows(const EmGsWorld *w, int32_t y0, int32_t y1, int32_t *e0, int32_t *e1)
+{
+    *e0 = y0 > w->band_lo ? y0 : w->band_lo;
+    *e1 = y1 < w->band_hi ? y1 : w->band_hi;
+    return *e1 >= *e0 ? *e1 - *e0 + 1 : 0;
+}
+
+/* A split (under the lock): an idle worker asks the band with the most work
+ * left (its rows that the segment draws, times the spans it has not drawn)
+ * for the lower half of its rows, and waits for the answer: the band's
+ * owner gives them at its next span (split_answer), from that span on, as
+ * the rows' earlier spans are drawn. 1 with the task, 0 when no band could
+ * give rows (or the band finished first). */
+#if GSW_THREADS
+/* (-1: it waited and got none; the state may have changed) */
+static int steal(EmGsWorld *w, uint32_t me, Task *t)
+{
+    const uint32_t k = (uint32_t)w->seg_cur;
+    const uint32_t end = AU_LOAD(w->run->p.segs_closed) > k ? w->run->p.seg[k].end : AU_LOAD(w->run->p.published);
+    Worker *best = NULL;
+    uint64_t score = 0;
+    for (uint32_t i = 0; i < w->workers; ++i) {
+        Worker *v = &w->worker[i];
+        int32_t e0, e1;
+        if (i == me || !v->active || v->aseg != k || AU_LOAD(v->split)) continue;
+        const int32_t rows = band_rows(w, v->ay0, v->ay1, &e0, &e1);
+        if (rows < 2 * BAND_MIN_ROWS) continue;
+        const uint32_t pos = AU_LOAD(v->pos), left = end > pos ? end - pos : 1u;
+        const uint64_t sc = (uint64_t)rows * left;
+        if (sc > score) {
+            score = sc;
+            best = v;
+        }
+    }
+    if (!best) return 0;
+    Worker *me_k = &w->worker[me];
+    me_k->hand = 0;
+    best->thief = me;
+    AU_STORE(best->split, 1u);
+    AU_ADD(w->waiters, 1u);
+    const double t0 = w->lc_file ? now_ns() : 0;
+    /* the band answers at its next span, or when it finishes (finish) */
+    while (me_k->hand == 0)
+        pthread_cond_wait(&w->cv, &w->lock);
+    if (w->lc_file) w->wait_claim_ns += now_ns() - t0;
+    AU_SUB(w->waiters, 1u);
+    if (me_k->hand != 1) return -1;
+    t->kind = T_BAND;
+    t->seg = k;
+    t->y0 = me_k->hy0;
+    t->y1 = me_k->hy1;
+    t->start = me_k->hspan;
+    return 1;
+}
+#endif
+
+/* The owner's side of a split, before span s (em_gs_list_draw's `before`):
+ * the lower half of its rows that the segment draws, from span s on, to the
+ * asker; it keeps the upper half. */
+static int split_answer(void *ctx, uint32_t s)
+{
+    Worker *k = ctx;
+    AU_STORE(k->pos, s);
+    if (!AU_LOAD(k->split)) return 1;
+    EmGsWorld *w = k->w;
+    lk(w);
+    if (AU_LOAD(k->split)) {
+        Worker *t = &w->worker[k->thief];
+        int32_t e0, e1;
+        const int32_t rows = band_rows(w, k->ay0, k->ay1, &e0, &e1);
+        if (rows >= 2 * BAND_MIN_ROWS) {
+            const int32_t m = e0 + rows / 2 - 1;
+            t->hy0 = m + 1;
+            t->hy1 = k->ay1;
+            t->hspan = s;
+            k->ay1 = m;
+            k->gs.band_y1 = m;
+            w->band_n++;
+            w->splits++;
+            t->hand = 1;
+        } else {
+            t->hand = -1;
+        }
+        AU_STORE(k->split, 0u);
+        wake(w, 1);
+    }
+    ulk(w);
+    return 1;
+}
+
+/* The next task for a worker: the parse (first), a band of the segment
+ * being drawn, rows split off a band still being drawn, the next segment's
+ * first band once every band of this one is done and the parse closed the
+ * next, then the field's readout once every segment is drawn. 0: the frame
+ * is done. */
+static int claim(EmGsWorld *w, uint32_t me, Task *t)
+{
+    lk(w);
+    for (;;) {
+        if (!w->parse_claimed) {
+            w->parse_claimed = 1;
+            t->kind = T_PARSE;
+            break;
+        }
+        if (!w->read_phase && w->seg_cur >= 0 && w->band_next < w->band_planned) {
+            const uint32_t b = w->band_next++;
+            t->kind = T_BAND;
+            t->seg = (uint32_t)w->seg_cur;
+            t->y0 = b == 0 ? INT32_MIN : w->band_base + (int32_t)b * w->band_h;
+            t->y1 = b + 1u == w->band_planned ? INT32_MAX : w->band_base + (int32_t)(b + 1u) * w->band_h - 1;
+            t->start = w->run->p.seg[t->seg].first;
+            break;
+        }
+        if (w->read_phase) {
+            if (w->read_next < w->read_n) {
+                const uint32_t r = w->read_next++;
+                t->kind = T_READ;
+                t->y0 = (int32_t)(r * READ_ROWS);
+                t->y1 = (int32_t)(r * READ_ROWS + READ_ROWS - 1u);
+                break;
+            }
+            if (w->read_done == w->read_n) {
+                t->kind = T_NONE;
+                break;
+            }
+        } else if (w->seg_cur < 0 || w->band_done == w->band_n) {
+            const uint32_t next = (uint32_t)(w->seg_cur + 1), closed = AU_LOAD(w->run->p.segs_closed);
+            if (next == 0 || next < closed) {
+                seg_start(w, next);
+                continue;
+            }
+            if (AU_LOAD(w->run->p.done)) {
+                w->read_phase = 1;
+                w->read_n = (w->run->height + READ_ROWS - 1u) / READ_ROWS;
+                w->read_next = w->read_done = 0;
+                continue;
+            }
+        }
+#if GSW_THREADS
+        if (w->threaded) {
+            if (!w->read_phase && w->seg_cur >= 0 && w->band_done < w->band_n) {
+                const int got = steal(w, me, t);
+                if (got > 0) break;
+                if (got < 0) continue;         /* it waited: look again */
+            }
+            w->waits_claim++;
+            AU_ADD(w->waiters, 1u);
+            const double t0 = w->lc_file ? now_ns() : 0;
+            pthread_cond_wait(&w->cv, &w->lock);
+            if (w->lc_file) {
+                if (w->read_phase) w->wait_read_ns += now_ns() - t0;
+                else w->wait_claim_ns += now_ns() - t0;
+            }
+            AU_SUB(w->waiters, 1u);
+            continue;
+        }
+#endif
+        /* (one thread: the parse ran first, so nothing is ever waited for) */
+        (void)me;
+        w->run->p.failed = 1;
+        t->kind = T_NONE;
+        break;
+    }
+    if (t->kind == T_BAND) {
+        Worker *k = &w->worker[me];
+        k->active = 1;
+        k->aseg = t->seg;
+        k->ay0 = t->y0;
+        k->ay1 = t->y1;
+        AU_STORE(k->pos, t->start);
+    }
+    ulk(w);
+    return t->kind != T_NONE;
+}
+
+/* A task is done: the segment's (or the readout's) last wakes the waiters,
+ * and so does a band asked for a split it did not answer. */
+static void finish(EmGsWorld *w, uint32_t me, const Task *t)
+{
+    if (t->kind != T_BAND && t->kind != T_READ) return;
+    lk(w);
+    if (t->kind == T_BAND) {
+        Worker *k = &w->worker[me];
+        k->active = 0;
+        const int asked = AU_LOAD(k->split) != 0;
+        if (asked) {
+            w->worker[k->thief].hand = -1;     /* nothing left to split */
+            AU_STORE(k->split, 0u);
+        }
+        if (++w->band_done == w->band_n || asked) wake(w, 1);
+    } else if (++w->read_done == w->read_n) {
+        wake(w, 1);
+    }
+    ulk(w);
+}
+
+/* The spans of segment k a band may draw from span s on: [s, *end). 1 when
+ * *end is the segment's end; waits while the parse has not gone LIST_CHUNK
+ * spans past s (or closed the segment). */
+static int avail(EmGsWorld *w, uint32_t k, uint32_t s, uint32_t *end)
+{
+    for (;;) {
+        /* published first: when the segment is not closed after it, those
+         * spans are all the segment's (the parse closes it before it
+         * publishes the next segment's spans) */
+        const uint32_t pub = AU_LOAD(w->run->p.published);
+        if (AU_LOAD(w->run->p.segs_closed) > k) {
+            *end = w->run->p.seg[k].end;
+            return 1;
+        }
+        if (pub >= s + LIST_CHUNK) {
+            *end = pub;
+            return 0;
+        }
+#if GSW_THREADS
+        if (w->threaded) {
+            pthread_mutex_lock(&w->lock);
+            w->waits_avail++;
+            AU_ADD(w->waiters, 1u);
+            const double t0 = w->lc_file ? now_ns() : 0;
+            while (AU_LOAD(w->run->p.segs_closed) <= k && AU_LOAD(w->run->p.published) < s + LIST_CHUNK)
+                pthread_cond_wait(&w->cv, &w->lock);
+            if (w->lc_file) w->wait_avail_ns += now_ns() - t0;
+            AU_SUB(w->waiters, 1u);
+            pthread_mutex_unlock(&w->lock);
+            continue;
+        }
+#endif
+        *end = pub;                    /* (one thread: the parse is done) */
+        return 1;
+    }
+}
+
+/* A band task: the segments before its own that this worker's cache did not
+ * see, the segment's spans before the task's first (rows split off a band:
+ * the band drew them), then the segment's spans in its rows, answering
+ * splits. */
+static void draw_band(Worker *k, const Task *t)
+{
+    EmGsWorld *w = k->w;
+    EmGs *gs = &k->gs;
+    for (int32_t j = k->seg_seen + 1; j < (int32_t)t->seg; ++j)
+        em_gs_list_pass(gs, w->run->p.list, w->run->p.seg[j].first, w->run->p.seg[j].end);
+    if (t->start > w->run->p.seg[t->seg].first && k->seg_seen < (int32_t)t->seg)
+        em_gs_list_pass(gs, w->run->p.list, w->run->p.seg[t->seg].first, t->start);
+    gs->band_rows = 1;
+    gs->band_y0 = t->y0;
+    gs->band_y1 = t->y1;
+    uint32_t s = t->start;
+    for (;;) {
+        uint32_t end;
+        const int closed = avail(w, t->seg, s, &end);
+        if (end > s) s = em_gs_list_draw(gs, w->run->p.list, s, end, w->threaded ? split_answer : NULL, k);
+        if (closed && s >= end) break;
+    }
+    k->seg_seen = (int32_t)t->seg;
+}
+
+/* One worker's run of a parsed frame: tasks until the frame is done, then
+ * the pages of the segments it drew none of (for the next frame's cache). */
+static void run_tasks(Worker *k)
+{
+    EmGsWorld *w = k->w;
+    const double c0 = cpu_now_ns();
+    k->failed = 0;
+    k->seg_seen = -1;
+    Task t;
+    while (claim(w, k->index, &t)) {
+        if (t.kind == T_PARSE)
+            parse_ops(w, w->run, 0);
+        else if (t.kind == T_BAND)
+            draw_band(k, &t);
+        else
+            read_rows(w, w->run, (uint32_t)t.y0, (uint32_t)t.y1);
+        finish(w, k->index, &t);
+    }
+    const uint32_t closed = AU_LOAD(w->run->p.segs_closed);
+    for (uint32_t j = (uint32_t)(k->seg_seen + 1); j < closed; ++j)
+        em_gs_list_pass(&k->gs, w->run->p.list, w->run->p.seg[j].first, w->run->p.seg[j].end);
+    k->cpu_ns = cpu_now_ns() - c0;
+}
+
+static void run_frame(Worker *k)
+{
+    if (k->w->parse_once)
+        run_tasks(k);
+    else
+        run_direct(k);
 }
 
 #if GSW_THREADS
@@ -288,6 +900,7 @@ static void *worker_main(void *arg)
         pthread_mutex_unlock(&w->lock);
         run_frame(k);
         pthread_mutex_lock(&w->lock);
+        AU_SUB(w->live, 1u);
         if (--w->running == 0) pthread_cond_signal(&w->done);
         pthread_mutex_unlock(&w->lock);
     }
@@ -300,12 +913,13 @@ static void *worker_main(void *arg)
  * runs the frame on the caller's thread at the kick (no worker threads).
  *
  * Apple hosts report their core types (hw.perflevel0 = performance cores,
- * hw.perflevel1 = efficiency cores). The bands are equal, so a frame waits
- * for its slowest worker: where the performance cores less the headroom
- * still give 4 workers (M1 Pro: 8 - 2 = 6), the workers stay off the
- * efficiency cores; with fewer performance cores (iPhone Air: 2 + 4) every
- * core less the headroom draws (4). Other hosts give no core types: the
- * online processors less three, as before (docs/PERFORMANCE.md Q5). */
+ * hw.perflevel1 = efficiency cores). A frame waits for its slowest worker
+ * (since M4 only for the band it draws last, split as it goes): where the
+ * performance cores less the headroom still give 4 workers (M1 Pro: 8 - 2 =
+ * 6), the workers stay off the efficiency cores; with fewer performance
+ * cores (iPhone Air: 2 + 4) every core less the headroom draws (4). Other
+ * hosts give no core types: the online processors less three, as before
+ * (docs/PERFORMANCE.md Q5). */
 #define WORKER_HEADROOM 2
 
 #if defined(__APPLE__)
@@ -387,31 +1001,85 @@ EmGsWorld *em_gs_world_create(void)
             fprintf(w->spc_file, "# frame sprite_prims tex_tri_prims untex_tri_prims sprite_pixels tex_tri_pixels "
                                  "untex_tri_pixels checked drawn\n");
     }
+    const char *lcf = getenv("EM_GS_LIST_COUNTERS");
+    if (lcf && lcf[0]) {
+        w->lc_file = fopen(lcf, "w");
+        if (w->lc_file)
+            fprintf(w->lc_file, "# frame workers spans segments bands splits prims spans_walked spans_drawn prims_drawn "
+                                "parse_ns waits_claim waits_progress wall_ns busiest_ns cpu_sum_ns wait_claim_ns wait_progress_ns "
+                                "wait_read_ns prior_waits early_ops\n");
+    }
     const char *zc = getenv("EM_GS_Z_COUNTERS");
     if (zc && zc[0]) {
         w->zc_file = fopen(zc, "w");
         if (w->zc_file)
             fprintf(w->zc_file, "# frame samples samples_bil zfail zfail_tex zfail_bil datefail_tex drawn\n");
     }
+    /* Parse once (docs/PERFORMANCE.md M4): with more than one worker, or
+     * EM_GS_LIST=1 (one worker draws the parsed list too: a developer switch
+     * for comparisons), the frame is parsed once and drawn in bands of rows;
+     * EM_GS_BANDS=<n> (1..64) sets the bands per worker in each segment
+     * (the same bytes for every value). Without memory for the list, one
+     * worker runs the frame directly. */
+    const char *lst = getenv("EM_GS_LIST");
+    const char *bnd = getenv("EM_GS_BANDS");
+    w->bands_per_worker = BANDS_PER_WORKER;
+    if (bnd && *bnd) {
+        const long n = strtol(bnd, NULL, 10);
+        w->bands_per_worker = n < 1 ? 1u : n > 64 ? 64u : (uint32_t)n;
+    }
+    /* EM_GS_EARLY_PARSE=0: no early parse (early_parse; a developer switch,
+     * the same bytes either way); EM_GS_EARLY_OPS=<n> (a test switch): the
+     * early parse runs at every kick, also with no frame being drawn, and
+     * parses at most n ops before the workers go on */
+    const char *ear = getenv("EM_GS_EARLY_PARSE");
+    w->early = !(ear && ear[0] == '0');
+    const char *eops = getenv("EM_GS_EARLY_OPS");
+    if (eops && *eops) {
+        const long n = strtol(eops, NULL, 10);
+        w->early_max = n > 0 ? (size_t)n : 0;
+    }
+    if (w->workers > 1 || (lst && lst[0] == '1')) {
+        int ok = 1;
+        for (int i = 0; i < 2; ++i) {
+            w->job[i].p.list = em_gs_list_create();
+            w->job[i].p.seg = calloc(SEG_MAX, sizeof *w->job[i].p.seg);
+            ok = ok && w->job[i].p.list && w->job[i].p.seg;
+        }
+        if (ok) {
+            w->parse_once = 1;
+            em_gs_init(&w->parser, w->mem);
+            w->parser.strict = 1;
+            w->parser.tc_off = 1;      /* it draws nothing */
+            for (int i = 0; i < 2; ++i) parse_reset(&w->job[i].p);
+        } else {
+            for (int i = 0; i < 2; ++i) {
+                em_gs_list_destroy(w->job[i].p.list);
+                free(w->job[i].p.seg);
+                w->job[i].p.list = NULL;
+                w->job[i].p.seg = NULL;
+            }
+            w->workers = 1;
+        }
+    }
 #if GSW_THREADS
     if (w->workers > 1) {
         pthread_mutex_init(&w->lock, NULL);
         pthread_cond_init(&w->go, NULL);
         pthread_cond_init(&w->done, NULL);
-        pthread_cond_init(&w->bar, NULL);
+        pthread_cond_init(&w->cv, NULL);
         w->threaded = 1;
     }
 #endif
     for (uint32_t i = 0; i < w->workers; ++i) {
         Worker *k = &w->worker[i];
         k->w = w;
+        k->index = i;
         em_gs_init(&k->gs, w->mem);
         k->gs.strict = 1;
         k->gs.tc_off = tc_off;
         k->gs.spec_off = spec_off;
         k->gs.spec_check = spec_check;
-        k->gs.band_index = i;
-        k->gs.band_shift = BAND_SHIFT;
     }
 #if GSW_THREADS
     if (w->threaded) {
@@ -429,7 +1097,8 @@ EmGsWorld *em_gs_world_create(void)
             if (pthread_create(&w->worker[i].thread, attr_ok ? &attr : NULL, worker_main, &w->worker[i]) != 0) break;
         if (attr_ok) pthread_attr_destroy(&attr);
         if (started < w->workers) {
-            /* fewer threads: the bands are re-dealt over those that run */
+            /* fewer threads: the bands are dealt over those that run (none:
+             * the caller's thread runs the parsed frame) */
             if (started == 0) {
                 w->threaded = 0;
                 started = 1;
@@ -438,7 +1107,6 @@ EmGsWorld *em_gs_world_create(void)
         }
     }
 #endif
-    for (uint32_t i = 0; i < w->workers; ++i) w->worker[i].gs.band_count = w->workers;
     return w;
 }
 
@@ -456,10 +1124,15 @@ void em_gs_world_destroy(EmGsWorld *w)
         pthread_mutex_destroy(&w->lock);
         pthread_cond_destroy(&w->go);
         pthread_cond_destroy(&w->done);
-        pthread_cond_destroy(&w->bar);
+        pthread_cond_destroy(&w->cv);
     }
 #endif
     for (uint32_t i = 0; i < w->workers; ++i) em_gs_release(&w->worker[i].gs);
+    if (w->parse_once) em_gs_release(&w->parser);
+    for (int i = 0; i < 2; ++i) {
+        em_gs_list_destroy(w->job[i].p.list);
+        free(w->job[i].p.seg);
+    }
     for (int i = 0; i < 2; ++i) {
         free(w->job[i].ops);
         free(w->job[i].gif);
@@ -468,6 +1141,7 @@ void em_gs_world_destroy(EmGsWorld *w)
     if (w->zc_file) fclose(w->zc_file);
     if (w->tcc_file) fclose(w->tcc_file);
     if (w->spc_file) fclose(w->spc_file);
+    if (w->lc_file) fclose(w->lc_file);
     free(w->pool);
     free(w->mem);
     free(w->field);
@@ -672,6 +1346,13 @@ void em_gs_world_begin(EmGsWorld *w)
     memset(w->clamp_known, 0, sizeof w->clamp_known);
     w->prim_known = 0;
     w->field_declared = 0;
+    w->tgt_frame_known = w->tgt_scissor_known = 0;
+    if (w->parse_once) {
+        /* a frame parsed early (em_gs_world_preparse) and then dropped: the
+         * parser took its writes, the GS never does */
+        if (j->p.began && !j->p.started) fail(w, "a world frame parsed early was dropped before its kick", 0);
+        parse_reset(&j->p);            /* (job[rec] is not the running one) */
+    }
 }
 
 int em_gs_world_recording(const EmGsWorld *w) { return w && w->recording; }
@@ -704,6 +1385,14 @@ static int is_vertex_reg(unsigned reg)
 static void tex_state(EmGsWorld *w, unsigned reg, uint64_t value)
 {
     switch (reg) {
+    case EM_GS_FRAME_1:
+        w->tgt_frame = value;
+        w->tgt_frame_known = 1;
+        break;
+    case EM_GS_SCISSOR_1:
+        w->tgt_scissor = value;
+        w->tgt_scissor_known = 1;
+        break;
     case EM_GS_PRIM:
         w->prim = (uint32_t)value & 0x7FFu;
         w->prim_known = 1;
@@ -959,6 +1648,20 @@ static int texture_read(EmGsWorld *w, uint64_t tex0, uint64_t clamp)
         for (uint32_t i = 0; i < n; ++i)
             if (w->fdrawn[w->pool[first + i]]) {
                 barrier_op(w);
+                /* the drawing target's blocks: the draws after the barrier write
+                 * them (a read of them later in the segment needs a barrier) */
+                if (w->tgt_frame_known && w->tgt_scissor_known) {
+                    const uint32_t fbp = (uint32_t)w->tgt_frame & 0x1FFu, fbw = (uint32_t)(w->tgt_frame >> 16) & 0x3Fu;
+                    const uint32_t height = (uint32_t)(w->tgt_scissor >> 48 & 0x7FFu) + 1u;
+                    mark_buffer(w->fdrawn, fbp, fbw, height);
+                    w->fdrawn_any = 1;
+                    if (w->marked_count < MARKED_MAX) {
+                        w->marked[w->marked_count].fbp = fbp;
+                        w->marked[w->marked_count].fbw = fbw;
+                        w->marked[w->marked_count].height = height;
+                        w->marked_count++;
+                    }
+                }
                 break;
             }
     for (uint32_t i = 0; i < n; ++i) w->fread[w->pool[first + i]] = 1;
@@ -1041,6 +1744,11 @@ void em_gs_world_env_again(EmGsWorld *w)
     memset(w->tex0_known, 0, sizeof w->tex0_known);
     memset(w->clamp_known, 0, sizeof w->clamp_known);
     w->prim_known = 0;
+    /* the drawing target: the field when declared (the packets' FRAME_1 and
+     * SCISSOR_1 are the kick's, checked against it), else unknown */
+    w->tgt_frame_known = w->tgt_scissor_known = (uint8_t)w->field_declared;
+    w->tgt_frame = w->field_decl;
+    w->tgt_scissor = (uint64_t)(w->field_decl_height - 1u) << 48;
     /* the field is the drawing target again: a read of it earlier since the
      * last barrier waits for every band before the draws that follow */
     if (w->field_declared) em_gs_world_drawn_buffer(w, w->field_decl, w->field_decl_height);
@@ -1205,6 +1913,14 @@ static int field_check(EmGsWorld *w, uint64_t frame, uint32_t height)
     return 0;
 }
 
+/* The EmGs that takes the frame's stream: the parser, or the direct worker
+ * (its registers, refusals, span faults and primitive counts speak for the
+ * frame). */
+static EmGs *front(EmGsWorld *w)
+{
+    return w->parse_once ? &w->parser : &w->worker[0].gs;
+}
+
 static uint64_t pixels_drawn(const EmGsWorld *w)
 {
     uint64_t n = 0;
@@ -1229,12 +1945,27 @@ static void start(EmGsWorld *w)
     w->recording = 0;
     w->busy = 1;
     w->t_start = now_ns();
-    w->prims0 = w->worker[0].gs.drawn_prims;
+    w->prims0 = front(w)->drawn_prims;
     w->pixels0 = pixels_drawn(w);
+    if (w->parse_once) {
+        /* (the workers wait for the go: nothing below races them) the
+         * frame's parse goes on where early_parse left it, or is done */
+        w->parse_claimed = AU_LOAD(w->run->p.done) ? 1 : 0;
+        w->run->p.started = 1;
+        w->seg_cur = -1;
+        w->band_next = w->band_planned = w->band_n = w->band_done = 0;
+        w->splits = 0;
+        for (uint32_t i = 0; i < w->workers; ++i) w->worker[i].active = 0;
+        w->read_phase = 0;
+        w->read_next = w->read_n = w->read_done = 0;
+        w->bands_total = w->waits_claim = w->waits_avail = 0;
+        w->wait_claim_ns = w->wait_avail_ns = w->wait_read_ns = 0;
+    }
 #if GSW_THREADS
     if (w->threaded) {
         pthread_mutex_lock(&w->lock);
         w->running = w->workers;
+        AU_STORE(w->live, w->workers);
         w->generation++;
         pthread_cond_broadcast(&w->go);
         pthread_mutex_unlock(&w->lock);
@@ -1257,25 +1988,36 @@ int em_gs_world_wait(EmGsWorld *w)
 #endif
     w->busy = 0;
     const Job *j = w->run;
-    /* the outcome: every worker ran the job whole, and the model refused
-     * nothing (the registers, refusals and span faults are the same in every
-     * worker, and worker 0 speaks for them, except a refusal for want of
-     * memory for the address tables, which a worker meets alone) */
+    /* the outcome: the stream ran whole, and the model refused nothing (the
+     * front EmGs, the parser or the direct worker, holds the registers,
+     * refusals and span faults; a drawing worker can refuse alone, for want
+     * of memory for the address tables) */
     for (uint32_t i = 0; i < w->workers; ++i)
         if (w->worker[i].failed)
             return fail(w, "a GIF packet of the frame is malformed, or a barrier fell inside a span", i);
-    const EmGs *gs = &w->worker[0].gs;
-    for (uint32_t i = 1; i < w->workers && !(gs->refusals & EM_GS_REFUSE_MEMORY); ++i)
-        if (w->worker[i].gs.refusals & EM_GS_REFUSE_MEMORY)
-            gs = &w->worker[i].gs;
-    if (gs->refused_prims || gs->refusals) {
+    if (w->parse_once && j->p.failed)
+        return fail(w, "a GIF packet of the frame is malformed, a barrier fell inside a span, or no memory to "
+                       "parse the frame", em_gs_list_spans(j->p.list));
+    /* (parsed: the parser's counts at the end of this frame's parse) */
+    const EmGs *gs = front(w);
+    uint32_t refusals = w->parse_once ? j->p.refusals : gs->refusals;
+    uint32_t refused = w->parse_once ? j->p.refused : gs->refused_prims;
+    const char *reason = w->parse_once ? j->p.reason : gs->reason;
+    for (uint32_t i = 0; i < w->workers && !refused && !refusals; ++i)
+        if (w->worker[i].gs.refused_prims || w->worker[i].gs.refusals) {
+            refusals = w->worker[i].gs.refusals;
+            refused = w->worker[i].gs.refused_prims;
+            reason = w->worker[i].gs.reason;
+        }
+    if (refused || refusals) {
         char what[192];
         snprintf(what, sizeof what, "%s: the GS model refused a primitive: %s",
-                 j->list ? "list frame" : "world frame", gs->reason);
-        return fail(w, what, gs->refusals);
+                 j->list ? "list frame" : "world frame", reason);
+        return fail(w, what, refusals);
     }
-    if (gs->span_faults)
-        return fail(w, "a span fault (an unmeasured span boundary decides the grid)", gs->span_faults);
+    const uint32_t span_faults = w->parse_once ? j->p.span_faults : gs->span_faults;
+    if (span_faults)
+        return fail(w, "a span fault (an unmeasured span boundary decides the grid)", span_faults);
     w->field_w = 64u * ((uint32_t)(j->frame >> 16) & 0x3Fu);
     w->field_h = j->height;
     w->field_frame = j->frame;
@@ -1283,10 +2025,10 @@ int em_gs_world_wait(EmGsWorld *w)
     w->field_xyoffset_known = j->xyoffset_known;
     w->have_field = 1;
     w->stats.writes = j->op_count;
-    w->stats.prims = gs->drawn_prims - w->prims0;
+    w->stats.prims = w->parse_once ? j->p.prims1 - j->p.prims0 : gs->drawn_prims - w->prims0;
     w->stats.pixels = pixels_drawn(w) - w->pixels0;
-    w->stats.span_faults = gs->span_faults;
-    w->stats.refused = gs->refused_prims;
+    w->stats.span_faults = span_faults;
+    w->stats.refused = refused;
     w->stats.ns = now_ns() - w->t_start;
     w->stats.cpu_max_ns = w->stats.cpu_sum_ns = 0;
     for (uint32_t i = 0; i < w->workers; ++i) {
@@ -1344,6 +2086,25 @@ int em_gs_world_wait(EmGsWorld *w)
         fprintf(w->spc_file, " %llu\n", (unsigned long long)w->stats.pixels);
     }
     w->spc_frames++;
+    if (w->lc_file && w->parse_once) {
+        uint64_t sum[3] = {0};
+        for (uint32_t i = 0; i < w->workers; ++i) {
+            sum[0] += w->worker[i].gs.lsc.spans;
+            sum[1] += w->worker[i].gs.lsc.spans_drawn;
+            sum[2] += w->worker[i].gs.lsc.prims;
+        }
+        fprintf(w->lc_file, "%llu %u %u %u %u %u %llu", (unsigned long long)w->lc_frames, w->workers,
+                em_gs_list_spans(j->p.list), (unsigned)AU_LOAD(j->p.segs_closed), w->bands_total, w->splits,
+                (unsigned long long)w->stats.prims);
+        for (int k = 0; k < 3; ++k) {
+            fprintf(w->lc_file, " %llu", (unsigned long long)(sum[k] - w->lc_prev[k]));
+            w->lc_prev[k] = sum[k];
+        }
+        fprintf(w->lc_file, " %.0f %u %u %.0f %.0f %.0f %.0f %.0f %.0f %u %zu\n", j->p.ns, w->waits_claim, w->waits_avail,
+                w->stats.ns, w->stats.cpu_max_ns, w->stats.cpu_sum_ns, w->wait_claim_ns, w->wait_avail_ns,
+                w->wait_read_ns, j->p.prior_waits, j->p.early_ops);
+    }
+    w->lc_frames++;
     w->stats.runs++;
     return 0;
 }
@@ -1360,14 +2121,19 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
         return fail(w, "the kick's head packets are missing, too long or not whole quadwords", env_bytes);
     if (!gif_registers_only(env, env_bytes) || (clear_bytes && !gif_registers_only(clear, clear_bytes)))
         return fail(w, "the kick's head packets are not register packets", env_bytes);
-    /* the previous job finishes first (the workers and the field are one) */
-    if (em_gs_world_wait(w) < 0) return -1;
     Job *j = &w->job[w->rec];
+    if (j->p.began && (j->env_bytes != env_bytes || memcmp(j->env, env, env_bytes) != 0 ||
+                       j->clear_bytes != clear_bytes || (clear_bytes && memcmp(j->clear, clear, clear_bytes) != 0)))
+        return fail(w, "the kick's head is not the one the frame was parsed with (em_gs_world_preparse)", env_bytes);
     memcpy(j->env, env, env_bytes);
     j->env_bytes = env_bytes;
     if (clear_bytes) memcpy(j->clear, clear, clear_bytes);
     j->clear_bytes = clear_bytes;
     j->list = 0;
+    /* while the previous job is drawn, this thread parses this one */
+    early_parse(w, j);
+    /* the previous job finishes first (the workers and the field are one) */
+    if (em_gs_world_wait(w) < 0) return -1;
     /* the field: the FRAME_1 and SCISSOR_1 of the kicked draw environment
      * (register packets only: a model run over them writes no memory) */
     EmGs probe;
@@ -1389,6 +2155,24 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
     return 0;
 }
 
+int em_gs_world_preparse(EmGsWorld *w, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
+{
+    if (!w || w->fault[0] || !w->recording || w->job[w->rec].p.began) return 0;
+    /* (a head the kick would refuse is left to the kick) */
+    if (!env || !env_bytes || env_bytes > HEAD_MAX || env_bytes % 16u || (clear_bytes && !clear) ||
+        clear_bytes > HEAD_MAX || clear_bytes % 16u || !gif_registers_only(env, env_bytes) ||
+        (clear_bytes && !gif_registers_only(clear, clear_bytes)))
+        return 0;
+    Job *j = &w->job[w->rec];
+    memcpy(j->env, env, env_bytes);
+    j->env_bytes = env_bytes;
+    if (clear_bytes) memcpy(j->clear, clear, clear_bytes);
+    j->clear_bytes = clear_bytes;
+    j->list = 0;
+    early_parse(w, j);
+    return 0;
+}
+
 int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
                            uint64_t display_frame, uint64_t display_scissor)
 {
@@ -1402,6 +2186,8 @@ int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGs
         w->recording = 0;
         return -1;
     }
+    /* while the previous job is drawn, this thread parses this one */
+    early_parse(w, &w->job[w->rec]);
     if (em_gs_world_wait(w) < 0) return -1;
     Job *j = &w->job[w->rec];
     j->list = 1;

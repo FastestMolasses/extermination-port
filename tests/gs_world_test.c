@@ -28,7 +28,17 @@
  * (EM_GS_SPEC=0) draw the same, and so does the loops' check
  * (EM_GS_SPEC_CHECK=1: each primitive a loop takes drawn by the generic path
  * too and compared), which the loops' counters show took primitives of each
- * loop (EM_GS_SPEC_COUNTERS). Also the refusals:
+ * loop (EM_GS_SPEC_COUNTERS). With more than one worker the frames are
+ * parsed once and drawn in bands from a queue (docs/PERFORMANCE.md M4):
+ * the frames again kicked as the backend kicks them, the next one parsed
+ * early while the one before is drawn (em_gs_world_preparse; its T8 CLUT
+ * loaded from the field the one before drew, so the early parse waits for
+ * that frame), with 3 and 8 workers, the early parse forced to hand over
+ * after 37 ops (EM_GS_EARLY_OPS; also with one worker drawing the list,
+ * EM_GS_LIST=1), the early parse off and 1 and 8 bands a worker
+ * (EM_GS_BANDS), draw what one worker draws; and the list's texture-cache
+ * stamps (em_gs_list_draw, em_gs_list_pass) with two drawing models in a
+ * fixed band order leave the memory one model leaves. Also the refusals:
  * a transfer register, an IMAGE packet and a texture outside the uploads
  * fault, and so do a field declared outside a recording, a second other
  * field, and a kick whose head draws another field than the declared one. */
@@ -215,6 +225,9 @@ static void record_pass(EmGsWorld *w, uint32_t fbp)
 
 static int g_with_pass = 1;
 static int g_many_keys = 0;
+static int g_clut_prev = 0;   /* the second frame's T8 triangles take their CLUT from the first's field */
+#define TEX_T8_PREV (0x2000ull | 2ull << 14 | 0x13ull << 20 | 6ull << 26 | 6ull << 30 | 1ull << 34 | \
+                     0x100ull << 37 | 1ull << 61)   /* T8 64x64 over the resident texels, CLUT at block 0x100 */
 #define MANY_KEYS 1100u    /* more texture keys than em_gs_world.c keeps (CHECKED_MAX 1024) */
 
 /* One world frame: the scene, the target pass twice (the first frame
@@ -234,6 +247,17 @@ static void record_world(EmGsWorld *w, uint32_t seed, uint32_t fbp, int target_p
                      vtx(x + 11, y + 23, 5000, 40, 60, 70, 128, 128, 0.3f, 1.0f, 1.0f));
     }
     em_gs_world_prims(w, p, NULL, n);
+    /* (g_clut_prev, the second frame) T8 triangles whose CLUT (CLD 1) is
+     * loaded from block 0x100, in the field the first frame drew: a parse
+     * of this frame that runs while the first is drawn (em_gs_world_preparse)
+     * must wait for it before the load reads memory */
+    for (unsigned i = 0; g_clut_prev && seed == 12u && i < 6; ++i) {
+        const int x = (int)((i * 83u) % 420u), y = (int)((i * 31u) % 170u);
+        EmGfxGsPrim t8 = tri(0x03C, TEX_T8_PREV, vtx(x, y, 3000 + i, 200, 128, 128, 128, 128, 0.0f, 0.0f, 1.0f),
+                             vtx(x + 70, y + 9, 3000 + i, 200, 128, 128, 128, 128, 1.0f, 0.2f, 1.0f),
+                             vtx(x + 13, y + 40, 3000 + i, 200, 128, 128, 128, 128, 0.2f, 1.0f, 1.0f));
+        em_gs_world_prims(w, &t8, NULL, 1);
+    }
     /* (g_many_keys, the first frame) the resident texture under MANY_KEYS
      * distinct REGION_CLAMP words, kicked by triangles of no area: the
      * texture lookup fills its table (CHECKED_MAX), and every texture after
@@ -301,39 +325,9 @@ typedef struct {
 
 static unsigned g_host_workers;          /* the host default's count (run(0)) */
 
-/* workers 0: EM_GS_THREADS unset, the host default (em_gs_world.c
- * worker_count: the core-type count and the workers' QoS) */
-static void run(unsigned workers, Result *out)
+/* A list frame: sprites reading the field just drawn (FBP 0x38) into FBP 0. */
+static void list_frame(EmGsWorld *w, Result *out)
 {
-    char n[8];
-    snprintf(n, sizeof n, "%u", workers);
-    if (workers)
-        setenv("EM_GS_THREADS", n, 1);
-    else
-        unsetenv("EM_GS_THREADS");
-    EmGsWorld *w = em_gs_world_create();
-    CHECK(w);
-    if (workers)
-        CHECK(em_gs_world_workers(w) == workers);
-    else {
-        g_host_workers = em_gs_world_workers(w);
-        CHECK(g_host_workers >= 1 && g_host_workers <= 8);
-    }
-    CHECK(em_gs_world_memory_load(w, image_path) == 0);
-    uint8_t env[512], clr[512];
-    size_t env_n, clr_n;
-    for (unsigned f = 0; f < 2; ++f) {
-        record_world(w, 11u + f, f ? 0x38 : 0, f == 0);
-        head(env, &env_n, clr, &clr_n, f ? 0x38 : 0, (int)f);
-        CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
-        CHECK(em_gs_world_wait(w) == 0);
-        uint32_t fw, fh;
-        uint64_t frame;
-        const uint8_t *fld = em_gs_world_field(w, &fw, &fh, &frame);
-        CHECK(fld && fw == 512 && fh == 224 && (frame & 0x1FF) == (f ? 0x38u : 0u));
-        memcpy(out->field[f], fld, sizeof out->field[f]);
-    }
-    /* a list frame: sprites reading the field just drawn (FBP 0x38) into FBP 0 */
     EmGfxGsPrim sp[4];
     EmGfxGsEnv ev[4];
     for (unsigned i = 0; i < 4; ++i) {
@@ -367,6 +361,41 @@ static void run(unsigned workers, Result *out)
     const uint8_t *fld = em_gs_world_field(w, NULL, NULL, NULL);
     CHECK(fld);
     memcpy(out->field[2], fld, sizeof out->field[2]);
+}
+
+/* workers 0: EM_GS_THREADS unset, the host default (em_gs_world.c
+ * worker_count: the core-type count and the workers' QoS) */
+static void run(unsigned workers, Result *out)
+{
+    char n[8];
+    snprintf(n, sizeof n, "%u", workers);
+    if (workers)
+        setenv("EM_GS_THREADS", n, 1);
+    else
+        unsetenv("EM_GS_THREADS");
+    EmGsWorld *w = em_gs_world_create();
+    CHECK(w);
+    if (workers)
+        CHECK(em_gs_world_workers(w) == workers);
+    else {
+        g_host_workers = em_gs_world_workers(w);
+        CHECK(g_host_workers >= 1 && g_host_workers <= 8);
+    }
+    CHECK(em_gs_world_memory_load(w, image_path) == 0);
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    for (unsigned f = 0; f < 2; ++f) {
+        record_world(w, 11u + f, f ? 0x38 : 0, f == 0);
+        head(env, &env_n, clr, &clr_n, f ? 0x38 : 0, (int)f);
+        CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+        CHECK(em_gs_world_wait(w) == 0);
+        uint32_t fw, fh;
+        uint64_t frame;
+        const uint8_t *fld = em_gs_world_field(w, &fw, &fh, &frame);
+        CHECK(fld && fw == 512 && fh == 224 && (frame & 0x1FF) == (f ? 0x38u : 0u));
+        memcpy(out->field[f], fld, sizeof out->field[f]);
+    }
+    list_frame(w, out);
     EmGsWorldStats st;
     em_gs_world_stats(w, &st);
     CHECK(st.runs == 3 && st.pixels > 0);
@@ -377,6 +406,70 @@ static void run(unsigned workers, Result *out)
     CHECK(em_gs_world_read(w, 0x12C, 2, 128, 128, out->buf[3]) == 0);
     CHECK(em_gs_world_read(w, 0x12C, 4, 256, 256, out->buf[4]) == 0);
     em_gs_world_destroy(w);
+}
+
+/* The frames of run() (with every block uploaded and g_clut_prev), kicked
+ * as the backend kicks them: the next frame recorded and parsed early
+ * (em_gs_world_preparse) while the one before is drawn, then that one
+ * waited for and its field read, then the kick. */
+static void run_piped(unsigned workers, Result *out)
+{
+    char n[8];
+    snprintf(n, sizeof n, "%u", workers);
+    setenv("EM_GS_THREADS", n, 1);
+    EmGsWorld *w = em_gs_world_create();
+    CHECK(w && em_gs_world_workers(w) == workers);
+    CHECK(em_gs_world_memory_load(w, image_all) == 0);
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    for (unsigned f = 0; f < 2; ++f) {
+        record_world(w, 11u + f, f ? 0x38 : 0, f == 0);
+        head(env, &env_n, clr, &clr_n, f ? 0x38 : 0, (int)f);
+        CHECK(em_gs_world_preparse(w, env, env_n, clr, clr_n) == 0);
+        if (f) {
+            CHECK(em_gs_world_wait(w) == 0);
+            const uint8_t *fld = em_gs_world_field(w, NULL, NULL, NULL);
+            CHECK(fld);
+            memcpy(out->field[0], fld, sizeof out->field[0]);
+        }
+        CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+    }
+    CHECK(em_gs_world_wait(w) == 0);
+    const uint8_t *fld = em_gs_world_field(w, NULL, NULL, NULL);
+    CHECK(fld);
+    memcpy(out->field[1], fld, sizeof out->field[1]);
+    list_frame(w, out);
+    CHECK(em_gs_world_read(w, 0, 8, 512, 224, out->buf[0]) == 0);
+    CHECK(em_gs_world_read(w, 0x38, 8, 512, 224, out->buf[1]) == 0);
+    CHECK(em_gs_world_read(w, 0x70, 8, 512, 224, out->buf[2]) == 0);
+    CHECK(em_gs_world_read(w, 0x12C, 2, 128, 128, out->buf[3]) == 0);
+    CHECK(em_gs_world_read(w, 0x12C, 4, 256, 256, out->buf[4]) == 0);
+    em_gs_world_destroy(w);
+}
+
+/* EM_GS_LIST_COUNTERS' last two columns (prior_waits, early_ops), summed
+ * over the frames; the frames with early ops. */
+static unsigned early_frames(const char *path, unsigned long long *ops, unsigned long long *waits)
+{
+    FILE *f = fopen(path, "r");
+    CHECK(f);
+    char line[512];
+    unsigned frames = 0;
+    *ops = *waits = 0;
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#') continue;
+        char *last = strrchr(line, ' ');
+        CHECK(last);
+        const unsigned long long v = strtoull(last + 1, NULL, 10);
+        *last = 0;
+        const char *prev = strrchr(line, ' ');
+        CHECK(prev);
+        *waits += strtoull(prev + 1, NULL, 10);
+        *ops += v;
+        frames += v > 0;
+    }
+    fclose(f);
+    return frames;
 }
 
 /* An upload chain as em_gs_world_upload_chain takes it (one END DMA tag, a
@@ -498,6 +591,96 @@ static void refusals(void)
  * field in one frame, and a kick whose head draws another field (the
  * declared one is checked against the head); the same declaration with the
  * head's field kicks. */
+/* The parsed list's texture-cache stamps (em_gs_raster.h EmGsList), with
+ * the bands drawn in a fixed order by two drawing EmGs (W0 the rows < 64,
+ * W1 the rest), as two em_gs_world workers may take them: the 128 x 128
+ * target drawn (span 0); field rows 0..63 sampling its rows 64..127 (span
+ * 1: W0 decodes them); the target's rows 72..127 drawn again (span 2: only
+ * W1 draws; W0's walk skips the span, whose pages it must still stamp, or,
+ * when W0 does not walk it at all, em_gs_list_pass); the same rows sampled
+ * again (span 3: W0 must decode them again). Both orders leave the memory
+ * one EmGs leaves. */
+static void stamp_writes(EmGs *g)
+{
+    const uint64_t tex = 0x2580ull | 2ull << 14 | 7ull << 26 | 7ull << 30 | 1ull << 34 | 1ull << 35;
+    const uint64_t w[][2] = {
+        { EM_GS_PRMODECONT, 1 }, { EM_GS_TEST_1, 0x30000 }, { EM_GS_ZBUF_1, 0x101000070ull },
+        { EM_GS_XYOFFSET_1, 0 }, { EM_GS_COLCLAMP, 1 },
+        /* span 0: the target, flat */
+        { EM_GS_FRAME_1, 0x2012C }, { EM_GS_SCISSOR_1, 127ull << 16 | 127ull << 48 }, { EM_GS_PRIM, 6 },
+        { EM_GS_RGBAQ, 0x80204060ull }, { EM_GS_XYZ2, 0 }, { EM_GS_XYZ2, (128u * 16) | (uint64_t)(128u * 16) << 16 },
+        /* span 1: field rows 0..63 from the target's rows 64..127 (UV, a texel a pixel) */
+        { EM_GS_FRAME_1, 8ull << 16 }, { EM_GS_SCISSOR_1, 511ull << 16 | 223ull << 48 },
+        { EM_GS_TEX0_1, tex }, { EM_GS_TEX1_1, 0 }, { EM_GS_CLAMP_1, 0 }, { EM_GS_PRIM, 6 | 1 << 4 | 1 << 8 },
+        { EM_GS_RGBAQ, 0x80808080ull }, { EM_GS_UV, 8 | (uint64_t)(64 * 16 + 8) << 16 }, { EM_GS_XYZ2, 0 },
+        { EM_GS_UV, (128 * 16 + 8) | (uint64_t)(128 * 16 + 8) << 16 },
+        { EM_GS_XYZ2, (128u * 16) | (uint64_t)(64u * 16) << 16 },
+        /* span 2: the target's rows 72..127 (past W0's rows with the list's two-row margin), another colour */
+        { EM_GS_FRAME_1, 0x2012C }, { EM_GS_SCISSOR_1, 127ull << 16 | 127ull << 48 }, { EM_GS_PRIM, 6 },
+        { EM_GS_RGBAQ, 0x80F01020ull }, { EM_GS_XYZ2, (uint64_t)(72u * 16) << 16 },
+        { EM_GS_XYZ2, (128u * 16) | (uint64_t)(128u * 16) << 16 },
+        /* span 3: the same sample again, into field columns 200.. */
+        { EM_GS_FRAME_1, 8ull << 16 }, { EM_GS_SCISSOR_1, 511ull << 16 | 223ull << 48 },
+        { EM_GS_PRIM, 6 | 1 << 4 | 1 << 8 }, { EM_GS_RGBAQ, 0x80808080ull },
+        { EM_GS_UV, 8 | (uint64_t)(64 * 16 + 8) << 16 }, { EM_GS_XYZ2, 200u * 16 },
+        { EM_GS_UV, (128 * 16 + 8) | (uint64_t)(128 * 16 + 8) << 16 },
+        { EM_GS_XYZ2, (328u * 16) | (uint64_t)(64u * 16) << 16 },
+    };
+    for (unsigned i = 0; i < sizeof w / sizeof w[0]; ++i) em_gs_write(g, (unsigned)w[i][0], w[i][1]);
+    em_gs_flush(g);
+}
+
+static void list_stamps(void)
+{
+    uint8_t *ref = calloc(1, EM_GS_MEM_BYTES);
+    CHECK(ref);
+    EmGs one;
+    em_gs_init(&one, ref);
+    one.strict = 1;
+    stamp_writes(&one);
+    CHECK(!one.refusals && !one.span_faults);
+    em_gs_release(&one);
+    for (int skip_walk = 0; skip_walk < 2; ++skip_walk) {
+        uint8_t *mem = calloc(1, EM_GS_MEM_BYTES);
+        CHECK(mem);
+        EmGs parser, b[2];
+        em_gs_init(&parser, mem);
+        parser.strict = 1;
+        parser.tc_off = 1;
+        EmGsList *l = em_gs_list_create();
+        CHECK(l);
+        parser.list = l;
+        stamp_writes(&parser);
+        parser.list = NULL;
+        CHECK(!parser.refusals && em_gs_list_spans(l) == 4);
+        for (int k = 0; k < 2; ++k) {
+            em_gs_init(&b[k], mem);
+            b[k].strict = 1;
+            b[k].band_rows = 1;
+            b[k].band_y0 = k ? 64 : INT32_MIN;
+            b[k].band_y1 = k ? INT32_MAX : 63;
+        }
+        for (uint32_t s = 0; s < 4; ++s) {
+            if (s == 2) {
+                (void)em_gs_list_draw(&b[1], l, 2, 3, NULL, NULL);
+                if (skip_walk) em_gs_list_pass(&b[0], l, 2, 3);
+                else (void)em_gs_list_draw(&b[0], l, 2, 3, NULL, NULL);
+                continue;
+            }
+            (void)em_gs_list_draw(&b[0], l, s, s + 1, NULL, NULL);
+            (void)em_gs_list_draw(&b[1], l, s, s + 1, NULL, NULL);
+        }
+        CHECK(memcmp(mem, ref, EM_GS_MEM_BYTES) == 0);
+        /* (the second sample did read the new rows: a field pixel of span 3) */
+        CHECK(em_gs_read_pixel(&b[0], 0, 8, EM_GS_PSMCT32, 210, 10) == 0x80F01020u);
+        for (int k = 0; k < 2; ++k) em_gs_release(&b[k]);
+        em_gs_release(&parser);
+        em_gs_list_destroy(l);
+        free(mem);
+    }
+    free(ref);
+}
+
 static void field_refusals(void)
 {
     setenv("EM_GS_THREADS", "2", 1);
@@ -676,6 +859,50 @@ int main(void)
     /* every primitive a loop took was checked, and each loop drew pixels */
     CHECK(spc[6] == spc[0] + spc[1] + spc[2]);
     CHECK(spc[3] > 0 && spc[4] > 0 && spc[5] > 0);
+    /* parse once (docs/PERFORMANCE.md M4): frames parsed early while the one
+     * before is drawn (em_gs_world_preparse; the second frame's T8 CLUT is
+     * loaded from the field the first drew, so that parse waits for the
+     * first frame before the load) draw what one worker draws the frames
+     * one at a time: 3 and 8 workers as the backend kicks them; the early
+     * parse forced to stop after 37 ops (EM_GS_EARLY_OPS, the workers go on
+     * from there) with 3 and 8 workers and with one worker drawing the
+     * parsed list (EM_GS_LIST=1); the early parse off; and 1 and 8 bands a
+     * worker (EM_GS_BANDS) */
+    static Result rp_ref, rp_plain, rp[8];
+    image_path = image_all;
+    run(1, &rp_plain);
+    g_clut_prev = 1;
+    run(1, &rp_ref);
+    unsigned clut_px = 0;
+    for (unsigned i = 0; i < 512 * 224; ++i) clut_px += memcmp(rp_ref.field[1] + 4 * i, rp_plain.field[1] + 4 * i, 3) != 0;
+    CHECK(clut_px > 1000);
+    unsigned long long eops[8] = {0}, pwaits[8] = {0};
+    unsigned eframes[8] = {0};
+    const char *const lc = "build/gs_world_test/list_counters.txt";
+    for (unsigned i = 0; i < 8; ++i) {
+        static const unsigned wk[8] = { 3, 8, 3, 8, 1, 8, 3, 8 };
+        if (i == 2 || i == 3 || i == 4) setenv("EM_GS_EARLY_OPS", "37", 1);
+        if (i == 4) setenv("EM_GS_LIST", "1", 1);
+        if (i == 5) setenv("EM_GS_EARLY_PARSE", "0", 1);
+        if (i == 6) setenv("EM_GS_BANDS", "1", 1);
+        if (i == 7) setenv("EM_GS_BANDS", "8", 1);
+        setenv("EM_GS_LIST_COUNTERS", lc, 1);
+        run_piped(wk[i], &rp[i]);
+        unsetenv("EM_GS_LIST_COUNTERS");
+        unsetenv("EM_GS_EARLY_OPS");
+        unsetenv("EM_GS_LIST");
+        unsetenv("EM_GS_EARLY_PARSE");
+        unsetenv("EM_GS_BANDS");
+        eframes[i] = early_frames(lc, &eops[i], &pwaits[i]);
+        for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(rp[i].field[f], rp_ref.field[f], sizeof rp_ref.field[f]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(rp[i].buf[b], rp_ref.buf[b], sizeof rp_ref.buf[b]) == 0);
+    }
+    g_clut_prev = 0;
+    image_path = image_one;
+    /* the forced early parses parsed 37 ops of every frame; with it off, none */
+    CHECK(eframes[2] == 3 && eops[2] == 3 * 37 && eframes[3] == 3 && eops[3] == 3 * 37);
+    CHECK(eframes[4] == 3 && eops[4] == 3 * 37 && eframes[5] == 0);
+    list_stamps();
     refusals();
     field_refusals();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
@@ -687,8 +914,12 @@ int main(void)
            "workers; uploads over the resident texture between frames (%u field pixels changed): the same with the "
            "cache on (%s workers) and off; the specialized span loops off: the same with %s workers; each of their "
            "%llu primitives (%llu / %llu / %llu pixels: textured sprites, textured and untextured triangles) drawn "
-           "by the generic path too, the same (%s workers))\n", g_host_workers, blended[0], blended[1],
+           "by the generic path too, the same (%s workers); parse once: frames parsed early while the one before "
+           "is drawn, with a CLUT loaded from that one's field (%u pixels), the same with 3 and 8 workers (early "
+           "ops %llu and %llu, waits for the frame before %llu and %llu), forced to hand over after 37 ops (3, 8 workers and one worker drawing the list), "
+           "the early parse off (8), and 1 and 8 bands a worker (3, 8); the list's texture-cache stamps with two "
+           "drawing models in a fixed band order: the same as one model)\n", g_host_workers, blended[0], blended[1],
            MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8",
-           full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1");
+           full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1", clut_px, eops[0], eops[1], pwaits[0], pwaits[1]);
     return 0;
 }

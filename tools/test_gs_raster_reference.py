@@ -29,7 +29,11 @@ section 3.7) and compares:
      src/gs/em_gs_world.c): every capture packet through 3 band EmGs of 4
      rows (EM_TEST_FULL=1: also 8 of 4 and 3 of 8) chained in lockstep
      (EmGs.tee) must leave exactly the memory and drawn-pixel total of one
-     EmGs;
+     EmGs, and so must row-range bands (EmGs.band_rows, the bands
+     em_gs_world draws a parsed frame in, docs/PERFORMANCE.md M4): 3 bands
+     cut at seeded random rows, the first open to the top and the last to
+     the bottom (EM_TEST_FULL=1: also 8 bands, and 5 bands cut in the first 40
+     rows);
   G. the half-pixel scissor edge (section 3.8; the user's decision of
      2026-10-09: the port follows the PCSX2 fork): the fork's capture of
      the decomp's probe 9 (build/fork_refs/pixels/b16/gscap9, in both
@@ -343,6 +347,31 @@ size_t shim_gif_bands(uint8_t *mem, int strict, unsigned bands, unsigned shift, 
     free(g);
     return r;
 }
+/* Part F, row ranges: `bands` EmGs in lockstep, band k drawing the rows
+ * cut[k - 1] <= y < cut[k] (cut[-1] the top, cut[bands - 1] the bottom). */
+size_t shim_gif_rows(uint8_t *mem, int strict, unsigned bands, const int *cut, const uint8_t *d, size_t n,
+                     unsigned long long *pixels)
+{
+    EmGs *g = calloc(bands, sizeof *g);
+    for (unsigned k = 0; k < bands; ++k) {
+        em_gs_init(&g[k], mem);
+        g[k].strict = strict;
+        g[k].band_rows = 1;
+        g[k].band_y0 = k == 0 ? INT32_MIN : cut[k - 1];
+        g[k].band_y1 = k + 1 == bands ? INT32_MAX : cut[k] - 1;
+        g[k].tee = k + 1 < bands ? &g[k + 1] : NULL;
+    }
+    size_t r = em_gs_gif(&g[0], d, n);
+    em_gs_flush(&g[0]);
+    *pixels = 0;
+    for (unsigned k = 0; k < bands; ++k) {
+        *pixels += g[k].drawn_pixels;
+        g[k].tee = NULL;
+        em_gs_release(&g[k]);
+    }
+    free(g);
+    return r;
+}
 /* Part A's tables check: the addresses of a w x h rectangle through the
  * drawing path's separable tables (em_gs_swz_addr), row by row. */
 void shim_swz_rect(unsigned psm, unsigned bp, unsigned bw, unsigned w, unsigned h, uint32_t *out)
@@ -389,6 +418,9 @@ def build() -> C.CDLL:
     n.shim_gif_bands.restype = C.c_size_t
     n.shim_gif_bands.argtypes = [C.c_void_p, C.c_int, C.c_uint, C.c_uint, C.c_char_p, C.c_size_t,
                                  C.POINTER(C.c_ulonglong)]
+    n.shim_gif_rows.restype = C.c_size_t
+    n.shim_gif_rows.argtypes = [C.c_void_p, C.c_int, C.c_uint, C.POINTER(C.c_int), C.c_char_p, C.c_size_t,
+                                C.POINTER(C.c_ulonglong)]
     n.shim_swz_rect.argtypes = [C.c_uint] * 5 + [C.c_void_p]
     n.shim_prim_size.restype = C.c_uint
     n.shim_env_size.restype = C.c_uint
@@ -695,8 +727,21 @@ def check_bands(lib, sets) -> int:
     and 8 band EmGs in lockstep over one memory (EmGs.tee: each write, IMAGE
     transfer and flush reaches every band before the next) and must leave
     exactly the memory one EmGs leaves, with the same drawn-pixel total
-    (quick: 3 bands of 4 rows; full: also 8 bands of 4 rows and 3 of 8)."""
+    (quick: 3 bands of 4 rows; full: also 8 bands of 4 rows and 3 of 8); and
+    so must row-range bands (EmGs.band_rows, the bands em_gs_world's workers
+    draw a parsed frame in) cut at seeded random rows (quick: 3; full: also
+    8, and 5 cut in the first 40 rows)."""
     configs = [(3, 2)] + ([(8, 2), (3, 3)] if FULL else [])
+    # row ranges (EmGs.band_rows): the cut rows of each configuration, seeded
+    import random
+    rng = random.Random(0x4D34)
+    def cuts(bands, lo, hi):
+        return sorted(rng.sample(range(lo, hi), bands - 1))
+    range_configs = [('3 row ranges', lambda: cuts(3, 1, 240))]
+    if FULL:
+        range_configs += [('8 row ranges', lambda: cuts(8, 1, 300)),
+                          ('5 row ranges cut in the first 40 rows', lambda: [c + 8 * i for i, c in
+                                                                   enumerate(sorted(rng.randint(1, 8) for _ in range(4)))])]
     fails = packets = 0
     # every capture set's packets, and part G's (the fork's probe 9)
     roots = [(set_name, B16 / set_name, batches) for set_name, batches in sets]
@@ -720,8 +765,19 @@ def check_bands(lib, sets) -> int:
                     fails += 1
                     print(f'  bands FAIL {set_name}/{name}: {bands} bands of {1 << shift} rows differ from one '
                           f'EmGs (pixels {px.value} against {px1})')
+            for label, make in range_configs:
+                cut = make()
+                arr = (C.c_int * len(cut))(*cut)
+                mem = (C.c_uint8 * LOCALMEM)()
+                px = C.c_ulonglong(0)
+                lib.shim_gif_rows(C.addressof(mem), 1, len(cut) + 1, arr, packet, len(packet), C.byref(px))
+                if bytes(mem) != bytes(one) or px.value != px1:
+                    fails += 1
+                    print(f'  bands FAIL {set_name}/{name}: {label} (cut at {cut}) differ from one EmGs '
+                          f'(pixels {px.value} against {px1})')
             packets += 1
-    print(f'  bands: {packets} packets, {len(configs)} band configurations, {fails} differ')
+    print(f'  bands: {packets} packets, {len(configs)} band configurations and {len(range_configs)} row-range '
+          f'configurations, {fails} differ')
     return fails
 
 
