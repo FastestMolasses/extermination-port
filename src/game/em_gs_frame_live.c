@@ -6,6 +6,7 @@
 
 #include "em_settings.h"
 #include "game/em_frame.h"
+#include "game/em_display_env_live.h"
 #include "game/em_effects_live.h"
 #include "game/em_render_context_live.h"
 
@@ -37,7 +38,14 @@ int em_gs_frame_live_install(EmGfx *gfx)
 
 int em_gs_frame_live_kick(EmGfx *gfx)
 {
-    if (!em_gfx_gs_world_enabled(gfx)) return 0;
+    const int gs = em_gfx_gs_world_enabled(gfx);
+    /* The head goes to the renderer, with either renderer, once the render
+     * context is bound: before the bind the bring-up's 001D1EF0 is not run,
+     * so its frames' head takes the Z-only clear where the original's takes
+     * the black one (RENDER_CONTEXT.md 9.4), and the renderer is not told
+     * which buffer those frames draw. */
+    const int head = em_rcl_bound();
+    if (!gs && !head) return 0;
     static uint8_t env[HEAD_MAX], clear[HEAD_MAX];
     uint32_t env_bytes = 0, clear_bytes = 0;
     const char *why = NULL;
@@ -45,6 +53,21 @@ int em_gs_frame_live_kick(EmGfx *gfx)
         fprintf(stderr, "gs frame: the kicked list's head is not 001D2300's: %s\n", why ? why : "?");
         return -1;
     }
+    if (head) {
+        /* the buffer this list draws is the one the next step U shows: the
+         * display environment of the other value of D_00810E80 */
+        const uint8_t *b = em_frame_d810E80();
+        uint64_t dispfb = 0;
+        if (!b || em_display_env_live_dispfb((int32_t)((b[0] | b[1] << 8) ^ 1u), &dispfb) < 0) {
+            fprintf(stderr, "gs frame: no display environment for the kicked buffer (step R)\n");
+            return -1;
+        }
+        if (em_gfx_gs_head(gfx, env, env_bytes, clear, clear_bytes, dispfb) < 0) {
+            fprintf(stderr, "gs frame: the frame faulted: %s\n", em_gfx_gs_world_fault(gfx));
+            return -1;
+        }
+    }
+    if (!gs) return 0;
     if (em_gfx_gs_world_kick(gfx, env, env_bytes, clear, clear_bytes) < 0) {
         fprintf(stderr, "gs frame: the frame faulted: %s\n", em_gfx_gs_world_fault(gfx));
         return -1;

@@ -33,6 +33,11 @@ extern "C" {
  * (latched). */
 int em_background_live_draw(EmGfx *gfx);
 uint32_t em_background_live_fault(void);
+/* Step V's kick (main.c): the background of a list that CALLs channel 3 in
+ * an iteration whose frame close did not draw it (em_render_frame.c, where
+ * the gate lives; docs/GS_EXACT.md section 11 "Frames that draw nothing").
+ * 0, or -1 (reported). */
+int em_render_kick_background(EmGfx *gfx);
 
 /* The level smoke's view (the tick log's "background"). */
 typedef struct {

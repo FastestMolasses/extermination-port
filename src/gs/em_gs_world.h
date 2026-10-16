@@ -181,6 +181,33 @@ int em_gs_world_field_xyoffset_known(const EmGsWorld *w);
  * *xyoffset, 0 when that offset is unknown (a list frame that drew nothing
  * into its displayed buffer), -1 when no frame was handed yet. */
 int em_gs_world_handed_xyoffset(const EmGsWorld *w, uint64_t *xyoffset);
+/* The FRAME_1 of the field of the frame last handed to the workers (the
+ * kick's draw environment's, or the list frame's displayed buffer), known
+ * as soon as it is handed. 1 with *frame, -1 when no frame was handed yet. */
+int em_gs_world_handed_frame(const EmGsWorld *w, uint64_t *frame);
+
+/* The head of a kicked list alone (its draw environment and clear, the
+ * register packets em_gs_world_kick takes), run through the model in strict
+ * mode over `scratch` (EM_GS_MEM_BYTES the caller owns; its contents are
+ * overwritten): the field the environment names (its FRAME_1, SCISSOR_1's
+ * rows, XYOFFSET_1, as em_gs_world_kick takes them) and whether the clear
+ * writes the field's colour. The field is filled with 0x00000000 and run,
+ * then with 0xFFFFFFFF and run: `writes` is 1 when any field word changed in
+ * either run; `black` is 1 when after the second run every field pixel's
+ * R, G and B are 0 (with `writes`: the clear leaves a black field). For the
+ * presenter's frames that draw nothing (docs/GS_EXACT.md section 11 "Frames
+ * that draw nothing"): the 001D2300 heads are the Z-only clear GS block
+ * +0x3A0 (writes 0) and the black clear +0x420 (writes 1, black 1).
+ * `colour` 0 runs the environment alone (frame, height and xyoffset only;
+ * writes and black 0). 0, or -1 (not register packets, too long, a
+ * refusal or a span fault). */
+typedef struct {
+    uint64_t frame, xyoffset;
+    uint32_t height;
+    int writes, black;
+} EmGsHeadProbe;
+int em_gs_head_probe(uint8_t *scratch, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes,
+                     int colour, EmGsHeadProbe *out);
 
 /* Rows of a PSMCT32 buffer in local memory, after waiting for the workers
  * (a test hook: the veil's surfaces, the shadow target). 0, or -1. */

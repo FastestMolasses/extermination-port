@@ -955,6 +955,44 @@ int em_render_001D1EF0(void)
     return 0;
 }
 
+/* Step V's kick (main.c rcl_step_v, before the GS frame's kick): the list
+ * 001D2300 kicked CALLs render channel 3 (it called 001E0DF0: D_008106C4 0,
+ * render flag 4 clear, flag 0x20 set) in an iteration whose frame close did
+ * not draw the background, the frame machine's iterations that run no world
+ * variant (the options screen's close: 0x1AE040 back from state 2). The
+ * original's GS still draws that CALL: the list is the head (the black
+ * clear there), the channel-3 grid over the +0x1D8 list the last 001C1D00
+ * built, and channels 0 / 1 and the page; so the field is the background.
+ * The fork shows it at side beat opt_00's closes (decomp
+ * build/nodraw_r3/fork_optclose_1016a: the head REFs GS block +0x420 and
+ * a CALL; the displayed field one flat RGBA 48, 48, 48, 0x80, BACKGROUND.md's
+ * grey; docs/GS_EXACT.md section 11 "Frames that draw nothing"). The port
+ * draws it here, into a GS frame the kick then runs (the Original profile)
+ * or with the GPU renderer, through the same gate and asset checks as the
+ * frame close. Not in the movie frame: the port's unbound 001D1C10 leaves
+ * flag 4 clear there, so its 001D2300 calls 001E0DF0 where the original's
+ * does not (RENDER_CONTEXT.md 9.4). 0, or -1 (reported). */
+int em_render_kick_background(EmGfx *gfx)
+{
+    int called = 0;
+    if (!em_rcl_bound() || em_rcl_kick_called_001E0DF0(&called) < 0 || !called || em_frame_movie_frame())
+        return 0;
+    EmBackgroundLiveLog l;
+    em_background_live_log(&l);
+    if (l.draws && l.frame == em_frame_counter())
+        return 0; /* the frame close drew it (the world frames) */
+    const int background = background_gate(gfx);
+    if (background <= 0)
+        return background;
+    if (em_gfx_gs_world_enabled(gfx) && !em_gfx_gs_world_recording(gfx) && em_gfx_gs_world_frame(gfx) < 0)
+        return -1; /* reported: the GS frame faulted */
+    if (em_background_live_draw(gfx) < 0) {   /* reported; fail-stop */
+        em_scene_fault(em_scene_state(), em_background_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
+        return -1;
+    }
+    return 0;
+}
+
 /* func_001ABF90 position of the byte-matched 001AD4E0 (game-over steps 3
  * and 4 push its four TEX0 words every tick). 001AD4E0 replaces the frame
  * machine there, so the frame holds no world: 001ABF90 draws the four

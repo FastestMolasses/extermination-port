@@ -42,6 +42,12 @@ int em_display_env_live_step_r(void *context);
 int em_display_env_live_step_u(void *context, int32_t buffer);
 /* D_00810EA0 .. D_00810EEF as step R last wrote them. */
 const uint8_t *em_display_env_live_bytes(void);
+/* The DISPFB dword of the display environment `buffer` (D_00810E80's value,
+ * 0 or 1) selects, as step R last built it: what step U's 00100550 stores
+ * into DISPFB2 (DISPFB1 on GS revision 1; the same dword, env + 0x10). The
+ * buffer a frame's list draws is the one the next step U shows (the other
+ * environment: em_gs_frame_live_kick). 0, or -1 (no environment built). */
+int em_display_env_live_dispfb(int32_t buffer, uint64_t *dispfb);
 
 #ifdef __cplusplus
 }

@@ -2298,6 +2298,179 @@ rectangle unplaced, which is the default position (shift 0), until step U
 stores again. Measured on captures (`tools/check_present_capture.py`,
 below).
 
+**Frames that draw nothing (2026-10-16, step NODRAW).** Every main-loop
+iteration kicks its list (001D2300, NEARMISS C, kicked by 00101F08,
+NEARMISS) into the buffer the next step U shows; nothing else writes that
+buffer. When the list's head is the Z-only clear and the list draws no
+picture, the buffer keeps what was drawn into it two iterations before and
+the display scans that again. On the fork (ignored decomp
+`build/fork_refs/probes_1016/screens/01_battery`, `03_panel_power` and
+their `_listsize` folders: the frame store's displayed field per vblank,
+and the packet buffers' write pointers at the 00101F08 kick): at the
+status screen's entry (0x1AE040, `anim_frame_top_b.c`, NEARMISS: state
+1 -> 3, the iteration that calls 0020E060, and the next one, state 3
+sub-step 0) the four packet buffers hold nothing but the 80 bytes the +0x14
+buffer always carries, and the displayed field repeats the one two vblanks
+before bit for bit (route 01's battery page: vblank 193 = 191, 194 = 192;
+route 03's panel page: 390 = 388, 391 = 389); black from the next vblank
+(the black clear). At the panel's entry the +0x14 buffer also holds 001AEBE0's
+16-byte letterbox REF (C without a NEARMISS marker: its bars are appended
+whenever its state was non-zero), so the original draws the bars over the
+buffer's old picture; at full level over bars already black, the field
+does not change. The port (`em_gfx_gs_head`, em_gfx.h; Metal
+`em_gfx_metal.m`): step V's kick hands the renderer the kicked head (with
+either renderer, from the render context's bind on) and the DISPFB2 of the
+display environment that scans the buffer the list draws (the head's
+FRAME_1 must name it; a mismatch faults). The renderer keeps per display
+buffer the last frame it presented of it (the picture after the overlay
+pass, and for a field frame the field's bytes, FRAME_1, XYOFFSET_1 and the
+display registers it was placed under). A frame with no GPU draw, world
+frame or list frame (the overlay pass does not count) whose head, run alone
+through the GS model (`em_gs_head_probe`), writes no colour presents that
+buffer's kept picture again, texel for texel, and then its own overlay pass
+over it at the kept field's line (the panel's bars); before that it checks
+that the model's local memory at DISPFB2 still holds the kept field's bytes
+and that the display registers are the ones it was presented under (a
+mismatch faults). A head that writes colour must leave the field black
+(else a fault); such a frame is presented as drawn. Two fallbacks present
+as drawn instead (no fault): a buffer last drawn by a frame without a head
+(the movie's frames, whose pictures the movie driver sends to GS memory the
+port does not model, or the bring-up before the bind) — on the first-level
+path this is only the frame 00203350 returns to after Roger's departure,
+whose fork list is empty but for 16 bytes and whose display is black — and
+a window resized within the two frames before (a host event; headless runs
+never resize). A capture of a frame shown again writes the kept field's
+`.gsfield` / `.present` (native.py, tools/test_fb2_pixels.py).
+
+**A list that CALLs the background and nothing else (fix round,
+2026-10-16).** The options screen's close (side beat opt_00) is an
+iteration with all four packet buffers empty too (fork kick rows 303, 351,
+399), but its field is neither black nor the old picture: one flat RGBA
+48, 48, 48, 0x80 (vblanks 305, 353, 401). The fork's kick lists (decomp
+`build/nodraw_r3/fork_optclose_1016a`, from
+`build/nodraw_r3/fork_tools/probe_close.py`, which adds the GS block's
+clears and both slots' main-list heads to the kick table;
+`show_close.py` decodes them) say why: at row 303 the head REFs the black
+clear (GS block + 0x420, RGBAQ 0, 0, 0, 0x80) and the next tag is a CALL
+(the world-frame order, D_008106C4 0: 001D2300 called 001E0DF0), where the
+options frames before it NEXT to channel 1's list first (0x0028F700 + slot
+x 0x95760 + 0xC9000: the status-frame order, D_008106C4 non-zero). So the original's GS draws the
+black clear and then render channel 3's grid over the +0x1D8 list the last
+001C1D00 built: the field is the AREA11 background alone, BACKGROUND.md's
+grey (48, 48, 48). The port's own 001D2300 called 001E0DF0 there too (its
+kick records the call, `em_rcl_kick_called_001E0DF0`), but the port drew
+the background only in the frame close's world path, which no world
+variant runs on that iteration, so it presented the black clear. Now step V
+draws it (`em_render_kick_background`, em_render_frame.c, from main.c's
+`rcl_step_v` before the GS frame's kick) whenever 001D2300 called 001E0DF0
+in an iteration whose frame close did not draw the background, through the
+frame close's own gate and asset checks, into a GS frame the kick runs (or
+with the GPU renderer); never in the movie frame, where the port's unbound
+001D1C10 leaves flag 4 clear (RENDER_CONTEXT.md 9.4). Result (port
+`build/nodraw_r3/opt_kbg_1` against `opt_nokbg_2`, a run with the draw
+switched off; `build/nodraw_r3/tools/opt_close_cmp.py`): the three closes
+(port ticks 5466, 5514, 5562 against vblanks 305, 353, 401) are 114,688 of
+114,688 field pixels exact, field and presented, where they were all black;
+the GPU renderer's frame at 5466 is byte-identical to the Metal GS frame's
+(`build/nodraw_r3/gpu_opt_kbg_1`). The first close of that beat (port
+counter 6675, fork row 255) also CALLs the background, but there the
+options picture is still drawn: the port's legacy options screen covers the
+background whole (its presented pixels do not change), where the original's
+field (mean 34.6 against the options frames' 23) shows grey through its
+picture. That is the options screen's own divergence (its legacy GPU
+drawing), not this step's.
+- The draw also runs at iterations where the presented pixels do not change:
+  on the main line the iteration before the AREA11 opening's first world
+  frame (counter 1336) and the three status closes (2739, 3194, 4099),
+  plus like iterations of the side beats (status_pages' closes, the br_*
+  beats, dmg_flame; the options closes still under the options picture:
+  opt_00's first, and those of opt_01, opt_02 and opt_06), all under the port's full-black transition overlay or
+  its legacy options picture. Their GS field now holds the background
+  under that GPU overlay. At the panel close the fork's corresponding
+  tear-down row (527, decomp
+  `build/nodraw_r3/fork_close_03_panel_power_1016b`) NEXTs straight to
+  channel 0 (0x002F7F00, slot 1) instead of CALLing channel 3, with render
+  flags 0..0x1F at 0x3 (flag 4 clear), so the original's flag 0x20 is
+  clear there while the port's 001D2300 finds it set: the port's
+  render-context state already differs from the original's at that
+  tear-down, before this step. The display is black on both. Open,
+  invisible while the overlay is the GPU's (not traced further; the battery
+  close's probe, `fork_close_01_battery_1016b`, timed out in the fork's pad
+  call under load and was not repeated).
+- Where frames are shown again (the whole level smoke's main line, port
+  `build/nodraw_r3/cap_entries_1/present.log`, ignored): the three
+  status-screen entries (the START status at counter 2704 / 2705, the
+  battery's ITEM page at 2914 / 2915, the panel's BATTERY page at 3972 /
+  3973) and, in the level exit's area change, counters 14913, 14916 and
+  15005. Those three are black before and after (the presented frames
+  equal the old binary's pixel for pixel), as the fork's display is black
+  at its empty lists there (route 15, decomp
+  `build/nodraw_r2/fork_exit_1016a`). They match the original in pixels
+  only, not iteration for iteration: the fork has four consecutive empty
+  lists twice (rows 449..452 and 746..749) where the port shows 14913 and
+  14916 again and presents 14914 and 14915 as drawn (all black on both
+  sides). In the old demo (decomp `build/video_compare/demo_level/`, port
+  0eea8b5, disc-drive switch on) the black frames at port ticks 1719 and
+  1929 are the first frames of the START and battery entries (1719 / 1929
+  + 985 = 2704 / 2914; their 0x1AE040 state goes 1 -> 3 there), and
+  segment 12's offset 156 (counter 3002, state 3 after 1 at 3001) is the
+  second frame of the panel's entry (later than 3972 - 985 by the page
+  module loads' drive time under the switch). The side runs add the
+  options screen's opening (0x1AE040 1 -> 2: one empty iteration, at each
+  of side beat opt_00's four openings; on the fork vblank 45 = 43, 290 =
+  288, 338 = 336) and long runs in dmg_flame, dmg_load and dmg_pit_fall
+  (the game-over, death and load screens). Those last are a classification
+  artifact of the port's legacy overlay-only drawing there (the frame
+  draws nothing but its overlay pass, so it counts as a frame that draws
+  nothing over the black kept picture); no fork probe shows the original's
+  lists empty there, and their presented pixels equal the old binary's
+  (the review compared 29 dmg_flame captures, ticks 13112..13443).
+- Pixels against the fork (`build/nodraw_r2/fork_cmp.py`, like with like
+  as `tools/test_fb2_pixels.py`; fresh captures of the final build: port
+  `build/nodraw_r3/cap_entries_1`): the port's presented frames at the
+  entry pair equal its frames two iterations before byte for byte, and the
+  next ones are black where the fork's are; against the fork's fields the
+  repeated frames score exactly what their sources score (battery: field
+  40.56 % / 40.71 % exact at 1657 / 1658 = 1655 / 1656 against vblanks
+  193 / 194 = 191 / 192; panel: field 62.56 % / 62.60 %, presented
+  91.13 % / 91.17 %; the options opening: 3.22 %, 2.28 %, 2.25 %, the
+  truck-crossing area's usual residue), the existing GS-model residue, not
+  the repeat. With the GPU renderer (EM_GPU_RENDERER=1) the same three
+  entry pairs show the kept GPU frame again (equal to the frame two
+  before, byte for byte). The previous round's receipts (port
+  `build/nodraw_r2/full_new`, `full_base`, `cap_new_*`) came from builds
+  before its last renderer edit and are superseded by these.
+- No other presented picture changes: every committed picture of the whole
+  main line and of all 42 side beats, read back and hashed
+  (EM_PRESENT_PX, port `build/nodraw_r3/all_px_1/{kbg,nokbg}/<beat>/px.log`,
+  compared by `build/nodraw_r3/tools/px_cmp.py`), with the background draw
+  against a run with it switched off: equal at every tag but the options
+  closes (opt_00's 6723, 6771, 6819 and one close in each of opt_03,
+  opt_04, opt_05, opt_07 and opt_08, now the background where they were
+  black; only opt_00's have a fork probe); the movies' iterations (several
+  frames on the host media clock) compared by count only. Every beat
+  passes or fails as before (aim_burst, aim_cable and aim_world stop at
+  frame 5068 with and without it: run bare, they need the capture's pad
+  script, EM_AIM_PAD_SCRIPT). The previous round's comparison against a
+  build without the head call (13,331 field hashes, only the frames above
+  differing) stands for the frames shown again.
+- The test: `tools/check_present_again.py` checks every run's
+  EM_PRESENT_LOG (`make test-level-smoke`): every status entry pair is
+  shown again from the buffers of the two frames before, and its presented
+  picture, read back from the GPU after the commit, equals the picture
+  presented two frames before (so does every other frame shown again whose
+  overlay pass queued nothing; those with an overlay of their own, the
+  game-over runs above, are counted, not compared). A lane binary without
+  the kept picture's copy (port `build/nodraw_r3/mut_noscan_2`, the
+  review's mutation: the entries presented black again) now fails it at
+  2704 (`build/nodraw_r3/smoke_mut_noscan_2`); the log costs about a second
+  of the default run. The default run reaches the START and battery
+  entries; the panel's entry, whose first frame draws the letterbox bars
+  over the kept picture, is covered only with EM_TEST_FULL=1. `make
+  test-gs-world` covers the head probe. The options close has no test of
+  its own beyond the receipts above (its beat runs only in
+  test-level-smoke-side).
+
 **What it looks like** (the presentation preview of 2026-10-09, port
 `build/presentation_preview/README.txt`): the picture as a whole stays put
 and motion is smooth; each field carries every other line's detail, so a
@@ -2373,6 +2546,8 @@ was compared with real hardware.
 - `tests/gs_display_test.c` (`make test-gs-display`),
   `tools/test_display_env_reference.py` (`make test-display-env-reference`)
   and `tools/check_present_capture.py`: section 11's verification.
+- `tools/check_present_again.py` (run by `make test-level-smoke` over the
+  run's EM_PRESENT_LOG): section 11 "Frames that draw nothing".
 - `tools/export_gs_memory.py`: the library image `assets/gs_library.emgm`.
 - `tools/test_gs_raster_reference.py` (`make test-gs-raster-reference`):
   the verification (section 7, part F the row bands).

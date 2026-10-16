@@ -439,6 +439,11 @@ test-collision-world-capture: $(BIN)
 # LAUNCHER_OPTIONS.md), where the voiced lines and the opening compare the
 # capture's drive fields (about 120 s). The checker reads the mode from the
 # run's "stream drive:" line (LEVEL_SMOKE.md "The stream drive's two modes").
+# Every run's EM_PRESENT_LOG goes through tools/check_present_again.py (the
+# frames that draw nothing, read back from the GPU; GS_EXACT.md section 11):
+# the default run checks the START and battery status entries; the panel's
+# BATTERY entry (whose first frame draws the letterbox bars over the kept
+# picture) is reached only with EM_TEST_FULL=1.
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,battery)
 
 .PHONY: test-level-smoke
@@ -447,12 +452,13 @@ test-level-smoke: $(BIN)
 	rm -f build/level_smoke/status_pages.trace
 	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$${EM_LEVEL_SMOKE_UNTIL:-$(LEVEL_SMOKE_UNTIL)} \
 	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl EM_RAND_TRACE=build/level_smoke/rand.trace \
-	    EM_STATUS_PAGES_TRACE=build/level_smoke/status_pages.trace \
+	    EM_STATUS_PAGES_TRACE=build/level_smoke/status_pages.trace EM_PRESENT_LOG=build/level_smoke/present.log \
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log \
 	    --rand-trace build/level_smoke/rand.trace --status-pages-trace build/level_smoke/status_pages.trace \
 	    --require-through $${EM_LEVEL_SMOKE_UNTIL:-$(or $(LEVEL_SMOKE_UNTIL),last)}
+	python3 tools/check_present_again.py --present build/level_smoke/present.log --ticks build/level_smoke/ticks.jsonl
 	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 
 .PHONY: test-level-smoke-full

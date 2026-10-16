@@ -285,6 +285,14 @@ translation.
   box).
 - The status-screen scenes (the hub, the request pages, the UI scene) do not
   draw it: the original hub frame has no background CALL.
+- An iteration without a world frame whose step V still CALLs it (the
+  options screen's close: the black clear and the background alone, a flat
+  grey field on the fork) draws it at the kick (2026-10-16,
+  `em_render_kick_background`, called by main.c's `rcl_step_v`): when
+  001D2300 called 001E0DF0 (`em_rcl_kick_called_001E0DF0`) and the frame
+  close did not draw it, through the same `background_gate`, never in the
+  movie frame (`em_frame_movie_frame`). GS_EXACT.md section 11 "Frames
+  that draw nothing".
 - Since 2026-09-27 main-loop step V 001D2300 itself is bound
   (RENDER_CONTEXT.md section 9): it builds the frame's main list with the
   clear it selects (+0x3A0, or +0x420 under render flag 3) and calls

@@ -1048,6 +1048,32 @@ void em_gfx_gs_world_drop(EmGfx *gfx);
  * recorded), or -1 (a fault, reported). */
 int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear,
                          size_t clear_bytes);
+/* Step V's kick in every iteration once the render context is bound, with
+ * either renderer, before em_gfx_gs_world_kick: the GIF data of the kicked
+ * list's head (its draw environment and clear, em_rcl_kick_head) and the
+ * DISPFB2 of the display environment that scans the buffer the list draws
+ * (the one D_00810E80 selects at the next step U; the head's FRAME_1 must
+ * name that buffer, PSMCT32, at DBX = DBY = 0). The renderer keeps the last
+ * frame it presented of each display buffer (the picture, and in the
+ * Original profile the GS field with its half line and placement). A frame
+ * that draws no picture (no GPU draw, no world frame recorded, no list
+ * frame; the overlay pass does not count) whose head leaves the buffer's
+ * colour (the head alone through the GS model, em_gs_head_probe: 001D2300's
+ * Z-only clear) presents that buffer's last frame again, as the display
+ * scans it: the picture drawn two iterations before, with the frame's own
+ * overlay pass drawn over it at end_frame (the panel entry's letterbox
+ * bars). A head that writes the colour must leave it black (the black
+ * clear); that frame is presented as drawn. A list that CALLs the
+ * background in such an iteration has it drawn before this call
+ * (em_render_kick_background), so it is a drawn frame.
+ * docs/GS_EXACT.md section 11 "Frames that draw nothing". 0, or -1 (a
+ * fault, reported: a buffer the display does not scan, a buffer never
+ * presented, a field the GS model no longer holds). */
+int em_gfx_gs_head(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes,
+                   uint64_t dispfb);
+/* EM_PRESENT_LOG's tag (a diagnostic): the frame loop's main-loop counter
+ * at the frame's begin, written with the frame's line (em_gfx_metal.m). */
+void em_gfx_present_tag(EmGfx *gfx, uint64_t tag);
 /* The latched fault of the GS frame (a refused primitive, a span fault, a
  * draw the GS frame cannot take), or NULL. */
 const char *em_gfx_gs_world_fault(EmGfx *gfx);

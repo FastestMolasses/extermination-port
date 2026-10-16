@@ -1934,6 +1934,45 @@ python3 tools/test_fb2_pixels.py` (14 92.40 %, 13 62.60 %, 10 18.92 %, 15
 98.57 %, first control 1,117 pixels), `tools/ios/build.sh device` (no
 warnings; then `clean`).
 
+**Status update (2026-10-16, step NODRAW: frames that draw nothing; not
+committed by the implementer; fix round the same day).** An iteration
+whose list draws no picture (001D2300's Z-only head) now presents what the
+PS2's display scans: the buffer's picture from two iterations before, with
+the frame's own overlay pass over it (GS_EXACT.md section 11 "Frames that
+draw nothing"). Where: the three status-screen entries (0x1AE040 1 -> 3
+and the next iteration: START, the battery's ITEM page, the panel's
+BATTERY page, where 001AEBE0's letterbox bars draw over the old picture)
+and the options screen's openings (one iteration). Evidence: the fork's
+frame store and packet sizes at routes 01 / 03 and side beat opt_00
+(repeats 193 = 191, 194 = 192; 390 = 388, 391 = 389; 45 = 43); the port's
+frames there equal its frames two iterations before byte for byte, read
+back from the GPU by `tools/check_present_again.py` in `make
+test-level-smoke` (a lane without the kept picture's copy fails it). Fix
+round: the options screen's close is a list of the black clear and the
+background's CALL alone (fork kick lists, decomp
+`build/nodraw_r3/fork_optclose_1016a`), whose field is the AREA11
+background's flat grey; the port drew the background only in the world
+frame close, so it showed black. Step V now draws it whenever 001D2300
+called 001E0DF0 without a world frame (`em_render_kick_background`; not
+in the movie frame): opt_00's three later closes equal the fork's fields
+pixel for pixel. No other presented picture of the main line or the 42
+side beats changes (every committed picture hashed with and without it).
+The old demo's three black frames (VIDEO_COMPARE, port ticks 1719, 1929
+and segment 12 offset 156) are the START, battery and panel entries: all
+three were empty-list iterations, no other cause. Both renderers. Open:
+the level exit's empty lists match the fork in pixels (black) but not
+iteration for iteration; the game-over / load screens' frames shown again
+are a classification artifact of their legacy overlay drawing (pixels
+unchanged); at the panel close the port's 001D2300 CALLs the background
+where the original's (flag 0x20 clear) does not, under black on both (a
+render-context state divergence, not traced); the frame 00203350 returns
+to after a movie is presented as drawn (the movie's last picture in GS
+memory is not modelled; black on the fork after Roger's departure). Tests:
+`make test-level-smoke` runs `tools/check_present_again.py` over the run's
+EM_PRESENT_LOG (the default run reaches the START and battery entries, the
+panel's only with EM_TEST_FULL=1); `make test-gs-world` covers
+`em_gs_head_probe`.
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:

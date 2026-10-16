@@ -242,6 +242,10 @@ void em_frame_set_movie_active(int active);
 /* The D_00821058 == 1 mirror: the frame in which 00203350 plays (the
  * original then runs 001D1C10, which sets render flag 4). */
 int em_frame_movie_active(void);
+/* 1 from the return of 00203350 to the end of that iteration (its steps N..W:
+ * the movie frame, whose step V the original runs with render flag 4 set by
+ * 001D1C10, RENDER_CONTEXT.md 9.4), else 0. */
+int em_frame_movie_frame(void);
 
 #ifdef __cplusplus
 }

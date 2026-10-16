@@ -1317,6 +1317,63 @@ neighbour, no smoothing, no CRT simulation (the user's decisions of
   position one frame after it changes. Only the Metal
   backend (macOS, iOS) presents it.
 
+**Status-screen entries and the options screen's close show what the PS2 scans**
+
+When the status screen opens (START, the battery's pop-up, the panel's
+BATTERY page) the game spends two iterations drawing nothing; when the
+options screen opens, one. On the PS2 the screen then shows, for those
+fields, the pictures it showed two fields before (then black, or the
+options screen). When the options screen closes, the game draws one frame
+whose list holds only the black clear and the level background, so the PS2
+shows one flat grey field before the world returns. The port showed black
+fields at all of these; it now shows what the original shows.
+
+- How: step V's kick hands the presenter the list's head and the display
+  buffer it draws (`em_gfx_gs_head`); a frame with no picture drawn whose
+  head, run through the GS model, leaves the colour (the Z-only clear)
+  presents the picture last presented of that buffer again, after checking
+  that the GS model's memory at the scanned buffer still holds that field,
+  then draws its own overlay pass over it, as the original draws the
+  letterbox bars over the old picture at the panel's entry. A list that
+  CALLs the background in an iteration without a world frame (the
+  options close) has the background drawn at the kick
+  (`em_render_kick_background`), as the original's GS draws that CALL
+  (GS_EXACT.md section 11 "Frames that draw nothing").
+- Evidence: the fork's frame store and packet-buffer sizes (decomp
+  `build/fork_refs/probes_1016/`): empty lists at both entries of route 01
+  (battery) and route 03 (panel), the displayed field repeating bit for bit
+  (vblanks 193 = 191, 194 = 192; 390 = 388, 391 = 389), black after; the
+  options opening of side beat opt_00 likewise (45 = 43, 290 = 288,
+  338 = 336). The port's frames at those iterations equal its frames two
+  iterations before byte for byte (read back from the GPU and checked by
+  `make test-level-smoke`, `tools/check_present_again.py`), the next ones
+  are black like the fork's, and against the fork's fields they score
+  exactly what their source frames score (the GS model's existing
+  residue). At opt_00's three later closes the fork's kick list is the
+  black clear and the background's CALL (decomp
+  `build/nodraw_r3/fork_optclose_1016a`) and its field one flat grey; the
+  port's frames there now equal the fork's fields, 114,688 of 114,688
+  pixels each (with the GPU renderer too). Over the whole main line and the
+  42 side beats no other presented picture changes (every committed
+  picture hashed with and without the background draw, and the previous
+  round's field hashes without the head call).
+- Status: **PARTIAL**. Verified against the fork at the battery and panel
+  entries, opt_00's openings and its three later closes; the START entry is
+  the same code path, no fork frame store covers it; the other options
+  beats' closes have no fork probe. Not every frame that draws nothing is
+  original: the level exit's empty lists match the fork in pixels (black)
+  but not iteration for iteration, and the game-over / load screens' "shown
+  again" runs are a classification artifact of the port's legacy overlay
+  drawing there (pixels unchanged). Where the port's options picture is
+  still on screen at a close (opt_00's first close) the original shows the
+  background through it and the port does not (the legacy options screen).
+  The overlay pass is still the GPU's. The frame a movie returns to is
+  presented as drawn (the movie's last picture in GS memory is not
+  modelled; after Roger's departure the fork's display is black there
+  anyway). Metal only (macOS, iOS), with either of its renderers: the GPU
+  renderer (EM_GPU_RENDERER=1) shows its kept frame and the background the
+  same way; the Vulkan and D3D12 stubs do not.
+
 **Still drawn by legacy or stand-in code (disclosure)**
 
 These first-level visuals do not yet come from the original draw path.

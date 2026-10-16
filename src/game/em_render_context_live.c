@@ -142,8 +142,10 @@ static struct {
     u32 page_start, page_four_sprite, frame_four_sprite;
     u32 page_weather, frame_weather;
     int page_ready;
-    /* main-loop step V (001D2300): its kick's list, the kicks so far */
+    /* main-loop step V (001D2300): its kick's list, the kicks so far, and
+     * whether the last run called 001E0DF0 (the channel-3 CALL) */
     u32 kick_chain, kicks;
+    int kick_called_0DF0;
     /* the load veil's 0021B1B0 in this frame: its channel-0 run and the
      * buffer index (em_rcl_veil_span), cleared by the frame head */
     u32 veil_start, veil_end, veil_slot;
@@ -1249,7 +1251,12 @@ static int k_001D2830(void *ctx, int32_t a0, int32_t a1)
     int32_t ignored;
     return em_frh_001D2830(&R.frh, a0, a1, &ignored);
 }
-static int k_001E0DF0(void *ctx) { (void)ctx; return em_render_context_001E0DF0(&R.rc); }
+static int k_001E0DF0(void *ctx)
+{
+    (void)ctx;
+    R.kick_called_0DF0 = 1;
+    return em_render_context_001E0DF0(&R.rc);
+}
 /* 001D21E0's hardware kick: the port's renderer presents the frame
  * (em_gfx_end_frame, the step after V); the list address is kept for the
  * checks (em_rcl_kick). */
@@ -1275,7 +1282,17 @@ int em_rcl_001D2300(void)
 {
     READY(0);
     if (!R.ext[X_810E88] || !R.ext[X_8106C4]) return fail(0x001D2300u, "no frame views");
-    return kick_done(em_frame_kick_001D2300(&k_kick_workers, &R.kick_fault), 0x001D2300u);
+    R.kick_called_0DF0 = 0;
+    const int rc = kick_done(em_frame_kick_001D2300(&k_kick_workers, &R.kick_fault), 0x001D2300u);
+    if (rc < 0) R.kick_called_0DF0 = 0;
+    return rc;
+}
+
+int em_rcl_kick_called_001E0DF0(int *called)
+{
+    if (!R.loaded || R.fault || !R.kicks || !called) return -1;
+    *called = R.kick_called_0DF0;
+    return 0;
 }
 
 int em_rcl_001D2580(int32_t a0)

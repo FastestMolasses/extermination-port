@@ -237,6 +237,9 @@ int em_rcl_001D2580(int32_t a0);
 int em_rcl_001D2300_calls_001E0DF0(int *calls);
 /* The list the last step V kicked and the number of kicks. 0, or -1. */
 int em_rcl_kick(uint32_t *chain, uint32_t *kicks);
+/* Whether the last step V's 001D2300 called 001E0DF0 (its list CALLs render
+ * channel 3, the background): *called = 1 / 0. 0, or -1 (no kick yet). */
+int em_rcl_kick_called_001E0DF0(int *called);
 /* The head of the list the last step V kicked, as the GS receives it: the
  * GIF data (VIF DIRECT; the FLUSH / NOP codes of the tags and the packets
  * dropped) of its first two tags, 001D2300's REFs of the slot's draw

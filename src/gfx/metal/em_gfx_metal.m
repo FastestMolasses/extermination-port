@@ -40,6 +40,8 @@
 #include <time.h>
 
 #define EM_GFX_GS_SURFACE_MAX 8u
+/* A kept field's bytes (em_gfx_gs_head): 512 x 224 PSMCT32. */
+#define EM_GFX_SCAN_BYTES ((size_t)EM_GS_WORLD_FIELD_W * EM_GS_WORLD_FIELD_H * 4u)
 
 struct EmGfx {
 #if TARGET_OS_IPHONE
@@ -194,6 +196,7 @@ struct EmGfx {
     id<MTLRenderPipelineState>   gsfPipeline;
     id<MTLRenderPipelineState>   gsfShowPipeline;
     id<MTLRenderPipelineState>   gsfFieldPipeline;   /* f_gsfield: the Original profile's field */
+    id<MTLRenderPipelineState>   scanCopyPipeline;   /* f_scancopy: a buffer's kept picture again */
     id<MTLTexture>               gsfNoTexture;  /* bound for untextured draws */
     uint32_t                     gsfWarned;
     /* Object units (em_gfx_object_unit / em_gfx_object_texture — em_gfx.h):
@@ -255,6 +258,54 @@ struct EmGfx {
     id<MTLBuffer>                gswSlotK[3];
     uint64_t                     gswSlotXy[3];
     double                       gswSlotOverlay[3][4];
+    /* Frames that draw nothing (em_gfx_gs_head; GS_EXACT.md section 11):
+     * per display buffer (its FBP) the last frame presented of it: the
+     * picture (a copy of the committed target), and for a GS field frame
+     * the field's FRAME_1 / XYOFFSET_1, the hash of its bytes (known once
+     * the field is drawn, gsw_complete), the f_gsfield constants and the
+     * overlay viewport it was placed with, and the display registers it was
+     * presented under. The head probe's scratch local memory; this frame's
+     * head (its buffer), the buffer end_frame presents again (-1: none),
+     * the draws since begin_frame, the pending field frame's buffer. */
+    struct EmGfxScanBuf {
+        uint32_t fbp, rows;
+        bool valid, field, hashed;
+        uint64_t frame, xy, age;
+        uint8_t *bytes;              /* EM_GFX_SCAN_BYTES: the field as drawn */
+        float k[12];
+        double overlay[4];
+        EmGsDisplayRegs disp;
+        id<MTLTexture> tex;
+    }                            scanBuf[2];
+    uint64_t                     scanAge;
+    bool                         scanLost;   /* the buffers were drawn without a head since */
+    bool                         scanAsDrawn; /* this frame: drew nothing over such a buffer */
+    uint8_t                     *scanScratch;
+    bool                         scanHead;
+    uint32_t                     scanHeadFbp;
+    int                          scanShow;
+    int                          scanPend;
+    uint32_t                     frameDraws;
+    /* EM_PRESENT_LOG=<file> (a diagnostic): one line per committed frame
+     * (gsw_log). */
+    FILE                        *presentLog;
+    bool                         presentLogTried;
+    uint64_t                     presentTag, presentSeq, gswPendTag;
+    /* With EM_PRESENT_LOG, the committed picture of the last three frames,
+     * read back (present_px): a frame shown again is logged with its own
+     * picture's hash and that of the frame two before it. */
+    struct {
+        id<MTLBuffer>        buf;
+        id<MTLCommandBuffer> cmd;
+        uint64_t             ord;
+        size_t               bytes;
+        bool                 valid;
+    }                            px[3];
+    uint64_t                     pxOrd, gswPendOrd;
+    /* EM_PRESENT_PX=<file> (a diagnostic): every committed frame's picture
+     * hash, "<ordinal> <tag> <hash>" (present_px_note). */
+    FILE                        *pxLog;
+    bool                         pxLogTried;
     /* em_gfx_present_cost: the totals of the game thread's time blocked
      * acquiring a drawable and waiting for the GS field, the frames
      * committed, and whether the window's presentation settings were
@@ -398,9 +449,12 @@ static int gsw_list_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *
 static void gsw_present(EmGfx *g);
 static int gsw_place(EmGfx *g, EmGsDisplayPlace *out, int strict);
 static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p, int line, double out[4]);
-static void gsw_write_field(EmGfx *g, const char *bmp_path);
+static void gsw_write_field(const char *bmp_path, const uint8_t *f, uint32_t w, uint32_t h, uint64_t frame,
+                            uint64_t xy, const float *k, const double *ov);
 static void gsw_complete(EmGfx *g);
 static int gsw_slot(EmGfx *g);
+struct EmGfxScanBuf;
+static void scan_draw(EmGfx *g, const struct EmGfxScanBuf *b);
 static void write_bmp(const char *path, const uint8_t *bgra, uint32_t w, uint32_t h, uint32_t stride);
 
 #define EM_DEPTH_FORMAT MTLPixelFormatDepth32Float
@@ -933,6 +987,7 @@ void em_gfx_destroy(EmGfx *g)
     [g->gsfPipeline release];
     [g->gsfShowPipeline release];
     [g->gsfFieldPipeline release];
+    [g->scanCopyPipeline release];
     [g->gsfNoTexture release];
     for (uint32_t i = 0; i < g->objTexCount; i++)
         [g->objTex[i].tex release];
@@ -947,6 +1002,17 @@ void em_gfx_destroy(EmGfx *g)
         [g->gswSlotK[i] release];
     }
     free(g->gswPrims);
+    for (int i = 0; i < 2; i++) {
+        [g->scanBuf[i].tex release];
+        free(g->scanBuf[i].bytes);
+    }
+    free(g->scanScratch);
+    for (int i = 0; i < 3; i++) {
+        [g->px[i].buf release];
+        [g->px[i].cmd release];
+    }
+    if (g->presentLog) fclose(g->presentLog);
+    if (g->pxLog) fclose(g->pxLog);
     free(g->bgFile);
     [g->glyphPipeline release];
     [g->spriteAddPipeline release];
@@ -988,6 +1054,10 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->shadowRecvOpen = false;
     g->gswFrame = false;                 /* the GS frame is per-frame too */
     g->gswShow = false;
+    g->frameDraws = 0;                   /* as are its draws and its head */
+    g->scanHead = false;
+    g->scanShow = 0;
+    g->scanAsDrawn = false;
 
     /* keep the swapchain sized to the backing store */
 #if TARGET_OS_IPHONE
@@ -1127,6 +1197,7 @@ void em_gfx_draw_test_triangle(EmGfx *g)
     };
     [g->enc setRenderPipelineState:g->testPipeline];
     [g->enc setVertexBytes:verts length:sizeof(verts) atIndex:0];
+    g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 }
 
@@ -1478,6 +1549,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
     [g->enc setFragmentBuffer:m->matBuf offset:0 atIndex:5];
     [g->enc setFragmentTexture:m->texArray atIndex:0];
     [g->enc setFragmentSamplerState:g->repeatSampler atIndex:0];
+    if (opaque) g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
     if (opaque)
         [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                            indexCount:m->opaque_count
@@ -1496,6 +1568,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         [g->enc setDepthStencilState:g->depthGlow];
         [g->enc setVertexBytes:&glow_mode length:4 atIndex:4];
         [g->enc setFragmentBytes:&glow_mode length:4 atIndex:0];
+        g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
         [g->enc drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                            indexCount:m->glow_count
                             indexType:MTLIndexTypeUInt32
@@ -2069,6 +2142,7 @@ int em_gfx_background_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
     [g->enc setFragmentTexture:g->bgTexture atIndex:0];
     [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
     [g->enc setFragmentBytes:rgbaq length:sizeof rgbaq atIndex:0];
+    g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:(NSUInteger)count * 3u];
     [buffer release];
     return 0;
@@ -2456,6 +2530,7 @@ int em_gfx_shadow_alpha_clear(EmGfx *g)
     [g->enc setVertexBytes:quad length:sizeof quad atIndex:0];
     [g->enc setVertexBytes:ident length:sizeof ident atIndex:1];
     [g->enc setFragmentBytes:&alpha length:4 atIndex:0];
+    g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
     return 0;
 }
@@ -2602,6 +2677,7 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
                                          0, 0, 1, 0, 0, 0, 0, 1 };
         [g->enc setVertexBytes:ident length:64 atIndex:1];   /* positions are NDC */
         [g->enc setFragmentBytes:&alpha length:4 atIndex:0];
+        g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
                    vertexCount:count];
         [vb release];
@@ -2710,6 +2786,7 @@ int em_gfx_shadow_silhouette(EmGfx *g, const float *verts, uint32_t vert_count,
         [enc setRenderPipelineState:g->shadowSilPipeline];
         [enc setCullMode:MTLCullModeNone];          /* 0023C750 never culls */
         [enc setVertexBuffer:vb offset:0 atIndex:0];
+        g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
         [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count];
         [vb release];
     }
@@ -2860,6 +2937,7 @@ int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
         [g->enc setVertexBuffer:vb offset:0 atIndex:0];
         [g->enc setFragmentTexture:g->shadowTarget[g->shadowCurrent] atIndex:0];
         [g->enc setFragmentBytes:g->fog length:sizeof(g->fog) atIndex:4];
+        g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count];
         [vb release];
     }
@@ -3116,6 +3194,7 @@ static int object_draw(EmGfx *g, const EmObjectUnitTriangle *tri, uint32_t count
         const uint32_t k[4] = { t->width, t->height, fogcol, (fog ? 1u : 0u) | modulate << 1 };
         [g->enc setFragmentTexture:t->tex atIndex:0];
         [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+        g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:3u * i vertexCount:3u * (j - i)];
         i = j;
     }
@@ -3469,6 +3548,7 @@ int em_gfx_gs_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
         [g->enc setRenderPipelineState:tme ? g->gsTexPipeline : g->gsFlatPipeline];
         if (tme) [g->enc setFragmentTexture:texs[i]->tex atIndex:0];
         [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+        g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
         [g->enc drawPrimitives:((p->prim & 7u) == 1u || (p->prim & 7u) == 2u) ? MTLPrimitiveTypeLine
                                                                               : MTLPrimitiveTypeTriangle
                    vertexStart:first[2u * i] vertexCount:first[2u * i + 1u]];
@@ -3611,6 +3691,11 @@ static NSString *const kGsFrameShaderSrc =
  * operations): k[0] = the game rectangle's origin and 512 / width,
  * 448 / height; k[1] = the shift in pixels and lines (the field's line
  * included); k[2] = BGCOLOR. Each field row covers two of the 448 lines. */
+/* A frame that draws nothing (em_gfx_gs_head): its buffer's kept picture,
+ * texel for texel at the target's pixel (a full-target quad, no filter). */
+"fragment float4 f_scancopy(SOut in [[stage_in]], texture2d<float, access::read> tex [[texture(0)]]) {\n"
+"    return tex.read(uint2(in.pos.xy));\n"
+"}\n"
 "fragment float4 f_gsfield(SOut in [[stage_in]], texture2d<float, access::read> tex [[texture(0)]],\n"
 "                          constant float4 *k [[buffer(0)]]) {\n"
 "    float px = (in.pos.x - k[0].x) * k[0].z, py = (in.pos.y - k[0].y) * k[0].w;\n"
@@ -3928,6 +4013,7 @@ int em_gfx_gs_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, 
                                          0, 0, 0, 0 };
                 [enc setFragmentBytes:k length:sizeof k atIndex:0];
                 [enc setFragmentTexture:st[i].texture ? st[i].texture->tex : g->gsfNoTexture atIndex:0];
+                g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
                 [enc drawPrimitives:st[i].line ? MTLPrimitiveTypeLine : MTLPrimitiveTypeTriangle
                         vertexStart:first[2u * i] vertexCount:verts];
             }
@@ -3959,6 +4045,7 @@ int em_gfx_gs_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, 
     [g->enc setVertexBytes:quad length:sizeof quad atIndex:0];
     [g->enc setFragmentTexture:d->tex atIndex:0];
     [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+    g->frameDraws++;   /* the frame draws (em_gfx_gs_head) */
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
     return 0;
 }
@@ -4532,9 +4619,107 @@ static int gsw_slot(EmGfx *g)
     return 0;
 }
 
+/* EM_PRESENT_LOG=<file>: one line per committed frame, in commit order:
+ * "<n> <tag> field <FRAME_1> <XYOFFSET_1> <hash>" for a GS field frame,
+ * "<n> <tag> again <FBP> <FRAME_1> <XYOFFSET_1> <hash> ov <verts> px <now>
+ * <src>" for a frame that drew nothing and shows its buffer's field again,
+ * "<n> <tag> again <FBP> gpu ov <verts> px <now> <src>" when that buffer's
+ * last frame was drawn by the GPU (<verts>: the vertices its own overlay
+ * pass queued), "<n> <tag> lost" for a frame that drew nothing over a buffer a
+ * movie or the bring-up left (presented as drawn), "<n> <tag> gpu"
+ * otherwise. The tag is em_gfx_present_tag's (the main-loop counter), <hash>
+ * fnv64's of the field's bytes, <now> / <src> fnv64's of the committed
+ * picture (the whole target, read back) of this frame and of the frame
+ * committed two before it (0: not available). tools/check_present_again.py
+ * reads it. A diagnostic: it changes nothing drawn or presented. */
+static FILE *present_log(EmGfx *g)
+{
+    if (!g->presentLogTried) {
+        g->presentLogTried = true;
+        const char *p = getenv("EM_PRESENT_LOG");
+        if (p && p[0] && !(g->presentLog = fopen(p, "w"))) fprintf(stderr, "gfx: cannot write %s\n", p);
+    }
+    return g->presentLog;
+}
+
+/* The FNV-1a 64 step over the field's 64-bit words (little-endian; a
+ * diagnostic hash, not FNV-1a over bytes). */
+static uint64_t fnv64(const uint8_t *p, size_t n)
+{
+    uint64_t h = 0xCBF29CE484222325ull;
+    size_t i = 0;
+    for (; i + 8u <= n; i += 8u) {
+        uint64_t w;
+        memcpy(&w, p + i, 8);
+        h = (h ^ w) * 0x100000001B3ull;
+    }
+    for (; i < n; ++i) h = (h ^ p[i]) * 0x100000001B3ull;
+    return h;
+}
+
+/* EM_PRESENT_LOG's readback (a diagnostic): at end_frame, after the overlay
+ * pass and before the commit, the frame's committed picture (the whole
+ * target) is copied into the ring entry of its ordinal. */
+static FILE *present_px_log(EmGfx *g)
+{
+    if (!g->pxLogTried) {
+        g->pxLogTried = true;
+        const char *p = getenv("EM_PRESENT_PX");
+        if (p && p[0] && !(g->pxLog = fopen(p, "w"))) fprintf(stderr, "gfx: cannot write %s\n", p);
+    }
+    return g->pxLog;
+}
+
+static void present_px_capture(EmGfx *g)
+{
+    if ((!present_log(g) && !present_px_log(g)) || !g->target || !g->cmd) return;
+    const uint64_t ord = g->pxOrd++;
+    __typeof__(g->px[0]) *e = &g->px[ord % 3u];
+    const NSUInteger w = g->target.width, h = g->target.height;
+    const size_t bytes = (size_t)w * h * 4u;
+    e->valid = false;
+    if (!e->buf || e->bytes != bytes) {
+        [e->buf release];
+        e->buf = [g->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+        e->bytes = e->buf ? bytes : 0;
+        if (!e->buf) return;
+    }
+    id<MTLBlitCommandEncoder> blit = [g->cmd blitCommandEncoder];
+    [blit copyFromTexture:g->target sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(w, h, 1) toBuffer:e->buf destinationOffset:0
+      destinationBytesPerRow:4u * w destinationBytesPerImage:bytes];
+    [blit endEncoding];
+    [e->cmd release];
+    e->cmd = [g->cmd retain];
+    e->ord = ord;
+    e->valid = true;
+}
+
+/* The hash of frame `ord`'s committed picture (its readback, once its
+ * command buffer completed), or 0 when the ring no longer holds it or it
+ * was never committed. */
+static uint64_t present_px_hash(EmGfx *g, uint64_t ord)
+{
+    __typeof__(g->px[0]) *e = &g->px[ord % 3u];
+    if (!e->valid || e->ord != ord || !e->cmd || e->cmd.status < MTLCommandBufferStatusCommitted) return 0;
+    [e->cmd waitUntilCompleted];
+    return fnv64((const uint8_t *)e->buf.contents, e->bytes);
+}
+
+/* EM_PRESENT_PX=<file>: after frame `ord`'s commit, its picture's hash (it
+ * waits for the frame: a diagnostic run, slower). */
+static void present_px_note(EmGfx *g, uint64_t ord, uint64_t tag)
+{
+    FILE *o = present_px_log(g);
+    if (o)
+        fprintf(o, "%llu %llu %016llx\n", (unsigned long long)ord, (unsigned long long)tag,
+                (unsigned long long)present_px_hash(g, ord));
+}
+
 /* The pending frame (a field frame already ended): wait for its field, put
  * it in the frame's texture, commit (present) the frame, and write its
- * capture. */
+ * capture. Its display buffer's kept frame (em_gfx_gs_head) takes the
+ * field's bytes. */
 static void gsw_complete(EmGfx *g)
 {
     if (!g || !g->gswPending) return;
@@ -4545,7 +4730,8 @@ static void gsw_complete(EmGfx *g)
     g->presentFieldNs += present_now_ns() - t0;
     if (!ok) (void)gsw_check(g);
     uint32_t w = 0, h = 0;
-    const uint8_t *f = ok ? em_gs_world_field(g->gsw, &w, &h, NULL) : NULL;
+    uint64_t frame = 0;
+    const uint8_t *f = ok ? em_gs_world_field(g->gsw, &w, &h, &frame) : NULL;
     if (f && w == EM_GS_WORLD_FIELD_W && h <= EM_GS_WORLD_FIELD_H) {
         [g->gswSlotTex[g->gswPendSlot] replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:f
                                          bytesPerRow:4u * w];
@@ -4554,16 +4740,33 @@ static void gsw_complete(EmGfx *g)
         if (!em_gs_world_field_xyoffset_known(g->gsw) ||
             em_gs_world_field_xyoffset(g->gsw) != g->gswSlotXy[g->gswPendSlot])
             gsw_fail(g, "the drawn field's draw offset is not the one it was presented with");
+        struct EmGfxScanBuf *b = g->scanPend ? &g->scanBuf[g->scanPend - 1] : NULL;
+        if (b && b->valid && b->field && b->frame == frame && (b->bytes || (b->bytes = malloc(EM_GFX_SCAN_BYTES)))) {
+            memcpy(b->bytes, f, (size_t)w * h * 4u);
+            b->rows = h;
+            b->hashed = true;
+        }
+        FILE *log = present_log(g);
+        if (log)
+            fprintf(log, "%llu %llu field %016llx %016llx %016llx\n", (unsigned long long)g->presentSeq++,
+                    (unsigned long long)g->gswPendTag, (unsigned long long)frame,
+                    (unsigned long long)em_gs_world_field_xyoffset(g->gsw),
+                    (unsigned long long)fnv64(f, (size_t)w * h * 4u));
     } else if (ok)
         gsw_fail(g, "the drawn field is not a 512-wide field of at most 224 rows");
+    g->scanPend = 0;
     present_commit(g, g->gswPendCmd, g->gswPendTarget);
+    present_px_note(g, g->gswPendOrd, g->gswPendTag);
     [g->gswSlotCmd[g->gswPendSlot] release];
     g->gswSlotCmd[g->gswPendSlot] = [g->gswPendCmd retain];
     if (g->gswPendShot) {
         [g->gswPendCmd waitUntilCompleted];
         write_bmp(g->gswPendPath, (const uint8_t *)g->gswPendShot.contents, (uint32_t)g->gswPendShotW,
                   (uint32_t)g->gswPendShotH, (uint32_t)g->gswPendShotStride);
-        if (f) gsw_write_field(g, g->gswPendPath);
+        if (f)
+            gsw_write_field(g->gswPendPath, f, w, h, frame, em_gs_world_field_xyoffset(g->gsw),
+                            g->gswSlotK[g->gswPendSlot] ? (const float *)g->gswSlotK[g->gswPendSlot].contents : NULL,
+                            g->gswSlotOverlay[g->gswPendSlot]);
         [g->gswPendShot release];
         g->gswPendShot = nil;
     }
@@ -4574,11 +4777,15 @@ static void gsw_complete(EmGfx *g)
     }
 }
 
-static void gsw_write_field(EmGfx *g, const char *bmp_path)
+/* A capture's field files beside its BMP: <path>.gsfield, the field's bytes
+ * (w x h x 4: R, G, B, A as GS memory holds them), and <path>.present, how
+ * it was placed (tools/check_present_capture.py): its XYOFFSET_1, the
+ * f_gsfield constants `k` (the game rectangle's origin, 512 / width and
+ * 448 / height, the shift with the field's line), the overlay pass's
+ * viewport `ov` (x, y, width, height in drawable pixels) and BGCOLOR last. */
+static void gsw_write_field(const char *bmp_path, const uint8_t *f, uint32_t w, uint32_t h, uint64_t frame,
+                            uint64_t xy, const float *k, const double *ov)
 {
-    uint32_t w, h;
-    uint64_t frame = 0;
-    const uint8_t *f = em_gs_world_field(g->gsw, &w, &h, &frame);
     char path[1100];
     snprintf(path, sizeof path, "%s.gsfield", bmp_path);
     FILE *o = f ? fopen(path, "wb") : NULL;
@@ -4589,24 +4796,228 @@ static void gsw_write_field(EmGfx *g, const char *bmp_path)
     fwrite(f, 1, (size_t)w * h * 4u, o);
     fclose(o);
     fprintf(stderr, "capture: wrote %s (%ux%u GS field, FRAME_1 %016llx, XYOFFSET_1 %016llx)\n", path, w, h,
-            (unsigned long long)frame, (unsigned long long)em_gs_world_field_xyoffset(g->gsw));
-    /* <path>.present: how this field was placed (tools/check_present_capture.py):
-     * its XYOFFSET_1, the f_gsfield constants (the game rectangle's origin,
-     * 512 / width and 448 / height, the shift with the field's line), the
-     * overlay pass's viewport (x, y, width, height in drawable pixels) and
-     * BGCOLOR last. */
+            (unsigned long long)frame, (unsigned long long)xy);
     snprintf(path, sizeof path, "%s.present", bmp_path);
-    o = g->gswSlotK[g->gswPendSlot] ? fopen(path, "w") : NULL;
+    o = k ? fopen(path, "w") : NULL;
     if (!o) return;
-    const float *k = (const float *)g->gswSlotK[g->gswPendSlot].contents;
-    const double *ov = g->gswSlotOverlay[g->gswPendSlot];
     fprintf(o,
             "xyoffset %016llx\norigin %.9g %.9g\nscale %.9g %.9g\nshift %.9g %.9g\noverlay %.17g %.17g %.17g %.17g\n"
             "bg %.9g %.9g %.9g\n",
-            (unsigned long long)em_gs_world_field_xyoffset(g->gsw), (double)k[0], (double)k[1], (double)k[2],
-            (double)k[3], (double)k[4], (double)k[5], ov[0], ov[1], ov[2], ov[3], (double)k[8], (double)k[9],
-            (double)k[10]);
+            (unsigned long long)xy, (double)k[0], (double)k[1], (double)k[2], (double)k[3], (double)k[4],
+            (double)k[5], ov[0], ov[1], ov[2], ov[3], (double)k[8], (double)k[9], (double)k[10]);
     fclose(o);
+}
+
+/* --- Frames that draw nothing (em_gfx_gs_head — em_gfx.h; GS_EXACT.md
+ * section 11 "Frames that draw nothing") ------------------------------------
+ * On the PS2 every iteration kicks its list into the buffer the display
+ * scans next (step V draws into the buffer of the environment the next step
+ * U selects), and nothing else writes that buffer: a list that draws nothing
+ * into it leaves the picture drawn there two iterations before, and the
+ * display scans that again. The port keeps per display buffer the frame it
+ * last presented of it and presents that frame again. */
+
+/* A picture drawn in this frame besides begin_frame's fill: a GPU draw, a
+ * world frame or a list frame. The overlay pass (queued rectangles, sprites,
+ * glyphs, the letterbox's and the fades' rectangles, the backdrop) is not:
+ * it draws at end_frame over whatever the frame shows, as the original's
+ * list draws them over what its buffer holds (the panel's BATTERY page
+ * entry: its 001AEBE0 letterbox bars over the buffer's old picture). */
+static bool frame_drew_picture(const EmGfx *g)
+{
+    return g->frameDraws || g->gswShow || g->gswFrame;
+}
+
+/* The kept frame of buffer `fbp`, or NULL. */
+static struct EmGfxScanBuf *scan_find(EmGfx *g, uint32_t fbp)
+{
+    for (int i = 0; i < 2; ++i)
+        if (g->scanBuf[i].valid && g->scanBuf[i].fbp == fbp) return &g->scanBuf[i];
+    return NULL;
+}
+
+/* The entry that keeps buffer `fbp`'s frame: its own, else the older one. */
+static struct EmGfxScanBuf *scan_slot(EmGfx *g, uint32_t fbp)
+{
+    struct EmGfxScanBuf *b = scan_find(g, fbp);
+    if (b) return b;
+    b = &g->scanBuf[0];
+    if (g->scanBuf[1].age < b->age || !g->scanBuf[1].valid) b = &g->scanBuf[1];
+    if (!g->scanBuf[0].valid) b = &g->scanBuf[0];
+    b->fbp = fbp;
+    b->valid = false;
+    return b;
+}
+
+int em_gfx_gs_head(EmGfx *g, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes,
+                   uint64_t dispfb)
+{
+    if (!g) return -1;
+    if (g->gswWhy[0]) return -1;
+    if (!g->scanScratch && !(g->scanScratch = malloc(EM_GS_MEM_BYTES)))
+        return gsw_fail(g, "out of memory for the head probe");
+    EmGsHeadProbe hp;
+    if (em_gs_head_probe(g->scanScratch, env, env_bytes, clear, clear_bytes, 0, &hp) < 0)
+        return gsw_fail(g, "the kicked list's head is not register packets the GS model takes");
+    const uint32_t fbp = (uint32_t)hp.frame & 0x1FFu, fbw = (uint32_t)(hp.frame >> 16) & 0x3Fu;
+    const uint32_t psm = (uint32_t)(hp.frame >> 24) & 0x3Fu;
+    /* DISPFB2: FBP bits 0..8, FBW 9..14, PSM 15..19, DBX 32..42, DBY 43..53 */
+    if (fbp != ((uint32_t)dispfb & 0x1FFu) || fbw != ((uint32_t)(dispfb >> 9) & 0x3Fu) || psm != 0u ||
+        ((dispfb >> 15) & 0x1Fu) != 0u || (dispfb >> 32) != 0u || !fbw)
+        return gsw_fail(g, "the kicked list's buffer is not the PSMCT32 buffer the next display environment scans "
+                           "from its origin (DISPFB2)");
+    g->scanHead = true;
+    g->scanHeadFbp = fbp;
+    if (frame_drew_picture(g)) return 0;
+    if (em_gs_head_probe(g->scanScratch, env, env_bytes, clear, clear_bytes, 1, &hp) < 0)
+        return gsw_fail(g, "the kicked list's head is refused by the GS model");
+    if (hp.writes) {
+        /* the black clear: the frame is presented as drawn (begin_frame's
+         * fill is the same black, 001AB370's clear colour) */
+        if (!hp.black)
+            return gsw_fail(g, "a frame that draws nothing under a clear that does not leave its field black");
+        return 0;
+    }
+    /* the Z-only clear: the buffer keeps the picture last drawn into it */
+    struct EmGfxScanBuf *b = scan_find(g, fbp);
+    if (!b && g->scanLost) {
+        /* The buffer was last drawn by a frame without a head (a movie's
+         * frames, whose pictures the movie driver sends to GS memory the
+         * port does not model, or the bring-up before the render context's
+         * bind): its picture is not known, so the frame is presented as
+         * drawn (black under its overlay pass). On the first-level path
+         * this is the frame 00203350 returns to after a movie, whose
+         * overlay pass (the transition at full black) covers the picture
+         * anyway; docs/GS_EXACT.md section 11 "Frames that draw nothing". */
+        static int noted;
+        if (!noted++)
+            fprintf(stderr, "gfx: a frame that draws nothing over a buffer a movie (or the bring-up) left is "
+                            "presented as drawn\n");
+        g->scanAsDrawn = true;
+        return 0;
+    }
+    if (!b)
+        return gsw_fail(g, "a frame that draws nothing shows a buffer whose picture the renderer does not know");
+    if (!g->target || !b->tex || b->tex.width != g->target.width || b->tex.height != g->target.height) {
+        /* A window resized within the two frames before (a host event, not
+         * the game's): the kept picture is of the old size and the overlay
+         * pass that made it cannot be replayed, so this frame is presented
+         * as drawn (black). Headless runs never resize. */
+        static int noted;
+        if (!noted++)
+            fprintf(stderr, "gfx: a frame that draws nothing after a drawable resize is presented as drawn "
+                            "(black), not as its buffer's picture again\n");
+        return 0;
+    }
+    if (b->field) {
+        if (!g->gswOn || !g->gsw || !b->hashed || !b->bytes)
+            return gsw_fail(g, "a frame that draws nothing shows a field not yet drawn");
+        if (memcmp(&b->disp, &g->gsDisp, sizeof b->disp) != 0)
+            return gsw_fail(g, "a frame that draws nothing under display registers other than its buffer's "
+                               "field was presented with (a moved picture is not modelled)");
+        /* what the display scans: the model's local memory at DISPFB2 */
+        uint8_t *now = malloc(EM_GFX_SCAN_BYTES);
+        const int same = now && b->rows <= EM_GS_WORLD_FIELD_H &&
+                         em_gs_world_read(g->gsw, fbp, fbw, 64u * fbw, b->rows, now) == 0 &&
+                         memcmp(now, b->bytes, (size_t)64u * fbw * b->rows * 4u) == 0;
+        free(now);
+        if (!same) return gsw_fail(g, "a frame that draws nothing shows a buffer the GS model drew over since");
+    }
+    g->scanShow = (int)(b - g->scanBuf) + 1;
+    return 0;
+}
+
+/* At end_frame, before the overlay pass: the kept picture replaces the
+ * frame's (begin_frame's fill) pixel for pixel, and the overlay pass that
+ * follows draws at the kept field's line (its half line), as the original's
+ * list draws over the buffer it left. */
+static void scan_draw(EmGfx *g, const struct EmGfxScanBuf *b)
+{
+    if (!g->enc || !g->target || !b->tex) return;
+    if (!g->scanCopyPipeline)
+        g->scanCopyPipeline = shadow_pipeline(g, kGsFrameShaderSrc, @"v_gsshow", @"f_scancopy",
+                                              g->target.pixelFormat, true, MTLColorWriteMaskAll);
+    if (!g->scanCopyPipeline) { gsw_fail(g, "the kept picture's copy pipeline is unavailable"); return; }
+    ensure_depth_states(g);
+    static const float quad[6][4] = {
+        { -1.0f,  1.0f, 0.0f, 0.0f }, { 1.0f,  1.0f, 1.0f, 0.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
+        {  1.0f,  1.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 1.0f, 1.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
+    };
+    const NSUInteger w = g->target.width, h = g->target.height;
+    [g->enc setViewport:(MTLViewport){ 0.0, 0.0, (double)w, (double)h, 0.0, 1.0 }];
+    [g->enc setScissorRect:(MTLScissorRect){ 0, 0, w, h }];
+    [g->enc setRenderPipelineState:g->scanCopyPipeline];
+    [g->enc setDepthStencilState:g->depthOff];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBytes:quad length:sizeof quad atIndex:0];
+    [g->enc setFragmentTexture:b->tex atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    /* begin_frame's scissor (the game rectangle) again, and the overlay
+     * pass's viewport: the kept field's line, else line 0 (the one
+     * begin_frame placed a frame without a field at) */
+    const double *r = g->gameRect;
+    [g->enc setScissorRect:(MTLScissorRect){ (NSUInteger)r[0], (NSUInteger)r[1], (NSUInteger)r[2],
+                                             (NSUInteger)r[3] }];
+    EmGsDisplayPlace place;
+    const int line = b->field ? em_gs_field_line(b->xy) : 0;
+    if (g->gswOn && gsw_place(g, &place, 0) == 0 && line >= 0)
+        gsw_viewport(g, &place, line, NULL);
+    else
+        [g->enc setViewport:(MTLViewport){ r[0], r[1], r[2], r[3], 0.0, 1.0 }];
+}
+
+void em_gfx_present_tag(EmGfx *g, uint64_t tag)
+{
+    if (g) g->presentTag = tag;
+}
+
+/* At end_frame, after the overlay pass: the frame's picture becomes its
+ * buffer's kept frame (a field frame's under its field's buffer, a GPU
+ * frame's under its head's); a frame whose buffer is unknown (no head: the
+ * frames before the render context's bind, the movie's) forgets both. A
+ * frame that shows its buffer again keeps the entry as it is. */
+static void scan_keep(EmGfx *g)
+{
+    if (g->scanShow || !g->target || !g->cmd) return;
+    uint64_t frame = 0;
+    const bool field = g->gswShow && g->gsw && em_gs_world_handed_frame(g->gsw, &frame) > 0;
+    if (!field && !g->scanHead) {
+        g->scanBuf[0].valid = g->scanBuf[1].valid = false;
+        g->scanLost = true;
+        return;
+    }
+    struct EmGfxScanBuf *b = scan_slot(g, field ? (uint32_t)frame & 0x1FFu : g->scanHeadFbp);
+    if (!b->tex || b->tex.width != g->target.width || b->tex.height != g->target.height) {
+        [b->tex release];
+        MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:g->target.pixelFormat
+                                                                                       width:g->target.width
+                                                                                      height:g->target.height
+                                                                                   mipmapped:NO];
+        td.storageMode = MTLStorageModePrivate;
+        td.usage = MTLTextureUsageShaderRead;
+        b->tex = [g->device newTextureWithDescriptor:td];
+        if (!b->tex) {
+            b->valid = false;
+            return;
+        }
+    }
+    id<MTLBlitCommandEncoder> blit = [g->cmd blitCommandEncoder];
+    [blit copyFromTexture:g->target sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(g->target.width, g->target.height, 1) toTexture:b->tex destinationSlice:0
+         destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit endEncoding];
+    b->valid = true;
+    b->field = field;
+    b->hashed = false;
+    b->age = ++g->scanAge;
+    b->frame = frame;
+    b->xy = field ? g->gswSlotXy[g->gswSlot] : 0;
+    memset(b->k, 0, sizeof b->k);
+    if (field && g->gswSlotK[g->gswSlot]) memcpy(b->k, g->gswSlotK[g->gswSlot].contents, sizeof b->k);
+    memcpy(b->overlay, g->gswSlotOverlay[g->gswSlot], sizeof b->overlay);
+    b->disp = g->gsDisp;
+    if (field) g->scanPend = (int)(b - g->scanBuf) + 1;
+    if (g->scanBuf[0].valid && g->scanBuf[1].valid) g->scanLost = false;
 }
 
 /* The placement by the display registers step U stored: 0, or -1. With
@@ -4756,6 +5167,18 @@ static void write_bmp(const char *path, const uint8_t *bgra,
 void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
+    /* A frame that shows its buffer's picture again (em_gfx_gs_head) draws
+     * no picture after the kick either. */
+    if (g->scanShow && frame_drew_picture(g)) {
+        gsw_fail(g, "a frame that showed its buffer again drew after its kick");
+        g->scanShow = 0;
+    }
+    struct EmGfxScanBuf *again = g->scanShow ? &g->scanBuf[g->scanShow - 1] : NULL;
+    /* EM_PRESENT_LOG: the overlay pass's queued vertices (a frame shown
+     * again with an overlay of its own is its kept picture plus that pass) */
+    const uint32_t overlay_verts = g->overlayVertCount + g->subVertCount + g->spriteVertCount + g->glyphVertCount +
+                                   g->backdropVertCount + (g->backdropFillOn ? 6u : 0u);
+    if (again) scan_draw(g, again);   /* the buffer's kept picture, under the overlay pass */
     gsw_present(g);     /* the GS frame's field, under the overlay pass */
     overlay_sub_flush(g, true); /* letterbox subtracts scene beneath text */
     backdrop_flush(g);  /* UI background: bottom of the overlay sequence */
@@ -4787,12 +5210,16 @@ void em_gfx_end_frame(EmGfx *g)
      destinationBytesPerImage:shot_stride * shot_h];
         [blit endEncoding];
     }
+    present_px_capture(g);   /* EM_PRESENT_LOG: this frame's committed picture */
 
     if (g->target && g->cmd && g->gswShow) {
         /* A field frame waits for its field (gsw_complete): the next kick, or
          * the next frame without a field, commits it. A capture of it also
          * writes the field itself, <path>.gsfield (512 x 224 x 4 bytes, R, G,
          * B, A as GS memory holds them), for tools/test_fb2_pixels.py. */
+        scan_keep(g);
+        g->gswPendTag = g->presentTag;
+        g->gswPendOrd = g->pxOrd - 1u;   /* present_px_capture's, when it ran */
         g->gswPending = true;
         g->gswPendCmd = [g->cmd retain];
         g->gswPendTarget = [g->target retain];
@@ -4807,15 +5234,43 @@ void em_gfx_end_frame(EmGfx *g)
         }
     } else if (g->target && g->cmd) {
         gsw_complete(g);   /* a field frame before this one is shown first */
+        scan_keep(g);
         present_commit(g, g->cmd, g->target);
+        present_px_note(g, g->pxOrd - 1u, g->presentTag);
+        FILE *log = present_log(g);
+        /* a frame shown again: the hashes of its committed picture and of
+         * the frame two before it (read back, present_px_hash) */
+        const uint64_t px_now = log && again ? present_px_hash(g, g->pxOrd - 1u) : 0;
+        const uint64_t px_src = log && again && g->pxOrd >= 3u ? present_px_hash(g, g->pxOrd - 3u) : 0;
+        if (log && again && again->field)
+            fprintf(log, "%llu %llu again %03x %016llx %016llx %016llx ov %u px %016llx %016llx\n",
+                    (unsigned long long)g->presentSeq++, (unsigned long long)g->presentTag, (unsigned)again->fbp,
+                    (unsigned long long)again->frame, (unsigned long long)again->xy,
+                    (unsigned long long)fnv64(again->bytes, (size_t)64u * ((uint32_t)(again->frame >> 16) & 0x3Fu) *
+                                              again->rows * 4u),
+                    (unsigned)overlay_verts, (unsigned long long)px_now, (unsigned long long)px_src);
+        else if (log && again)
+            fprintf(log, "%llu %llu again %03x gpu ov %u px %016llx %016llx\n", (unsigned long long)g->presentSeq++,
+                    (unsigned long long)g->presentTag, (unsigned)again->fbp, (unsigned)overlay_verts,
+                    (unsigned long long)px_now, (unsigned long long)px_src);
+        else if (log)
+            fprintf(log, "%llu %llu %s\n", (unsigned long long)g->presentSeq++, (unsigned long long)g->presentTag,
+                    g->scanAsDrawn ? "lost" : "gpu");
         if (shot) {
             [g->cmd waitUntilCompleted];
             write_bmp(g->capturePath, (const uint8_t *)shot.contents,
                       (uint32_t)shot_w, (uint32_t)shot_h,
                       (uint32_t)shot_stride);
+            /* a field shown again writes its field files as when it was
+             * first presented (native.py, tools/test_fb2_pixels.py) */
+            if (again && again->field)
+                gsw_write_field(g->capturePath, again->bytes, 64u * ((uint32_t)(again->frame >> 16) & 0x3Fu),
+                                again->rows, again->frame, again->xy, again->k, again->overlay);
             g->captureRequested = false;
         }
     }
+    g->scanShow = 0;
+    g->scanHead = false;
     [shot release];
     [g->cmd release];      g->cmd = nil;
     g->target = nil;

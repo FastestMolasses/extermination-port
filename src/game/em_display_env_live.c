@@ -78,3 +78,12 @@ int em_display_env_live_step_u(void *context, int32_t buffer)
 }
 
 const uint8_t *em_display_env_live_bytes(void) { return &s_disp.env[0][0]; }
+
+int em_display_env_live_dispfb(int32_t buffer, uint64_t *dispfb)
+{
+    if (!dispfb || (buffer != 0 && buffer != 1) || !s_disp.gfx || s_disp.faulted) return -1;
+    uint64_t v = 0;
+    for (unsigned i = 8; i-- > 0;) v = v << 8 | s_disp.env[buffer][EM_SLG_DISPFB_OFFSET + i];
+    *dispfb = v;
+    return 0;
+}

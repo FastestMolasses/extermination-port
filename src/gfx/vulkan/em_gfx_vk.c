@@ -108,6 +108,12 @@ int em_gfx_gs_page_pass(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *
 }
 int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
 { (void)gfx; (void)env; (void)env_bytes; (void)clear; (void)clear_bytes; return 0; }
+/* Frames that draw nothing present as drawn here: this backend keeps no
+ * frame of a display buffer to show again (em_gfx.h em_gfx_gs_head; not built). */
+int em_gfx_gs_head(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes,
+                   uint64_t dispfb)
+{ (void)gfx; (void)env; (void)env_bytes; (void)clear; (void)clear_bytes; (void)dispfb; return 0; }
+void em_gfx_present_tag(EmGfx *gfx, uint64_t tag) { (void)gfx; (void)tag; }
 const char *em_gfx_gs_world_fault(EmGfx *gfx) { (void)gfx; return NULL; }
 int em_gfx_gs_field_read(EmGfx *gfx, uint8_t *rgba, uint64_t *frame) { (void)gfx; (void)rgba; (void)frame; return -1; }
 int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out) { (void)gfx; (void)out; return -1; }

@@ -707,6 +707,41 @@ static void field_refusals(void)
     }
 }
 
+/* em_gs_head_probe (the presenter's frames that draw nothing, GS_EXACT.md
+ * section 11): the field a head names (FRAME_1, SCISSOR_1's rows, the half
+ * line's XYOFFSET_1), and whether its clear writes the field's colour and
+ * leaves it black: the Z-only clear (head(): ATST NEVER, AFAIL ZB_ONLY)
+ * writes no colour, a black sprite clear writes black, a grey one writes
+ * colour that is not black; a transfer register is refused. */
+static void head_probe(void)
+{
+    uint8_t env[512], clr[512], *scratch = malloc(EM_GS_MEM_BYTES);
+    size_t env_n, clr_n;
+    CHECK(scratch);
+    EmGsHeadProbe hp;
+    head(env, &env_n, clr, &clr_n, 0x38, 1);
+    CHECK(em_gs_head_probe(scratch, env, env_n, clr, clr_n, 0, &hp) == 0);
+    CHECK(hp.frame == FRAME_FIELD(0x38) && hp.height == 224 && !hp.writes && !hp.black);
+    CHECK(hp.xyoffset == ((uint64_t)(1792 * 16) | (uint64_t)(1936 * 16 + 8) << 32));
+    CHECK(em_gs_head_probe(scratch, env, env_n, clr, clr_n, 1, &hp) == 0);
+    CHECK(hp.frame == FRAME_FIELD(0x38) && !hp.writes && !hp.black);
+    for (int grey = 0; grey < 2; ++grey) {
+        const uint64_t c[][2] = {
+            { EM_GS_TEST_1, 0x30000 }, { EM_GS_PRIM, 6 },
+            { EM_GS_RGBAQ, (grey ? 0x40404040ull : 0x80000000ull) | 0x3F80000000000000ull },
+            { EM_GS_XYZ2, (1792 * 16) | (uint64_t)(1936 * 16) << 16 },
+            { EM_GS_XYZ2, (2304 * 16) | (uint64_t)(2160 * 16) << 16 }, { EM_GS_TEST_1, 0x50000 },
+        };
+        const size_t n = ad_packet(clr, c, sizeof c / sizeof c[0]);
+        CHECK(em_gs_head_probe(scratch, env, env_n, clr, n, 1, &hp) == 0);
+        CHECK(hp.writes && hp.black == !grey);
+    }
+    const uint64_t t[][2] = { { EM_GS_TRXDIR, 0 } };
+    const size_t n = ad_packet(clr, t, 1);
+    CHECK(em_gs_head_probe(scratch, env, env_n, clr, n, 1, &hp) < 0);
+    free(scratch);
+}
+
 int main(void)
 {
     (void)system("mkdir -p build/gs_world_test");
@@ -905,11 +940,12 @@ int main(void)
     list_stamps();
     refusals();
     field_refusals();
+    head_probe();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
            "over two world frames "
            "with the target pass, the depth-of-field pass (%u and %u field pixels blended, the Z buffer "
            "untouched) and a list frame, and the same with every block uploaded (1 and 8 workers); 5 refusals, "
-           "1 state-block TEX0 accepted; 3 field-declaration refusals; past the texture table's end (%u keys, %llu "
+           "1 state-block TEX0 accepted; 3 field-declaration refusals; the head probe: the Z-only clear writes no colour, a black clear black, a grey one not black, a transfer refused; past the texture table's end (%u keys, %llu "
            "lookups checked again): the same with 1 and 8 workers; the decoded texture cache off: the same with %s "
            "workers; uploads over the resident texture between frames (%u field pixels changed): the same with the "
            "cache on (%s workers) and off; the specialized span loops off: the same with %s workers; each of their "

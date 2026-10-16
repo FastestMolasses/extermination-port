@@ -2220,6 +2220,56 @@ int em_gs_world_handed_xyoffset(const EmGsWorld *w, uint64_t *xyoffset)
     return 1;
 }
 
+int em_gs_world_handed_frame(const EmGsWorld *w, uint64_t *frame)
+{
+    if (!w || !w->run) return -1;
+    if (frame) *frame = w->run->frame;
+    return 1;
+}
+
+int em_gs_head_probe(uint8_t *scratch, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes,
+                     int colour, EmGsHeadProbe *out)
+{
+    if (!scratch || !env || !out || !env_bytes || env_bytes > HEAD_MAX || env_bytes % 16u ||
+        (clear_bytes && !clear) || clear_bytes > HEAD_MAX || clear_bytes % 16u)
+        return -1;
+    if (!gif_registers_only(env, env_bytes) || (clear_bytes && !gif_registers_only(clear, clear_bytes)))
+        return -1;
+    memset(out, 0, sizeof *out);
+    out->black = 1;
+    for (int pass = colour ? 0 : 1; pass < 2; ++pass) {
+        const uint32_t fill = pass ? 0xFFFFFFFFu : 0u;
+        if (colour) memset(scratch, pass ? 0xFF : 0x00, EM_GS_MEM_BYTES);
+        EmGs gs;
+        em_gs_init(&gs, scratch);
+        gs.strict = 1;
+        int ok = em_gs_gif(&gs, env, env_bytes) == env_bytes;
+        /* the field: the environment's FRAME_1 / SCISSOR_1 / XYOFFSET_1, as
+         * em_gs_world_kick takes them */
+        out->frame = gs.ctx[0].frame;
+        out->xyoffset = gs.ctx[0].xyoffset;
+        out->height = (uint32_t)(gs.ctx[0].scissor >> 48 & 0x7FFu) + 1u;
+        const uint32_t fbp = (uint32_t)out->frame & 0x1FFu, fbw = (uint32_t)(out->frame >> 16) & 0x3Fu;
+        const uint32_t psm = (uint32_t)(out->frame >> 24) & 0x3Fu;
+        if (ok && colour && clear_bytes) ok = em_gs_gif(&gs, clear, clear_bytes) == clear_bytes;
+        em_gs_flush(&gs);
+        ok = ok && !gs.refusals && !gs.refused_prims && !gs.span_faults;
+        em_gs_release(&gs);
+        if (!ok) return -1;
+        if (!colour) break;
+        if (psm != EM_GS_PSMCT32 || !fbw || 64u * fbw > EM_GS_WORLD_FIELD_W || out->height > 1024u) return -1;
+        for (uint32_t y = 0; y < out->height; ++y)
+            for (uint32_t x = 0; x < 64u * fbw; ++x) {
+                uint32_t word;
+                memcpy(&word, scratch + (size_t)em_gs_addr32(fbp * 32u, fbw, x, y, 0) * 4u, 4);
+                if (word != fill) out->writes = 1;
+                if (pass && (word & 0xFFFFFFu)) out->black = 0;
+            }
+    }
+    if (!colour) out->black = 0;
+    return 0;
+}
+
 const uint8_t *em_gs_world_field(const EmGsWorld *w, uint32_t *width, uint32_t *height, uint64_t *frame)
 {
     if (!w || !w->have_field || w->busy) return NULL;

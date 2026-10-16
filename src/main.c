@@ -33,6 +33,7 @@
 #include "game/em_replay.h"
 #include "game/em_load_veil_live.h"
 #include "game/em_gs_frame_live.h"
+#include "game/em_background_live.h"
 #include "game/em_display_env_live.h"
 
 #include <dirent.h>
@@ -295,6 +296,9 @@ static int rcl_step_v(void *context)
 {
     if (em_rcl_001D2300() < 0) return -1;
     if (em_load_veil_live_draw((EmGfx *)context) < 0) return -1;
+    /* A list that CALLs channel 3 in an iteration without a world frame
+     * (the options screen's close): the background it draws. */
+    if (em_render_kick_background((EmGfx *)context) < 0) return -1;
     /* The kick: the Original profile's GS frame runs the kicked list's
      * head and the world frame's recorded draws (em_gs_frame_live). */
     return em_gs_frame_live_kick((EmGfx *)context);

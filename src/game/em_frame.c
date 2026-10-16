@@ -51,6 +51,7 @@ static struct {
     uint8_t      screen_suppress;     /* 0x008106C4 drawing gate */
     bool         movie_active;        /* 0x00821058 == 1 */
     bool         movie_suspended;     /* main iteration stopped at phase M */
+    bool         movie_frame;         /* this iteration's movie returned (em_frame_movie_frame) */
     bool         suspended_draw_transition;
     EmFrameMoviePump movie_pump;
     void        *movie_user;
@@ -140,6 +141,7 @@ int em_frame_fade_active(void)
 
 void em_frame_set_movie_active(int active) { s_frame.movie_active = active != 0; }
 int em_frame_movie_active(void) { return s_frame.movie_active; }
+int em_frame_movie_frame(void) { return s_frame.movie_frame; }
 
 void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
 {
@@ -500,6 +502,7 @@ int em_frame_step(void)
     /* 001AB370 sets both sceGsDBuffDc clear colours (0x00811020/0x00811190)
      * to RGBA 0,0,0,0x80: the original draw buffer clears to black. */
     em_gfx_begin_frame(s_frame.gfx, 0.0f, 0.0f, 0.0f, 1.0f);
+    em_gfx_present_tag(s_frame.gfx, s_frame.counter);   /* EM_PRESENT_LOG's tag */
     /* B: 001D1AE0(D_00810E80), the render context's buffer set-up; the
      * blocking movie holds the original iteration, so not while it plays. */
     if (!s_frame.movie_suspended && s_frame.step_b &&
@@ -573,6 +576,7 @@ movie_phase:
         }
         /* N/O occur once after the blocking movie function returns. */
         s_frame.movie_suspended = false;
+        s_frame.movie_frame = true;
         s_frame.suspended_draw_transition |=
             em_transition_fade_tick(&s_frame.transition) != 0;
     }
@@ -601,6 +605,7 @@ movie_phase:
     s_frame.parity ^= 1u;
     if (s_frame.step_w && s_frame.step_w(s_frame.step_vw_context, field) < 0)
         s_frame.quit = true;
+    s_frame.movie_frame = false;
     s_frame.counter++;
     return !s_frame.quit;
 }
