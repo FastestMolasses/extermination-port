@@ -3,6 +3,9 @@
 #define EM_AREA01_SCRIPT_WORKERS_H
 #include "game/em_area01_runtime.h"
 int em_area01_script_worker_handles(uint32_t function);
+int em_area01_script_worker_handles_area(uint32_t function, unsigned area);
 /* Canonical address views must be active. No persistent byte copy is held. */
 int em_area01_script_worker_call(const EmArea01RuntimeHost *, EmArea01Call *, uint32_t *fault_address);
+int em_area01_script_worker_call_area(const EmArea01RuntimeHost *, EmArea01Call *,
+                                     uint32_t *fault_address, unsigned area);
 #endif

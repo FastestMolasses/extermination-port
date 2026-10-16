@@ -392,13 +392,20 @@ def check_exit_boundary(smoke,ticks,run,state):
     boundary=re.search(r'^level smoke: a01_07: boundary counter=(\d+) \(capture row \d+;',run,re.M)
     assert boundary,'AREA01 exit lacks arrival alignment'
     end=next(i for i,t in enumerate(ticks) if t['counter']==int(boundary.group(1)))
-    assert start>=state['cursor'] and end==len(ticks)-1,('AREA01 exit did not stop at arrival',start,end,len(ticks))
+    continued=re.search(r'^level smoke: a00_arrival: PASS',run,re.M) is not None
+    assert start>=state['cursor'] and (end<len(ticks)-1 if continued else end==len(ticks)-1), \
+        ('AREA01 exit did not stop at arrival or continue into checked AREA00',start,end,len(ticks))
     assert all(ticks[i]['counter']==ticks[start]['counter']+i-start for i in range(start,end+1)), \
         'AREA01 exit skipped a native main-loop tick'
-    tails=[t for t in state.get('tails',[]) if t['counter']==ticks[end]['counter']]
-    assert len(tails)==1 and 'loader_pre' in tails[0],'AREA00 arrival lacks one actual post-frame loader tail'
-    tail=tails[0]
-    observed=ticks+[dict(msg_pre=tail['msg'],fade8=tail['fade8'],loader_pre=tail['loader_pre'])]
+    if continued:
+        # The following real scene tick contains the post-frame fields
+        # which the endpoint-only run records in its explicit tail.
+        observed=ticks
+    else:
+        tails=[t for t in state.get('tails',[]) if t['counter']==ticks[end]['counter']]
+        assert len(tails)==1 and 'loader_pre' in tails[0],'AREA00 arrival lacks one actual post-frame loader tail'
+        tail=tails[0]
+        observed=ticks+[dict(msg_pre=tail['msg'],fade8=tail['fade8'],loader_pre=tail['loader_pre'])]
     load=next(r['f'] for r in rows if r['bd8']==1)
     assert load==234 and start+load<=end,'AREA01 exit load boundary moved'
     for k in range(load):compare_route_row(smoke,observed,start+k,rows[k],'a01_07')
@@ -422,12 +429,13 @@ def check_exit_boundary(smoke,ticks,run,state):
     assert d010==1 and chain>=end-(start+load),('AREA01 exit original chain coverage',chain,d010)
     state['cursor']=end+1
     state['area00_arrival']=end
+    state['area01_end']=end+1
     state['area01_host_waits']=waits
     print(f'a01_07: PASS ({load} consecutive gameplay/exit rows; {len(ps)} loader states, '
           f'{end-start-load+1} native load/arrival ticks; {chain} original chain ticks, '
           f'{veil} veil steps/{draws} draws; all route fields and 11 owners; '
           f'host wait counts only: {json.dumps(waits)}; capture row{AREA00_ARRIVAL_ROW} AREA00 arrival state0, '
-          'before the out-of-scope level3 rebuild)')
+          'before the separately checked level-3 rebuild)')
 
 
 OWNERS = dict(npc_r36=0x7B0390, r37_826CF0=0x7B0680, shaft_door_r12=0x7ABD10,

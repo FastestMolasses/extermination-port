@@ -1,4 +1,4 @@
-/* AREA01 overlay state and its load-time initializer. The module loader
+/* AREA00/01 overlay state and load-time initialization. The module loader
  * owns the delivered overlay data and BSS; this provider borrows those
  * canonical bytes and owns only D_00275C18..2F. No captured state is loaded.
  * See docs/LEVEL2_RUNTIME.md ("AREA01 canonical overlay state and initialization") for lifecycle and integration order. */
@@ -6,6 +6,7 @@
 #define EM_AREA01_STATE_H
 
 #include <stdint.h>
+#include "game/em_area00_state.h"
 
 #define EM_AREA01_STATE_GLOBALS 0x00275C18u
 #define EM_AREA01_STATE_GLOBAL_SIZE 0x18u
@@ -24,16 +25,20 @@ typedef struct {
     EmArea01StateMemory memory;
     void *ctx;
     uint32_t fault; /* first failing original address; zero while healthy */
+    unsigned area;
+    EmArea00State area00; /* borrows globals above and loader allocations */
 } EmArea01State;
 
 /* Start with a zero-initialized object. Binding validates the delivered
- * AREA01 header and both full spans; it neither reloads nor clears them.
+ * selected header and both full spans; it neither reloads nor clears them.
  * Return 0, or -1 with the first fault latched. A fault stays latched until
  * the host explicitly discards this binding with detach. */
 int em_area01_state_bind(EmArea01State *s, EmArea01StateMemory memory, void *ctx);
+/* Select AREA00 or AREA01 without introducing a second globals owner. */
+int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void *ctx, unsigned area);
 void em_area01_state_detach(EmArea01State *s);
 
-/* Only the three owned/viewed spans above are exposed. Unknown/empty/
+/* Only the globals and selected overlay data/BSS are exposed. Unknown/empty/
  * wrapping ranges, a missing or replaced overlay, or a latched fault
  * return NULL. Queries do not latch faults, so a composite binder can try
  * its other canonical owners. Never retain a view across a module load. */
@@ -43,9 +48,9 @@ uint8_t *em_area01_state_bytes(EmArea01State *s, uint32_t address, uint32_t size
  * 001E7780 below supplies the original surrounding zero/record-clear order.
  * Both return 0, or -1 with a latched original address. */
 int em_area01_state_00823A50(EmArea01State *s);
-/* AREA01 portion of the shared dispatcher. area must be 1; sub 0/1 call
- * the initializer, other sub bytes have no original dispatch target and
- * only clear the six globals. Other areas fail before changing globals. */
+/* Shared dispatcher for the selected AREA00/01. AREA00 sub 0/1/2 and
+ * AREA01 sub 0/1 initialize; other sub bytes only clear the six globals.
+ * A different area fails before changing globals. */
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub);
 
 #endif

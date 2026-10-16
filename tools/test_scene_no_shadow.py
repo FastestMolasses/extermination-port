@@ -12,7 +12,8 @@ S11b (scratchpad 0x70003B92, lead decision D5), the housekeeping step HK
 D_00810CB6 in the EmProgress region and D_008106F1 in the request block) and
 census L01 (D_0081083C, the player's grab-slot bits), and AREA01's mechanism
 and door bytes (D_00810766, D_00810842, D_00810845), plus the six reached
-AREA01 NPC/light/bridge/story bytes (759, 75A, 75D, 760, 7D9, 7E0), in the
+AREA01 NPC/light/bridge/story bytes (759, 75A, 75D, 760, 7D9, 7E0), and
+AREA00 arrival/door/terminal/ferry bytes (75B, 75C, 7DA, 7DB, 7DC), in the
 EmProgress region:
 
   1. the retired port copies are gone from src/ and tests/: `frame_selector`
@@ -276,6 +277,13 @@ REACHERS = {
         "game/em_effects_live.c": "001F68B0 room-light gates: the per-call globals view is refreshed "
                                    "from canonical scene progress before the original translation",
     },
+    0x0081075B: {
+        "game/em_area00_overlay.c": "AREA00 00825170 reads event 3, stores 1 after the first locked "
+                                     "script and 0xFF at entry 5 through its original-address byte view",
+    },
+    # 001BA080 reaches event 4 through its existing canonical event-array
+    # pointer (base D_00810758, index 4), not a separate address literal.
+    0x0081075C: {},
     0x00810760: {
         "game/em_area01_overlay.c": "826200/826440 read event 8 during bridge setup; 826200 also reads "
                                      "it while idle, through the canonical original-address view",
@@ -288,6 +296,18 @@ REACHERS = {
         "game/em_area01_overlay.c": "826200 reads counter 8 while idle; 826440's conditional sequence "
                                      "reads it and stores 1/0xFF through the canonical byte view",
     },
+    0x008107DB: {
+        "game/em_area00_overlay.c": "AREA00 00825170 stores 0xFF when entry 5's 001BBE40 accepts "
+                                     "door [51]'s opening; the byte view resolves to canonical progress",
+    },
+    # Arrival and shaft-door scripts use 001BA080's existing canonical
+    # counter-array pointer (base D_008107D8, index 2), not a new literal.
+    0x008107DA: {},
+    0x008107DC: {
+        "game/em_area00_overlay.c": "AREA00 00825480 sets counter-4 bit 0 and 00825600 reads bits 0/1; "
+                                     "the view resolves to canonical progress, also written by existing "
+                                     "001BA080 op06 sub 3 through its counter-array pointer at index 4",
+    },
     0x0081080F: {
         "game/em_area01_sys.c": "00128B80 reads the reaction gate for each placed class-2 actor "
                                 "through the canonical scene byte view; no separate flag storage",
@@ -299,6 +319,18 @@ REACHERS = {
     0x00810767: {
         "game/em_area01_overlay.c": "8267C0 state 1 calls the existing 001BA1C0(self, 0xF); "
                                      "the shared live worker validates and reads canonical progress",
+    },
+    0x00810841: {
+        "game/em_area01_exitb.c": "001581A0 / 00158810 and shared lock owners index the canonical "
+                                  "area byte through their original-address view",
+        "game/em_area01_door_live.c": "001BC350 reads the current area's canonical lock byte",
+        "game/em_area01_math_owner.c": "001BB860's lock branch reads the indexed canonical byte",
+        "game/em_area02_math.c": "shared 001582E0 lock owner indexes original-address byte views",
+        "game/em_area04_port.c": "unbound area's shared door owner uses an indexed original-address view",
+        "game/em_level10_port_area19.c": "unbound area's door owner uses an indexed original-address view",
+        "game/em_area11_interaction_host.c": "001580C0 and terminal power read/write canonical progress "
+                                             "at the current area's lock-byte index",
+        "game/em_game.c": "terminal-power accessor reads canonical progress for the selected area",
     },
     0x00810842: {
         "game/em_area02_math.c": "001582E0 state 1 ORs bit 1 after the original nonzero +0x36 test; "
@@ -433,7 +465,7 @@ ALLOWED = [
      "removed_by": "permanent (a constant)"},
 ]
 
-BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810767|810842|810845|810759|81075A|81075D|810760|8107D9|8107E0|81080F",
+BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810767|810841|810842|810845|810759|81075A|81075B|81075C|81075D|810760|8107D9|8107DA|8107DB|8107DC|8107E0|81080F",
                         re.IGNORECASE)
 RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
 DECL = re.compile(

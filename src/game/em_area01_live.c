@@ -468,10 +468,37 @@ static int sdf_001B1B70(void *ctx)
 static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
+    const unsigned area=l->runtime.area;
+    if(area==0 && c->function>=0x00823500u) {
+        if(em_area01_script_worker_handles_area(c->function,area)) {
+            const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
+            int rc=em_area01_script_worker_call_area(&host,c,&fault,area);
+            return worker_result(l,rc,fault);
+        }
+        return l->host.worker ? l->host.worker(l->host.ctx,c) : worker_result(l,-1,c->function);
+    }
     if(em_area01_transition_handles(c->function)) {
         const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
         int rc=em_area01_transition_call(&host,c,&fault);
         return worker_result(l,rc,fault);
+    }
+    if(c->function==0x001B0C60u) {
+        if(c->na!=3 || c->nf)return worker_result(l,-1,c->function);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_scene_request_area_change_001B0C60((int32_t)c->a[0],(int32_t)c->a[1],(int32_t)c->a[2]);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,c->function);
+    }
+    if(em_area01_effects_draw_handles(c->function)) {
+        const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
+        EmArea01EffectsDraw draw;
+        if(em_area01_effects_draw_prepare(&host,c,&draw,&fault)<0)return worker_result(l,-1,fault);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_area01_effects_draw_invoke(&draw,c);
+        uint32_t owner_fault=em_effects_live_fault();
+        if(em_area01_live_resume(l)<0)return -1;
+        if(em_area01_effects_draw_finish(&host,&draw,&fault)<0)return worker_result(l,-1,fault);
+        return worker_result(l,rc,owner_fault ? owner_fault : c->function);
     }
     if(em_area01_rcl_workers_handles(c->function)) {
         uint32_t fault=0;
@@ -568,9 +595,9 @@ static int worker(void *ctx,EmArea01Call *c)
         return em_area01_audio_services_call(&host,em_collision_world_sdk(),
                                               em_stream_live_output_mode(),c);
     }
-    if(em_area01_script_worker_handles(c->function)) {
+    if(em_area01_script_worker_handles_area(c->function,area)) {
         const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
-        int rc=em_area01_script_worker_call(&host,c,&fault);
+        int rc=em_area01_script_worker_call_area(&host,c,&fault,area);
         return worker_result(l,rc,fault);
     }
     if(c->function==0x0012D580u)return low_0012D580(l,c);
@@ -923,6 +950,8 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
     if(!l || !h || !h->pool || !h->scene || !h->area || !h->loader || !h->current_actor ||
        !h->resource_epoch || !h->rebind)
         return -1;
+    const unsigned area=h->scene->d810700;
+    if(area>1 || h->area->area!=area)return -1;
     memset(l,0,sizeof *l);l->host=*h;
     EmPoseHost *pose=player_pose_record_host();
     EmStatusSceneLoader *ld=em_module_loader_state(h->loader);
@@ -947,7 +976,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
     s.d810700=&h->scene->d810700;s.d8106D4=em_area01_scene_view(h->scene,0x008106D4u,1);
     s.worker=model_external;s.random=random_value;
     const EmArea01RuntimeHost runtime={l,bytes,worker};
-    if(em_area01_model_bind(&l->model,&l->actors,&s)<0 || em_area01_runtime_bind(&l->runtime,&runtime)<0)
+    if(em_area01_model_bind(&l->model,&l->actors,&s)<0 || em_area01_runtime_bind_area(&l->runtime,&runtime,area)<0)
         return fail(l,0x001AFCA0u);
     em_area01_model_draw_bind(&l->draw,&l->model);
     const EmArea01RuntimeHost door={l,bytes,nested};
@@ -967,7 +996,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
     memcpy(&collision.file.d28A5A8_value,count,2);
     if(em_area01_collision_view_bind(&l->collision,&collision)<0)return fail(l,l->collision.fault_address);
     const EmArea01RuntimeHost script={l,bytes,script_worker};
-    if(em_area01_script_bind(&l->scripts,&script,h->loader,NULL,NULL)<0)return fail(l,0x001BA1A0u);
+    if(em_area01_script_bind_area(&l->scripts,&script,h->loader,NULL,NULL,area)<0)return fail(l,0x001BA1A0u);
     em_area01_script_bank(&l->scripts,l,script_bank);
     l->hulls.host=(EmArea01HullHost){l,hull_record,resource_rest,hull_slot};
     l->bound=1;return 0;

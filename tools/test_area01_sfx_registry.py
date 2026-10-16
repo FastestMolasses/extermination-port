@@ -84,10 +84,11 @@ def main():
     raw=args.registry.read_bytes();assert hashlib.sha256(raw).hexdigest()==report['registry_sha256']
     entries,samples,ladder=T.parse_emsr(raw)
     # Regenerate the exact pre-extension list with the same original exporter.
-    saved=X.AREA01_IDS,X.AREA01_SHARED_IDS
+    saved=X.AREA01_IDS,X.AREA01_SHARED_IDS,X.AREA00_SCOPES
     X.AREA01_IDS=X.AREA01_SHARED_IDS=()
+    X.AREA00_SCOPES=()
     try:old=X.export(OUT/'baseline')
-    finally:X.AREA01_IDS,X.AREA01_SHARED_IDS=saved
+    finally:X.AREA01_IDS,X.AREA01_SHARED_IDS,X.AREA00_SCOPES=saved
     old_entries,old_samples,old_ladder=T.parse_emsr((OUT/'baseline/sfx_registry.emsr').read_bytes())
     indexed={key(e):e for e in entries};json_index={key(e):e for e in report['entries']}
     assert all(indexed[key(e)]==e for e in old_entries)
@@ -142,14 +143,14 @@ def main():
     # Pin the finite loader cap with otherwise valid registries. Added
     # synthetic ABSENT entries carry no wave or original data.
     at=24+len(ladder)*2+sum(16+len(e['ops'])*32 for e in entries)
-    for count in (2048,2049):
+    for count in (4096,4097):
         blob=bytearray(raw[:at])
         struct.pack_into('<I',blob,12,count)
         for i in range(count-len(entries)):
             blob+=struct.pack('<IhhBBHHH',0x1000+i,0,0,2,0,0,0,0)
         blob+=raw[at:];path=OUT/f'cap-{count}.emsr';path.write_bytes(blob)
         check=lib.shim_new(str(path).encode(),T.STREAM_VOICES,0,0,0,1)
-        assert bool(check)==(count==2048),count
+        assert bool(check)==(count==4096),count
         if check:lib.shim_free(check)
     for label,blob in (('truncated',raw[:-1]),('extra',raw+b'\0')):
         path=OUT/f'malformed-{label}.emsr';path.write_bytes(blob)

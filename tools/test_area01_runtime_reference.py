@@ -39,7 +39,8 @@ def build():
     sources = ['tests/area01_runtime_bridge.c'] + [f'src/game/em_area01_{s}.c' for s in
         ('runtime', 'math_core', 'math_actor', 'math_owner', 'math_player', 'light_owner', 'overlay',
          'overlay_826d40', 'sys', 'exita', 'exitb', 'room', 'side')]
-    sources.append('src/game/em_stream_lanes_original.c')
+    sources += ['src/game/em_stream_lanes_original.c', 'src/game/em_area00_overlay.c',
+                'src/game/em_area00_world.c', 'src/game/em_area00_fx_gs.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', *sources, '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))

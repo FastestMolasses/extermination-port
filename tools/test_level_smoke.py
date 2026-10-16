@@ -107,6 +107,7 @@ import sys
 import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
 import level_smoke_options  # the OPTIONS side run (audit 1b item 15; docs/OPTIONS.md)
+import level_smoke_area00
 import level_smoke_area01  # the AREA01 arrival idle (route 15 f749..f809 on the fork) and the opt-in AREA01 routes
 import reference_root as refs  # EM_REFERENCE: the fork's recordings by default (LEVEL_SMOKE.md "References: fork")
 import rand_order as R
@@ -3155,6 +3156,9 @@ PHASES = [
     *[(phase, lambda ticks, run, state, phase=phase:
        level_smoke_area01.check_route(sys.modules[__name__], ticks, run, state, phase))
       for phase in level_smoke_area01.ROUTE_PHASES],
+    *[(phase, lambda ticks, run, state, phase=phase:
+       level_smoke_area00.check_route(sys.modules[__name__], ticks, run, state, phase))
+      for phase in ('a00_arrival', *level_smoke_area00.ROUTE_PHASES)],
 ]
 
 
@@ -3835,7 +3839,7 @@ SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'a
         'br_map_item',
         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
         'br_plateau', 'br_roger_talk', 'aud_walk_outdoor', 'aud_walk_room', 'aud_flame',
-        *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS)
+        *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS, *level_smoke_area00.SIDE_BEATS)
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door',
@@ -3853,6 +3857,9 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('15', ('exit',)), ('15 AREA01 idle', ('a01_arrival',)),
          ('AREA01 main route (opt-in)', tuple(level_smoke_area01.MAIN_BEATS)),
          ('AREA01 side routes (opt-in)', tuple(level_smoke_area01.SIDE_BEATS)),
+         ('AREA00 arrival (opt-in)', ('a00_arrival',)),
+         ('AREA00 main route (opt-in)', tuple(level_smoke_area00.MAIN_BEATS)),
+         ('AREA00 side return (opt-in)', tuple(level_smoke_area00.SIDE_BEATS)),
          ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_fan')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),
@@ -5084,9 +5091,9 @@ def main():
         if state.get('area01_ends') and state.get('area11_end') is not None:
             # The AREA01 world after the exit's rebuild: its static world and
             # dynamic table, and the player's and the owners' shadows.
-            level_smoke_static_world.check_area01(all_ticks[state['area11_end']:])
-            level_smoke_shadow.check_shadow_area01(all_ticks[state['area11_end']:])
-            level_smoke_chain_page.check_kind6_area01(all_ticks[state['area11_end']:], 'a01_00' in checked)
+            level_smoke_static_world.check_area01(all_ticks[state['area11_end']:state.get('area01_end')])
+            level_smoke_shadow.check_shadow_area01(all_ticks[state['area11_end']:state.get('area01_end')])
+            level_smoke_chain_page.check_kind6_area01(all_ticks[state['area11_end']:state.get('area01_end')], 'a01_00' in checked)
     if 'first_control' in checked and 'side_start' not in state and state.get('second_game') is None:
         # The New Game's opening against the audio beat opening (from the
         # AREA11 start to first control + 60).

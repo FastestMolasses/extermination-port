@@ -2,6 +2,8 @@
 #include "game/em_stream_lanes_original.h"
 static EmArea01Runtime runtime;
 int a01rt_bind(const EmArea01RuntimeHost *h) { return em_area01_runtime_bind(&runtime, h); }
+int a01rt_bind_area(const EmArea01RuntimeHost *h, unsigned area)
+{ return em_area01_runtime_bind_area(&runtime, h, area); }
 int a01rt_call(EmArea01Call *c) { return em_area01_runtime_call(&runtime, c); }
 uint32_t a01rt_fault(void) { return runtime.fault_address; }
 int a01rt_stream_worker(EmArea01Call *c)

@@ -1,4 +1,4 @@
-/* AREA01's composition over existing live owners. No original behavior or
+/* AREA00/01 composition over existing live owners. No original behavior or
  * resource bytes are implemented here. Unresolved workers remain failures. */
 #ifndef EM_AREA01_LIVE_H
 #define EM_AREA01_LIVE_H
@@ -21,7 +21,7 @@ typedef struct {
     void *ctx;
     EmActorPool *pool;
     EmSceneState *scene;
-    EmArea01State *area;
+    EmArea01State *area; /* selected module; owns the one six-global block */
     EmModuleLoader *loader;
     uint32_t *current_actor;
     const uint64_t *resource_epoch;

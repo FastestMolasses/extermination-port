@@ -16,9 +16,10 @@
  * tools/test_actor_census_reference.py, which executes those original
  * instructions and walks D_00275BC0 in the captures.
  *
- * Only the static roster is spawned here: the deferred group then the
- * placement table, then (separately) the 001C5C50 node. Every other node of
- * the AREA11 list is spawned by the owner that spawns it in the original
+ * The state-0 entry spawns the static roster: the deferred group then the
+ * placement table, then (separately) the 001C5C50 node. The direct 001B6660
+ * entry also serves an original runtime caller, such as AREA00's ferry
+ * cab. Every other node of the AREA11 list is spawned by its original owner
  * (ORIGINAL_FRAME_ORDER.md section 6, "Q4"); the callback registry below
  * names each one and its original spawner.
  *
@@ -149,6 +150,17 @@ typedef int (*EmActorRosterBindFn)(void *ctx, EmActor *actor, const EmActorRoste
 int em_actor_roster_spawn_001B6990(const EmActorRoster *roster, EmActorPool *pool, EmSceneState *scene,
                                    EmActorRosterProgress *progress, EmActorRosterBindFn bind,
                                    void *bind_ctx, EmActorRosterSpawnLog *log);
+
+/* Direct 001B6660 call over one original table. The caller supplies the
+ * records preceding its -1 terminator; they are borrowed, not copied.
+ * Reuses the state-0 spawner without its prime pass or placement walk.
+ * On success, *result is the last attempted allocation (NULL after a final
+ * failed allocation, or when no condition passes). A skipped condition
+ * preserves the preceding result. Faults leave *result unwritten. */
+int em_actor_roster_spawn_001B6660(const EmActorRosterGroup *group, EmActorPool *pool,
+                                   EmSceneState *scene, EmActorRosterProgress *progress,
+                                   EmActorRosterBindFn bind, void *bind_ctx,
+                                   EmActorRosterSpawnLog *log, EmActor **result);
 
 /* 001B11E0(a0) (the taken-bit test the spawners' condition 1 uses; its
  * other caller is the gun cable 00827490's lifecycle 0): with a0 & 0xFF == 0

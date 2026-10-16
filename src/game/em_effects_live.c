@@ -1635,6 +1635,22 @@ static void xf_write(uint8_t block[0x60], const EmHeadSpriteOriginalXf *x)
     const u32 tail[6] = {x->m40, x->w44, x->w48, x->w4C, x->w50, x->w54};
     memcpy(block, x->q, 64); memcpy(block + 64, tail, sizeof tail);
 }
+int em_effects_live_001F5940(uint32_t kind, const float pos[4], int32_t phase)
+{
+    READY();
+    if (!pos) return fail(0x001F5940u, "missing marker position");
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    return check(em_effect_kinds_001F5940(&S.k, kind, pos, phase), 0x001F5940u);
+}
+int em_effects_live_001F4D40(const float pos[4], const int32_t colour[4], u32 f12, u32 f13)
+{
+    READY();
+    if (!pos || !colour) return fail(0x001F4D40u, "missing marker operands");
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    return check(w_001F4D40(NULL, pos, colour, f12, f13), 0x001F4D40u);
+}
 int em_effects_live_001CCF70(const float pos[4], int32_t *key)
 {
     READY();

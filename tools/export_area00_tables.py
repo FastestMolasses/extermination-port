@@ -29,7 +29,7 @@ pointed at AREA00 by export_area00_common.configure). What is AREA00's own:
 Output (ignored assets/area00/, disc-derived, never committed):
   sub<N>/roster.emro        EMRO v1 (src/game/em_actor_roster.c layout)
   spawn_table.emsp          EMSP v1 (the global export; area 0 rows checked)
-  door_destinations.emsp    EMSP windows: D_0024E140[0..0x17) and the area 0 row
+  door_destinations.emsp    EMSP: D_0024E140[0..0x17), area 0 row and D_0024D7C0[0]
   area00_scripts/scripts.emsc  EMSC window 0x8284E0..0x82BB50 (14 chains)
   overlay_data.emsc         EMSC window of the overlay data 0x826F80..0x82D480
   message_data.emmd         EMMD v1 for area 0 (export_message_data layout)
@@ -224,6 +224,43 @@ def export_spawn(elf, read, pairs):
                       sha256=C.sha(data))
 
 
+def export_doors(elf, ov, caps, placements):
+    """Existing door windows plus 0019C6F0's literal boot root word.
+    The pointed table is in the AREA00 overlay data already owned by the
+    loader. Verify it there; never copy that table or its records here."""
+    _blob, report = T.export_doors(elf, ov, caps, placements)
+    read = C.static_reader(elf, ov)
+    root = T.D_0024D7C0
+    pointer = read(root, 4)
+    table = C.u32(pointer, 0)
+    lo, hi = overlay_data_window(ov)
+    table_size = 4 * (max(A0.SUBS) + 1)
+    if not lo <= table <= hi - table_size:
+        raise SystemExit(f'AREA00 placement lookup {table:#x} is outside loader data')
+    for sub in A0.SUBS:
+        if C.u32(read(table + 4 * sub, 4), 0) != PLACEMENTS:
+            raise SystemExit(f'sub {sub}: placement lookup does not name {PLACEMENTS:#x}')
+    for cap in caps:
+        if cap.ram[root:root + 4] != pointer:
+            raise SystemExit(f'{cap.name}: D_0024D7C0[0] differs from the ELF')
+        if cap.ram[table:table + table_size] != read(table, table_size):
+            raise SystemExit(f'{cap.name}: loader placement lookup differs from AREA00.BIN')
+    ranges = [(int(a, 16), read(int(a, 16), size)) for a, size in report['windows']]
+    ranges = sorted(ranges + [(root, pointer)])
+    blob = struct.pack('<4sIII', b'EMSP', 1, len(ranges), 0)
+    blob += b''.join(struct.pack('<II', a, len(d)) for a, d in ranges) + b''.join(d for _a, d in ranges)
+    report['windows'] = [[hex(a), len(d)] for a, d in ranges]
+    report['placement_lookup'] = dict(root=hex(root), root_bytes=4, table=hex(table),
+                                      checked_loader_bytes=table_size, subs=list(A0.SUBS),
+                                      source='boot root; pointed table remains in loader overlay data')
+    row = read(int(report['row'], 16), report['bytes'])
+    report['used'] = [dict(placement=i, behaviour=hex(C.u32(rec, 0x24)), door_id=rec[3] & 0x7F,
+                            area_change=bool(rec[3] & 0x80), record=list(row[4 * (rec[3] & 0x7F):
+                                                                              4 * (rec[3] & 0x7F) + 4]))
+                     for i, rec in enumerate(placements) if C.u32(rec, 0x24) in DOOR_BEHAVIOURS]
+    return blob, report
+
+
 def export_scripts(ov, pairs, read):
     lo, hi = scripts_window(read)
     data = ov[lo - C.OVERLAY_ARENA:hi - C.OVERLAY_ARENA]
@@ -284,12 +321,7 @@ def main(argv=None):
     spawn, report['spawn'] = export_spawn(elf, read, pairs)
     (out / 'spawn_table.emsp').write_bytes(spawn)
 
-    doors, report['doors'] = T.export_doors(elf, ov, caps, placements)
-    row = bytes(read(int(report['doors']['row'], 16), report['doors']['bytes']))
-    report['doors']['used'] = [dict(placement=i, behaviour=hex(C.u32(rec, 0x24)), door_id=rec[3] & 0x7F,
-                                    area_change=bool(rec[3] & 0x80), record=list(row[4 * (rec[3] & 0x7F):
-                                                                                      4 * (rec[3] & 0x7F) + 4]))
-                               for i, rec in enumerate(placements) if C.u32(rec, 0x24) in DOOR_BEHAVIOURS]
+    doors, report['doors'] = export_doors(elf, ov, caps, placements)
     (out / 'door_destinations.emsp').write_bytes(doors)
 
     scripts, report['scripts'] = export_scripts(ov, pairs, read)

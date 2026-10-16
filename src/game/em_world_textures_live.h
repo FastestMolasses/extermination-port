@@ -12,7 +12,9 @@ extern "C" {
 
 /* Call at completed area-resource delivery, before either world draw.
  * Every call invalidates the device cache, including a same-area reload.
- * Supported deliveries are AREA11/0 and AREA01/0; others fail closed.
+ * Supported deliveries are AREA11/0, AREA01/0 and AREA00/0 or /1; others
+ * fail closed. Selecting a delivery does not bypass catalog validation:
+ * ensure refuses any complete catalog exceeding the device capacity.
  * AREA11/0 is selected initially to preserve the first-level entry. */
 int em_world_textures_live_bind(unsigned area, unsigned subarea);
 

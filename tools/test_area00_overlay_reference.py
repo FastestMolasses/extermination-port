@@ -250,7 +250,7 @@ def hook_proto(args, result):
 class Hooks(C.Structure):
     _fields_ = ([('ctx', C.c_void_p), ('bytes', BYTES_FN)]
                 + [(name, hook_proto(args, result)) for name, _, args, result in HOOKS]
-                + [('w_callback', CALLBACK_FN)])
+                + [('w_callback', CALLBACK_FN), ('view', C.CFUNCTYPE(C.c_void_p, C.c_void_p, C.c_uint32, C.c_uint32, C.c_int))])
 
 
 class Fault(C.Structure):

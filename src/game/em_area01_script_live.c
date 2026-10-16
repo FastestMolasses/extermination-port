@@ -9,6 +9,18 @@ static int contains(uint32_t a,uint32_t n,uint32_t lo,uint32_t hi)
 static uint32_t word(const uint8_t *p)
 { uint32_t v;memcpy(&v,p,4);return v; }
 
+typedef struct {
+    uint32_t overlay_id, script_lo, script_hi, data, size;
+    const char *destinations;
+} AreaScripts;
+/* Delivered module headers and original script entry/placement tables:
+ * export_area00_tables.scripts_window / overlay_data_window and the
+ * corresponding AREA01 exports. Mutable script words stay in the loader. */
+static const AreaScripts areas[2]={
+    {1,0x008284E0u,0x0082BB50u,0x00826F80u,0x6500u,EM_AREA00_SCRIPT_DEST_PATH},
+    {2,0x00829860u,0x0082BD50u,0x00828A00u,0x4300u,EM_AREA01_SCRIPT_DEST_PATH}
+};
+
 void em_area01_script_free(EmArea01Script *s)
 {
     if (!s) return;
@@ -41,15 +53,16 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
 }
 EmScriptImage *em_area01_script_image(EmArea01Script *s,uint32_t entry)
 {
-    if (!s || !s->bound) return NULL;
+    if (!s || !s->bound || s->area>1) return NULL;
     for (unsigned i=0;i<4;++i)
         if (em_script_image_read(&s->boot[i],entry,EM_SCRIPT_RECORD_SIZE)) return &s->boot[i];
-    if (!contains(entry,EM_SCRIPT_RECORD_SIZE,0x00829860u,0x0082BD50u)) return NULL;
+    const AreaScripts *a=&areas[s->area];
+    if (!contains(entry,EM_SCRIPT_RECORD_SIZE,a->script_lo,a->script_hi)) return NULL;
     const uint8_t *h=em_module_loader_memory(s->loader,0x00823500u,12);
-    if (!h || memcmp(h,"MWo3",4) || word(h+4)!=2 || word(h+8)!=0x00823500u) return NULL;
-    uint8_t *p=em_module_loader_memory_mutable(s->loader,0x00828A00u,0x4300u);
+    if (!h || memcmp(h,"MWo3",4) || word(h+4)!=a->overlay_id || word(h+8)!=0x00823500u) return NULL;
+    uint8_t *p=em_module_loader_memory_mutable(s->loader,a->data,a->size);
     if (!p) return NULL;
-    s->overlay=(EmScriptImage){p,0x00828A00u,0x00829860u,0x4300u};
+    s->overlay=(EmScriptImage){p,a->data,a->script_lo,a->size};
     return &s->overlay;
 }
 static EmScriptImage *image(void *ctx,uint32_t entry)
@@ -61,7 +74,7 @@ static const uint8_t *resource(void *ctx,uint32_t a,uint32_t n)
     if (p) return p;
     if (contains(a,n,0x0028A490u,0x0028A750u)) {
         EmStatusSceneLoader *ld=em_module_loader_state(s->loader);
-        return ld ? (uint8_t *)ld->d28A490+a-0x0028A490u : NULL;
+        return ld ? (uint8_t *)ld->d28A490+(a-0x0028A490u) : NULL;
     }
     return em_module_loader_memory(s->loader,a,n);
 }
@@ -115,17 +128,25 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
                   uint32_t rec,int32_t *result)
 {
     EmArea01Script *s=ctx;
+    if (!s || !s->bound || s->area>1 || !result) return -1;
     /* The callback address is meaningful only in the bound overlay. Boot
      * door callbacks are shared originals. Unknown callbacks never succeed. */
     switch (fn) {
     case 0x001BAC00u: /* op14 placement */
     case 0x001798D0u: case 0x001B7F90u: case 0x001B9CF0u: case 0x001B76D0u:
-    case 0x001B7670u: case 0x001B6D70u: case 0x001B6AE0u:
+    case 0x001B7670u: case 0x001B7700u: case 0x001B6D70u: case 0x001B6AE0u:
     case 0x001B6EA0u: /* shared pickup take callback */
     case 0x00158130u: case 0x00158050u: case 0x001580C0u:
     case 0x00157F60u: case 0x001575B0u: /* shared panel callbacks */
     case 0x001BB400u: case 0x001BB310u: case 0x001BBAE0u: case 0x001BBBF0u:
-    case 0x00825130u: case 0x00825240u: case 0x00825910u: case 0x00826950u: break;
+        break;
+    case 0x00825130u: case 0x00825240u: case 0x00825910u: case 0x00826950u:
+        if (s->area!=1) return -1;
+        break;
+    case 0x00824E40u: /* AREA00 arrival script 00828D60 */
+    case 0x008253E0u: /* AREA00 terminal script 008299E0 */
+        if (s->area!=0) return -1;
+        break;
     default: return -1;
     }
     if (fn>=0x00823500u && !em_area01_script_image(s,rec)) return -1;
@@ -144,7 +165,13 @@ static int camera(void *ctx,uint32_t fn,uint32_t actor)
 int em_area01_script_bind(EmArea01Script *s,const EmArea01RuntimeHost *host,
                          EmModuleLoader *loader,const char *boot_path,const char *dest_path)
 {
-    if (!s || !host || !host->worker || !loader || s->bound) return -1;
+    return em_area01_script_bind_area(s,host,loader,boot_path,dest_path,1);
+}
+int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host,
+                              EmModuleLoader *loader,const char *boot_path,const char *dest_path,
+                              unsigned area_id)
+{
+    if (!s || !host || !host->worker || !loader || s->bound || area_id>1) return -1;
     const uint32_t lo[4]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u};
     const uint32_t hi[4]={0x00247E20u,0x0024DF80u,0x00248540u,0x002668A0u};
     const uint32_t entry[4]={0x00246C20u,0x0024D900u,0x002482C0u,0x00266620u};
@@ -155,11 +182,11 @@ int em_area01_script_bind(EmArea01Script *s,const EmArea01RuntimeHost *host,
         if (n<0 || (size_t)n>=sizeof path || !em_script_image_load(&s->boot[i],path) ||
             s->boot[i].base!=lo[i] || s->boot[i].entry!=entry[i] || s->boot[i].length!=hi[i]-lo[i]) goto fail;
     }
-    if (em_spawn_table_load(&s->destinations,dest_path ? dest_path : EM_AREA01_SCRIPT_DEST_PATH)<0) goto fail;
+    if (em_spawn_table_load(&s->destinations,dest_path ? dest_path : areas[area_id].destinations)<0) goto fail;
     int n=snprintf(path,sizeof path,"%s/timeline.emsp",boot_path ? boot_path : EM_AREA01_SCRIPT_BOOT_PATH);
     if(n<0 || (size_t)n>=sizeof path || em_spawn_table_load(&s->timeline_tables,path)<0)goto fail;
-    s->host=*host;s->loader=loader;s->bound=1;
-    EmAreaScriptHostArea area={.ctx=s,.overlay_id=2,.image=image,.resource=resource,
+    s->host=*host;s->loader=loader;s->area=area_id;s->bound=1;
+    EmAreaScriptHostArea area={.ctx=s,.overlay_id=areas[area_id].overlay_id,.image=image,.resource=resource,
         .owner_bank=owner_bank,.clip=clip,.record=record,.camera=camera};
     if (em_area11_script_host_area(&area)<0) goto fail;
     return 0;

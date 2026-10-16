@@ -74,41 +74,54 @@ def area_container(cap):
     return str(path.relative_to(C.DECOMP)), data[:parsed['total']], parsed, info
 
 
+def area_binding(caps, container=None):
+    """The captured sub's resolver binding, with the AREA01 helper's return
+    shape. `container` preserves the shared sub-0 source identity after the
+    sub-1 upload bytes have independently compared equal to it."""
+    scopes = {cap.area[:2] for cap in caps}
+    if len(scopes) != 1 or next(iter(scopes)) not in ((0, 0), (0, 1)):
+        raise SystemExit(f'AREA00 sound binding needs one supported sub: {scopes}')
+    scope = next(iter(scopes))
+    rel, data, parsed, _info = area_container(caps[0])
+    if container is not None:
+        if data != container[1]:
+            raise SystemExit(f'sub {scope[1]}: the area container differs from sub 0\'s')
+        rel, data, parsed = container
+    gdata = (C.DECOMP / X.GLOBAL_CONTAINER).read_bytes()
+    gparsed = X.A.parse_container(gdata)
+    containers = {X.GLOBAL_CONTAINER: (gdata, gparsed), rel: (data, parsed)}
+    bound, refused, report = S.bindings_from_captures(caps, containers)
+    by_name = {X.GLOBAL_CONTAINER: X.containers_by_type(X.GLOBAL_CONTAINER, gdata),
+               rel: X.containers_by_type(rel, data)}
+    groups = {}
+    for (g, i), (key, _h, _hd, _sp) in sorted(bound.items()):
+        bank = next(b for b in by_name[key[0]][g] if b.row == key[1])
+        lst = groups.setdefault(g, [])
+        if len(lst) != i:
+            raise SystemExit(f'group {g}: slot {i} bound without slot {len(lst)}')
+        lst.append(bank)
+    if refused.get((3, 0)) is None:
+        raise SystemExit('group 3 slot 0 is not the refused header it is in AREA11 / AREA01')
+    binding = {scope: dict(groups=groups, binding='AREA00 captures (D_00281D50/D_0027C6C0)',
+                           refused={(3, 0): 'group 3 bank 0 = handle 3, header without SShd '
+                                            'magic in AREA00'})}
+    return binding, rel, data, parsed, bound, refused, report
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--out', type=Path, default=A0.OUT)
     args = ap.parse_args(argv)
     out = args.out.resolve()
     X.Elf()                                   # pins the boot ELF
-    gdata = (C.DECOMP / X.GLOBAL_CONTAINER).read_bytes()
-    gparsed = X.A.parse_container(gdata)
     summary = dict(subs={})
     container = None
     for sub in A0.SUBS:
         A0.configure(sub)
         caps = C.captures()
-        rel, data, parsed, _info = area_container(caps[0])
+        binding, rel, data, parsed, bound, refused, report = area_binding(caps, container)
         if container is None:
             container = (rel, data, parsed)
-        elif data != container[1]:
-            raise SystemExit(f'sub {sub}: the area container differs from sub 0\'s')
-        name = container[0]                   # one container for both subs (equal bytes)
-        containers = {X.GLOBAL_CONTAINER: (gdata, gparsed), name: (data, parsed)}
-        bound, refused, report = S.bindings_from_captures(caps, containers)
-        by_name = {X.GLOBAL_CONTAINER: X.containers_by_type(X.GLOBAL_CONTAINER, gdata),
-                   name: X.containers_by_type(name, data)}
-        groups = {}
-        for (g, i), (key, _h, _hd, _sp) in sorted(bound.items()):
-            bank = next(b for b in by_name[key[0]][g] if b.row == key[1])
-            lst = groups.setdefault(g, [])
-            if len(lst) != i:
-                raise SystemExit(f'group {g}: slot {i} bound without slot {len(lst)}')
-            lst.append(bank)
-        if refused.get((3, 0)) is None:
-            raise SystemExit('group 3 slot 0 is not the refused header it is in AREA11 / AREA01')
-        binding = {(C.AREA, sub): dict(groups=groups, binding='AREA00 captures (D_00281D50/D_0027C6C0)',
-                                       refused={(3, 0): 'group 3 bank 0 = handle 3, header without SShd '
-                                                        'magic in AREA00'})}
         ids = list(range(0x3E8, 0x5DC)) + list(range(0x7D0, 0x9C4))
         saved = X.area_bindings, X.scene_ids, X.census_report
         X.area_bindings = lambda _elf: binding

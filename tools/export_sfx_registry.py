@@ -4,7 +4,7 @@
 Every id the port registry carries (tools/gen_sfx_registry.py presets in the
 decomp repo, plus the AREA11 panel pair, then its FIRST_LEVEL_GROUPS census
 of every id the first level can request, docs/SFX_REGISTRY_FIRST_LEVEL.md)
-and AREA01 sub-0's complete area-paged sound tables (scope (1, 0)) are
+and AREA01 sub-0's and AREA00 sub-0/1's complete area-paged sound tables are
 resolved per scene area exactly as the original does it:
 
   001FB9F0   id -> sound record (global tables or area remap/record tables)
@@ -52,6 +52,10 @@ AREA01_IDS = tuple(range(0x3E8, 0x5DC)) + tuple(range(0x7D0, 0x9C4))
 # 001C2770's failed-grab cue: a global record reached by an AREA01-censused
 # caller but absent from the older first-level list (LEVEL2_AUDIO.md ("AREA01 SFX resources")).
 AREA01_SHARED_IDS = (0x1AC,)
+# Complete original remap-table domains, appended after every existing
+# scope so their addition does not renumber the installed samples.
+AREA00_SCOPES = ((0, 0), (0, 1))
+AREA00_IDS = tuple(range(0x3E8, 0x5DC)) + tuple(range(0x7D0, 0x9C4))
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -187,6 +191,32 @@ def arrival_binding():
     return {ARRIVAL_SCOPE: binding}
 
 
+def area00_bindings():
+    """Both sub bindings from AREA00's capture-checked container helper.
+    Restore the shared AREA01 exporter configuration after the scoped call."""
+    if not AREA00_SCOPES:
+        return {}
+    import export_area01_common as C
+    import export_area00_common as A0
+    names = ('OVERLAY_PATH', 'OVERLAY_SIZE', 'OVERLAY_ID', 'AREA', 'SUB',
+             'OUT', 'SCRATCH', 'ROUTE_A01', 'ARRIVAL', 'captures')
+    saved = {name: getattr(C, name) for name in names}
+    try:
+        import export_area00_sfx as S0
+        result, container = {}, None
+        for area, sub in AREA00_SCOPES:
+            assert area == 0
+            A0.configure(sub)
+            caps = A0.captures(sub)
+            binding, rel, data, parsed, _bound, _refused, _report = S0.area_binding(caps, container)
+            container = (rel, data, parsed)
+            result.update(binding)
+        return result
+    finally:
+        for name, value in saved.items():
+            setattr(C, name, value)
+
+
 def area_bindings(elf):
     """(area, sub) -> {group: [Bank]} plus provenance."""
     global_rows = containers_by_type(GLOBAL_CONTAINER,
@@ -228,6 +258,7 @@ def area_bindings(elf):
                             binding=f"coverage match {match['region']} "
                                     f"(coverage {match['coverage']}, "
                                     f"exact {match['exact']}); no capture")
+    bindings.update(area00_bindings())
     return bindings
 
 
@@ -507,6 +538,9 @@ def scene_ids(census=True):
     scenes[ARRIVAL_SCOPE] += [i for i in ARRIVAL_IDS if i not in scenes[ARRIVAL_SCOPE]]
     scenes[ARRIVAL_SCOPE] += [i for i in AREA01_IDS if i not in scenes[ARRIVAL_SCOPE]]
     scenes[ARRIVAL_SCOPE] += [i for i in AREA01_SHARED_IDS if i not in scenes[ARRIVAL_SCOPE]]
+    for scope in AREA00_SCOPES:
+        scenes.setdefault(scope, [])
+        scenes[scope] += [i for i in AREA00_IDS if i not in scenes[scope]]
     if census:
         scope, ids = census_ids()
         scenes.setdefault(scope, [])
@@ -537,8 +571,12 @@ def export(out_dir: Path):
     elf = Elf()
     bindings = area_bindings(elf)
     samples, entries = {}, []
-    # The arrival scope last: every earlier entry keeps its sample indices.
-    for (area, sub), ids in sorted(scene_ids().items(), key=lambda kv: (kv[0] == ARRIVAL_SCOPE, kv[0])):
+    # Preserve the earlier scope order, then append AREA00 sub 0 and sub 1.
+    # Registry entry rows still sort by scope/id after sample allocation.
+    def scope_order(kv):
+        scope = kv[0]
+        return (2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0, scope)
+    for (area, sub), ids in sorted(scene_ids().items(), key=scope_order):
         for sound_id in ids:
             entry = resolve(elf, bindings, sound_id, area, sub, samples)
             if entry['scope'] == [-1, -1]:

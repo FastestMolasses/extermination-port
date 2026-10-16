@@ -337,8 +337,9 @@ static int condition_001B6660(EmSceneState *scene, EmActorRosterProgress *progre
  * copy. An alloc failure skips the record. */
 static int spawn_001B6660(const EmActorRosterGroup *group, uint8_t group_index, EmActorPool *pool,
                           EmSceneState *scene, EmActorRosterProgress *progress, EmActorRosterBindFn bind,
-                          void *bind_ctx, EmActorRosterSpawnLog *log)
+                          void *bind_ctx, EmActorRosterSpawnLog *log, EmActor **result)
 {
+    EmActor *last = NULL;
     for (uint32_t i = 0; i < group->count; ++i) {
         const uint8_t *p = group->records + (size_t)i * EM_ROSTER_DEFERRED_RECORD_SIZE;
         int pass = condition_001B6660(scene, progress, p);
@@ -350,6 +351,9 @@ static int spawn_001B6660(const EmActorRosterGroup *group, uint8_t group_index, 
             continue;
         }
         EmActor *e = em_actor_pool_alloc_001AFA90(pool, scene, p[4]);
+        /* The original assigns its return register for every attempted
+         * allocation, including NULL. A skipped condition leaves it alone. */
+        last = e;
         if (!e) {
             if (log)
                 log->skipped_alloc++;
@@ -378,7 +382,24 @@ static int spawn_001B6660(const EmActorRosterGroup *group, uint8_t group_index, 
                          group->address + i * EM_ROSTER_DEFERRED_RECORD_SIZE, 1, bind, bind_ctx, log) < 0)
             return -1;
     }
+    if (result)
+        *result = last;
     return 0;
+}
+
+int em_actor_roster_spawn_001B6660(const EmActorRosterGroup *group, EmActorPool *pool,
+                                   EmSceneState *scene, EmActorRosterProgress *progress,
+                                   EmActorRosterBindFn bind, void *bind_ctx,
+                                   EmActorRosterSpawnLog *log, EmActor **result)
+{
+    if (!scene || em_scene_faulted(scene))
+        return -1;
+    if (!group || !pool || !progress || !result || (group->count && !group->records) ||
+        (uint64_t)group->address + (uint64_t)group->count * EM_ROSTER_DEFERRED_RECORD_SIZE > UINT32_MAX)
+        return em_scene_fault(scene, EM_ROSTER_FN_001B6660, EM_SCENE_FAULT_BAD_INDEX);
+    if (log)
+        memset(log, 0, sizeof *log);
+    return spawn_001B6660(group, 0, pool, scene, progress, bind, bind_ctx, log, result);
 }
 
 int em_actor_roster_spawn_001B6990(const EmActorRoster *roster, EmActorPool *pool, EmSceneState *scene,
@@ -399,7 +420,7 @@ int em_actor_roster_spawn_001B6990(const EmActorRoster *roster, EmActorPool *poo
         if (prime_001B65C0(roster, scene, progress) < 0)
             return -1;
         for (uint32_t g = 0; g < roster->group_count; ++g)
-            if (spawn_001B6660(&roster->groups[g], (uint8_t)g, pool, scene, progress, bind, bind_ctx, log) < 0)
+            if (spawn_001B6660(&roster->groups[g], (uint8_t)g, pool, scene, progress, bind, bind_ctx, log, NULL) < 0)
                 return -1;
     }
 

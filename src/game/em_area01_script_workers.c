@@ -72,10 +72,23 @@ static uint32_t walk(EmA01Math *m,uint32_t block,uint32_t rec)
     return 0;
 }
 int em_area01_script_worker_handles(uint32_t fn)
-{ return fn==0x001B7670u || fn==0x001B6AE0u || fn==0x00825910u || fn==0x00826950u; }
+{ return em_area01_script_worker_handles_area(fn,1); }
+int em_area01_script_worker_handles_area(uint32_t fn,unsigned area)
+{
+    if(area>1)return 0;
+    return fn==0x001B7670u || fn==0x001B7700u || fn==0x001B6AE0u ||
+           (area==1 && (fn==0x00825910u || fn==0x00826950u)) ||
+           (area==0 && fn==0x00824E40u);
+}
 int em_area01_script_worker_call(const EmArea01RuntimeHost *host,EmArea01Call *c,uint32_t *fault)
 {
-    if(!host || !host->bytes || !host->worker || !c || c->na<3 || !em_area01_script_worker_handles(c->function))return -1;
+    return em_area01_script_worker_call_area(host,c,fault,1);
+}
+int em_area01_script_worker_call_area(const EmArea01RuntimeHost *host,EmArea01Call *c,
+                                     uint32_t *fault,unsigned area)
+{
+    if(!host || !host->bytes || !host->worker || !c || c->na<3 ||
+       !em_area01_script_worker_handles_area(c->function,area))return -1;
     Frame f={host,c->sp};int32_t result=0;int rc=-1;
     uint32_t block=(uint32_t)c->a[1],rec=(uint32_t)c->a[2],failed=c->function;
     if(c->function==0x001B7670u) {
@@ -83,6 +96,23 @@ int em_area01_script_worker_call(const EmArea01RuntimeHost *host,EmArea01Call *c
                                      {0x70003B91u,1,view(&f,0x70003B91u,1,1)}};
         EmArea00Low owner={.regions=regions,.region_count=2,.sp=c->sp};
         rc=em_area00_low_001B7670(&owner,rec,&result);failed=owner.fault_address;
+    } else if(c->function==0x001B7700u) {
+        EmArea00LowRegion regions[4]={{rec,0x18,view(&f,rec,0x18,0)},
+            {block+4,1,view(&f,block+4,1,1)},{0x008106CEu,2,view(&f,0x008106CEu,2,1)},
+            {0x00275BD8u,1,view(&f,0x00275BD8u,1,1)}};
+        EmArea00Low owner={.regions=regions,.region_count=4,.sp=c->sp};
+        rc=em_area00_low_001B7700(&owner,block,rec,&result);failed=owner.fault_address;
+    } else if(c->function==0x00824E40u) {
+        /* Byte-matched func_overlay_AREA00_00824E00: the arrival's clip
+         * callback. Stores and clip call stay on the canonical actor view. */
+        f.sp=c->sp-0x20u;
+        EmA01Math m={.ctx=&f,.view=view,.call=math_call};
+        const uint32_t actor=(uint32_t)c->a[0],anim=actor+0x1F0u;
+        em_a01m_sw(&m,anim+0xD8u,0x3F19999Au);
+        em_a01m_sw(&m,anim+0xECu,0x40266666u);
+        invoke(&m,0x001C67E0u,2,actor,6,0,0,2,0x40C00000u,0,0,0);
+        em_a01m_sh(&m,anim+0xD0u,0xF0u);
+        result=1;rc=m.fault_code ? -1 : 0;failed=m.fault_address;
     } else if(c->function==0x001B6AE0u) {
         EmArea02MiscRegion regions[3]={{block,0x30,view(&f,block,0x30,1)},
             {rec,64,view(&f,rec,64,1)},{0x008106F4u,1,view(&f,0x008106F4u,1,0)}};

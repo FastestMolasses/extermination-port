@@ -397,6 +397,20 @@ def spawn_entry_problems(caps):
     return out
 
 
+def doors_layout(read):
+    """Door windows plus only 0019C6F0's immutable boot root word.
+    Its sub-table and placement records already lie in loader overlay data."""
+    return sorted(T01.doors_layout(read) + [(0x24D7C0, 4)])
+
+
+def doors_problems(blob, caps, read):
+    out, windows = T01.emsp_problems('door_destinations.emsp', blob, caps, doors_layout(read))
+    for address, data in windows:
+        if data != read(address, len(data)):
+            out.append(f'door_destinations.emsp window {address:#x} differs from the ELF')
+    return out
+
+
 def tables_problems(K, caps_by_sub, files=None):
     files = files or {}
     read = lambda rel: files[rel] if rel in files else (A / rel).read_bytes()
@@ -405,8 +419,9 @@ def tables_problems(K, caps_by_sub, files=None):
     try:
         for sub, sc in sorted(caps_by_sub.items()):
             out += roster_problems(sub, read(f'sub{sub}/roster.emro'), sc)
-        for name, layout in (('spawn_table.emsp', T01.spawn_layout), ('door_destinations.emsp', T01.doors_layout)):
-            out += T01.emsp_problems(name, read(name), caps, layout(T01.disc_reader()))[0]
+        out += T01.emsp_problems('spawn_table.emsp', read('spawn_table.emsp'), caps,
+                                T01.spawn_layout(T01.disc_reader()))[0]
+        out += doors_problems(read('door_destinations.emsp'), caps, T01.disc_reader())
         out += spawn_entry_problems(caps)
         rec = json.loads(read('tables.json'))
         ov = A0.read_overlay()
@@ -522,7 +537,8 @@ def check_loaders(lib, tree):
     doors = big()
     ok = rc('em_spawn_table_load', doors, p('door_destinations.emsp')) == 0
     out['doors'] = ok and bool(lib.em_spawn_table_read(doors, 0x24E140, 4)) and \
-        bool(lib.em_spawn_table_read(doors, 0x24DF80, 0x20))
+        bool(lib.em_spawn_table_read(doors, 0x24DF80, 0x20)) and \
+        bool(lib.em_spawn_table_read(doors, 0x24D7C0, 4))
     wm = (tree / 'world_models.emwm').read_bytes()
     out['world models'] = rc('em_world_models_parse', big(), wm, CT.c_size_t(len(wm))) == 0
     for rel in ('area00_scripts/scripts.emsc', 'overlay_data.emsc'):
@@ -541,13 +557,9 @@ def check_loaders(lib, tree):
     return out, cells
 
 
-# Loader verdicts that are findings, not asset faults (docs/AREA00_ASSETS.md):
-# the port's message loader refuses area 0 (em_message_live.c load():
-# `area == 0`), while the original indexes D_00264DD0[area + 1] for area 0
-# as for any other. uid 0's cells word carries bit 29 (AREA01_ASSETS.md
-# finding 1, same word form); em_actor_cells_init reads it through the RAM
-# mirror as the EE does since chain C11 and loads the directory.
-FINDING_LOADERS = ('message data',)
+# Historical AREA00_ASSETS diagnostics remain additional controls. The real
+# files must now load too: message area 0 is supported, and cells bit 29
+# resolves through the original RAM mirror in em_actor_cells_init.
 
 
 def findings_ok(diag, cdiag):
@@ -556,9 +568,8 @@ def findings_ok(diag, cdiag):
 
 
 def loader_findings(lib, tree, mm_bytes=None, cells_bytes=None):
-    """The two refusals and their diagnostics: each refused file must load
-    once exactly the named field is changed (message area 0 -> 1; bit 29
-    cleared in every uid word), so nothing else in the file is refused.
+    """The real files and their diagnostic copies (message area 0 -> 1;
+    bit 29 cleared in every uid word) must all load.
     Returns (message loaded, message diagnostic loaded, cells rc, cells
     diagnostic rc)."""
     BUILD.mkdir(parents=True, exist_ok=True)
@@ -723,8 +734,12 @@ def canary(K, lib, caps_by_sub):
                 q.unlink() if not q.is_dir() or q.is_symlink() else q.rmdir()
             tree.rmdir()
     remove_tree()
-    for q in real.rglob('*'):
-        if q.is_file():
+    # A private worktree may link unchanged asset directories to the
+    # primary export. Follow them while reading, but create real canary
+    # directories and only file links, so plants never write through them.
+    for directory, _dirs, files in os.walk(real, followlinks=True):
+        for name in files:
+            q = Path(directory) / name
             d = tree / q.relative_to(real)
             d.parent.mkdir(parents=True, exist_ok=True)
             d.symlink_to(q)
@@ -768,6 +783,10 @@ def canary(K, lib, caps_by_sub):
     tab['overlay_data']['run_time_words'][first] = tab['overlay_data']['run_time_words'][first][1:]
     plant('tables.json', json.dumps(tab).encode())
     want['overlay run-time set'] = f'{first}: overlay data run-time words'
+    doors = T01.emsp_windows((real / 'door_destinations.emsp').read_bytes())
+    plant('door_destinations.emsp', T01.emsp_file(
+        [(a, mutate(d, 0) if a == 0x24D7C0 else d) for a, d in doors]))
+    want['placement lookup root'] = 'door_destinations.emsp window 0x24d7c0 differs from the ELF'
     n = len(FAILS)
     try:
         A = tree
@@ -794,7 +813,6 @@ def canary(K, lib, caps_by_sub):
                 check(not any(quiet in x for x in got), f'canary: section {section} reported the original too')
     for name in loader_want:
         check(not loaded.get(name, True), f'canary: loader {name} accepted a broken file')
-    loader_want = [x for x in loader_want if x not in FINDING_LOADERS]
     return len(want) + len(loader_want)
 
 
@@ -925,6 +943,20 @@ def controls(K, caps_by_sub):
     for rel in ('sub0/roster.emro', 'spawn_table.emsp', 'door_destinations.emsp', 'message_data.emmd',
                 'world_models.emwm'):
         expect(tables_problems(K, {0: [cap0]}, {rel: mutate((A / rel).read_bytes(), -1)}), f'{rel} last byte')
+    # The new boot root is independently checked against ELF and every
+    # capture. Exporting a second copy of its loader-owned target is refused.
+    door_blob = (A / 'door_destinations.emsp').read_bytes()
+    door_windows = T01.emsp_windows(door_blob)
+    for label, windows in (
+            ('missing boot root', [(a, d) for a, d in door_windows if a != 0x24D7C0]),
+            ('short boot root', [(a, d[:2] if a == 0x24D7C0 else d) for a, d in door_windows]),
+            ('changed boot root', [(a, mutate(d, 0) if a == 0x24D7C0 else d) for a, d in door_windows]),
+            ('duplicate loader table', sorted(door_windows + [(0x82CCD0, cap0.ram[0x82CCD0:0x82CCD8])]))):
+        expect(doors_problems(T01.emsp_file(windows), [cap0], T01.disc_reader()), label)
+    fake = ram_copy(cap0, 'changed boot root', [flip(cap0.ram, 0x24D7C0)])
+    expect(any('changed boot root: door_destinations.emsp window 0x24d7c0 differs' in problem
+               for problem in doors_problems(door_blob, [cap0, fake], T01.disc_reader())),
+           'second capture boot root')
     expect(tables_problems(K, {0: [cap0]}, {'world_models.emwm': b'EMWM'}), 'truncated world models')
     # the roster count, both ways
     roster = (A / 'sub0/roster.emro').read_bytes()
@@ -1126,14 +1158,14 @@ def main():
     lib = T01.build_loaders()
     loaded, cells_rc = check_loaders(lib, A)
     for name, ok in loaded.items():
-        if name not in FINDING_LOADERS:
-            check(ok, f'port loader rejects {name}')
+        check(ok, f'port loader rejects {name}')
+    check(cells_rc == 0, f'port loader rejects area00_cells.bin: {cells_rc}')
     real, diag, crc, cdiag = loader_findings(lib, A)
+    check(real and crc == 0, f'real AREA00 message/cells files do not load: {real}, {crc}')
     check(findings_ok(diag, cdiag), f'loader diagnostics: message area 1 copy {diag}, cells bit-29-cleared copy {cdiag}')
-    print(f'  loaders: {sum(v for k, v in loaded.items() if k not in FINDING_LOADERS)}/'
-          f'{len(loaded) - len(FINDING_LOADERS)} files accepted by the port loaders; findings: '
-          f'em_message_live_install(message_data.emmd) = {int(real)} (area 0 refused; the area-1 copy loads: '
-          f'{int(diag)}), em_actor_cells_load(area00_cells.bin) = {crc} (uid 0 bit 29; the cleared copy: {cdiag})')
+    print(f'  loaders: {sum(loaded.values())}/{len(loaded)} files accepted by the port loaders; '
+          f'AREA00 message/cells accepted ({int(real)}, {crc}); '
+          f'area-1 and bit-29-cleared diagnostic copies accepted ({int(diag)}, {cdiag})')
 
     problems, V = run_checks(K, caps_by_sub)
     for p in problems:

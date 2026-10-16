@@ -40,6 +40,8 @@ static int inside(uint32_t address, uint32_t size, uint32_t base, uint32_t lengt
 
 uint8_t *em_area01_state_bytes(EmArea01State *s, uint32_t address, uint32_t size)
 {
+    if (s && !s->fault && s->area == 0)
+        return em_area00_state_bytes(&s->area00, address, size);
     if (!valid(s)) return NULL;
     if (inside(address, size, EM_AREA01_STATE_GLOBALS, EM_AREA01_STATE_GLOBAL_SIZE))
         return s->globals + address - EM_AREA01_STATE_GLOBALS;
@@ -51,9 +53,21 @@ uint8_t *em_area01_state_bytes(EmArea01State *s, uint32_t address, uint32_t size
 
 int em_area01_state_bind(EmArea01State *s, EmArea01StateMemory memory, void *ctx)
 {
+    return em_area01_state_bind_area(s, memory, ctx, 1);
+}
+
+int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void *ctx, unsigned area)
+{
     if (!s || s->fault) return -1;
+    if (area > 1) return fail(s, OVERLAY_BASE);
     s->memory = memory;
     s->ctx = ctx;
+    s->area = area;
+    if (area == 0) {
+        if (em_area00_state_bind(&s->area00, memory, ctx, s->globals) < 0)
+            return fail(s, s->area00.fault);
+        return 0;
+    }
     if (!valid(s)) return fail(s, OVERLAY_BASE);
     if (!em_area01_state_bytes(s, EM_AREA01_STATE_DATA, EM_AREA01_STATE_DATA_SIZE))
         return fail(s, EM_AREA01_STATE_DATA);
@@ -87,6 +101,7 @@ static int store(EmArea01State *s, uint32_t address, uint32_t value)
 int em_area01_state_00823A50(EmArea01State *s)
 {
     if (!s || s->fault) return -1;
+    if (s->area != 1) return fail(s, 0x00823A50u);
     STORE(0x00275C2Cu, 1);
     STORE(0x00275C28u, 0x20);
     STORE(0x00275C20u, EM_AREA01_STATE_BSS);
@@ -99,19 +114,26 @@ int em_area01_state_00823A50(EmArea01State *s)
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
 {
     if (!s || s->fault) return -1;
-    if (area != 1) return fail(s, 0x001E7780u);
+    if (area > 1 || area != s->area) return fail(s, 0x001E7780u);
     STORE(0x00275C24u, 0);
     STORE(0x00275C28u, 0);
     STORE(0x00275C2Cu, 0);
     STORE(0x00275C18u, 0);
     STORE(0x00275C1Cu, 0);
     STORE(0x00275C20u, 0);
-    if (sub <= 1) {
+    if (area == 0 && sub <= 2) {
+        if (em_area00_state_00824E00(&s->area00) < 0)
+            return fail(s, s->area00.fault);
+    } else if (area == 1 && sub <= 1) {
         if (em_area01_state_00823A50(s) < 0) return -1;
-        /* AREA01's initializer sets one record. Other areas' dispatch
-         * targets and record counts belong to their own bindings. */
-        STORE(EM_AREA01_STATE_BSS + 0x54u, 0);
-        STORE(EM_AREA01_STATE_BSS + 0x58u, 0);
+    }
+    /* Original 001E7780 walks the initializer's canonical pointer/count,
+     * rather than clearing either overlay's whole BSS on a rebuild. */
+    uint32_t base = rd32(s->globals + 8);
+    int32_t count = (int32_t)rd32(s->globals + 20);
+    for (int32_t i = 0; i < count; ++i) {
+        STORE(base + (uint32_t)i * 0xA060u + 0x54u, 0);
+        STORE(base + (uint32_t)i * 0xA060u + 0x58u, 0);
     }
     return 0;
 }

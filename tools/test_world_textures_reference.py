@@ -95,7 +95,9 @@ def main():
     assert lib.texture_test_resets(0) == resets+1
     assert lib.em_world_textures_live_bind(1,1) == -1
     assert lib.em_world_textures_live_ensure(1) == -1
-    assert lib.em_world_textures_live_bind(0,0) == -1
+    # AREA00 subs 0/1 now have verified resource exports. Sub 2 has no
+    # recorded resource delivery and must still fail closed.
+    assert lib.em_world_textures_live_bind(0,2) == -1
     assert lib.em_world_textures_live_ensure(1) == -1
 
     # Missing and malformed catalogs fail before a registry mutation. The

@@ -194,13 +194,14 @@ static EmActorPool s_pool;
 static EmActorRoster s_roster;
 static int s_roster_loaded;
 #define AREA11_ROSTER_PATH AREA11_SCENE_DIR "/roster.emro"
-/* AREA01 sub 0's roster (placements 0x82BD50, deferred groups 0x828A00 and
- * 0x829220; tools/export_area01_tables.py) and cell directory *0x70003250
- * (tools/export_area01_level.py), for the level exit's arrival. */
+/* Selected later-area roster, replaced when area/sub changes. The
+ * original spawner and its canonical progress view are shared. */
 static EmActorRoster s_roster01;
 static int s_roster01_loaded;
 #define AREA01_ROSTER_PATH AREA01_SCENE_DIR "/roster.emro"
 #define AREA01_CELLS_PATH AREA01_SCENE_DIR "/area01_cells.bin"
+#define AREA00_SCENE_DIR "assets/area00"
+#define AREA00_CELLS_PATH AREA00_SCENE_DIR "/area00_cells.bin"
 
 /* What 001B6990 spawned at the last state 0 (S10b). */
 enum { POOL_NONE = 0, POOL_ROSTER, POOL_LEGACY_WORLD };
@@ -773,16 +774,12 @@ static void capture_check(uint32_t tick)
         }
 }
 
-/* AREA01 recording observations only. No transaction is opened and no
+/* Recorded owner observations only. No transaction is opened and no
  * capture bytes are installed. Unknown canonical spans are explicit nulls. */
-static void log_area01(FILE *f)
+static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, unsigned count)
 {
-    if (s_state.d810700 != 1 && !s_area01_live.bound)
-        return;
-    static const uint32_t nodes[] = {0x7B0390, 0x7B0680, 0x7ABD10, 0x7AC000, 0x7AC5E0, 0x7A5930,
-                                     0x7A70B0, 0x7A7690, 0x7A7C70, 0x7B1240, 0x7B1530};
-    fputs(", \"a01\": {\"owners\": {", f);
-    for (unsigned i = 0; i < sizeof nodes / sizeof nodes[0]; ++i) {
+    fprintf(f, ", \"%s\": {\"owners\": {", key);
+    for (unsigned i = 0; i < count; ++i) {
         uint32_t at = nodes[i];
         EmActor *a = &s_pool.records[(at - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE];
         uint8_t raw[EM_ACTOR_RECORD_SIZE], head[16], pos[12], block[16], timer[20];
@@ -836,7 +833,45 @@ static void log_area01(FILE *f)
             fputs(", ", f);
         log_hex(f, bytes, windows[i][1]);
     }
-    fputs("]}", f);
+    fputc(']', f);
+    if (!strcmp(key, "a00")) {
+        static const uint32_t starts[] = {0x00810840u, 0x00810C60u};
+        static const char *const names[] = {"locks", "wpn"};
+        for (unsigned i = 0; i < 2; ++i) {
+            uint8_t bytes[8];
+            for (unsigned k = 0; k < sizeof bytes; ++k) {
+                const uint32_t at = starts[i] + k;
+                const uint8_t *p = at == 0x00810C61u ? em_weapon_fire_mode_byte() :
+                                   at == 0x00810C62u ? em_weapon_mag_byte() :
+                                   em_scene_progress_at(&s_state, at, 1);
+                /* The weapon owns C61/C62. Remaining unmigrated bytes
+                 * retain the original reset, as the windows above. */
+                bytes[k] = p ? *p : 0;
+            }
+            fprintf(f, ", \"%s\": ", names[i]);
+            log_hex(f, bytes, sizeof bytes);
+        }
+    }
+    fputc('}', f);
+}
+
+static void log_area01(FILE *f)
+{
+    if (s_state.d810700 != 1 && !s_area01_live.bound)
+        return;
+    static const uint32_t nodes[] = {0x7B0390, 0x7B0680, 0x7ABD10, 0x7AC000, 0x7AC5E0, 0x7A5930,
+                                     0x7A70B0, 0x7A7690, 0x7A7C70, 0x7B1240, 0x7B1530};
+    log_area_owners(f, "a01", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+static void log_area00(FILE *f)
+{
+    /* Keep observing these addresses during the recorded AREA01 returns. */
+    if (s_state.d810700 != 0 && s_state.d810700 != 1)
+        return;
+    static const uint32_t nodes[] = {0x7B7C00, 0x7B87C0, 0x7B7910, 0x7B81E0, 0x7B84D0,
+                                     0x7B58C0, 0x7B6D50, 0x7B7040, 0x7B6190, 0x7B9380};
+    log_area_owners(f, "a00", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
 /* Chain step AUDIO: the EE sound state at this tick's main-loop top (the
@@ -1318,6 +1353,7 @@ static void log_tick_end(int rc)
         }
         log_sound(f);
         log_area01(f);
+        log_area00(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */
@@ -2248,7 +2284,7 @@ static int rcl_bind(void)
     /* The static-object bank and 001E1E60's upload block (the area's
      * static world, docs/STATIC_WORLD.md): fail-stop without the export. */
     const int area01 = strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0;
-    if (!area01 && em_rcl_static_world_load(NULL) < 0)
+    if (!arrival_scene() && em_rcl_static_world_load(NULL) < 0)
         return -1;
     if (em_rcl_bind(views, sizeof views / sizeof views[0], &workers) < 0)
         return -1;
@@ -2281,13 +2317,13 @@ static int roster_scene(void)
     return strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0;
 }
 
-/* The level exit's arrival: AREA01 sub 0 loaded (area_read). The port runs
- * its 0x1AE040 state-0 rebuild, the arrival frame and the capture's first
- * frame of control in AREA01 (route beat 15, docs/FIRST_LEVEL_EXIT.md);
- * every later AREA01 frame is level 2 and faults (w_001AD4D0). */
+/* Later areas share the canonical live composition after their original
+ * loader delivery. Overlay dispatch and resource selections retain their
+ * area identity; unsupported workers still fault at their original entry. */
 static int arrival_scene(void)
 {
-    return strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0;
+    return strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0 ||
+           strcmp(g.scene_dir, AREA00_SCENE_DIR) == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -2410,6 +2446,7 @@ static int state0_001AF8E0(void *ctx)
         EmModuleLoader *ml = em_module_loader_live();
         EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
         if (!ld || em_area11_boxes_bind_world_bank(
+                s_state.d810700 == 0 ? AREA00_SCENE_DIR "/world_models.emwm" :
                 arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
                                 : EM_AREA11_WORLD_MODELS_PATH,
                 ld->d28A490[0x43]) < 0)
@@ -2437,7 +2474,8 @@ static int state0_001D0660(void *ctx)
      * spawn calls. The six AREA01 globals and loader-owned data/BSS are
      * canonical views; rebuilding does not clear the whole overlay again. */
     if (arrival_scene()) {
-        if (em_area01_state_bind(&s_area01_state, area01_state_memory, em_module_loader_live()) < 0 ||
+        if (em_area01_state_bind_area(&s_area01_state, area01_state_memory, em_module_loader_live(),
+                                     s_state.d810700) < 0 ||
             em_area01_state_001E7780(&s_area01_state, s_state.d810700, s_state.d810701) < 0)
             return state0_fault(b, s_area01_state.fault ? s_area01_state.fault : 0x001E7780u,
                                   EM_SCENE_FAULT_WORKER_FAILED);
@@ -2484,14 +2522,15 @@ static int w_001AFCA0(void *ctx)
                                     EM_COLLISION_WORLD_SDK_PATH) != 0)
             return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
     } else if (arrival_scene()) {
-        /* The level exit's arrival: AREA01 sub 0's collision world (its
-         * area01.emcl and cell directory, the global SDK tables), which the
-         * live camera's bind needs for 001B07C0's 001B0460. */
-        if (em_collision_world_load(&g.coll, g.coll_path, AREA01_CELLS_PATH, EM_COLLISION_WORLD_SDK_PATH) != 0)
+        /* The selected area's exported collision and cell directory, plus
+         * the global SDK tables used by 001B07C0's 001B0460. */
+        if (em_collision_world_load(&g.coll, g.coll_path,
+                                    s_state.d810700 == 0 ? AREA00_CELLS_PATH : AREA01_CELLS_PATH,
+                                    EM_COLLISION_WORLD_SDK_PATH) != 0)
             return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
         /* 001FB9F0 pages its area ids by D_00810700/701: the registry scope
          * of the arrival (the interaction host's clear above left none). */
-        em_sfx_set_area(1, 0);
+        em_sfx_set_area(s_state.d810700, s_state.d810701);
         /* The render context's static-object bank *D_0028A5A0 (resource
          * 0x44: AREA01's, at the nested block's resident base) as the area
          * load delivered it; 001C1DC0's 001C1E70 -> 001D52E0 reads its grid
@@ -2502,7 +2541,7 @@ static int w_001AFCA0(void *ctx)
         uint32_t size = 0;
         const uint8_t *bytes = bank ? em_module_loader_memory_rest(ml, bank, &size) : NULL;
         if (!bytes || em_rcl_static_world_bank(bank, bytes, size) < 0) {
-            fprintf(stderr, "em_scene: 001AFCA0: AREA01's static-object bank D_0028A5A0 = %08X was not "
+            fprintf(stderr, "em_scene: 001AFCA0: the selected static-object bank D_0028A5A0 = %08X was not "
                             "delivered by the area load\n", (unsigned)bank);
             return em_scene_fault(&s_state, 0x0028A5A0u, EM_SCENE_FAULT_NULL_WORKER);
         }
@@ -2513,6 +2552,7 @@ static int w_001AFCA0(void *ctx)
      * the area load delivered at D_0028A594. Rebind their data without
      * resetting D_002821B0 or the existing stream/presenter workers. */
     if (world_scene() && !em_message_live_select_area(
+            s_state.d810700 == 0 ? AREA00_SCENE_DIR "/message_data.emmd" :
             arrival_scene() ? AREA01_SCENE_DIR "/message_data.emmd"
                             : "assets/message/message_data.emmd", s_state.d810700))
         return em_scene_fault(&s_state, 0x001FD790u, EM_SCENE_FAULT_NULL_WORKER);
@@ -2965,6 +3005,8 @@ static int area_read(void)
      * global spawn table itself). */
     if (s_state.d810700 == 0x01 && s_state.d810701 == 0)
         scene = AREA01_SCENE_DIR;
+    if (s_state.d810700 == 0 && s_state.d810701 <= 1)
+        scene = AREA00_SCENE_DIR;
     if (scene) {
         if (area01_scratch_detach() < 0)
             return -1;
@@ -3209,8 +3251,19 @@ static int area01_shared_interactions(void)
 static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
 {
     (void)ctx;
-    /* Original addresses in the prepared AREA01 owner modules. A missing
-     * worker inside one of them still faults at that worker's address. */
+    /* Overlay callbacks share addresses across areas; select the actual
+     * resident module before the common boot-owner allowlist. */
+    if (s_state.d810700 == 0 && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x00823580u: case 0x00823820u: case 0x00824EA0u: case 0x00825170u:
+        case 0x00825480u: case 0x00825600u: case 0x00825920u: case 0x00825C80u:
+        case 0x008261E0u: case 0x008262D0u: case 0x008263C0u: case 0x008266A0u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
+    /* A missing nested worker still faults at its original address. */
     switch (fn) {
     case 0x00128C10u: case 0x00158D30u: case 0x00159B90u: case 0x0015A2C0u:
     case 0x001E3D90u: case 0x001E7D20u: case 0x001BB860u: case 0x001BFFD0u:
@@ -3221,6 +3274,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     case 0x00826440u: case 0x008267C0u: case 0x00826CF0u: case 0x00826D40u:
     case 0x00828850u: case 0x00219550u: case 0x0015AFA0u: case 0x0015AC00u: case 0x0015AE20u:
     case 0x001C5680u: case 0x001C5760u:
+    bind:
         a->callback = fn;
         a->behavior = area01_behavior;
         a->release = NULL;
@@ -3256,9 +3310,79 @@ static uint8_t *area01_extra_bytes(void *ctx, uint32_t address, uint32_t size, i
     }
     return NULL;
 }
+static int area00_bind_deferred(void *ctx, EmActor *actor, const EmActorRosterSpawned *spawned)
+{
+    (void)ctx;
+    (void)spawned;
+    /* Runtime allocations are not new static-arrival census entries.
+     * 00827A30 supplies the shared 0015B030 owner; dispatch it through the
+     * same canonical runtime as the selected placed/deferred roster. */
+    if (area01_rebind(NULL, actor, actor->callback) < 0) {
+        actor->behavior = area01_behavior;
+        actor->release = NULL;
+        actor->owner = NULL;
+    }
+    return 0;
+}
+static int area00_spawn_deferred(EmArea01Call *call)
+{
+    if (call->na != 1 || call->nf || call->a[0] > UINT32_MAX)
+        return -1;
+    EmModuleLoader *loader = em_module_loader_live();
+    const uint8_t *header = em_module_loader_memory(loader, 0x00823500u, 12);
+    uint32_t module_id, module_base;
+    if (!header || memcmp(header, "MWo3", 4))
+        return -1;
+    memcpy(&module_id, header + 4, 4);
+    memcpy(&module_base, header + 8, 4);
+    if (module_id != 1 || module_base != 0x00823500u)
+        return -1;
+    const uint32_t first = (uint32_t)call->a[0];
+    uint32_t count = 0, at = first;
+    /* Read the delivered AREA00 data, including its real terminator. No
+     * exported roster copy may replace words mutated by the current owner. */
+    for (;;) {
+        if (at < 0x00826F80u || at > 0x0082D480u - 2u)
+            return -1;
+        const uint8_t *record = em_module_loader_memory(loader, at, 2);
+        if (!record)
+            return -1;
+        if (record[0] == 0xFF && record[1] == 0xFF)
+            break;
+        if (at > 0x0082D480u - EM_ROSTER_DEFERRED_RECORD_SIZE)
+            return -1;
+        record = em_module_loader_memory(loader, at, EM_ROSTER_DEFERRED_RECORD_SIZE);
+        uint32_t missing = 0;
+        if (!record || !condition_canonical(record, &missing))
+            return -1;
+        ++count;
+        at += EM_ROSTER_DEFERRED_RECORD_SIZE;
+    }
+    const uint8_t *records = count ?
+        em_module_loader_memory(loader, first, count * EM_ROSTER_DEFERRED_RECORD_SIZE) : NULL;
+    if (count && !records)
+        return -1;
+    const EmActorRosterGroup group = {first, count, records};
+    /* Allocation mutates the old tail's links. Commit all current actor,
+     * player and collision views before the pool changes, then reacquire
+     * them so both the caller and the newly allocated node are canonical. */
+    if (em_area01_live_suspend(&s_area01_live) < 0)
+        return -1;
+    EmActor *result = NULL;
+    int rc = em_actor_roster_spawn_001B6660(&group, &s_pool, &s_state,
+        (EmActorRosterProgress *)em_scene_progress_spawn_view(&s_state),
+        area00_bind_deferred, NULL, NULL, &result);
+    if (em_area01_live_resume(&s_area01_live) < 0)
+        return -1;
+    if (rc == 0)
+        call->v0 = result ? em_actor_pool_address(&s_pool, result) : 0;
+    return rc;
+}
 static int area01_missing_worker(void *ctx, EmArea01Call *call)
 {
     (void)ctx;
+    if (s_state.d810700 == 0 && call->function == 0x001B6660u)
+        return area00_spawn_deferred(call);
     fprintf(stderr, "em_area01: unbound worker %08X from live composition\n", call->function);
     return -1;
 }
@@ -3399,19 +3523,26 @@ static int area01_bind_roster(void *ctx, EmActor *a, const EmActorRosterSpawned 
     }
 }
 
-/* 001B6990 for the level exit's arrival: AREA01 sub 0's roster through the
- * same spawner, every node bound by em_area01_arrival (none ticks: AREA01's
- * world frames are level 2, w_001AD4D0). No interaction host: AREA01's
- * owners are its own. */
+/* 001B6990 for AREA01 or AREA00: the selected original placement and
+ * deferred tables, the one canonical pool, and the shared live adapters.
+ * Each overlay retains its own dispatch table and missing workers fault. */
 static int spawn_area01(void)
 {
-    if (s_state.d810700 != 0x01 || s_state.d810701 != 0)
+    const unsigned area = s_state.d810700, sub = s_state.d810701;
+    if (!((area == 1 && sub == 0) || (area == 0 && sub <= 1)))
         return em_scene_fault(&s_state, 0x001B6990u, EM_SCENE_FAULT_BAD_INDEX);
+    const char *path = area == 1 ? AREA01_ROSTER_PATH :
+                       sub == 0 ? AREA00_SCENE_DIR "/sub0/roster.emro" :
+                                  AREA00_SCENE_DIR "/sub1/roster.emro";
+    if (s_roster01_loaded && (s_roster01.area != area || s_roster01.sub != sub)) {
+        em_actor_roster_free(&s_roster01);
+        s_roster01_loaded = 0;
+    }
     if (!s_roster01_loaded) {
-        if (em_actor_roster_load(&s_roster01, AREA01_ROSTER_PATH) != 0 || s_roster01.area != 1 ||
-            s_roster01.sub != 0) {
+        if (em_actor_roster_load(&s_roster01, path) != 0 || s_roster01.area != area ||
+            s_roster01.sub != sub) {
             fprintf(stderr, "em_scene: 001B6990: %s missing or malformed (run "
-                    "tools/export_area01_tables.py)\n", AREA01_ROSTER_PATH);
+                    "the selected area table exporter)\n", path);
             return em_scene_fault(&s_state, 0x001B6990u, EM_SCENE_FAULT_NULL_WORKER);
         }
         s_roster01_loaded = 1;

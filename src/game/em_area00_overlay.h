@@ -150,6 +150,9 @@ typedef struct {
 
     /* ---- the actor's own callback: the function at actor +0x4C, called with the actor */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t actor);
+    /* Optional canonical view, authoritative even on refusal. The legacy
+     * bytes hook remains available to standalone instruction oracles. */
+    uint8_t *(*view)(void *ctx, uint32_t address, uint32_t size, int write);
 } EmArea00OvlHooks;
 
 /* Placement / group owners: one call of the original behaviour. Return 0,

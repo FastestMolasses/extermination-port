@@ -46,7 +46,7 @@ def library_tex0(capture, out):
             continue
         off = m-base
         blocks = W.model_record(library,off,ident)[0]
-        O.block_tex0(library,off,blocks,f'AREA01 library model {ident:#x} (owner {A.u32(capture.ram,r+0x10):08X})',out)
+        O.block_tex0(library,off,blocks,f'AREA{A.AREA:02d} library model {ident:#x} (owner {A.u32(capture.ram,r+0x10):08X})',out)
 
 
 RESOURCES, RESOURCE_COUNT = 0x28A490, 0xAF   # D_0028A490, the 0xAF words 001AB430 fills
@@ -112,8 +112,8 @@ def resource_tex0(capture, image, out):
         ident = table.get(m)
         if ident is not None:
             data, source = resource_bytes(capture, image, ident, m, files, f'owner {owner:08X}')
-            resource_model_tex0(data, ident, f'AREA01 resource {ident:#x} ({source}, owner {owner:08X})', out)
-        if owner in FACE_OWNERS:
+            resource_model_tex0(data, ident, f'AREA{A.AREA:02d} resource {ident:#x} ({source}, owner {owner:08X})', out)
+        if A.AREA == 1 and owner in FACE_OWNERS:
             kind = ram[r+0x0D]
             if kind not in FACE_BY_TYPE:
                 raise SystemExit(f'{capture.name}: owner {owner:08X} passes 001BA8E0 type {kind:#x} (not mapped)')

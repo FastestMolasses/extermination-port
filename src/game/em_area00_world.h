@@ -135,6 +135,11 @@ int em_area00_world_0018A180(EmArea00World *s, uint32_t a0);
 int em_area00_world_0019AA80(EmArea00World *s, uint32_t a0, uint32_t a1, uint32_t a2, int32_t *out);
 int em_area00_world_0019B2C0(EmArea00World *s, uint32_t a0, uint32_t a1, uint32_t a2, int32_t *out);
 int em_area00_world_0019C6F0(EmArea00World *s, uint32_t a0, uint32_t a1, int32_t *out);
+/* The same leaf over canonical live spans. An authoritative view refusal
+ * faults; it never falls back to regions. No pointer or game state is kept. */
+typedef uint8_t *(*EmArea00WorldMemory)(void *, uint32_t, uint32_t, int);
+int em_area00_world_view_0019C6F0(EmArea00World *s, EmArea00WorldMemory view, void *ctx,
+                                  uint32_t a0, uint32_t a1, int32_t *out);
 int em_area00_world_001B0CD0(EmArea00World *s, uint32_t a0, uint32_t a1);
 int em_area00_world_001B41F0(EmArea00World *s, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t t0,
                              uint32_t t1, int32_t *out);
