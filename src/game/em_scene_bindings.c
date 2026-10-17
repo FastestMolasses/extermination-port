@@ -536,6 +536,8 @@ static struct {
     uint8_t loader[27]; /* the loader's record and bytes after the previous frame */
     uint8_t pad[5];     /* D_00810E40 +0x16, +0x18, +0x19, +0x28/+0x29 after the previous frame */
     int b15B;           /* D_0028215B after the previous frame's step H (-1: the lanes not booted) */
+    uint16_t fld[2];    /* (D_00810E80, D_00810E88) at the loop top (the route rows' "fi", "fld") */
+    uint64_t vs;        /* the vblanks delivered before the loop top (the route rows' "vs", from 0) */
 } s_tick;
 
 static FILE *log_file(void)
@@ -643,6 +645,7 @@ static void log_tick_begin(void)
     s_tick.r_0021B550 = s_tick.r_001AD230 = -2;
     s_tick.fade = em_frame_transition()->substate;
     s_tick.counter = em_frame_counter();
+    em_frame_loop_top(&s_tick.fld[0], &s_tick.fld[1], &s_tick.vs);
     log_snapshot(s_tick.pre);
     log_veil(s_tick.veil_pre);
     const EmTransitionFade *fade = em_frame_transition();
@@ -951,6 +954,8 @@ static void log_tick_end(int rc)
     log_hex(f, veil, LOG_VEIL);
     fputs(", \"fade8\": ", f);
     log_hex(f, s_tick.fade8, sizeof s_tick.fade8);
+    fprintf(f, ", \"fld\": [%u, %u], \"vs\": %llu", s_tick.fld[0], s_tick.fld[1],
+            (unsigned long long)s_tick.vs);
     fprintf(f, ", \"pos\": [%u, %u, %u], \"yaw\": %u, \"weather\": %d, \"title\": %d, "
             "\"door\": [%d, %d, %d]", s_tick.pos[0], s_tick.pos[1], s_tick.pos[2], s_tick.yaw,
             s_tick.weather, s_tick.title, s_tick.door[0], s_tick.door[1], s_tick.door[2]);

@@ -379,7 +379,8 @@ static void launch_setup(void)
                res.fileSystemRepresentation, s_log_redirected ? "; this log is extermination.log" : "");
         fflush(stdout);
     }
-    /* Category Playback before anything plays (AVPlayer movies included). */
+    /* Category Playback before anything plays (the movies' sound included:
+     * it goes through the game's mixer, em_movie_sound.h). */
     (void)em_audio_ios_session_begin();
 }
 

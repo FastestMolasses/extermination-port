@@ -234,8 +234,11 @@ static void audio_step(void)
     while (want) {
         int n = want > 1024 ? 1024 : (int)want;
         em_bgm_render_offline(s.mix, n);
+        /* x 32768: the inverse of every producer's PCM16 / 32768, so a
+         * producer's samples alone come out unchanged (the movie's PCM,
+         * tools/test_replay_movie_audio.py), clamped to PCM16. */
         for (int i = 0; i < 2 * n; ++i) {
-            float v = s.mix[i] * 32767.0f;
+            float v = s.mix[i] * 32768.0f;
             s.pcm[i] = (int16_t)(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : lrintf(v));
         }
         fwrite(s.pcm, 4, (size_t)n, s.wav);

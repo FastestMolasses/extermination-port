@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "em_audio.h"
+#include "game/em_movie_sound.h"
 #include "game/em_sfx.h"
 #include "game/em_startup_audio.h"
 #include "game/em_stream_live.h"
@@ -26,6 +27,7 @@ static void bgm_render(void *user, float *out, int frames)
     em_sfx_mix(out, frames, s.device_rate);
     em_startup_audio_mix(out, frames, s.device_rate);
     em_stream_live_mix(out, frames, s.device_rate);
+    em_movie_sound_mix(out, frames, s.device_rate);
 }
 
 /* Minimal RIFF/WAVE reader: PCM16 only, mono/stereo, zero dependencies.

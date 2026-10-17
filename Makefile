@@ -28,6 +28,7 @@ CFLAGS  := -O2 -ffp-contract=off -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
+           src/game/em_movie_field.c src/game/em_movie_sound.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
            src/game/em_opening_face.c src/game/em_lighting.c \
@@ -224,7 +225,38 @@ test-fade: tests/fade_test.c src/game/em_fade.c src/game/em_fade.h \
 clean:
 	rm -rf build
 
-.PHONY: test-startup test-movie-export test-startup-audio
+.PHONY: test-startup test-movie-export test-startup-audio test-movie-field
+
+# The blocking movie 00203350 on the field clock (em_movie_field.h) against
+# the fork's probes of E001 and the New Game movie (GS_EXACT.md 10.4): the
+# gate, two fields per picture, the end stall, the closing waits, field 1 at
+# P, the sound's fields and the START skip; then, where the movie assets
+# exist (macOS), the decoder's pictures and PCM over the whole first-level
+# path's movies (tests/movie_test.m: every picture once in display order,
+# the original's picture counts, the PCM to its end), the live field after
+# the New Game movie entered on D_00810E80 = 0 and on 1
+# (tools/test_movie_field_live.py), the New Game movie skipped with START
+# held from its start against the fork's run of the same
+# (tools/test_movie_skip_reference.py) and the replay's offline audio
+# carrying the movie's PCM bit for bit (tools/test_replay_movie_audio.py).
+# About 14 s.
+test-movie-field: tests/movie_field_test.c src/game/em_movie_field.c src/game/em_movie_field.h \
+                  tests/movie_test.m src/platform/mac/em_movie_mac.m src/em_movie.h $(BIN)
+	@mkdir -p build
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/movie_field_test.c \
+	    src/game/em_movie_field.c -o build/movie_field_test
+	./build/movie_field_test
+	@if [ "$(UNAME)" = Darwin ] && [ -f assets/startup/intro.mov ] && [ -f assets/movies/e001.mov ]; then \
+	    echo "$(CC) -Wall -Wextra -Werror -Isrc tests/movie_test.m src/platform/mac/em_movie_mac.m -o build/movie_test"; \
+	    $(CC) -Wall -Wextra -Werror -Isrc tests/movie_test.m src/platform/mac/em_movie_mac.m \
+	        -framework Foundation -framework AVFoundation -framework CoreMedia -framework CoreVideo \
+	        -o build/movie_test && ./build/movie_test; \
+	else echo "movie decode: skipped (macOS with the exported movies only: tools/export_movie.py)"; fi
+	@if [ "$(UNAME)" = Darwin ] && [ -f assets/startup/intro.mov ]; then \
+	    python3 tools/test_movie_field_live.py && python3 tools/test_movie_skip_reference.py && \
+	    python3 tools/test_replay_movie_audio.py; \
+	else echo "movie field live, skip reference, replay audio: skipped (macOS with the exported movies only: tools/export_movie.py)"; fi
+
 test-startup: tests/startup_test.c src/game/em_startup.c src/game/em_startup.h src/game/em_fade.c src/game/em_fade.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) tests/startup_test.c src/game/em_startup.c src/game/em_fade.c -o build/startup_test

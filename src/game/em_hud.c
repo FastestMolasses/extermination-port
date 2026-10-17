@@ -749,6 +749,19 @@ static StripVertex strip_vertex(uint64_t uv, uint64_t xyz2)
     return out;
 }
 
+/* The colour of a glyph strip's ink texel. 001CC8A0 expands each glyph
+ * bit into a PSMT4 texel through its nibble table, an ink bit to index 15;
+ * the strip's TEX0 (CBP 0x1B67, CT32) reads the CLUT 001CCB10 uploads, a
+ * grey ramp whose entry n is n * 0x101010 with alpha 0x80 (entry 0 is 0,
+ * transparent): entry 15 is grey 240 at the GS's full alpha. The font sheet
+ * (assets/font.emfn) keeps only the ink's coverage (white). */
+#define GLYPH_INK 240.0f
+
+/* A pass vertex's XYZ2 X and Y in 1/16 pixel from OFX 1792 (0x7000) and
+ * OFY 1936.0 (0x7900), as em_gfx_overlay_glyph_gs takes them. */
+static int32_t gs_x(uint64_t xyz2) { return (int32_t)(xyz2 & 0xFFFFu) - 0x7000; }
+static int32_t gs_y(uint64_t xyz2) { return (int32_t)((xyz2 >> 16) & 0xFFFFu) - 0x7900; }
+
 void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *f)
 {
     if (!gfx || !f || !font_ensure(gfx)) return;
@@ -811,12 +824,22 @@ void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *f)
                     float h = (bottom_right.y - top_left.y) * (v1 - v0) / (bottom_right.v - top_left.v);
                     float cu = cell.u + (ua - (float)u->x), cv = cell.u + (ub - (float)u->x);
                     if (ub > ua && v1 > v0) {
-                        if (f->kind == EM_MESSAGE_GLYPH_SKEWED)
+                        if (f->kind == EM_MESSAGE_GLYPH_SKEWED) {
                             em_gfx_overlay_glyph_skew(gfx, x0, top_left.y, x1 - x0, h, skew, cu,
                                                       cell.v + v0, cv, cell.v + v1, rgba);
-                        else
-                            em_gfx_overlay_glyph(gfx, x0, top_left.y, x1 - x0, h, cu, cell.v + v0, cv,
-                                                 cell.v + v1, rgba);
+                        } else {
+                            /* The sprite pass as the GS draws it into the
+                             * field (em_gfx_overlay_glyph_gs): its packet's
+                             * corners and UV, this run's strip columns, the
+                             * ink texel's CLUT colour (GLYPH_INK). */
+                            const EmGfxGsGlyph q = {
+                                gs_x(p->xyz2[0]), gs_x(p->xyz2[1]), gs_y(p->xyz2[0]), gs_y(p->xyz2[1]),
+                                (int32_t)(p->uv[0] & 0x3FFFu), (int32_t)(p->uv[1] & 0x3FFFu),
+                                (int32_t)((p->uv[0] >> 16) & 0x3FFFu), (int32_t)((p->uv[1] >> 16) & 0x3FFFu),
+                                u->x + a, u->x + b, (int32_t)cell.u - u->x, (int32_t)cell.v, (int32_t)cell.h,
+                                {GLYPH_INK / 255.0f, GLYPH_INK / 255.0f, GLYPH_INK / 255.0f, 1.0f}};
+                            em_gfx_overlay_glyph_gs(gfx, &q, rgba);
+                        }
                     }
                 }
             }

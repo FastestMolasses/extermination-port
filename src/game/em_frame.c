@@ -17,7 +17,9 @@
  * A native movie pump presents incrementally while the ordinary engine
  * iteration is suspended. This preserves the blocking movie call's task,
  * fade, audio-service and main-counter behavior without blocking the OS
- * event loop. Its return completes the one pending main iteration.
+ * event loop. Its return completes the one pending main iteration. Each
+ * step is one vblank (the field toggles at its top), so the movie takes
+ * exactly the vblanks its code waits for (em_movie_field.h).
  */
 #include "game/em_frame.h"
 
@@ -40,6 +42,8 @@ static struct {
     uint32_t     counter;     /* 0x70003B64 lifetime frame counter */
     uint32_t     parity;      /* 0x00810E80 frame index (0/1) */
     uint16_t     field;       /* 0x00810E88 field bit (em_frame_d810E88) */
+    uint16_t     top_field;   /* D_00810E88 at the loop top, before this step's vblank */
+    uint64_t     vblanks;     /* vblanks delivered (one per step, em_frame_vblanks) */
     EmFrameInput input;       /* canonical view of pad_block */
     EmPadUnpack  pad_block;   /* 0x00810E70 block + 0x00810E40 analog bytes */
     uint8_t     *pad_head;    /* D_00810E40..69 (em_pad_actuator's block) */
@@ -55,6 +59,8 @@ static struct {
     bool         suspended_draw_transition;
     EmFrameMoviePump movie_pump;
     void        *movie_user;
+    EmFrameMovieVblank movie_vblank;
+    void        *movie_vblank_user;
     EmFrameMessageService message;    /* step F 001FCA10 presenter */
     int (*step_i)(void *);            /* step I 001B5B70 (em_pad_actuator) */
     void        *step_i_context;
@@ -87,6 +93,9 @@ void em_frame_init(EmWindow *win, EmGfx *gfx)
     s_frame.quit    = false;
     s_frame.counter = 0;
     s_frame.parity  = 0;
+    /* 0x1AAEFC: the start-up waits until the handler has latched an odd
+     * field, so the first loop top holds (D_00810E80, D_00810E88) = (0, 1). */
+    s_frame.field   = 1;
     s_frame.input   = (EmFrameInput){ 0x80, 0x80, 0x80, 0x80, 0, 0, 0 };
     /* pad_block stays zero, like the original .bss block. */
     em_screen_fade_init(&s_frame.screen_fade);
@@ -148,6 +157,14 @@ void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
     s_frame.movie_pump = pump;
     s_frame.movie_user = user;
 }
+
+void em_frame_set_movie_vblank(EmFrameMovieVblank vblank, void *user)
+{
+    s_frame.movie_vblank = vblank;
+    s_frame.movie_vblank_user = user;
+}
+
+uint64_t em_frame_vblanks(void) { return s_frame.vblanks; }
 
 void em_frame_set_task_check(int (*check)(void *context), void *context)
 {
@@ -258,6 +275,13 @@ const void *em_frame_host_pacing(size_t *size)
  * D_00810E80 (0 or 1). */
 uint8_t  *em_frame_d810E80(void)        { return (uint8_t *)&s_frame.parity; }
 uint8_t  *em_frame_d810E88(void)        { return (uint8_t *)&s_frame.field; }
+
+void em_frame_loop_top(uint16_t *d810E80, uint16_t *d810E88, uint64_t *vblanks)
+{
+    if (d810E80) *d810E80 = (uint16_t)s_frame.parity;
+    if (d810E88) *d810E88 = s_frame.top_field;
+    if (vblanks) *vblanks = s_frame.vblanks - 1u;   /* this step's vblank came after the loop top */
+}
 
 void em_frame_set_step_vw(int (*step_v)(void *context), int (*step_w)(void *context, int32_t field),
                           void *context)
@@ -491,8 +515,17 @@ static void frame_pace_ntsc(void)
 int em_frame_step(void)
 {
     if (s_frame.quit) return 0;
-    /* One NTSC field per step, movie steps included: the vblank handler's
-     * D_00810E90 and the IOP's field (em_stream_live_field). */
+    /* One NTSC field per step, movie steps included. The vblank handler
+     * 0x1AB140 latches the GS CSR's FIELD bit into D_00810E88; the field
+     * alternates at every vblank. */
+    s_frame.top_field = s_frame.field;
+    s_frame.field ^= 1u;
+    const uint64_t vblank = s_frame.vblanks++;
+    /* 00203350 holding the iteration: the movie's own vblank work (its
+     * display handler 00206030, the field's movie sound). */
+    if (s_frame.movie_suspended && s_frame.movie_vblank)
+        s_frame.movie_vblank(s_frame.movie_vblank_user, (int)s_frame.field, vblank);
+    /* The handler's D_00810E90 and the IOP's field (em_stream_live_field). */
     if (s_frame.sound.field && s_frame.sound.field(s_frame.sound.context) < 0) {
         s_frame.quit = true;
         return 0;
@@ -583,10 +616,10 @@ movie_phase:
     if (s_frame.suspended_draw_transition)
         frame_transition_draw();
 
-    /* P: the vblank the original loop waits for. Its handler stores the
-     * field; one field per iteration, in the measured phase (field ==
-     * D_00810E80 at step V, em_frame.h em_frame_d810E88). */
-    s_frame.field = (uint16_t)(s_frame.parity & 1u);
+    /* P: the vblank the original loop waits for is this step's, delivered
+     * at its top (D_00810E88 as the handler latched it there). After a
+     * movie it is the vblank of 00203350's last 001009C8 wait, already
+     * pending when P polls D_00810E98. */
     /* R: 001AB4E0(0x70003B94, 0x70003B96), the two display environments
      * with the options' screen offset. S (001015A8 / 00101810) is step V's
      * draw environment (em_frame_kick) and T a kernel stub. U: 00100550 on

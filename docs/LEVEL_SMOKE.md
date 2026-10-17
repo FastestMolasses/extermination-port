@@ -2120,8 +2120,17 @@ previous iteration's step V 001D2300 built). It checks:
   executed over the 05_boxes snapshot with the tick's V and zoom
   (test_frame_render_heads_reference's interpreter, its sqrtf the original
   0011E748), writes the logged K and +0x2240 bit for bit;
-- on every tick, step W's field +0x98 = 1 - +0x9C (step B's slot): the
-  phase every capture holds (the port's field model);
+- on every tick, step W's field +0x98 against +0x9C (step B's slot) by the
+  code's field rule (2026-10-16; `tools/field_rule.py`, GS_EXACT.md 10.4
+  "The field clock"): every loop top's (D_00810E80, D_00810E88) and vblank
+  count (the tick rows' `fld`, `vs`) is on the boot's clock (first loop top
+  (0, 1), D_00810E80 the iteration count & 1, D_00810E88 (vs + 1) & 1), a
+  movie's next loop top holds field 1, and the relation (1 - slot or slot)
+  is the one the start-up and the movies give, derived from the run log's
+  movie lines, never read from the log; a gap in the log may hide no movie;
+  the fixture's New Game movie must enter on D_00810E80 = 1 (the canonical
+  fork run's, so AREA11 holds the captures' 1 - slot); backed by the fork's
+  d0 New Game rows and route 15's rows after E001 (entered on 0, equal);
 - every world gameplay tick after a world frame holds the route snapshots'
   main list for the other slot (seven tags: the draw environment, the Z-only
   clear +0x3A0, the CALL of the +0x1D8 channel-3 list, channel 0, the page,
@@ -3028,7 +3037,17 @@ and every window come one tick later: idle04 1677, walk04 1739, st03
 1668, cut02 373, cut15 346; all five PASS there with the empty allow
 list (at the old indices walk04, st03, cut02 and cut15 fail); the
 host-speed windows 1393, 1455, 1384, 89 and cut15's 83 are unchanged
-and PASS.
+and PASS. **Since the FIELD step (2026-10-16)** the fixtures press CROSS
+at title menu tick 15 (14 before; STARTUP.md), one title tick later:
+every counter from the New Game on is one higher (the trace's first tick
+1258, the area entry 1337 at host speed and 1600 with the switch, idle04's
+window counter 2651), and the native indices, counted from the New Game's
+first game-task tick, are unchanged. All ten windows (host speed 1393,
+1455, 1384, 89, 83; the switch 1677, 1739, 1668, 373, 346) PASS with the
+empty allow list; cut02 at 88 and the switch's walk04 at 1738 still fail
+(receipts port build/field_final_r1/ft_host.jsonl, ft_drive.jsonl and
+fo_*.log; ft_head_host.jsonl, port ded1bcb before the step: 1257, 1336,
+2650).
 
 ## Adding a phase (the contract for WP-4 onward)
 

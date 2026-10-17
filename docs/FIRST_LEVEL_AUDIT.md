@@ -2040,31 +2040,34 @@ pool's free list (item 5): those are port work that needs no new recording
    (GS_EXACT.md section 9). Still not on it:
    - the 2D overlay pass (message glyphs, the letterbox bars, the screen
      fade, the status overlay) draws with the GPU over the presented field;
-     the original draws them in the same list (GS_EXACT.md 10.1);
+     the original draws them in the same list (GS_EXACT.md 10.1). Since
+     2026-10-16 the message glyph strips' sprite passes are drawn as the GS
+     draws them, per field pixel at the field's draw offset with the CLUT's
+     ink colour (em_gfx_overlay_glyph_gs; GS_EXACT.md 10.4: the AREA01 title
+     exact at 15); the skewed strips (markup tag 3) are not;
    - the status screen's frames (the hub and its pages, the MAP page's
      models on the renderer's skinned path) draw with the GPU renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make
      test-dof-pass-reference`);
-   - **the field phase:** against the fork's route, at first control, 10,
-     11 and 12 the port's field is in the other buffer half a line off, and
-     at 15 half a line off (08 is the same since the fork; GS_EXACT.md
-     10.3). The buffer follows the iteration count and the half line the
-     vsync count, and at a load both follow the disc's timing, which the
-     port runs at host speed (the user's policy): a timing item, reported
-     by the fb2 harness on its own `timing:` lines and not asserted. The
-     pixels are compared like for like since 2026-10-10 (GS_EXACT.md
-     10.4): with the decomp's same-game-state re-recordings on the port's
-     phase, first control 1.03 %, 10 95.47 % (18.92 % against the other
-     phase), 11 9.85 %, 12 2.60 %, 15 98.57 % (its half line; the buffer
-     alone moves no pixel). Left from it: 15's phase is not only timing.
-     The original inverts its buffer / field relation at Roger's departure
-     FMV (D_00810E80 == D_00810E88 after it, from every entry phase tried;
-     route 15's end state (0, 0) in both recordings), while em_frame.c
-     keeps D_00810E88 = 1 − D_00810E80 at the loop top always; whether the
-     FMV's length comes from the game's code is not traced (GS_EXACT.md
-     10.4 "Finding");
+   - **the field phase (closed 2026-10-16, GS_EXACT.md 10.4 "The field
+     clock"):** the port's field was a fixed relation to D_00810E80
+     (em_frame.c step P). It now follows the code: one vblank per step, the
+     field toggled at every vblank from the start-up's (0, 1), and the
+     movies paced by vblanks (em_movie_field.h), each ending on a field-1
+     vblank, so the relation after a movie follows the D_00810E80 it was
+     entered on. "The departure FMV leaves D_00810E80 == D_00810E88 from
+     every entry" was emulator timing. Loads move only which tick gets
+     which buffer (and half line), never the relation. The fixtures press
+     New Game at title menu tick 15, which enters the New Game movie on 1
+     as the canonical fork run does; Roger's departure movie is then
+     entered on 1 in the port and on 0 on the fork (the iteration count
+     between the two movies is even at host speed, odd at the fork's load
+     speed), so after it the relations differ by the code's own rule (both
+     original outcomes). The fb2 harness compares like for like with two
+     same-phase sets (fb2_phase and the d4 chain's fb2_phase_d4b_1016 for
+     08, 13, 14); the phase itself stays a timing line, not asserted;
    - at point 14 the sky grid's region differed by 1..3: traced at step
      DOF, it was the missing depth-of-field pass (that region 5,347 ->
      10,472 of 11,200 pixels exact with it; GS_EXACT.md 10.1).
@@ -2079,10 +2082,19 @@ pool's free list (item 5): those are port work that needs no new recording
    (mean 0.89), 13 62.60 %, 10 18.92 %, 15 98.57 % (GS_EXACT.md 10.1).
    Like for like (2026-10-10, the same-phase originals, GS_EXACT.md 10.4):
    first control 1.03 %, 08 3.26 %, 10 95.47 %, 11 9.85 %, 12 2.60 %,
-   13 62.60 %, 14 92.40 %, 15 98.57 %.
+   13 62.60 %, 14 92.40 %, 15 98.57 %. With the field clock and the CROSS
+   at menu tick 15 (2026-10-16, GS_EXACT.md 10.4): first control 0.96 %, 08
+   3.23 %, 10 95.52 %, 11 9.79 %, 12 2.62 %, 13 62.88 %, 14 92.38 % (26
+   pixels below its old 0.924 floor: the port's snow, rand(), on the other
+   half line, the fan box unchanged at 7,701 differing pixels, near the
+   snowflakes 341 -> 451, elsewhere 673 -> 589, the two fork references
+   holding the same game state; the user reset the floor to the measured
+   105,947 / 114,688 exact pixels on 2026-10-16, "Yes, reset it"; the snow
+   stays open, RAND_ORDER.md), 15 99.99 % (the message glyph
+   strips now drawn as the GS draws them, em_gfx_overlay_glyph_gs, with the
+   CLUT's ink colour).
    What removes it: the overlay pass and the status frames as GS packets
-   through the model, the departure FMV's field relation traced (above);
-   then the harness compares the field word for word.
+   through the model; then the harness compares the field word for word.
 3. **Presentation choices** — **CLOSED 2026-10-09.** The user chose (a) for
    both (LAUNCHER_OPTIONS.md): each field line-doubled at its interlaced
    height (EM_GFX_FIELD_INTERLACED), and the screen position presented the
@@ -2395,6 +2407,19 @@ fork-side (2026-10-09); its entry gives the result.
     step P) never produces; it is compared on its half line in the other
     buffer (the buffer alone moves no pixel, the decomp's check at 10 and
     12), and the relation after the FMV stays an open finding (item 2).
+  - **The field clock (2026-10-16, closes the finding).** The relation after
+    a movie follows the D_00810E80 it was entered on (the decomp's reading of
+    00203350 and its handlers; fork probes probes_1016/movie_end, newgame);
+    the port runs that model (item 2, GS_EXACT.md 10.4). With the fixtures'
+    CROSS at title menu tick 15 every point's port field flipped phase; the
+    decomp recorded 08, 13 and 14 on the d4 chain at the new phase
+    (`build/fork_refs/pixels/fb2_phase_d4b_1016`), first control and 11 now
+    compare with the primary (floors reset to 1,096 and 11,225 pixels by the
+    user's decision of 2026-10-16), 15 compares on its half line in the
+    other buffer at 99.99 %. 14 at 92.38 %, 26 pixels below its old 0.924
+    floor (GS_EXACT.md 10.4: the reference does not explain it; the port's
+    snow): floor reset to 105,947 / 114,688 pixels by the user's decision of
+    2026-10-16.
 - **F2. 001DDE10's pass reads the frame** (part of item 2). Lead from the
   PCSX2 2.8 post (reads and writes of one texture in one draw). **The
   premise does not hold** (step DOF, 2026-10-09; CHAIN_PAGE.md section

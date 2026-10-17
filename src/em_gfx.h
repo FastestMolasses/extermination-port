@@ -330,6 +330,34 @@ void em_gfx_overlay_glyph(EmGfx *gfx, float x, float y, float w, float h,
  * (docs/MESSAGE_GLYPH.md "The draw boundary"). */
 void em_gfx_overlay_glyph_nearest(EmGfx *gfx, int on);
 
+/* One column run of a message glyph strip's sprite pass (001CC3B0's
+ * passes, em_hud_glyph_strip), drawn as the GS draws it into the field
+ * (docs/GS_EXACT.md 3.4, 10.4): the sprite's corners and UV as its packet
+ * gives them, X in 1/16 pixel from OFX 1792 (0x7000) and Y in 1/16 line
+ * from OFY 1936.0 (0x7900), U and V in 1/16 texel of the strip. Every
+ * field pixel (x, y) takes the GS sample at the integer point of its row
+ * under the field's draw offset (OFY 1936.5 on a half-line field: the
+ * line the overlay pass is placed at): covered when x0 <= 16 x < x1 and
+ * y0 <= 16 y (+ 8 on a half line) < y1; its U and V the floor of the
+ * exact affine values in 1/16 texel (the column and row rules of 3.4 for
+ * these dyadic row gradients); the strip texel (U >> 4, V >> 4) is drawn
+ * when its column lies in [col0, col1) and its row below `rows`, from the
+ * font sheet at (column + atlas_du, row + atlas_dv), nearest (the passes
+ * set TEX1_1 = 0): a texel the sheet covers is `ink` (the CLUT colour of
+ * the strip's ink texels, RGBA with 1.0 for the GS's 0x80), any other the
+ * CLUT's transparent entry 0; modulated by `rgba`, standard alpha blend.
+ * Queued with the font quads (their order and budget). The overlay canvas
+ * must be the 512x448 one (em_gfx_overlay_canvas). */
+typedef struct {
+    int32_t x0, x1, y0, y1;
+    int32_t u0, u1, v0, v1;
+    int32_t col0, col1;
+    int32_t atlas_du, atlas_dv;
+    int32_t rows;
+    float ink[4];
+} EmGfxGsGlyph;
+void em_gfx_overlay_glyph_gs(EmGfx *gfx, const EmGfxGsGlyph *q, const float rgba[4]);
+
 /* Same font quad, with its top edge shifted right by top_skew pixels.
  * Original 001CC3B0 uses this parallelogram for message markup tag 3. */
 void em_gfx_overlay_glyph_skew(EmGfx *gfx, float x, float y, float w, float h,

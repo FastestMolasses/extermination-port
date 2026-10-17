@@ -115,6 +115,17 @@ struct EmGfx {
     id<MTLSamplerState>          clampSampler;   /* linear, clamp-to-edge */
     float                        glyphVerts[EM_GFX_OVERLAY_MAX * 6 * 12];
     uint32_t                     glyphVertCount;
+    /* Per glyph vertex, five float4s: (canvas x, canvas y, 1 for a GS
+     * glyph run, its strip rows), the run's (x0, x1, u0, u1),
+     * (y0, y1, v0, v1), (col0, col1, atlas_du, atlas_dv) and its ink
+     * texel's colour (em_gfx_overlay_glyph_gs; zero for the other font
+     * quads). A GS glyph run is drawn as the GS draws the sprite into the
+     * field (f_glyph_gs). */
+    float                        glyphGs[EM_GFX_OVERLAY_MAX * 6 * 20];
+    id<MTLRenderPipelineState>   glyphGsPipeline;
+    /* The line of the field the overlay pass draws over (gsw_viewport):
+     * 0 for a whole-line OFY or no field, 1 for a half line. */
+    int                          overlayLine;
     float                        spriteVerts[EM_GFX_DECOR_MAX * 6 * 12];
     uint32_t                     spriteVertCount;
     uint8_t                      spriteBlend[EM_GFX_DECOR_MAX];
@@ -510,6 +521,55 @@ static NSString *const kGlyphShaderSrc =
 "    float4 color = glyph_texel(in, tex, smp) * in.color;\n"
 "    if (color.a <= 0.0) discard_fragment();\n"
 "    return color;\n"
+"}\n"
+/* The font slot's draw (texquad_flush with the glyph GS data): a GS glyph
+ * run (em_gfx_overlay_glyph_gs) is drawn as the GS draws its sprite into
+ * the field. The 448-line canvas shows field row r on its lines 2r and
+ * 2r + 1 and the 512 columns 1:1 (gsw_viewport), and the GS samples pixel
+ * (x, r) at the integer point (x, r) of window space, which lies 8/16 of a
+ * line lower in the sprite's own coordinates on a half-line field (OFY
+ * 1936.5, k.line 1). So every host pixel of field pixel (x, r) takes that
+ * one sample: the sprite's coverage x0 <= 16x < x1, y0 <= 16r + 8 line <
+ * y1, and U and V as the floor of their exact affine values in 1/16 texel
+ * (integer arithmetic), the run's strip columns and rows only, the sheet's
+ * texel read directly: an ink texel (the sheet's coverage) takes the run's
+ * ink colour, any other is the CLUT's transparent entry 0. The other font
+ * quads keep the plain glyph draw. */
+"struct VOutGs { float4 pos [[position]]; float4 color; float2 uv; float nearest [[flat]];\n"
+"               float2 cxy; float mode [[flat]]; float rows [[flat]];\n"
+"               float4 xu [[flat]]; float4 yv [[flat]]; float4 run [[flat]]; float4 ink [[flat]]; };\n"
+"vertex VOutGs v_glyph_gs(uint vid [[vertex_id]],\n"
+"                         const device float4 *data [[buffer(0)]],\n"
+"                         const device float4 *gsd [[buffer(1)]]) {\n"
+"    VOutGs o;\n"
+"    o.pos   = float4(data[vid*3].xy, 0.0, 1.0);\n"
+"    o.color = data[vid*3 + 1];\n"
+"    o.uv    = data[vid*3 + 2].xy;\n"
+"    o.nearest = data[vid*3 + 2].z;\n"
+"    float4 a = gsd[vid*5];\n"
+"    o.cxy = a.xy; o.mode = a.z; o.rows = a.w;\n"
+"    o.xu = gsd[vid*5 + 1]; o.yv = gsd[vid*5 + 2]; o.run = gsd[vid*5 + 3]; o.ink = gsd[vid*5 + 4];\n"
+"    return o;\n"
+"}\n"
+"struct GlyphGsK { float line; float pad; };\n"
+"fragment float4 f_glyph_gs(VOutGs in [[stage_in]],\n"
+"                           texture2d<float> tex [[texture(0)]],\n"
+"                           sampler smp [[sampler(0)]],\n"
+"                           constant GlyphGsK &k [[buffer(0)]]) {\n"
+"    constexpr sampler nearest_smp(filter::nearest, address::clamp_to_edge);\n"
+"    if (in.mode < 0.5)\n"
+"        return (in.nearest > 0.5 ? tex.sample(nearest_smp, in.uv) : tex.sample(smp, in.uv)) * in.color;\n"
+"    int sx = int(floor(in.cxy.x)) * 16;\n"
+"    int sy = int(floor(in.cxy.y * 0.5)) * 16 + 8 * int(k.line);\n"
+"    int x0 = int(in.xu.x), x1 = int(in.xu.y), u0 = int(in.xu.z), u1 = int(in.xu.w);\n"
+"    int y0 = int(in.yv.x), y1 = int(in.yv.y), v0 = int(in.yv.z), v1 = int(in.yv.w);\n"
+"    if (sx < x0 || sx >= x1 || sy < y0 || sy >= y1) discard_fragment();\n"
+"    int u = u0 + ((sx - x0) * (u1 - u0)) / (x1 - x0);\n"
+"    int v = v0 + ((sy - y0) * (v1 - v0)) / (y1 - y0);\n"
+"    int col = u >> 4, row = v >> 4;\n"
+"    if (col < int(in.run.x) || col >= int(in.run.y) || row < 0 || row >= int(in.rows)) discard_fragment();\n"
+"    float4 t = tex.read(uint2(uint(col + int(in.run.z)), uint(row + int(in.run.w))));\n"
+"    return (t.a > 0.0 ? in.ink : float4(0.0)) * in.color;\n"
 "}\n";
 
 /* Background shader (em_gfx_background_prims): 2 float4s per vertex, the
@@ -1015,6 +1075,7 @@ void em_gfx_destroy(EmGfx *g)
     if (g->pxLog) fclose(g->pxLog);
     free(g->bgFile);
     [g->glyphPipeline release];
+    [g->glyphGsPipeline release];
     [g->spriteAddPipeline release];
     [g->spriteSubPipeline release];
     [g->spriteOpaquePipeline release];
@@ -1044,6 +1105,7 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->pool = [[NSAutoreleasePool alloc] init];
     g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
     g->glyphNearest = false;            /* font quads sample bilinear   */
+    g->overlayLine = 0;                 /* no field under the overlay yet */
     g->overlayH    = EM_GFX_OVERLAY_H;
     memset(g->spot, 0, sizeof(g->spot)); /* the forward spot is per-frame */
     memset(g->rig,  0, sizeof(g->rig));  /* character rig is per-frame   */
@@ -1797,15 +1859,63 @@ static void texquad_queue(EmGfx *g, float *verts, uint32_t *count, int slot,
     texquad_push(g, verts, count, slot, x,     y + h, u0, v1, rgba);
 }
 
+/* The glyph GS data of the font quads queued from vertex `first`
+ * (glyphGs): zero, a plain font quad. */
+static void glyph_gs_plain(EmGfx *g, uint32_t first)
+{
+    if (g->glyphVertCount > first)
+        memset(g->glyphGs + (size_t)first * 20, 0, sizeof(float) * 20u * (g->glyphVertCount - first));
+}
+
 /* Queue one font-slot quad (em_gfx.h). */
 void em_gfx_overlay_glyph(EmGfx *g, float x, float y, float w, float h,
                           float u0, float v0, float u1, float v1,
                           const float rgba[4])
 {
     if (!g) return;
+    const uint32_t first = g->glyphVertCount;
     texquad_queue(g, g->glyphVerts, &g->glyphVertCount,
                   EM_GFX_OVERLAY_TEX_FONT, EM_GFX_OVERLAY_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
+    glyph_gs_plain(g, first);
+}
+
+/* Queue one GS glyph run (em_gfx.h): a font quad over the run's pixels,
+ * two canvas units wider on every side (the field pixels whose GS sample
+ * falls in its columns may lie one pixel outside its own corners; the
+ * fragment decides each), and its GS data. */
+void em_gfx_overlay_glyph_gs(EmGfx *g, const EmGfxGsGlyph *q, const float rgba[4])
+{
+    if (!g || !q || !rgba || q->x1 <= q->x0 || q->y1 <= q->y0 || q->u1 < q->u0 || q->v1 < q->v0 ||
+        q->col1 <= q->col0 || q->rows <= 0 || g->overlayW != EM_GFX_STATUS_W || g->overlayH != EM_GFX_STATUS_H)
+        return;
+    /* The run's columns in pixels: the sample points whose U lies in
+     * [col0, col1) texels (affine in x), rounded outwards, the sprite's
+     * own edges at most. */
+    const double du = (double)(q->u1 - q->u0), dx = (double)(q->x1 - q->x0);
+    double xa = (double)q->x0, xb = (double)q->x1;
+    if (du > 0.0) {
+        xa = fmax(xa, (double)q->x0 + ((double)q->col0 * 16.0 - (double)q->u0) * dx / du);
+        xb = fmin(xb, (double)q->x0 + ((double)q->col1 * 16.0 - (double)q->u0) * dx / du);
+    }
+    const float m = 2.0f;
+    const float x = (float)floor(xa / 16.0) - m, w = (float)ceil(xb / 16.0) + m - x;
+    const float y = (float)floor((double)q->y0 / 8.0) - m, h = (float)ceil((double)q->y1 / 8.0) + m - y;
+    const uint32_t first = g->glyphVertCount;
+    texquad_queue(g, g->glyphVerts, &g->glyphVertCount, EM_GFX_OVERLAY_TEX_FONT, EM_GFX_OVERLAY_MAX,
+                  x, y, w, h, 0.0f, 0.0f, 0.0f, 0.0f, rgba);
+    for (uint32_t k = first; k < g->glyphVertCount; k++) {
+        float *o = g->glyphGs + (size_t)k * 20;
+        const float *v = g->glyphVerts + (size_t)k * 12;
+        o[0] = (v[0] + 1.0f) * 0.5f * g->overlayW;
+        o[1] = (1.0f - v[1]) * 0.5f * g->overlayH;
+        o[2] = 1.0f;
+        o[3] = (float)q->rows;
+        o[4] = (float)q->x0; o[5] = (float)q->x1; o[6] = (float)q->u0; o[7] = (float)q->u1;
+        o[8] = (float)q->y0; o[9] = (float)q->y1; o[10] = (float)q->v0; o[11] = (float)q->v1;
+        o[12] = (float)q->col0; o[13] = (float)q->col1; o[14] = (float)q->atlas_du; o[15] = (float)q->atlas_dv;
+        memcpy(o + 16, q->ink, sizeof q->ink);
+    }
 }
 
 void em_gfx_overlay_glyph_nearest(EmGfx *g, int on)
@@ -1824,12 +1934,14 @@ void em_gfx_overlay_glyph_skew(EmGfx *g, float x, float y, float w, float h,
     float *v = g->glyphVerts;
     uint32_t *n = &g->glyphVertCount;
     int slot = EM_GFX_OVERLAY_TEX_FONT;
+    const uint32_t first = *n;
     texquad_push(g, v, n, slot, x + skew,     y,     u0, v0, rgba);
     texquad_push(g, v, n, slot, x + w + skew, y,     u1, v0, rgba);
     texquad_push(g, v, n, slot, x,            y + h, u0, v1, rgba);
     texquad_push(g, v, n, slot, x + w + skew, y,     u1, v0, rgba);
     texquad_push(g, v, n, slot, x + w,        y + h, u1, v1, rgba);
     texquad_push(g, v, n, slot, x,            y + h, u0, v1, rgba);
+    glyph_gs_plain(g, first);
 }
 
 /* Queue one UI-decor-slot quad (em_gfx.h). */
@@ -2262,7 +2374,7 @@ static void overlay_sub_flush(EmGfx *g, bool before_text)
  * MMAG/MMIN=1). Called for the UI-decor slot first, the font slot last
  * (decor under text — see em_gfx.h). */
 static void texquad_flush(EmGfx *g, int slot, float *verts_data,
-                          uint32_t *count,const uint8_t *blend_modes)
+                          uint32_t *count,const uint8_t *blend_modes, const float *gs_data)
 {
     uint32_t verts = *count;
     *count = 0;
@@ -2293,6 +2405,25 @@ static void texquad_flush(EmGfx *g, int slot, float *verts_data,
     [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
     [g->enc setFragmentTexture:g->overlayTex[slot] atIndex:0];
     [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
+    if (gs_data) {
+        /* The font slot: its quads with their glyph GS data (f_glyph_gs),
+         * one draw at the line of the field under the overlay pass. */
+        if (!g->glyphGsPipeline)
+            g->glyphGsPipeline = build_pipeline(g, kGlyphShaderSrc, @"v_glyph_gs", @"f_glyph_gs", EM_BLEND_ALPHA);
+        id<MTLBuffer> gbuf = g->glyphGsPipeline ?
+            [g->device newBufferWithBytes:gs_data length:(NSUInteger)verts * 20 * sizeof(float)
+                                  options:MTLResourceStorageModeShared] : nil;
+        if (gbuf) {
+            const float k[2] = {(float)g->overlayLine, 0.0f};
+            [g->enc setRenderPipelineState:g->glyphGsPipeline];
+            [g->enc setVertexBuffer:gbuf offset:0 atIndex:1];
+            [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+            [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:(NSUInteger)verts];
+            [gbuf release];
+        }
+        [vbuf release];
+        return;
+    }
     for (uint32_t start=0;start<verts;) {
         unsigned mode=blend_modes ? blend_modes[start/6] : EM_GFX_UI_ALPHA;
         uint32_t end=start+6;
@@ -2360,7 +2491,7 @@ static void backdrop_flush(EmGfx *g)
         }
     }
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,
-                  g->backdropVerts, &g->backdropVertCount,NULL);
+                  g->backdropVerts, &g->backdropVertCount,NULL,NULL);
 }
 
 /* The ordered 2D layer (em_gfx.h): the backdrop drawn now, between 3D
@@ -2378,7 +2509,7 @@ void em_gfx_overlay_decor_flush(EmGfx *g)
 {
     if (!g || !g->enc) return;
     backdrop_flush(g);
-    texquad_flush(g, EM_GFX_OVERLAY_TEX_UI, g->spriteVerts, &g->spriteVertCount, g->spriteBlend);
+    texquad_flush(g, EM_GFX_OVERLAY_TEX_UI, g->spriteVerts, &g->spriteVertCount, g->spriteBlend, NULL);
 }
 
 /* The game frame rect begin_frame set (viewport and scissor), in drawable
@@ -5043,6 +5174,7 @@ static int gsw_place(EmGfx *g, EmGsDisplayPlace *out, int strict)
  * (optional) receives it. */
 static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p, int line, double out[4])
 {
+    g->overlayLine = line;   /* f_glyph_gs: the GS glyph sprites' sample rows */
     double v[4];
     em_gs_display_viewport(p, line, g->gameRect, v);
     if (out) memcpy(out, v, sizeof v);
@@ -5184,9 +5316,9 @@ void em_gfx_end_frame(EmGfx *g)
     backdrop_flush(g);  /* UI background: bottom of the overlay sequence */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */
     texquad_flush(g, EM_GFX_OVERLAY_TEX_UI,     /* decor over the rects  */
-                  g->spriteVerts, &g->spriteVertCount,g->spriteBlend);
+                  g->spriteVerts, &g->spriteVertCount,g->spriteBlend,NULL);
     texquad_flush(g, EM_GFX_OVERLAY_TEX_FONT,   /* text over everything  */
-                  g->glyphVerts, &g->glyphVertCount,NULL);
+                  g->glyphVerts, &g->glyphVertCount,NULL,g->glyphGs);
     overlay_sub_flush(g, false); /* screen fade darkens the whole frame */
     if (g->enc) { [g->enc endEncoding]; [g->enc release]; g->enc = nil; }
 

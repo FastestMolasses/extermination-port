@@ -140,9 +140,25 @@ const EmScreenFade *em_frame_screen_fade(void);
  * service, frame counter or parity advancement. Completion performs the
  * original one extra transition tick and completes the main iteration.
  * The callback can read em_frame_input() to honor movie skip requests.
+ * Every step is one vblank, movie steps included: the movie the pump plays
+ * is paced by the game's fields (em_movie_field.h), never by a host clock,
+ * so the pump returns 0 on the step of the vblank in which 00203350
+ * returns (its second closing 001009C8 wait) and the iteration's P reads
+ * that vblank's field.
  */
 typedef int (*EmFrameMoviePump)(void *user);
 void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user);
+/* The movie's vblank work: on every step after the one that armed the
+ * movie, while 00203350 holds the iteration, right after the step's vblank
+ * (the field toggle, em_frame_d810E88) and before the sound service's
+ * field. `field` is the field the vblank latched, `vblank` the step's
+ * index from the first step (the field clock the sound producers render
+ * on: field n's samples end at floor((n + 1) * 800.8), em_replay_audio.h).
+ * NULL uninstalls it. */
+typedef void (*EmFrameMovieVblank)(void *user, int field, uint64_t vblank);
+void em_frame_set_movie_vblank(EmFrameMovieVblank vblank, void *user);
+/* The vblanks delivered so far (one per em_frame_step, from the first). */
+uint64_t em_frame_vblanks(void);
 
 /* Main-loop step F, 001FCA10 (the shared message service), right after the
  * task dispatch (step E): since WP-8 the live message service
@@ -216,14 +232,29 @@ void em_frame_set_step_vw(int (*step_v)(void *context), int (*step_w)(void *cont
 void em_frame_set_step_ru(int (*step_r)(void *context), int (*step_u)(void *context, int32_t buffer),
                           void *context);
 /* The bytes of D_00810E88 (a halfword: the field bit the vblank handler
- * 0x1AB140 stores from the GS CSR), for the render context's view. The port
- * delivers exactly one field per main iteration, and the field at step V
- * equals D_00810E80 then: the phase measured on the original route
- * (docs/MAIN_LOOP_AND_GAP.md section 2.4: in all 15 route snapshots
- * D_00810E88 = 1 - D_00810E80 at the loop top, one vblank per frame; every
- * capture's two draw environments carry the half-pixel offset exactly for
- * the slot kicked on field 0). */
+ * 0x1AB140 stores from the GS CSR), for the render context's view. The
+ * port's field is the original's: the GS field alternates at every vblank
+ * (fld == vsync & 1 on every fork route row), and each em_frame_step
+ * delivers one vblank at its top, where the vblank count D_00810E90
+ * advances too, and toggles it there. It starts at 1: the start-up waits
+ * for an odd field (0x1AAEFC), so the first loop top holds (D_00810E80,
+ * D_00810E88) = (0, 1). Outside movies every iteration takes one vblank,
+ * so the field read at steps V and W equals D_00810E80 and the loop top
+ * holds D_00810E88 = 1 - D_00810E80 (docs/MAIN_LOOP_AND_GAP.md section 2.4,
+ * the 15 route snapshots); loads move only the buffer index. A movie takes
+ * its own number of vblanks inside one iteration and always ends on a
+ * field-1 vblank (em_movie_field.h), so its iteration's P reads field 1
+ * and the relation afterwards follows D_00810E80 at the movie's entry: 1
+ * keeps D_00810E88 = 1 - D_00810E80 (the fork's New Game movie, newgame
+ * d0), 0 makes them equal at the loop top (the fork's departure movie,
+ * route 15 rows 442..809). Nothing reads the field between the step's top
+ * and step V. */
 uint8_t *em_frame_d810E88(void);
+/* (D_00810E80, D_00810E88) as the loop top held them, before this step's
+ * vblank, and the vblanks delivered up to then (D_00810E90's count from the
+ * first step): what the original route rows sample as fi, fld and vs (the
+ * level smoke's rows). Any pointer may be NULL. */
+void em_frame_loop_top(uint16_t *d810E80, uint16_t *d810E88, uint64_t *vblanks);
 
 /* The sound service: `field` runs at the top of every em_frame_step (one
  * NTSC field: the vblank handler's D_00810E90 and the IOP's field work),

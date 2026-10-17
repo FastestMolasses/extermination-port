@@ -6,6 +6,7 @@
 #include "game/em_sfx.h"
 #include "game/em_startup_audio.h"
 #include "game/em_module_loader.h"
+#include "game/em_movie_sound.h"
 #include "game/em_iop_stream.h"
 #include "game/em_stream_live.h"
 
@@ -69,7 +70,8 @@ int em_new_game_switch_check(void)
  * outside them: the module loader (its whole object and the modelled
  * original bytes em_module_loader_snapshot gives) and the IOP. Block
  * "frame_parity" holds D_00810E80; "host:*" blocks give the address and
- * size of host-only state (the frontend's, the sfx and pacing clocks). */
+ * size of host-only state (the frontend's, the sfx and pacing clocks, the
+ * movie sound's ring). */
 static struct {
     int done, failed;
 } state_test;
@@ -206,6 +208,7 @@ static int write_image(const char *path)
         {"host:em_frontend", em_frontend_host_state},
         {"host:em_startup_audio", em_startup_audio_host_state},
         {"host:em_sfx_clock", em_sfx_host_clock},
+        {"host:em_movie_sound", em_movie_sound_host_state},
         {"host:em_frame_pacing", em_frame_host_pacing},
     };
     for (size_t i = 0; rc == 0 && i < sizeof owners / sizeof owners[0]; ++i) {

@@ -111,9 +111,11 @@ port's phase:
   are the port field's;
 - **same phase** (fork reference only): the decomp's same-game-state
   re-recording on the port's phase
-  (`../Extermination/build/fork_refs/pixels/fb2_phase/<point>`, decomp
-  tools/fb2_phase_refs.py and PCSX2_FORK.md), when the primary's phase is
-  not the port's. The harness checks that its s0..s2 capture rows equal the
+  (`../Extermination/build/fork_refs/pixels/fb2_phase/<point>` and, for
+  08, 13 and 14 since the fixtures' CROSS moved to menu tick 15,
+  `fb2_phase_d4b_1016/<point>`: the sets FB2_PHASE_SETS, searched in that
+  order, each with its manifest; decomp tools/fb2_phase_refs.py and
+  PCSX2_FORK.md), when the primary's phase is not the port's. The harness checks that its s0..s2 capture rows equal the
   primary's on every field but the phase and time ones (PHASE_KEYS) and that
   the manifest records the same rand() state at s2; the game-state facts
   (s1, the recorded snapshot, the route row) stay the primary's;
@@ -174,6 +176,12 @@ ROUTE = refs.capture('s87/route')
 # The same-game-state re-recordings on the port's field phase (fork only;
 # module docstring "The like-for-like original per point").
 FB2_PHASE = refs.FORK / 'pixels' / 'fb2_phase' if refs.FORK_MODE else None
+# Every same-phase set, searched in order for the point's like-for-like
+# original: fb2_phase (2026-10-10: first control, 10, 11, 12 and 15 on the
+# phase of the CROSS at menu tick 14) and fb2_phase_d4b_1016 (2026-10-16:
+# 08, 13 and 14 on the d4 chain, the phase of the fixtures' CROSS at menu
+# tick 15; decomp tools/fb2_phase_refs.py manifest --port-phase press15).
+FB2_PHASE_SETS = (FB2_PHASE, refs.FORK / 'pixels' / 'fb2_phase_d4b_1016') if refs.FORK_MODE else ()
 # Capture-row fields that are the frame loop's phase, time or provenance,
 # not game state (decomp tools/fb2_phase_refs.py compares the chains the
 # same way); in `hw` only the two phase words are left out.
@@ -234,6 +242,27 @@ if refs.FORK_MODE:
     # (same phase), unchanged.
     FLOORS = dict(FLOORS, **{'first_control': 0.010, '10_cage_roof_roger': 0.954, '11_crevice_prompt': 0.098,
                              '12_crevice_jump': 0.026})
+    # The field clock (2026-10-16, GS_EXACT.md 10.4): the fixtures press New
+    # Game at menu tick 15, the New Game movie enters on D_00810E80 = 1 as
+    # in the canonical fork run, and every point's port field is the other
+    # phase. first control and 11 now compare with the main fork recordings
+    # (the primary) at the same phase instead of the d4 re-recordings: first
+    # control 1.03 -> 0.96 % (1,096 pixels) and 11 9.85 -> 9.79 % (11,225);
+    # floors reset to those measurements by the user's decision of
+    # 2026-10-16 ("Reset those two"; the exact pixel counts, as the printed
+    # percentages round up). 08, 13 and 14 compare with the d4 chain's
+    # re-recordings (fb2_phase_d4b_1016): 3.23 %, 62.88 %, 92.38 %.
+    # 15_level_exit rises 98.57 -> 99.99 % (114,672 pixels): the message
+    # glyph strips drawn as the GS draws them (em_gfx_overlay_glyph_gs).
+    # 14_roger_encounter's floor is reset to its measured 105,947 exact
+    # pixels (from 0.924) by the user's decision of 2026-10-16 ("Yes, reset
+    # it"): the 26 pixels it lost are the port's known snow difference (its
+    # rand() stream, an open item) drawn on the other half line. Inside the
+    # fan box the differing pixels are unchanged at 7,701; near the
+    # snowflakes they rose 341 -> 451, elsewhere they fell 673 -> 589; the
+    # two fork references hold the same game state (GS_EXACT.md 10.4).
+    FLOORS = dict(FLOORS, **{'first_control': 1096 / 114688, '11_crevice_prompt': 11225 / 114688,
+                             '14_roger_encounter': 105947 / 114688, '15_level_exit': 0.999})
 # The same with the GPU renderer (EM_GPU_RENDERER=1), measured 2026-09-28.
 FLOORS_GPU = {
     'first_control': 0.008,
@@ -301,62 +330,84 @@ def game_row(row):
 _PHASE_MANIFEST = {}
 
 
-def phase_manifest():
-    if not _PHASE_MANIFEST:
-        _PHASE_MANIFEST.update(json.loads((FB2_PHASE / 'manifest.json').read_text()))
-    return _PHASE_MANIFEST
+def phase_manifest(base=None):
+    base = base or FB2_PHASE
+    if base not in _PHASE_MANIFEST:
+        _PHASE_MANIFEST[base] = json.loads((base / 'manifest.json').read_text())
+    return _PHASE_MANIFEST[base]
+
+
+def phase_set_point(point, base):
+    """The same-phase set `base`'s recording of the point, checked to hold
+    the primary's game state: (the point with the recording's field, buffer
+    and OFY, the recording, where it is from)."""
+    name = point['name']
+    alt = fb2_point(name, base)
+    entry = phase_manifest(base)['points'][name]
+    # The same game state: the capture session's s0..s2 rows equal the
+    # primary's on every field but the phase / time ones, and the rand()
+    # state at s2 is the primary's.
+    prim_rows = [point['rows'][c] for c in sorted(point['rows'])]
+    alt_rows = [alt['rows'][c] for c in sorted(alt['rows'])]
+    assert len(prim_rows) == len(alt_rows) == 3, (name, base.name, 'the capture rows are not s0..s2',
+                                                  len(prim_rows), len(alt_rows))
+    for k, (a, b) in enumerate(zip(prim_rows, alt_rows)):
+        ga, gb = game_row(a), game_row(b)
+        assert ga == gb, (name, base.name, f'the same-phase original\'s row {k} is not the primary\'s game state',
+                          sorted(f for f in set(ga) | set(gb) if ga.get(f) != gb.get(f)))
+    assert entry['rows_equal'] and entry['rand_state_s2']['equal'], (name, base.name, 'the manifest does not '
+                                                                     'record the same rows and rand() state', entry)
+    # s1 is the same loop top of the session (the second row), and as many
+    # iterations after the recorded snapshot as the primary's
+    assert alt['s1'] - min(alt['rows']) == point['s1'] - min(point['rows']) == 1, (name, base.name,
+                                                                                    's1 is not row 1')
+    assert (alt['rec'] is None) == (point['rec'] is None) and \
+        (alt['rec'] is None or alt['s1'] - alt['rec'] == point['s1'] - point['rec']), \
+        (name, base.name, 'the same-phase original is not as many iterations after its snapshot', alt['rec'],
+         point['rec'])
+    picked = dict(point, rgb=alt['rgb'], fbp=alt['fbp'], ofy=alt['ofy'], dir=alt['dir'])
+    return picked, alt, f'{base.name}/{name} (s1 counter {alt["s1"]}, {entry.get("variant")} boot)'
 
 
 def same_phase_original(point, port_fbp, port_ofy):
     """The like-for-like original of a point for a port field drawn in
     buffer port_fbp with OFY port_ofy (module docstring): (point, choice).
     The returned point keeps the primary's game-state facts (s1, rec, rows)
-    and takes the field, buffer and OFY of the original chosen."""
+    and takes the field, buffer and OFY of the original chosen. The
+    same-phase sets (FB2_PHASE_SETS) are searched in order."""
     name = point['name']
     if (point['fbp'], point['ofy']) == (port_fbp, port_ofy):
         return point, {'set': 'primary', 'why': 'the primary original is on the port field\'s phase'}
-    if FB2_PHASE is None:
+    if not FB2_PHASE_SETS:
         return point, {'set': 'primary', 'why': 'no same-phase original in this reference (EM_REFERENCE=v263)'}
-    if not (FB2_PHASE / name / 'meta.json').exists():
-        return point, {'set': 'primary', 'why': f'no same-phase original of {name} in {FB2_PHASE}'}
-    alt = fb2_point(name, FB2_PHASE)
-    entry = phase_manifest()['points'][name]
-    # The same game state: the capture session's s0..s2 rows equal the
-    # primary's on every field but the phase / time ones, and the rand()
-    # state at s2 is the primary's.
-    prim_rows = [point['rows'][c] for c in sorted(point['rows'])]
-    alt_rows = [alt['rows'][c] for c in sorted(alt['rows'])]
-    assert len(prim_rows) == len(alt_rows) == 3, (name, 'the capture rows are not s0..s2', len(prim_rows),
-                                                  len(alt_rows))
-    for k, (a, b) in enumerate(zip(prim_rows, alt_rows)):
-        ga, gb = game_row(a), game_row(b)
-        assert ga == gb, (name, f'the same-phase original\'s row {k} is not the primary\'s game state',
-                          sorted(f for f in set(ga) | set(gb) if ga.get(f) != gb.get(f)))
-    assert entry['rows_equal'] and entry['rand_state_s2']['equal'], (name, 'the manifest does not record the '
-                                                                     'same rows and rand() state', entry)
-    # s1 is the same loop top of the session (the second row), and as many
-    # iterations after the recorded snapshot as the primary's
-    assert alt['s1'] - min(alt['rows']) == point['s1'] - min(point['rows']) == 1, (name, 's1 is not row 1')
-    assert (alt['rec'] is None) == (point['rec'] is None) and \
-        (alt['rec'] is None or alt['s1'] - alt['rec'] == point['s1'] - point['rec']), \
-        (name, 'the same-phase original is not as many iterations after its snapshot', alt['rec'], point['rec'])
-    picked = dict(point, rgb=alt['rgb'], fbp=alt['fbp'], ofy=alt['ofy'], dir=alt['dir'])
-    where = f'{FB2_PHASE.name}/{name} (s1 counter {alt["s1"]}, {entry.get("variant")} boot)'
-    if (alt['fbp'], alt['ofy']) == (port_fbp, port_ofy):
-        return picked, {'set': 'same phase', 'path': where,
-                        'why': 'the primary is on the other phase; the same game state on the port\'s buffer and '
-                               'half line'}
-    if alt['ofy'] == port_ofy:
+
+    def buffer_only(where, why):
         # Only the buffer differs: the manifest's checks show the address
         # alone moves no pixel (same tick and half line in 0x0 and 0x38).
         checks = {k: v for k, v in phase_manifest()['checks'].items() if k.endswith('_d7_vs_d4')}
         assert checks and all(v['displayed']['bit_exact'] and v['draw']['bit_exact'] and v['z']['bit_exact']
                               for v in checks.values()), (name, 'no evidence that the buffer address moves no '
                                                           'pixel', sorted(checks))
-        return picked, {'set': 'same half line, other buffer', 'path': where,
-                        'why': 'no original run reaches the port\'s phase here; the port\'s half line in buffer '
-                               f'{hex(alt["fbp"])} (the buffer moves no pixel: checks {", ".join(sorted(checks))})'}
-    return point, {'set': 'primary', 'why': f'{FB2_PHASE.name}/{name} is not on the port\'s half line either'}
+        return {'set': 'same half line, other buffer', 'path': where,
+                'why': f'{why}; the port\'s half line in the other buffer (the buffer moves no pixel: checks '
+                       f'{", ".join(sorted(checks))})'}
+
+    found = [phase_set_point(point, base) for base in FB2_PHASE_SETS if (base / name / 'meta.json').exists()]
+    sets = ', '.join(base.name for base in FB2_PHASE_SETS)
+    for picked, alt, where in found:
+        if (alt['fbp'], alt['ofy']) == (port_fbp, port_ofy):
+            return picked, {'set': 'same phase', 'path': where,
+                            'why': 'the primary is on the other phase; the same game state on the port\'s buffer '
+                                   'and half line'}
+    for picked, alt, where in found:
+        if alt['ofy'] == port_ofy:
+            return picked, buffer_only(where, 'no original run reaches the port\'s phase here')
+    if point['ofy'] == port_ofy:
+        return point, buffer_only(f'the primary {name}', f'no same-phase original of {name} in {sets}' if not found
+                                  else f'{", ".join(w for _, _, w in found)} not on the port\'s half line; no '
+                                       'original run reaches the port\'s phase here')
+    return point, {'set': 'primary', 'why': f'no same-phase original of {name} in {sets}' if not found
+                   else f'{", ".join(w for _, _, w in found)} not on the port\'s half line either'}
 
 
 _ROWS = {}
@@ -635,13 +686,6 @@ def line(r):
             f'{r["p50"]}/{r["p90"]}/{r["p99"]}')
 
 
-# The original's rule after Roger's departure FMV (decomp PCSX2_FORK.md,
-# fb2_phase manifest "findings"): the FMV's iteration ends with D_00810E80 ==
-# D_00810E88, so at 15_level_exit the original draws buffer 0x0 with OFY
-# 1936.5 or 0x38 with 1936.0, never the other two.
-FMV_RULE = {(0x0, 1936.5), (0x38, 1936.0)}
-
-
 def timing_line(r):
     """The field phase against the primary original (the timing item), or
     None when it is the same."""
@@ -653,9 +697,13 @@ def timing_line(r):
     text = (f'{r["point"]}: the port field is FBP {ph["port_fbp"]} OFY {ph["port_ofy"]}, the route\'s original '
             f'FBP {ph["original_fbp"]} OFY {ph["original_ofy"]} (the other {what}): the field phase, set by the '
             'disc\'s timing at loads, which the port runs at host speed (FIRST_LEVEL_AUDIT.md item 2, 1b F1)')
-    if r['point'] == '15_level_exit' and (int(ph['port_fbp'], 16), ph['port_ofy']) not in FMV_RULE:
-        text += ('; open finding: after Roger\'s departure FMV the original always has D_00810E80 == '
-                 'D_00810E88, and this field breaks that rule')
+    if r['point'] == '15_level_exit':
+        # GS_EXACT.md 10.4: after a movie the relation of D_00810E88 to
+        # D_00810E80 follows the D_00810E80 the movie was entered on (the
+        # code's rule; the level smoke checks the port's on every loop top).
+        text += ('; after Roger\'s departure movie the relation follows the movie\'s entry D_00810E80: the '
+                 'port enters it on 1 (an even number of iterations after the New Game movie at host speed), '
+                 'the canonical fork run on 0')
     return text
 
 

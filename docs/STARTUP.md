@@ -200,7 +200,20 @@ samples including lookahead, and advances 0.5 per ordinary tick.
 - The task table preserves the original trailing bytes when replacing a task.
 - Fullscreen fades and letterbox fades are separate original state machines.
 - During movies the ordinary task loop, fade updates, frame count and parity
-  suspend. Movie input still runs. The skip gate uses completed picture index11.
+  suspend. Movie input still runs. Every step is one vblank and the movie
+  takes the vblanks its code waits for (em_movie_field.h; FIRST_LEVEL_EXIT.md
+  section 7); the skip gate is the decoder's count (002036E0: D_002DF740 +8
+  >= 11, pictures 0..11 shown with START held from the start).
+- The New Game fixtures (`newgame`, `newgame-control`, `newgame-skip`,
+  `newgame-level`) press CROSS at title menu tick 15 (2026-10-16; 14
+  before). The New Game movie's iteration then has D_00810E80 = 1, as in the
+  canonical fork run (decomp `build/fork_refs/probes_1016/newgame/d0`), so
+  the field relation for the rest of the level is the reference
+  recordings' (GS_EXACT.md 10.4 "The field clock"). A player's press decides
+  it in real play; both outcomes are original. `EM_STARTUP_MENU_WAIT=N`
+  (0..14, fixtures only) holds the title N more idle ticks before the
+  CROSS; `tools/test_movie_field_live.py` uses N = 1 to enter the movie on
+  0.
 - Startup screen holds use the original post-decrement counter (301 draw ticks).
   Title navigation clamps, accepts START/CROSS, and respects the fade gate.
 - Native scene asset lookup follows the active scene directory, including New
@@ -338,10 +351,15 @@ run headless). `src/game/em_new_game_switch.{h,c}`, `em_frontend_install_new_gam
   game-facing part, the movie service and the title sequencer's pending
   sounds, is compared and equal in all five runs; the sfx driver's host
   clock; the frame pacing's wall-clock deadline); the drained IOP command
-  ring; the audio thread's mixer ring and its digest; or one of those
-  frame-count words, which the test pins per symbol: the main-loop counter
-  (1 word), the stream's field counter D_00810E90, a lane's field stamp and
-  the chain page log's main-loop stamp (3), step V's kick count (1), the
+  ring; the audio thread's mixer rings (the sfx's and, since 2026-10-16, the
+  movie sound's) and the digest; or one of those
+  frame-count words, which the test pins per symbol: em_frame's main-loop
+  counter and vblank count (DWELL `_s_frame`: 2 words since 2026-10-16,
+  1 before; the FIELD step's new vblank count em_frame_vblanks, which
+  counts the vblanks since the boot like the main-loop counter, holds the
+  movie sound's 800 / 801-frame field phase (host audio output) and the
+  tick rows' vs; no game state is computed from it), the stream's field
+  counter D_00810E90, a lane's field stamp and the chain page log's main-loop stamp (3), step V's kick count (1), the
   loader's drive clock (1) and the IOP clock with its SPU2 DMA stamp (4).
   A new symbol or more words fail the test, as does anything else, with
   its symbol. Measured 2026-10-01: nothing else differs, and the module

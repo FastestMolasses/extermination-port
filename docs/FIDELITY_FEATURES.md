@@ -324,6 +324,48 @@ timing.
   run uncapped (`EM_UNCAPPED=1`), so host pacing is
   not measured by any test.
 
+**Movies play on the game's own field clock**
+
+The intro, the New Game movie and Roger's departure movie take exactly the
+fields the original's movie code waits for: every picture shown for one
+pair of fields (the first on an even field, the second on an odd one), in
+order and none dropped, the same pause near the end, the same skip, and
+the movie's sound field by field. Paced, uncapped or headless, a movie takes
+the same number of game steps. The field the game is on after a movie then
+follows the frame the movie started on, which depends on the frame the
+player pressed New Game on: both outcomes are original.
+
+- How: each `em_frame_step` is one vblank and toggles the field bit
+  D_00810E88 there, from the start-up's odd field; the blocking movie
+  00203350 runs on those vblanks (`em_movie_field.h`): two opening waits,
+  the gate 002061B0(1) on a field-0 vblank, the vblank handler 00206030's
+  field-0 / field-1 sends, the two-slot ring and the decoder thread, the
+  play loop's end, two closing waits. The pictures come from the system
+  decoder one by one when the model shows them, the PCM through the shared
+  mixer (`em_movie_sound.h`); no host player, no host clock. The START skip
+  is honoured once the decoder has output 11 pictures (002036E0).
+- Evidence: the decomp's C (00203350, 002061B0, 00206030, 00206170,
+  00206010, 00206D10 byte-matched; 002036E0, 002034C0 and the decoder
+  thread NEARMISS) and fork probes (decomp `build/fork_refs/probes_1016/
+  movie_end`, `newgame`, `skip`): the fork's 2,305 and 4,761 send pairs, the
+  gate on field 0, the end stall, the return on field 1, and with START held
+  from the movie's start the same 12 pictures, end and return after the
+  gate and the next six loop tops (`make test-movie-field`:
+  `tests/movie_field_test.c`, `tools/test_movie_skip_reference.py`,
+  `tools/test_movie_field_live.py` from both entries, and
+  `tools/test_replay_movie_audio.py`: the comparison tool's WAV holds the
+  movie's PCM bit for bit). GS_EXACT.md 10.4 "The field clock".
+- Status: **PARTIAL**. Two numbers per movie are the fork's measurements,
+  not derived (the feed loop's end after the gate, and the 2 pictures held
+  for the stream's end); the IOP side behind them is not translated. The
+  fork's opening set-up before the gate (12 and 21 vblanks in E001 and the
+  New Game movie) is emulated disc time and is not reproduced (host speed).
+  The fixtures press New Game at title menu tick 15, which starts the New
+  Game movie on the frame the canonical recording does, so AREA11 is drawn
+  in the recordings' field relation; after Roger's departure movie the
+  port's relation is the other one than the canonical recording's, because
+  the port's loads run at host speed (the code's rule applied to each run).
+
 **The game's own random-number generator, bit-exact**
 
 Random effects such as flickering lights, snow puffs and sprite variations
@@ -418,7 +460,9 @@ and the tools extract the assets locally.
   game code on UIKit/Metal/RemoteIO: `newgame-control` reproduces the macOS
   displacement 9.599849 on an iPhone Air. Its movies are an HEVC re-encode
   made at build time (iOS has no MPEG-2 decoder; PSNR 46.8 dB against the
-  macOS decode, timestamps and sound unchanged). The port contains C translations of
+  macOS decode, timestamps and sound unchanged), decoded on the same field
+  clock as on the Mac: the copies keep 4,761 and 2,305 pictures (checked
+  2026-10-16; a copy with another count fails to open in the game). The port contains C translations of
   original game and SDK routines by design; "no Sony SDK" means no SDK
   binaries are linked. The decomp repository still commits CodeWarrior asm
   function bodies (user decision 2026-09-23), so the "no original code" claim
@@ -1257,9 +1301,15 @@ original" is a number.
   speed). Since 2026-10-10 each point is compared with the same game state
   recorded on the port's phase (GS_EXACT.md 10.4): at snapshot 10 (camera
   exact) 95.47 % of the pixels are exact (18.92 % against the other phase),
-  at the AREA01 arrival 98.57 %. Open: after Roger's departure FMV the
-  original's buffer / field relation is the inverse of the one the port
-  keeps (GS_EXACT.md 10.4 "Finding"). The snow and the flame follow the port's rand() stream and the
+  at the AREA01 arrival 98.57 %. Since 2026-10-16 the field after a movie
+  follows the code (the finding about Roger's departure FMV is closed,
+  GS_EXACT.md 10.4 "The field clock"); with the fixtures' New Game press at
+  menu tick 15 and the decomp's d4-chain recordings of 08, 13 and 14:
+  first control 0.96 %, 08 3.23 %, 10 95.52 %, 11 9.79 %, 12 2.62 %, 13
+  62.88 %, 14 92.38 % (26 pixels below its old floor, the port's snow on
+  the other half line; the user reset the floor to the measured 105,947
+  pixels on 2026-10-16; the snow stays open), 15 99.99 % (the message glyph strips now drawn as
+  the GS draws them, the AREA01 title exact). The snow and the flame follow the port's rand() stream and the
   fans' phase the recording's timing. The software renderer is PCSX2's
   model of the GS, not hardware. The field-to-buffer pairing rule is not
   established at 4 of 19 points (the harness reads each point's pairing

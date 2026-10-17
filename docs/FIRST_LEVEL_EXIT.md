@@ -326,6 +326,39 @@ the VIF cycle the previous frame left, 1,1 (`EM_STATIC_WORLD_FRAME_CYCLE`;
 STATIC_WORLD.md 7.1; every first-level save state holds VIF1_CYCLE = 0x0101
 between frames).
 
+**Movie pacing and the skip (2026-10-16, GS_EXACT.md 10.4 "The field
+clock").** The port plays every movie the way 00203350 does: on the game's
+field clock, one vblank per `em_frame_step` (`em_movie_field.h`), never on a
+host player's clock. The two opening 001009C8 waits; the gate 002061B0(1)
+on the first field-0 vblank; each picture sent on a field-0 and then a
+field-1 vblank (00206030), in order, none dropped; the end stall (the last
+2 pictures come out of the decoder only after the feed loop has ended,
+which happens `feed_end` vblanks after the gate: 4,731 for E001, 9,618 for
+E900, fork measurements); the play loop's end in the vblank of the last
+field-1 send; the two closing waits. E001 takes 4,740 or 4,741 steps
+(the first wait's field), E900 9,628 or 9,629. The decoder
+(AVFoundation's, em_movie_mac.m) hands out each picture when its field-0
+half is sent, and the PCM goes to the shared mixer field by field from the
+field after the gate's to the field after the play loop's end
+(`em_movie_sound.h`, `em_bgm.c`), so a movie takes the same steps paced,
+uncapped or headless, and the comparison tool's offline audio carries it
+(`tools/test_replay_movie_audio.py`). The movie's iteration's P reads field
+1, so after it the field relation follows the D_00810E80 it was entered on
+(MAIN_LOOP_AND_GAP.md 4.1).
+
+The START skip follows the decoder's count: 002036E0 honours START once
+D_002DF740 +8 >= 11 while its feed loop runs; the decoder, already past its
+test, outputs one more picture, so pictures 0..11 show and the movie ends
+after them (with START held from the start: the play loop's end 25 vblanks
+after the gate, the return 27 after it). The fork's run of the New Game
+movie with START held from the driver's entry, as the comparison video
+does (decomp `build/fork_refs/probes_1016/skip/d0_start_1016c`), shows the
+same 12 pictures and the same end and return after the gate, and the next
+six loop tops equal the port's (`tools/test_movie_skip_reference.py`, in
+`make test-movie-field`). Before 2026-10-16 the port counted pictures from
+the host player's timestamps; the count now is the decoder's, as in the
+code.
+
 **The area change and the load.** 001B0C60(1, 0, 4), then 001AD010 (area bytes
 01 / 00 / 04) and 001ADF50's 001FF080(1, 0) on their existing bindings. The
 area streamer 001FFCD0 now finds AREA01's sectors in the loader pack

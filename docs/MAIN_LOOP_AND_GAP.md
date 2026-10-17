@@ -143,7 +143,13 @@ Asserted by the test on every run (`route_checks`):
   v2.6.3's.
 - In all 15, (D_00810E80, D_00810E88) is (0, 1) or (1, 0): the buffer index
   and the field bit stay locked in opposite phase, as one vblank per frame
-  implies.
+  implies. That relation is not fixed by the loop itself: a movie (00203350,
+  step M) takes its own number of vblanks inside one iteration and always
+  ends on a field-1 vblank at host speed, so the relation after it follows
+  the D_00810E80 it was entered on (the route's AREA11 beats follow the New
+  Game movie entered on 1; route 15's rows after Roger's departure movie,
+  entered on 0, hold them equal). See section 4.1 and
+  GS_EXACT.md 10.4.
 - D_00810E98 is 1 at every loop top (one handler run since step A), and the
   snapshot's `vsync_counter` equals D_00810E90.
 - The counter 0x70003B64 advances by exactly one per traced frame over the
@@ -242,6 +248,23 @@ T, the J resets, L); the others (H, I, R's display offsets, V, W's render
 context store) are game-visible and belong to other lanes (L34, L35, L31) or
 to the render context.
 
+### 4.1 The field in the port (2026-10-16)
+
+`em_frame_step` is one vblank: at its top it toggles D_00810E88 (the vblank
+handler 0x1AB140 latches the GS field, which alternates at every vblank),
+counts the vblank (`em_frame_vblanks`) and, while the blocking movie holds
+the iteration, runs the movie's vblank work (em_movie_field.h: the opening
+and closing 001009C8 waits, the gate 002061B0(1), 00206030's sends, the
+movie's sound field). It starts at 1: the start-up waits for an odd field
+(0x1AAEFC), so the first loop top is (D_00810E80, D_00810E88) = (0, 1).
+Step P reads the field of its own step's vblank; after a movie that is the
+vblank of 00203350's second closing wait, field 1. Before 2026-10-16 step
+P set the field to D_00810E80, a fixed relation that only one movie entry
+reproduces. The tick log carries each loop top's (D_00810E80, D_00810E88)
+and vblank count (`fld`, `vs`; `em_frame_loop_top`), and the level smoke
+and `tools/test_movie_field_live.py` check every loop top against the rule
+derived from the start-up (`tools/field_rule.py`).
+
 ## 5. Binding notes (for the lead)
 
 **What it replaces.** `em_mlg_001AAE40_frame` replaces the body of
@@ -249,8 +272,8 @@ to the render context.
 `em_mlg_001AAE40_init` replaces the engine part of `main.c`'s bring-up
 (`em_frame_init`'s `em_task_init`, the slot-0 task install done by
 `em_frontend_install`, the first transition clear). `em_mlg_001AB140`
-replaces nothing live (the port has no vblank count, no field bit and no
-vblank flag; `frame_pace_ntsc` only sleeps). The module is not in COMMON;
+replaces nothing live (the port has no vblank flag; `frame_pace_ntsc` only
+sleeps; the vblank count and the field bit are em_frame.c's, below). The module is not in COMMON;
 add `src/game/em_main_loop_and_gap.c` to the COMMON list only when it is
 bound.
 
@@ -295,7 +318,7 @@ covered):
 | Global | Other original code | Port view today |
 |---|---|---|
 | D_00810E90 (vblank count) | read by 001F9CF0 (the per-frame stream-lane service, reached from step H 001FB100) as an elapsed-vblank timer; read by 001FA790 (lane start), which stores it into the lane record | `em_stream_lanes_original` globals view, field `d810E90` |
-| D_00810E88 (field) | read by 001D2300 (step V: 1 - field, like step S) | `em_frame.c` (`field`, `em_frame_d810E88`: one field per iteration, equal to D_00810E80 at step V, the route's phase; RENDER_CONTEXT.md 9.3), the render context's view |
+| D_00810E88 (field) | read by 001D2300 (step V: 1 - field, like step S) | `em_frame.c` (`field`, `em_frame_d810E88`: toggled at every step's vblank from the start-up's 1; a movie's steps each a vblank; RENDER_CONTEXT.md 9.3), the render context's view |
 | D_00810E80 (buffer index) | cleared by 001AB430 (start-up); read by 001AEBE0 (D), 001AEE70 (G/O), 001CB800, 001CB8A0, 001CFBE0 | `em_head_sprite_original` (`d810E80`), `em_frame.c` (`parity`) |
 | D_00821058 (movie byte) | set to 1 by 001AC3B0, 001AD360, 001B7A30; cleared by 001AB430 and 00203350 (the movie driver, step M); read by 001FB100 (H) and 001B7A30 | `em_startup_load_gaps` (`EmSlgSoundFrame.d821058`), `em_area_script` (`d821058` pointer), `em_scene_bindings` / `em_frontend_movie_request` (writer), `em_frame.c` (`movie_active`) |
 | D_00282184 (thread id) | written by 001F9780 (start-up) | none |

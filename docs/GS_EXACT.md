@@ -1600,7 +1600,12 @@ the opposite; the field is drawn half a line off). At 13 and 14 it is the
 original's. The port's D_00810E80 has the other parity there; the cause is
 not traced (the loads taking another number of main-loop iterations at host
 speed is a candidate: the New Game's veil runs 55 ticks against the PS2's
-258). It is reported per point by the harness.
+258). It is reported per point by the harness. **Traced 2026-10-16 (10.4,
+"The field clock"):** the port's field was a fixed relation to D_00810E80
+(the old step P), and the New Game movie, which the original's code paces
+by vblanks, sets the relation for the whole level from the D_00810E80 it is
+entered on; loads move which tick gets which buffer (and half line) but
+never the relation.
 The original's own phase is not a fact of the game either (fork-side
 measurement, 2026-10-09, FIRST_LEVEL_AUDIT.md 1b F1): in a capture run it
 follows the vsync the tool's START lands on and the AREA11 load's
@@ -1772,6 +1777,12 @@ half line the vsync count, and at a load both follow the disc's timing,
 which the port does not reproduce (host speed, CLAUDE.md); 15's half line
 is the clearest case: the fork's AREA01 load took 8 frames more than
 v2.6.3's, and v2.6.3's field matched the port's by its post-load hitch.
+Corrected 2026-10-16 (10.4, "The field clock"): outside movies every
+iteration takes one vblank, loads included, so a load of another length
+moves the buffer index (and the half line with it) of a given tick but
+never their relation; only a movie, which takes its own number of vblanks
+inside one iteration, sets the relation, from the D_00810E80 it is entered
+on. v2.6.3's post-load hitches were emulator timing.
 
 ### 10.4 The like-for-like original per point (2026-10-10)
 
@@ -1832,20 +1843,166 @@ one measured against v2.6.3's field (which had the port's half line), so
 `EM_TEST_FULL=1` passes again. FLOORS (fork) rise to first control 0.010,
 10 0.954, 11 0.098, 12 0.026; 08, 13, 14 and 15 keep theirs.
 
-**Finding (open, port side): the field after Roger's departure FMV.** The
-port keeps one relation between the buffer index and the field bit:
-em_frame.c step P sets the field to D_00810E80, so at the loop top
-D_00810E88 = 1 − D_00810E80 always (em_frame.h, measured on route beats
-00..14, MAIN_LOOP_AND_GAP.md 2.4). The original inverts that relation at
-the departure FMV (beat 15 row 442): the FMV plays inside one main-loop
-iteration and its vsync count (4,751 or 4,752) leaves D_00810E80 ==
-D_00810E88 afterwards from all four entry phases the decomp tried; the
-route 15 end state shows (0, 0) in both the fork's and v2.6.3's recording.
-So at 15_level_exit the original draws (0x0, 1936.5) or (0x38, 1936.0) and
-never the port's (0x0, 1936.0). Whether the FMV's length is set by the
-game's code (a wait for a field) or by the emulator's timing is not
-traced; if it is the code, the port's fixed relation is a translation gap,
-not a timing item. The harness flags it on the timing line of 15.
+**Finding (closed 2026-10-16): the field after Roger's departure FMV.**
+It read: the port keeps one relation between the buffer index and the field
+bit (em_frame.c step P set the field to D_00810E80), while the original
+inverts it at the departure FMV "from all four entry phases the decomp
+tried". The decomp read the code (decomp FINDINGS.md "The field D_00810E88
+across the main loop, movies and empty lists"; fork probes
+`build/fork_refs/probes_1016/movie_end/` and `newgame/`): every movie ends
+on a field-1 vblank at host speed, so the relation after it follows the
+D_00810E80 it was entered on. The four chains fit that rule (canonical, d7
+and d8 entered on 0 and left equal; d4 entered on 1 and left equal only
+because the emulator's teardown RPC returned a field late, IOP timing).
+"The FMV leaves index == field from every entry" was emulator timing, not a
+rule. The port now runs the code's field model (below), and the harness's
+timing line for 15 says which entry the port and the fork had.
+
+**The field clock (2026-10-16, step "Finish the code-exact field model and
+field-paced movies").** What the port does now, from the decomp's C:
+- `em_frame_step` delivers one vblank at its top and toggles D_00810E88
+  there (the vblank handler 0x1AB140 latches the GS field, which alternates
+  at every vblank); the start-up's wait for an odd field (0x1AAEFC) makes
+  the first loop top (D_00810E80, D_00810E88) = (0, 1). Step P reads the
+  field of its step's vblank; nothing sets it from D_00810E80 any more.
+- The blocking movie 00203350 runs on that clock (`em_movie_field.h`, one
+  vblank per step, the decoder, the ring and the sound at host speed): two
+  opening waits, the gate 002061B0(1) on the first field-0 vblank, each
+  picture a field-0 and a field-1 send (00206030), the end stall, the play
+  loop's end in the vblank of the last field-1 send, two closing waits
+  (fields 0 and 1). So the movie iteration's P reads field 1 and the
+  relation after it follows the D_00810E80 it was entered on: 1 keeps
+  D_00810E88 = 1 − D_00810E80, 0 makes them equal.
+- The movie's pictures come out of the decoder one by one when their
+  field-0 half is sent, and its PCM through the shared mixer
+  (`em_movie_sound.h`) field by field; no host player and no host clock
+  (FIRST_LEVEL_EXIT.md section 7).
+
+Which relation a game has is set by the player's own title timing: the
+New Game movie's iteration has whatever D_00810E80 the CROSS's tick gives.
+Both outcomes are original. The fixtures press the CROSS at title menu tick
+15 (STARTUP.md), which enters the New Game movie on D_00810E80 = 1, as the
+canonical fork run does (probes_1016/newgame/d0), so AREA11 is drawn in the
+reference recordings' relation. The main-line smoke asserts that entry, and
+`tools/test_movie_field_live.py` (in `make test-movie-field`) plays the New
+Game movie from both entries (the CROSS at 15 and at 16) and checks every
+loop top against the rule derived from the start-up's (0, 1); the old rule
+(step P sets field = D_00810E80) fails it. Roger's departure movie E001 is
+then entered on 1 in the port (13,640 iterations after the New Game movie,
+an even number at host speed) and on 0 in the canonical fork run (an odd
+number: its loads take emulated time), so after E001 the port keeps
+D_00810E88 = 1 − D_00810E80 where the fork's route 15 rows 442..809 have
+them equal. That is the code's rule applied to each run's own entry, not a
+difference of logic; the level smoke checks the port's relation on every
+loop top against the rule (its backing: the fork's d0 New Game rows and
+route 15's rows after E001).
+
+With the press at 15 every point's port field flips its phase. The decomp
+recorded the d4 chain's points 08, 13 and 14 on that phase
+(`build/fork_refs/pixels/fb2_phase_d4b_1016`, its manifest with
+`port_phase` press15: rows and rand() state equal to the primary's), and the
+harness searches both same-phase sets (FB2_PHASE_SETS). Full mode, port with
+this step, against the fork (exact pixels of 114,688, the presented field):
+
+| point | original compared | exact | floor |
+|---|---|---|---|
+| first_control | primary (0x0, 1936.0) | 1,096 (0.96 %) | 1,096 / 114,688 (user decision, reset) |
+| 08_truck_crossing | same phase, d4b (0x38, 1936.5) | 3,702 (3.23 %) | 0.032 |
+| 10_cage_roof_roger | primary (0x0, 1936.0) | 109,547 (95.52 %) | 0.954 |
+| 11_crevice_prompt | primary (0x38, 1936.5) | 11,225 (9.79 %) | 11,225 / 114,688 (user decision, reset) |
+| 12_crevice_jump | primary (0x0, 1936.0) | 3,003 (2.62 %) | 0.026 |
+| 13_east_tower | same phase, d4b (0x38, 1936.5) | 72,111 (62.88 %) | 0.625 |
+| 14_roger_encounter | same phase, d4b (0x0, 1936.0) | 105,947 (92.38 %) | 105,947 / 114,688 (user decision, reset from 0.924) |
+| 15_level_exit | same half line, other buffer: primary (0x0, 1936.5) | **114,672 (99.99 %)** | 0.999 (raised from 0.985) |
+
+first_control and 11 now compare with the main fork recordings at the same
+phase instead of the d4 re-recordings (1.03 % and 9.85 % before); the user
+reset their floors to these measurements on 2026-10-16 ("Reset those two");
+the printed 0.96 % and 9.79 % round up, so the floors are the exact pixel
+counts.
+
+**14_roger_encounter: 26 pixels below its old floor (floor reset by the user, 2026-10-16).**
+Against the primary at its phase (port HEAD 92786d2, the old rule, the
+port drawing (0x38, 1936.5)) the port's frame had 8,715 differing pixels;
+against the d4 re-recording at the new phase (0x0, 1936.0) it has 8,741.
+Split (measured on the two harness runs' images, the fan box x 225..424, y
+0..139): the fan box 7,701 in both (the fans' phase follows the
+navigation, FIRST_LEVEL_AUDIT.md 1b item 12); outside it 1,014 against
+1,040, of which near a snow flake 341 against 451 and elsewhere 673 against
+589. Fork against fork: the d4 re-recording and the primary hold the same
+game state (capture rows equal on every field but the phase, rand() equal at
+s2; the fan blades at the same angle) and cannot be compared pixel for
+pixel across half lines: where the d4 field's rows r and r + 1 are equal,
+the primary's row r (sampled half a row between them) equals them on only
+57.3 % of the pixels (the port's two frames: 59.7 %). So the reference does
+not explain the loss: it is the port's snow (its rand() stream, RAND_ORDER.md)
+drawn on the other half line, which costs 110 pixels near the flakes and
+gains 84 elsewhere. On that evidence the user reset the floor from 0.924
+to the measured count, 105,947 / 114,688 exact pixels (decision of
+2026-10-16, "Yes, reset it"), set as an exact count like first_control's
+(1,096) and 11's (11,225): the 26 pixels are the port's known snow
+difference landing on the other half line, not a reference or field
+error. The snow's own fix (the rand() order work, RAND_ORDER.md) stays
+open and should raise 14 again.
+
+**15_level_exit: the area title (fixed).** With the press at 15 the port draws
+15 on (0x38, 1936.5), where the AREA01 title ("UNDERGROUND TUNNEL") came
+out one row lower and brighter (240 against the original's 225) than the
+primary. The cause was the overlay pass, not the field: the port drew the
+message glyph strips (001CC3B0's sprite passes) as host quads in 448-line
+canvas units, sampled wherever the host pixel centre fell, so (1) the
+half line never moved their texture rows (the GS samples a half-line field
+half a line lower in the sprite: odd texel rows of the 2-texels-per-row
+tall font on 1936.5, even ones on 1936.0, and the host's sample sat on a
+texel edge on either), (2) a strip whose U span is one texel wider than its
+pixel span (228 over 227 here) drifted by a texel from mid-strip on, and
+(3) the ink was the sheet's white instead of the CLUT's grey 240: 001CC8A0
+expands an ink bit to texel index 15, and the strip's CLUT (CBP 0x1B67) is
+001CCB10's ramp (byte-matched), entry n = n x 0x101010 with alpha 0x80.
+Now each sprite pass goes to `em_gfx_overlay_glyph_gs` (em_gfx.h), which
+draws it as the GS does: per field pixel, the sample at the integer point
+of its row under the field's draw offset (the line the overlay pass is
+placed at), the sprite's coverage, U and V as the floor of their exact
+values in 1/16 texel (3.4's column and row rules; the rows' gradient is
+dyadic), the CLUT's colour. Result: 112,960 → 114,672 exact pixels (the
+title exact; the 16 left are elsewhere, at most 1 off). At HEAD the title
+was off on the whole-line field too (113,053, rows 19..25 against 20..26).
+The skewed strips (markup tag 3, a triangle strip) keep the host quad; no
+fb2 point shows one.
+
+**The end-of-movie stall: two measured constants.** `k_movies` in
+em_frontend.c gives each movie `feed_end` (the vblanks from the gate to the
+one whose period ends the first feed loop: E900 9,618, E001 4,731) and
+`held` (2: the stream's last coded picture and the reference before it come
+out of the decoder only after 00206BF0 pushes its 4 bytes). They are the
+fork's measurements, not derived: decomp `build/fork_refs/probes_1016/
+movie_end/canon` and `d4` (E001: gate 458 / 5189 and 457 / 5188, the feed
+loop's end 4,731 vblanks after the gate in both) and `newgame/d0` (E900:
+gate 289, end 9,907: 9,618). Why they depend on neither the disc nor the
+IPU: the feed loop's last bytes are the trailing sound, which the IOP's
+rings take only as the SPU2 plays it at 48 kHz (the same at host speed),
+and the count starts at the gate, after the opening's set-up, so the disc
+and IPU time before it does not enter it. Two runs of different set-up
+(canon and d4) give the same 4,731. The inference rests on the IOP side
+that reports the play position, which is not translated. Open item: derive both from the
+stream itself (its interleave of video and sound packs and the IOP ring
+sizes) instead of the measurement. The fork's E001 iteration takes 4,752
+vblanks against the port's 4,740: its 12 more are before the gate, the
+emulated disc and IOP set-up of the opening (from the gate to the end both
+take 4,735); likewise 21 vblanks between 002036E0's entry and the gate's
+call in the New Game movie. They are not reproduced (host speed).
+
+**The START skip.** 002036E0 honours START once the decoder's picture count
+(D_002DF740 +8) is 11 (`EM_MOVIE_FIELD_SKIP_COUNT`); pictures 0..11 show.
+The fork run with START held from the driver's entry, as the comparison
+video does (decomp `probes_1016/skip/d0_start_1016c`, its
+`tools/probe_skip.py`), shows the same: 12 pairs of sends, the play loop's
+end at gate + 25, the return at gate + 27 on field 1, and the six loop tops
+after it equal to the port's in D_00810E80 / D_00810E88, 0x70003B8C..93 and
+D_00810700..702 (`tools/test_movie_skip_reference.py`). Its 00206B70 call
+came at gate + 22 (the port's request at gate + 19): the feed loop tests
+the pad between reads that run at emulated disc speed; the outcome is the
+same.
 
 ### 10.2 Frame cost
 
@@ -2531,7 +2688,13 @@ drawing), not this step's.
   (`make test-level-smoke-options`, all nine beats PASS); a lane binary
   whose kick background returns at once (`build/minors_r1_mut_nokbg`)
   fails it at 6675 while the beat's own level-smoke checks pass, and a
-  present log whose 6723 field is not the grey fails at 6723.
+  present log whose 6723 field is not the grey fails at 6723. Since the
+  FIELD step's CROSS at title menu tick 15 (2026-10-16, STARTUP.md) every
+  counter from the New Game on is one higher: opt_00's closes are at
+  counters 6676, 6724, 6772 and 6820 and pass the same checks, found from
+  the tick log as before (port `build/field_final_r1/smoke_full.log`,
+  `make test-level-smoke-full` with its options side runs, all nine PASS);
+  the HEAD-build counters above are the receipts' own.
 - The kick's background and the load veil (follow-up of 2026-10-16): in
   the original's list the channel-3 CALL (001D2300 calling 001E0DF0) comes
   before the channel-0 run that holds the veil (0021B1B0), so where both
@@ -2540,7 +2703,8 @@ drawing), not this step's.
   (fail-stop, 0x001D2300) when the veil drew in the same iteration instead
   of drawing the background over it. The port has not met that case: on
   the main line the veil's last frame is counter 1330 and the kick's first
-  background 1336, and no run of the checks below faults (the default
+  background 1336 (port ded1bcb's counters; each one higher since the
+  press at menu tick 15, which shifts every New Game tick by one), and no run of the checks below faults (the default
   level smoke, test-level-smoke-ps2-drive through roger with its 258 veil
   frames, the switch-on run through the level exit, the options side runs;
   port `build/minors_r1_runs/`, ignored).

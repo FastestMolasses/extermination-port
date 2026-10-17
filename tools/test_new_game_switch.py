@@ -30,9 +30,10 @@ A word that differs between title+k and switch is accepted only as:
   - host-only state, given by the image's "host:" blocks: the frontend's
     own state (em_frontend.c f, em_startup_audio.c s), which the game reads
     only through the service state and the title sequencer's pending
-    sounds (those are compared and must be equal), the sfx mixer ring (the
-    rendered output and the audio thread's read position, em_sfx.c) and the
-    frame pacing's wall-clock deadline (em_frame.c);
+    sounds (those are compared and must be equal), the sfx and movie-sound
+    mixer rings (the rendered output and the audio thread's read position,
+    em_sfx.c, em_movie_sound.c) and the frame pacing's wall-clock deadline
+    (em_frame.c);
   - the IOP driver's command ring and its byte counters: the ring must be
     drained in every run (nothing still to run); its history and position
     count the commands issued since the boot, two more on the title route
@@ -65,7 +66,9 @@ BIN = 'build/extermination'
 # the boot: the most words each may hold that differ between two title runs
 # of the same parity, and why the game may start from any value of them.
 DWELL = {
-    '_s_frame': (1, 'em_frame.c: the main-loop counter 0x70003B64 (read only as a same-frame stamp)'),
+    '_s_frame': (2, 'em_frame.c: the main-loop counter 0x70003B64 (read only as a same-frame stamp) and the '
+                    'vblank count em_frame_vblanks (the movie sound\'s 800 / 801-frame field phase, the tick '
+                    'rows\' vs)'),
     '_S': (3, 'em_stream_live.c: the field counter D_00810E90 and a lane\'s field stamp; em_chain_page_live.c: '
               'the page log\'s main-loop stamp (S.log.frame)'),
     '_R': (1, 'em_render_context_live.c: step V\'s kick count (R.kicks), one per frame'),

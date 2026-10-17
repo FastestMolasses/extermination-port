@@ -18,6 +18,8 @@
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 #include "game/em_bgm.h"
+#include "game/em_movie_field.h"
+#include "game/em_movie_sound.h"
 #include "em_input.h"
 #include "em_movie.h"
 
@@ -50,6 +52,11 @@ static struct {
     double movie_pts;
     unsigned movie_width, movie_height;
     int have_movie_frame;
+    EmMovieField movie_field;   /* 00203350 on the field clock (em_movie_field.h) */
+    uint32_t movie_steps;       /* the movie iteration's steps, the arming one included */
+    uint64_t movie_sound;       /* PCM frames the movie's fields sounded */
+    uint64_t movie_sound_base[3]; /* em_movie_sound_counters at the movie's start */
+    uint32_t movie_sound_first; /* the first sounding field's vblank (em_frame_vblanks), or UINT32_MAX */
     unsigned menu_ticks;
     unsigned menu_wait;  /* EM_STARTUP_MENU_WAIT (fixtures only) */
     unsigned seen_screens;
@@ -141,28 +148,55 @@ static void draw_texture(unsigned w, unsigned h)
  * (the intro, the title's attract movie and the New Game's 001AD360 step 1),
  * selector 1 \MOVIE\E001.PSS (the departure movie of Roger's script
  * 0x828A10, op0F; the exit capture's D_00821010[1] is E001.PSS's extent,
- * docs/FIRST_LEVEL_EXIT.md). The port plays the remux of each file
+ * docs/FIRST_LEVEL_EXIT.md). The port decodes the remux of each file
  * (tools/export_movie.py); the other seven selectors are not on the first
- * level's path and are not exported (a request for one fails). */
-static const char *const k_movie_paths[] = {
-    "assets/startup/intro.mov",   /* 0: \MOVIE\E900.PSS */
-    "assets/movies/e001.mov",     /* 1: \MOVIE\E001.PSS */
+ * level's path and are not exported (a request for one fails).
+ * Each movie's field-clock facts (em_movie_field.h; GS_EXACT.md 10.4): its
+ * pictures (the fork's sends: 4,761 pairs in the New Game movie, 2,305 in
+ * E001), the two held pictures (the stream's last coded picture and the
+ * reference before it: P8 / P9 of E001's last GOP, B4 / P5 of E900's) and
+ * the feed loop's end after the gate (fork New Game run d0: gate 289, end
+ * 9907; E001 canon: 458 / 5189, d4: 457 / 5188). */
+static const struct {
+    const char *path;
+    const char *name;
+    EmMovieFieldConfig field;
+} k_movies[] = {
+    {"assets/startup/intro.mov", "E900.PSS", {4761, 2, 9618}},   /* 0: \MOVIE\E900.PSS */
+    {"assets/movies/e001.mov", "E001.PSS", {2305, 2, 4731}},     /* 1: \MOVIE\E001.PSS */
 };
 
 static void begin_movie(uint32_t serial, int new_game, unsigned selector)
 {
     em_startup_audio_stop();
     em_sfx_stop_all();
-    if (selector >= sizeof k_movie_paths / sizeof k_movie_paths[0]) {
+    if (selector >= sizeof k_movies / sizeof k_movies[0]) {
         fail("movie selector without an exported movie");
         return;
     }
-    f.movie = em_movie_open(k_movie_paths[selector]);
+    f.movie = em_movie_open(k_movies[selector].path);
     if (!f.movie) {
         char error[160];
         snprintf(error, sizeof error, "could not open %s (tools/export_movie.py, docs/STARTUP.md)",
-                 k_movie_paths[selector]);
+                 k_movies[selector].path);
         fail(error);
+        return;
+    }
+    EmMovieInfo info;
+    if (em_movie_info(f.movie, &info) != 0) {
+        fail(em_movie_error(f.movie));
+        return;
+    }
+    if (info.pictures != k_movies[selector].field.pictures) {
+        char error[200];
+        snprintf(error, sizeof error, "%s has %u pictures, the original's %s %u (re-export it)",
+                 k_movies[selector].path, info.pictures, k_movies[selector].name,
+                 k_movies[selector].field.pictures);
+        fail(error);
+        return;
+    }
+    if (em_movie_field_begin(&f.movie_field, &k_movies[selector].field) != 0) {
+        fail("the movie's field clock refused its configuration");
         return;
     }
     f.movie_serial = serial;
@@ -172,11 +206,39 @@ static void begin_movie(uint32_t serial, int new_game, unsigned selector)
     f.movie_picture = 0;
     f.movie_pts = 0;
     f.have_movie_frame = 0;
+    f.movie_steps = 0;
+    f.movie_sound = 0;
+    f.movie_sound_first = UINT32_MAX;
+    em_movie_sound_counters(&f.movie_sound_base[0], &f.movie_sound_base[1], &f.movie_sound_base[2]);
     f.texture_screen = -1;
     em_frame_set_movie_active(1);
     f.playing_selector = (int)selector;
-    printf("startup: movie %u (%s)%s\n", selector, selector ? "E001.PSS" : "E900.PSS",
-           new_game ? " for the game task" : "");
+    printf("startup: movie %u (%s)%s, D_00810E80 %u, the first wait's field %u\n", selector,
+           k_movies[selector].name, new_game ? " for the game task" : "", (unsigned)em_frame_parity(),
+           (unsigned)*em_frame_d810E88());
+}
+
+/* em_frame's movie vblank hook: 00206030 and the waits on this vblank,
+ * then the field's movie sound (em_movie_sound.h). */
+static void movie_vblank(void *unused, int field, uint64_t vblank)
+{
+    (void)unused;
+    if (!f.movie || f.failed) return;
+    em_movie_field_vblank(&f.movie_field, field);
+    if (!f.movie_field.sound_field) return;
+    int16_t pcm[2 * 801];
+    const uint32_t frames = em_movie_sound_field_frames(vblank);
+    const long got = em_movie_read_audio(f.movie, pcm, (long)frames);
+    if (got < 0) {
+        fail(em_movie_error(f.movie));
+        return;
+    }
+    /* Past the PCM's end the SPU2 plays silence (none of the first
+     * level's movies sounds that long: their PCM outlasts the pictures). */
+    memset(pcm + 2 * got, 0, sizeof(int16_t) * 2u * (frames - (uint32_t)got));
+    em_movie_sound_push(pcm, frames);
+    if (f.movie_sound_first == UINT32_MAX) f.movie_sound_first = (uint32_t)vblank;
+    f.movie_sound += (uint64_t)got;
 }
 
 static int movie_pump(void *unused)
@@ -184,29 +246,36 @@ static int movie_pump(void *unused)
     (void)unused;
     if (!f.movie) return 0;
     if (em_startup_audio_tick() != 0) fail("startup audio event queue overflow");
-    EmMovieFrame frame;
-    int updated = em_movie_update(f.movie, &frame);
-    if (updated < 0) {
-        fail(em_movie_error(f.movie));
-    } else if (updated) {
-        if (frame.stride != frame.width * 4 ||
-            !em_gfx_overlay_texture_set(em_frame_gfx(), EM_GFX_OVERLAY_TEX_UI,
-                                       frame.pixels, frame.width, frame.height)) {
+    ++f.movie_steps;
+    EmMovieField *mf = &f.movie_field;
+    /* The decoder thread's part of this vblank's period. */
+    em_movie_field_decode(mf);
+    /* The picture the display shows: each one in display order, decoded
+     * when its field-0 half is sent. */
+    while (!f.failed && mf->shown >= 0 && (!f.have_movie_frame || f.movie_picture < (uint64_t)mf->shown)) {
+        EmMovieFrame frame;
+        const int r = em_movie_next_picture(f.movie, &frame);
+        if (r < 0) {
+            fail(em_movie_error(f.movie));
+        } else if (r == 0 || frame.picture_index != (f.have_movie_frame ? f.movie_picture + 1 : 0)) {
+            fail("the movie's pictures ran out or came out of order");
+        } else if (frame.stride != frame.width * 4 ||
+                   !em_gfx_overlay_texture_set(em_frame_gfx(), EM_GFX_OVERLAY_TEX_UI, frame.pixels,
+                                               frame.width, frame.height)) {
             fail("could not upload the decoded movie frame");
+        } else {
+            f.movie_width = frame.width;
+            f.movie_height = frame.height;
+            f.have_movie_frame = 1;
+            f.movie_pts = frame.pts_seconds;
+            f.movie_picture = frame.picture_index;
+            ++f.movie_frames;
         }
-        f.movie_width = frame.width;
-        f.movie_height = frame.height;
-        f.have_movie_frame = 1;
-        f.movie_pts = frame.pts_seconds;
-        f.movie_picture = frame.picture_index;
-        ++f.movie_frames;
     }
     if (f.have_movie_frame) {
         draw_texture(f.movie_width, f.movie_height);
         if (f.movie_pts >= 2.0 && f.playing_selector == 0) capture(8, "intro");
     }
-    /* Original stream +8 is a completed-picture index, not game ticks.
-     * PTS-derived indices preserve the gate even if presentation drops frames. */
     uint16_t held = em_frame_input()->held;
     if (f.test && !f.reinstalled && (strcmp(f.test, "skip") == 0 || new_game_test(f.test)) &&
         f.movie_pts >= 2.0)
@@ -215,7 +284,9 @@ static int movie_pump(void *unused)
      * original skip test below takes it at the first picture it accepts. */
     if (f.new_game_switch && f.new_game_movie)
         held |= EM_PAD_START;
-    int skip_ready = f.have_movie_frame && f.movie_picture >= 11;
+    /* 002036E0's skip: the decoder's picture count D_002DF740 +8 >= 11
+     * while the feed loop runs (em_movie_field_skip_ready). */
+    const int skip_ready = em_movie_field_skip_ready(mf);
     if (f.new_game_movie) {
         /* 002036E0 skips on held & (spad 0x70003B90 ? 0x800 : 0x8F0). The
          * game task 001ACEC0 writes 0x70003B90 = 2 on every tick before
@@ -227,12 +298,26 @@ static int movie_pump(void *unused)
         if (em_scene_state()->spad3B90 == 0) fail("game-task movie with spad 3B90 == 0");
         if (skip_ready && (held & EM_PAD_START)) f.movie_skip = 1;
     } else {
+        /* The title's movie: 0x70003B90 is 0 (001AC070 clears it every
+         * tick), the 0x8F0 buttons (em_startup_movie_input). */
         em_startup_movie_input(&f.flow, held, skip_ready);
     }
-    if (!f.failed && !f.movie_skip && !em_movie_finished(f.movie)) return 1;
-    printf("startup: movie %s, %u displayed frames, last PTS %.3f\n",
-           f.failed ? "failed" : f.movie_skip ? "skipped" : "completed",
-           f.movie_frames, f.movie_pts);
+    const int playing = !f.failed && em_movie_field_main(mf, f.movie_skip);
+    if (playing) return 1;
+    uint64_t pushed = 0, overruns = 0, bad_rate = 0;
+    em_movie_sound_counters(&pushed, &overruns, &bad_rate);
+    /* The sound's line: the step (em_frame_vblanks) of the first sounding
+     * field and this movie's ring overruns / wrong-rate pulls (the replay's
+     * offline audio, tools/test_replay_movie_audio.py). */
+    printf("startup: movie %s, %u displayed frames, last PTS %.3f; %u steps (gate at vblank %u, the play "
+           "loop's end at %u, P field %d), %u no-picture vblanks, %u sounding fields (%llu PCM frames)\n",
+           f.failed ? "failed" : f.movie_skip ? "skipped" : "completed", f.movie_frames, f.movie_pts,
+           f.movie_steps, mf->gate_vblank, mf->end_vblank, (int)*em_frame_d810E88(), mf->no_picture,
+           mf->sound_fields, (unsigned long long)f.movie_sound);
+    printf("startup: movie sound: first sounding field at step %lld, %llu frames pushed, %llu overruns, "
+           "%llu pulls at another rate\n", f.movie_sound_first == UINT32_MAX ? -1LL : (long long)f.movie_sound_first,
+           (unsigned long long)(pushed - f.movie_sound_base[0]), (unsigned long long)(overruns - f.movie_sound_base[1]),
+           (unsigned long long)(bad_rate - f.movie_sound_base[2]));
     em_movie_close(f.movie);
     f.movie = NULL;
     f.texture_screen = -1;
@@ -497,10 +582,17 @@ static void startup_task(void)
         case 10: input.held = input.pressed = EM_PAD_UP; expected_cursor = 0; break;
         case 12: input.held = input.pressed = EM_PAD_UP; expected_cursor = 0; break;
         }
-        /* EM_STARTUP_MENU_WAIT=N (0..15) holds the title N more idle ticks
-         * before the CROSS (tools/test_new_game_switch.py: title routes of
-         * both field parities and dwells; below the 30-tick menu test). */
-        if (f.menu_ticks == 14 + f.menu_wait && new_game_test(f.test))
+        /* The CROSS at menu tick 15: the New Game movie's iteration then
+         * has D_00810E80 = 1, as in the canonical fork run of the original
+         * (decomp build/fork_refs/probes_1016/newgame/d0), so the field
+         * relation after it is the reference recordings' (GS_EXACT.md
+         * 10.4: after a movie the relation follows the parity it was
+         * entered on). A player's press decides it in real play; both
+         * outcomes are original. EM_STARTUP_MENU_WAIT=N (0..14) holds the
+         * title N more idle ticks before the CROSS
+         * (tools/test_new_game_switch.py: title routes of both field
+         * parities and dwells; below the 30-tick menu test). */
+        if (f.menu_ticks == 15 + f.menu_wait && new_game_test(f.test))
             input.held = input.pressed = EM_PAD_CROSS;
     }
     em_startup_tick(&f.flow, &input);
@@ -598,7 +690,7 @@ int em_frontend_movie_request(uint8_t value)
         return -1;
     }
     if (value != 1 || f.movie_selector < 0 ||
-        (size_t)f.movie_selector >= sizeof k_movie_paths / sizeof k_movie_paths[0] || f.movie) {
+        (size_t)f.movie_selector >= sizeof k_movies / sizeof k_movies[0] || f.movie) {
         char error[128];
         snprintf(error, sizeof error, "movie request D_00821058=%u with selector %d is not exported",
                  (unsigned)value, f.movie_selector);
@@ -619,10 +711,11 @@ void em_frontend_install(void)
     f.test = getenv("EM_STARTUP_TEST");
     const char *wait = f.test ? getenv("EM_STARTUP_MENU_WAIT") : NULL;
     f.menu_wait = wait ? (unsigned)strtoul(wait, NULL, 10) : 0;
-    if (f.menu_wait > 15)
-        f.menu_wait = 15;
+    if (f.menu_wait > 14)
+        f.menu_wait = 14;
     em_startup_init(&f.flow, notify, NULL);
     em_frame_set_movie_pump(movie_pump, NULL);
+    em_frame_set_movie_vblank(movie_vblank, NULL);
     em_task_register(0, startup_task);
 }
 
@@ -654,6 +747,7 @@ void em_frontend_install_new_game(void)
         return;
     }
     em_frame_set_movie_pump(movie_pump, NULL);
+    em_frame_set_movie_vblank(movie_vblank, NULL);
     printf("startup: EM_NEW_GAME=1: no frontend; New Game (001AC070 state 4)\n");
     em_game_install_new();
 }
@@ -662,6 +756,7 @@ void em_frontend_shutdown(void)
 {
     em_startup_audio_stop();
     em_frame_set_movie_pump(NULL, NULL);
+    em_frame_set_movie_vblank(NULL, NULL);
     if (f.movie) em_movie_close(f.movie);
     f.movie = NULL;
     for (unsigned i = 0; i < 6; ++i) {

@@ -1,7 +1,7 @@
 # iOS: the port on an iPhone, played with a game controller
 
 The same port, built for iPhone: the game code (`src/game/*`), the input
-model, the Metal renderer and the movie player are the macOS build's, unchanged;
+model, the Metal renderer and the movie decoder are the macOS build's, unchanged;
 only the platform layer differs. It runs the **Original** profile (the 4:3 GS
 frame, nearest-neighbour, black bars at the sides) and is played **with a game
 controller only** (an MFi / extended gamepad such as the Backbone Pro). There
@@ -163,7 +163,7 @@ cannot disturb the scripted test fixtures).
   call, Control Center) the game thread parks at the top of its next frame
   (`em_window_poll`): no game ticks and no GPU work in the background, which
   iOS forbids. Audio stops with it and resumes on return; a movie that was
-  playing resumes where it stopped.
+  playing resumes where it stopped (it runs on the game's field clock).
 - **Files.** The game reads `assets/...` and writes `data/memcard` (the
   host memory cards, docs/OPTIONS.md) relative to
   the working directory, and the bundle is read-only, so the working
@@ -190,7 +190,16 @@ cannot disturb the scripted test fixtures).
   so the game's movie table is unchanged; the cache is `build/ios/movies/`.
   Measured with `movie_transcode --compare` against the macOS decode of the
   original: E001 2305 of 2305 pictures with identical timestamps, mean error
-  0.49 of 255 per channel, PSNR 46.8 dB.
+  0.49 of 255 per channel, PSNR 46.8 dB. Since 2026-10-16 there is no
+  AVPlayer: the game asks the decoder (`em_movie_mac.m`, AVAssetReader) for
+  each picture when its field clock shows it and plays the movie's PCM
+  through its own mixer (`em_movie_sound.h`, `em_bgm.c`), the same on macOS
+  and iOS (FIRST_LEVEL_EXIT.md section 7). The game refuses a movie whose
+  picture count is not the original's (4,761 E900, 2,305 E001). Checked on
+  the copies of the 2026-10-16 device build (`build/movie_test` on
+  `build/ios/movies/`): 4,761 and 2,305 pictures in order; their PCM equals
+  the remux's sample for sample but ends 32 (E900) and 64 (E001) frames
+  earlier, past anything the game plays.
 - **Build** (`tools/ios/build.sh`, `tools/ios/Extermination.xcodeproj`):
   `make ios-lib IOS_SDK=iphoneos|iphonesimulator` compiles everything into
   `build/ios/<sdk>/libextermination.a` with the macOS flags (zero
@@ -253,7 +262,7 @@ headroom per tick in the world at p99.
 ## Known limits
 
 - Movies are a high-quality re-encode (above), not the original MPEG-2
-  stream; the sound is the original's.
+  stream; the sound is the original's, played through the game's mixer.
 - Controller only: no touch controls, no on-screen pad, no keyboard.
 - Rumble, pressure-sensitive buttons and saves are not available (the same
   as macOS today).

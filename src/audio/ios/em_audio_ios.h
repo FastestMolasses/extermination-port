@@ -12,7 +12,8 @@ extern "C" {
 /* Configure and activate the app's AVAudioSession: category Playback (the
  * game is audible with the ring/silent switch on silent, as a game the
  * player started), 48000 Hz preferred. Idempotent; the platform layer calls
- * it at launch so the movie player (AVPlayer) and the AudioUnit share it.
+ * it at launch, before the AudioUnit (which also plays the movies' sound:
+ * em_movie_sound.h) starts.
  * 0 on success, -1 when the session refused (the game still runs). */
 int em_audio_ios_session_begin(void);
 

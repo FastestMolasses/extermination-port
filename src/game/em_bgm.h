@@ -1,13 +1,14 @@
 /* em_bgm.h — the shared audio output device.
  *
  * em_bgm owns the single em_audio device (em_audio.h pull model). Its
- * render callback sums the three native producers, each lock-free and
+ * render callback sums the four native producers, each lock-free and
  * allocation-free on the audio thread:
  *   - em_sfx_mix            the SFX driver's voices (em_sfx.h);
  *   - em_startup_audio_mix  the startup sequencer (em_startup_audio.h);
  *   - em_stream_live_mix    the music and voice streams: the SPU output of
  *                           the IOP stream backend the original stream
- *                           lanes drive (em_stream_live.h, WP-8b).
+ *                           lanes drive (em_stream_live.h, WP-8b);
+ *   - em_movie_sound_mix    the playing movie's PCM (em_movie_sound.h).
  * The streams have no player here any more: the lanes (001FA790, 001FAE70,
  * 001FABB0, ...) own them, and the IOP backend renders their samples on the
  * game thread, one NTSC field per frame (docs/IOP_STREAM.md "Binding").

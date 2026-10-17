@@ -81,14 +81,22 @@ fails the tool. Both traces become (original function, state) per call.
   since 2026-10-09, the first stream read after a module-loader read; 6 before).
   newgame-control: locked_ticks 1301 at host speed, 1322 with the switch (1311
   before 2026-10-09); the displacement is 9.599849 in both. The frame-order
-  post-control window is native index 1393 (counter 2650) at host speed, 1677 with
+  post-control window is native index 1393 (counter 2651; 2650 before the FIELD
+  step's CROSS at title menu tick 15) at host speed, 1677 with
   the switch (1676 from 2026-10-09 to 2026-10-16, before the sound-bank DMA's pending
   first query, IOP_STREAM.md "The sound-bank transfer"; 1665 from chain step H7 to
-  2026-10-09; 1330 / 1340 before H7).
+  2026-10-09; 1330 / 1340 before H7). The press at menu tick 15 (2026-10-16, STARTUP.md)
+  holds the title one tick longer: every counter from the New Game on is one higher (the
+  newgame-control trace's first tick counter 1258, the area entry 1337 at host speed and
+  1600 with the switch, 1336 / 1599 before), while the trace's native indices, which
+  count from the New Game's first game-task tick, are unchanged; all ten windows (idle04
+  1393 / 1677, walk04 1455 / 1739, st03 1384 / 1668, cut02 89 / 373, cut15 83 / 346)
+  PASS with the empty allow list, and cut02 at 88 and walk04 at 1738 still fail
+  (port build/field_final_r1/ft_host.jsonl, ft_drive.jsonl, fo_*.log; ft_head_host.jsonl: ded1bcb's 1257 / 1336 / 2650).
 
 ## 3. The New Game opening (the newgame capture)
 
-The two traces are aligned on the area entry: port counter 1273 = original frame n270.
+The two traces are aligned on the area entry: port counter 1273 = original frame n270 (when this section was measured; 1336 since chain step H7's loads, 1337 since the fixtures' CROSS at title menu tick 15, 2026-10-16: `make test-rand-order` prints it, and every result below is unchanged).
 
 | Check | Result |
 |---|---|

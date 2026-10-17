@@ -101,12 +101,27 @@ The status pages' blend blocks set TEX1_1 = 0x60 (bilinear) for the page
 sprites (FIDELITY_FEATURES.md, the status-screen entry); the glyph packet
 sets its own TEX1 after them, so the two do not conflict.
 
+**Drawn as the GS draws it (2026-10-16, GS_EXACT.md 10.4).** Each sprite
+pass of a strip (the non-skewed kind) now goes to `em_gfx_overlay_glyph_gs`
+(em_gfx.h) with its packet's XYZ2 and UV as given, per run of strip columns
+that one upload owns: the Metal overlay pass draws every field pixel from
+the GS's own sample, the integer point of its row under the field's draw
+offset (OFY 1936.5 on a half-line field), with the sprite's coverage, U
+and V as the floor of their exact values in 1/16 texel (the rows' 2 texels
+per row are dyadic; the columns' u_end = width + 1 span, 228 over 227 in
+the AREA01 title, is not, and the GS model's column rule takes the floor of
+the exact value), and the CLUT's ink colour: 001CC8A0 expands an ink bit
+to texel index 15, and the strip's TEX0 reads the CLUT 001CCB10 uploads
+(byte-matched; CBP 0x1B67), a grey ramp whose entry 15 is grey 240 at the
+GS's full alpha (`GLYPH_INK` in em_hud.c; the atlas keeps the coverage
+only). The AREA01 title at fb2 point 15 is exact since (it was a row off
+on either half line and 240 against 225 under the fade before). The skewed
+kind (markup tag 3, a triangle strip) keeps the host quad.
+
 Not modelled at the boundary (renderer work, WP for the Original profile's GS
-path): the prebuilt packets' TEX0/CLUT (the port's atlas is white with alpha
-coverage), TEST and ALPHA registers, and the GS rasterisation of a sprite
-whose texel span (u_end = width + 1) is one texel wider than its pixel span.
-No capture of the fb2 set shows message text (CAPTURES_C7.md 5b), so the
-glyphs' pixels are not compared (tools/test_fb2_pixels.py).
+path): the TEST and ALPHA registers, and the skewed kind's GS rasterisation.
+The fb2 set shows message text at 09_fence_door and 15_level_exit (the area
+title); 15 is compared (tools/test_fb2_pixels.py).
 
 ## Capture compare
 

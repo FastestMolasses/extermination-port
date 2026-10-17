@@ -111,6 +111,7 @@ import level_smoke_area00
 import level_smoke_area01  # the AREA01 arrival idle (route 15 f749..f809 on the fork) and the opt-in AREA01 routes
 import reference_root as refs  # EM_REFERENCE: the fork's recordings by default (LEVEL_SMOKE.md "References: fork")
 import rand_order as R
+import field_rule as FR  # the code's field rule (GS_EXACT.md 10.4)
 import test_scene_task_reference as tsr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -3254,6 +3255,104 @@ def rctx_world_lists():
     return ref
 
 
+# ------------------------------------------------------------ the field relation
+
+# The code's rule for the field bit D_00810E88 against the buffer index
+# D_00810E80 (tools/field_rule.py; GS_EXACT.md 10.4, em_frame.h
+# em_frame_d810E88). Backed by the fork's rows (both outcomes): the
+# canonical New Game run's movie iteration with D_00810E80 = 1
+# (probes_1016/newgame/d0) and the route's AREA11 beats after it in opposite
+# phase; route 15's departure movie (row 441, D_00810E80 = 0) and its rows
+# 442.. equal. The emulator's late movie ends (newgame d1, the d4 chain's
+# E001: the teardown RPC 00113F68 returned a field late, emulated IOP
+# timing) are not host speed and are not used.
+field_rule_movies = FR.field_rule_movies
+FIELD_RULE_ROUTE = refs.FORK / 's87' / 'route'
+FIELD_RULE_NEWGAME = refs.FORK / 'probes_1016' / 'newgame' / 'd0'
+_FIELD_RULE_BACKING = []
+
+
+def field_rule_backing():
+    """The fork rows behind the rule (both movie outcomes); asserted once."""
+    if _FIELD_RULE_BACKING:
+        return _FIELD_RULE_BACKING[0]
+    table = json.loads((FIELD_RULE_NEWGAME / 'tick.tbl.json').read_text())
+    raw = (FIELD_RULE_NEWGAME / 'tick.tbl').read_bytes()
+    spans = {x['name']: x['offset'] for x in table['spans']}
+    hs, rs = table['header_size'], table['row_size']
+    rows = [(struct.unpack_from('<I', raw, hs + k * rs + spans['vs'])[0],
+             struct.unpack_from('<H', raw, hs + k * rs + spans['fi'])[0],
+             struct.unpack_from('<H', raw, hs + k * rs + spans['fld'])[0]) for k in range((len(raw) - hs) // rs)]
+    ng = field_rule_movies(rows, ('fork New Game run d0',))
+    assert len(ng) == 1 and ng[0][1] == 1, ('fork New Game run d0: one movie entered with D_00810E80 = 1', ng)
+    after = rows[ng[0][0] + 1:]
+    assert after and all(f == 1 - i for _, i, f in after), 'fork d0: the relation after the New Game movie'
+    beats = sorted(p.name for p in FIELD_RULE_ROUTE.iterdir() if p.name[:2].isdigit() and
+                   (p / 'trace.json').exists())
+    assert beats[0][:2] == '00' and beats[-1][:2] == '15', beats
+    normal = 0
+    for beat in beats:
+        trace = json.loads((FIELD_RULE_ROUTE / beat / 'trace.json').read_text())['rows']
+        rows = [(r['vs'], r['fi'], r['fld']) for r in trace]
+        movies = field_rule_movies(rows, ('fork route', beat))
+        if beat[:2] < '15':
+            assert not movies and all(f == 1 - i for _, i, f in rows), ('fork route: AREA11 after the New Game '
+                                                                       'movie (entered on 1) in opposite phase',
+                                                                       beat)
+            normal += len(rows)
+        else:
+            assert len(movies) == 1 and movies[0][1] == 0, ('fork route 15: the departure movie entered on 0',
+                                                           movies)
+            m = movies[0][0]
+            assert all(f == 1 - i for _, i, f in rows[:m + 1]) and all(f == i for _, i, f in rows[m + 1:]), (
+                'fork route 15: opposite before the departure movie, equal after it')
+            equal = (m + 1, len(rows) - 1)
+    _FIELD_RULE_BACKING.append(f'the fork\'s New Game movie entered on 1 and the {normal} AREA11 route rows after '
+                               f'it opposite, route 15\'s departure movie entered on 0 and its rows '
+                               f'{equal[0]}..{equal[1]} equal')
+    return _FIELD_RULE_BACKING[0]
+
+
+def field_rule_port(ticks, run):
+    """The port's loop tops (the tick rows' fld = [D_00810E80, D_00810E88]
+    and vs) under the code's rule: per tick, 1 where the relation in force
+    keeps fld = 1 - fi (step W's field +0x98 = 1 - slot +0x9C), 0 where it
+    gives fld == fi (+0x98 == slot); and the movies [(tick index,
+    D_00810E80)]. The relation is derived, never read from the log: from
+    the start-up rule (first loop top (0, 1)) and the frontend movies of the
+    run log (field_rule.boot_relation), then from each movie in the log.
+    Every loop top must be on the boot's clock (field_rule.check_boot_clock)
+    and hold the relation in force; a gap in the log must hide no movie.
+    Records that are not loop-top rows (no fld / vs) take the relation in
+    force."""
+    rel, _ = FR.boot_relation(run, ('port', 'run log'))
+    relation, movies = [], []
+    prev = None
+    for i, t in enumerate(ticks):
+        if 'fld' not in t or 'vs' not in t:
+            relation.append(rel)
+            continue
+        where = ('port', 'tick', t.get('tick'))
+        FR.check_boot_clock([(t['counter'], t['vs'], t['fld'][0], t['fld'][1])], where)
+        if prev is not None and t['counter'] == ticks[prev]['counter'] + 1:
+            pair = [(ticks[k]['vs'], ticks[k]['fld'][0], ticks[k]['fld'][1]) for k in (prev, i)]
+            found = field_rule_movies(pair, where)
+            if found:
+                # the movie iteration itself already holds the field 1 its P read
+                rel = relation[prev] = found[0][1]
+                movies.append((prev, rel))
+        elif prev is not None:
+            iterations, vblanks = t['counter'] - ticks[prev]['counter'], t['vs'] - ticks[prev]['vs']
+            assert iterations > 0 and vblanks == iterations, (where, 'a gap in the tick log that holds a movie '
+                                                                     '(its entry is not logged)', iterations,
+                                                              vblanks)
+        assert int(t['fld'][1] == 1 - t['fld'][0]) == rel, (where, 'a loop top off the relation the boot and the '
+                                                                   'movies give', t['fld'], rel)
+        relation.append(rel)
+        prev = i
+    return relation, movies
+
+
 def check_render_context(ticks, state):
     """The live render context (census L32 / L30, docs/RENDER_CONTEXT.md
     section 8) over the whole run, from first control on:
@@ -3268,7 +3367,10 @@ def check_render_context(ticks, state):
       snapshot with the tick's V and zoom, writes the logged K and
       001CD370(0) projection bit for bit;
     - main-loop steps V / W (001D2300, 001D2580): on every tick +0x98 (the
-      field W stored) is 1 - +0x9C, the phase every capture holds; the list
+      field W stored) against +0x9C follows the code's field rule
+      (field_rule_port: 1 - +0x9C after a movie entered on D_00810E80 = 1,
+      as every AREA11 capture holds, +0x9C after one entered on 0, as route
+      15 after the departure movie), and the loop tops obey it; the list
       the previous step V built equals the captures' (status frames: the
       status captures' list with the black clear; world frames: the route
       snapshots' seven-tag list with the +0x1D8 CALL), with the cursor at its
@@ -3279,10 +3381,22 @@ def check_render_context(ticks, state):
       its frame head projected the UI view 0020DFA0 wrote into D_00810610."""
     import test_frame_render_heads_reference as frh
     from test_player_slide_reference import RETURN, read_elf
+    backing = field_rule_backing()
+    relation, movies = field_rule_port(ticks, state['run'])
+    # The like-for-like guard of the reference recordings: the fixture's
+    # New Game movie enters on D_00810E80 = 1, as the canonical fork run's
+    # (probes_1016/newgame/d0; the CROSS at menu tick 15, STARTUP.md), so
+    # AREA11's loop tops hold the fork route's relation. The run log's
+    # game-task movies and the tick log's agree on every entry.
+    game = [m for m in FR.run_movies(state['run']) if m['game_task']]
+    assert movies and game and movies[0][1] == 1 and game[0]['name'] == 'E900.PSS' and game[0]['entry'] == 1, (
+        'render context: the fixture\'s New Game movie does not enter on D_00810E80 = 1', movies, game[:1])
+    assert [e for _, e in movies] == [m['entry'] for m in game[:len(movies)]], (
+        'render context: the tick log\'s movie entries against the run log\'s', movies, game)
     ref = rctx_reference()
     status_ref = rctx_status_reference()
     world_lists = rctx_world_lists()
-    fields = status_frames = status_ui = world_list_ticks = 0
+    fields = status_frames = status_ui = world_list_ticks = inverted = 0
     first = state['first_control']
     gameplay, lagged, moved, reseats, prev = 0, 0, 0, 0, None
     # The first status screen's close (0x1AE040 +B = 5): from there on the
@@ -3304,11 +3418,14 @@ def check_render_context(ticks, state):
                                                 'fog record save slot 0 +0x120', r['slot0'].hex())
             slot_ticks += 1
         where = ('render context', 'port tick', t['tick'])
-        # Step W's field against step B's slot: the captures' phase.
+        # Step W's field against step B's slot: the code's field rule.
         slot = struct.unpack_from('<I', r['field98'], 4)[0]
-        assert slot in (0, 1) and struct.unpack_from('<I', r['field98'], 0)[0] == 1 - slot, (
-            where, 'step W field +0x98 / slot +0x9C', r['field98'].hex())
+        want = 1 - slot if relation[i] else slot
+        assert slot in (0, 1) and struct.unpack_from('<I', r['field98'], 0)[0] == want, (
+            where, 'step W field +0x98 / slot +0x9C against the field rule', r['field98'].hex(),
+            'relation', relation[i], 'movies', movies)
         fields += 1
+        inverted += not relation[i]
         other = 1 - slot
         cursor = struct.pack('<I', RCTX_ARENA + (other << 14) + 0x60)        # status: 6 tags
         world_cursor = struct.pack('<I', RCTX_ARENA + (other << 14) + 0x70)  # world: 7 tags
@@ -3390,8 +3507,10 @@ def check_render_context(ticks, state):
     assert world_list_ticks >= 100, ('render context: step V world lists too little exercised', world_list_ticks)
     assert opened is None or (status_frames >= 10 and status_ui >= 10), (
         'render context: the status frames too little exercised', status_frames, status_ui)
-    print(f'render context: PASS ({fields} ticks hold step W\'s field +0x98 = 1 - slot +0x9C, the captures\' '
-          f'phase; {world_list_ticks} world frames\' step V lists equal the route snapshots\' (seven tags, '
+    entries = ', '.join(f'port tick {ticks[k]["tick"]} entered on {e}' for k, e in movies)
+    print(f'render context: PASS ({fields} ticks hold step W\'s field +0x98 against slot +0x9C by the code\'s '
+          f'field rule ({fields - inverted} as 1 - slot, {inverted} as slot; the movies: {entries or "none"}; '
+          f'the New Game movie entered on 1, the fork\'s; every loop top on the boot\'s clock and in the relation derived from the start-up rule and the movies; the fork\'s rows behind it: {backing}); {world_list_ticks} world frames\' step V lists equal the route snapshots\' (seven tags, '
           f'with the +0x1D8 CALL of the channel-3 list 001C1D00 builds); {status_frames} status frames hold '
           f'the status captures\' flag '
           f'words (flag 3 set, cleared by step V), fog block, save slot and step V list with the black clear '
@@ -5014,7 +5133,7 @@ def main():
     # EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md "PS2 disc-drive
     # timing"): check_voice_drive and the opening's end follow it.
     state = {'drive': R.drive_mode(run), 'status_pages_trace': args.status_pages_trace,
-             'tail': tails[-1] if tails else None, 'tails': tails}
+             'tail': tails[-1] if tails else None, 'tails': tails, 'run': run}
     # A BRANCH side run (level_smoke_branch): the tick its side phase starts,
     # which bounds the main line's searches.
     side = re.search(r'^level smoke: (?:br_\w+|opt_\d\d): beat \S+ at tick (\d+)', run, re.M)
