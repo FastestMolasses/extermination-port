@@ -261,8 +261,8 @@ Run the proof set with EM_TEST_FULL=1 for each item.
   - *One-worker hosts* (the Windows path, without worker threads yet; Linux with 4 or fewer cores): L1 alone makes AREA11 real time (a tick of about 12-16 ms) but not AREA01 (about 19-24 ms). Worker threads, and drawing beside the game's thread, are the cheaper fix.
 
 **L2. Optional: an exact GS model as Metal compute.**
-- The GS pixel pipeline is integer arithmetic, so it can run exactly on the GPU in principle. stq_div would need an exact formulation, because Metal's float division is not correctly rounded.
-- *Effort:* months. *Risk:* high.
+- Explored 2026-10-17: [GS_GPU_DESIGN.md](GS_GPU_DESIGN.md). The pixel pipeline is mostly integer; the only per-pixel binary64 steps (the STQ triangle chain with stq_div, and the triangle Z step) have exact fp64-free integer formulations, checked bit for bit against the model on the CPU and on the M1 Pro's GPU (0 differences; about 0.4 and 0.16 ns a pixel). Hardware binary32 is not trusted for exact values (subnormals flush; division is not correctly rounded). The open questions are ordering and aliasing, and above all whether the GPU path saves energy: stage 2 (the depth-of-field pass) is the energy go / no-go.
+- *Effort:* about 4-7 months for the Metal stages. *Risk:* high (energy unmeasured). *Status:* stage 0 done; stage 0.5 not started (user, 2026-10-17: "Not yet").
 - *Next (user decision 2026-10-15):* explore it. Not only for the phone's budget: an exact GPU model would draw the frame with far less CPU time and energy on every host, and the work should carry over to other PS2 projects. Measure energy (powermetrics needs the user's sudo) or CPU time as its stand-in, not only ticks over.
 
 ### Where this lands (estimate)
