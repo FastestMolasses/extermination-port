@@ -466,11 +466,14 @@ test-collision-world-capture: $(BIN)
 # the target).
 # The runs use the switches in the environment (src/em_settings.h): by
 # default the Original profile, whose disc answers at host speed.
-# test-level-smoke-ps2-drive plays the main route through roger with the
-# PS2 disc-drive timing switch on (EM_PS2_DISC_DRIVE_TIMING=1,
-# LAUNCHER_OPTIONS.md), where the voiced lines and the opening compare the
-# capture's drive fields (about 120 s). The checker reads the mode from the
-# run's "stream drive:" line (LEVEL_SMOKE.md "The stream drive's two modes").
+# test-level-smoke-ps2-drive plays the whole main route through the level
+# exit and the AREA01 arrival idle (a01_arrival) with the PS2 disc-drive
+# timing switch on (EM_PS2_DISC_DRIVE_TIMING=1, LAUNCHER_OPTIONS.md), where
+# the voiced lines and the opening compare the capture's drive fields and
+# the departure movie E001 is entered on D_00810E80 = 0, as the fork's
+# route 15 (the field rule's relation change; about 150 s). The checker
+# reads the mode from the run's "stream drive:" line (LEVEL_SMOKE.md "The
+# stream drive's two modes").
 # Every run's EM_PRESENT_LOG goes through tools/check_present_again.py (the
 # frames that draw nothing, read back from the GPU; GS_EXACT.md section 11):
 # the default run checks the START and battery status entries; the panel's
@@ -513,7 +516,7 @@ test-level-smoke-full: $(BIN)
 
 .PHONY: test-level-smoke-ps2-drive
 test-level-smoke-ps2-drive: $(BIN)
-	EM_PS2_DISC_DRIVE_TIMING=1 EM_LEVEL_SMOKE_UNTIL=roger $(MAKE) test-level-smoke
+	EM_PS2_DISC_DRIVE_TIMING=1 EM_LEVEL_SMOKE_UNTIL=a01_arrival $(MAKE) test-level-smoke
 
 # test-cutscene-skip: a cutscene skipped in the headless game, frame by
 # frame against the original's skip captures (tools/test_cutscene_skip.py,

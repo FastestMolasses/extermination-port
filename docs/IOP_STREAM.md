@@ -261,7 +261,27 @@ What the capture shows, and the model:
      status close).
   2. 0x97 tears down on the capture's row.
   3. 0x99 is 1 or 2 rows late in the 2026-10-09 runs: the port served a refill first (before the rule its
-     music phase happened to give 0).
+     music phase happened to give 0). **Traced 2026-10-16** (the demo_level_1017 comparison: the east tower
+     cutscene, segment 24, 220 port ticks against the fork's 219; decomp VIDEO_COMPARE.md "Demo run 2026-10-16
+     (demo_level_1017)"): lane 0's refill request (lane 0 +0x03 set by 001F9CF0's lane loop when the cursor copy
+     D_00281880 crosses a buffer half) reaches the EE in the same field in which 001FA5F0 starts the voice line
+     (001FA790(1, cue 0x95)) on the port and one field later on the fork. 001FA0D0's round-robin scan starts at
+     index 0 (D_00282158 = 0), so the port serves lane 0 first and the voice read waits 2 fields, the fork's 1;
+     every later step (read issued, done, key-on, the +0x4C timer of 126 fields, the teardown 73 fields after its
+     release, the screen's return) is then exactly one field later on the port. That is the code's own
+     arbitration applied to a refill field the code does not fix: the field follows the driver tick's phase and
+     the RPC 0x64 reply time against the field, which this backend models as phase 0 at its boot and the RPC at
+     the field's start (the table above: both unknown). The EE side is constant (a fork log probe: 001152D8 runs
+     837 EE cycles after the vsync handler 0x1AB140 on all 1,939 gameplay fields probed). A scratch build whose
+     stream clock started h0 half-lines late (16 runs, h0 0..120 by 8) gave 220 for h0 0..64 and 219 for 72..120;
+     at h0 = 104 every voice-lane event from counter 4434 to 12900 equals the fork's and 227 of 240 lane-0
+     refills land on its field (no h0 matches all 240: a residual IOP-side spread). The +2 since the 2026-10-09
+     port (218) is not a logic change: the 17-field seek after a loader read (fc986dc) moved the music's key-on
+     so that a refill falls next to the voice start (219), the movies' host-timed fields made the phase vary
+     from run to run until the field-paced movies (f8616f9) fixed it on the 220 side. **Open** (LAUNCHER_OPTIONS.md
+     "Decisions for the user to review"): no capture records the driver tick's phase; on a PS2 it follows the
+     time since the driver armed its timer (the boot and the title's dwell), so one recording fixes it for one
+     run only. Receipts: decomp `build/seg24_trace_1016/` (the fork lane trace), port `build/seg24_bisect/`.
   4. The level smoke's check_voice_drive allows exactly the fields each side's sequencer spent on lane 0 first.
 - The music's resume after the battery_ui and panel_power status closes keys on 20 rows after the cue's return,
   as in the audio captures (the read after the page's module-0x21 load: the 17-field rule). Roger's cue-29 resume

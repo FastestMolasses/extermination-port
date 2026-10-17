@@ -240,7 +240,12 @@ as recorded in PCSX2 on the same route.
   through a01_arrival (NOT-LIVE: none) with every side run, `make
   test-level-smoke-ps2-drive` PASS through roger, and every other make
   test-* target PASS. (Chain C8b ROUTE, 2026-09-28: the same through roger
-  with the three side runs of the time.)
+  with the three side runs of the time.) Since 2026-10-16 `make
+  test-level-smoke-ps2-drive` plays through a01_arrival (the level exit and
+  the AREA01 arrival with the switch on, E001 entered on D_00810E80 = 0 as
+  on the fork's route 15) and passes, after the checker's field rule was
+  corrected for the movie iteration (GS_EXACT.md 10.4 "The movie
+  iteration's own sample"; the port's output was already right).
 - Status: **PARTIAL**. First level only. The walks between scripted windows
   are navigation and are not compared. Pixels and sounds are not compared at
   all. `LEVEL_SMOKE.md` "What the full route does not yet compare" lists the

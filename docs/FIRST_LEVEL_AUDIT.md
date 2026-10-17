@@ -2718,7 +2718,9 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   6 rows early (0x7F 8, with 2 rows of navigation) and the opening's stream request keys on 7 fields after the
   request frame. With the switch on, each voiced line's teardown lies exactly its key-on's shift from the capture's
   row, which is the lane-0 music refill one side's sequencer served first (a navigation-dependent phase: in the
-  2026-10-09 runs 0x7F 2 rows early, 0x97 on the capture's row, 0x99 1 or 2 rows late), and the opening's request keys on
+  2026-10-09 runs 0x7F 2 rows early, 0x97 on the capture's row, 0x99 1 or 2 rows late; traced 2026-10-16: 0x99's one
+  field against the fork's demo run comes from the driver tick's phase, which no capture records, not from logic,
+  IOP_STREAM.md item 3, an open decision in LAUNCHER_OPTIONS.md), and the opening's request keys on
   after 27 fields as in the original: 16 rows of ready query while the area music's read (the first stream read
   after the New Game's last module-loader read) finishes its measured 17-field seek, 7 of read, 4 of hold
   (IOP_STREAM.md "Drive model", modelled since 2026-10-09). (2)

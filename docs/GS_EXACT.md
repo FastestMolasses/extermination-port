@@ -1897,6 +1897,28 @@ difference of logic; the level smoke checks the port's relation on every
 loop top against the rule (its backing: the fork's d0 New Game rows and
 route 15's rows after E001).
 
+**The movie iteration's own sample (2026-10-16, the timing follow-ups of
+the demo_level_1017 video).** With the PS2 disc-drive timing switch on, the
+port enters E001 on D_00810E80 = 0, as the canonical fork run (counter
+15200 in the demo run), and the relation changes there. The level smoke's
+step-W check (`check_render_context`) failed on that iteration because its
+`field_rule_port` gave the movie iteration itself the new relation. The
+tick log's `rctx` is written at the end of the scene task 001ACEC0, which
+runs in step E: after step B (001D1AE0(D_00810E80) stores +0x9C) and
+before the movie (step M), P and W (001D2580(D_00810E88), the only writer
+of +0x98). So the sampled pair is (+0x98, +0x9C) = (W(n-1)'s field, B(n)'s
+slot), the iteration's loop top (D_00810E88, D_00810E80), in the movie
+iteration too: the old relation. The original agrees (the fork's
+`probes_1016/movie_end/canon`: at counter 15418, E001's iteration, B's a0
+is 0 while +0x98 still holds 1; at 15419 B's a0 = 1 with +0x98 = 1, equal;
+route 15's rows: opposite through the movie row 441, equal from 442). The
+checker now gives a movie iteration its loop top's relation and the new one
+from the next tick (as `tools/test_movie_field_live.py` already did), and
+asserts on every tick that the pair equals the loop top's (D_00810E88,
+D_00810E80). `make test-level-smoke-ps2-drive` now plays through the
+AREA01 arrival (a01_arrival), so the switch's E001 entry on 0 is checked by
+a make target.
+
 With the press at 15 every point's port field flips its phase. The decomp
 recorded the d4 chain's points 08, 13 and 14 on that phase
 (`build/fork_refs/pixels/fb2_phase_d4b_1016`, its manifest with

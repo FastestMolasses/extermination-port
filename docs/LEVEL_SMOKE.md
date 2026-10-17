@@ -87,7 +87,7 @@ EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-l
 EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke        # the main line through the AREA01 arrival idle alone (about 2 min)
 EM_LEVEL_SMOKE_UNTIL=panel_no_battery make test-level-smoke   # side beat 00 alone
 EM_LEVEL_SMOKE_UNTIL=fence_door make test-level-smoke         # side beat 09 without side 1
-make test-level-smoke-ps2-drive        # the main route through roger with the PS2 disc-drive timing switch on (about 110 s)
+make test-level-smoke-ps2-drive        # the main route through the AREA01 arrival (a01_arrival) with the PS2 disc-drive timing switch on (5 min 20 s measured 2026-10-16; through roger before that day)
 EM_PS2_DISC_DRIVE_TIMING=1 make test-level-smoke-side          # any target with the switch on (the side runs, about 70 s)
 ```
 
@@ -237,11 +237,21 @@ timing at loads"):
   the time keys `fi`, `fld` and `vs`.
 
 **The PS2 disc-drive run** (`make test-level-smoke-ps2-drive`, through
-roger) compares the fork's routes 00..14, which equal v2.6.3's in every
-row field, so it reads the fork too; its drive model (the C7 stream
-capture, the 17-field rule) was measured on v2.6.3 and is unchanged. The
-fork's disc timing differs only at loads past roger (route 15 and the side
-beats around a load), which that run does not reach.
+a01_arrival since 2026-10-16, through roger before) compares the fork's
+routes 00..14, which equal v2.6.3's in every row field, so it reads the
+fork too; its drive model (the C7 stream capture, the 17-field rule) was
+measured on v2.6.3 and is unchanged. The fork's disc timing differs only at
+loads past roger (route 15 and the side beats around a load). Since
+2026-10-16 the run also plays the level exit and the AREA01 arrival
+against route 15: with the switch the run enters Roger's departure movie
+E001 on D_00810E80 = 0, as the fork's canonical route 15, so the field
+relation changes there (GS_EXACT.md 10.4 "The movie iteration's own
+sample"); with the switch off it is entered on 1. Measured 2026-10-16
+(port f8616f9 with the checker fix): PASS, 20 live phases through
+a01_arrival, NOT-LIVE: none; render context 12,311 ticks (12,213 as
+1 - slot, 98 as slot after E001 at port tick 13942, each pair equal to its
+loop top); present again 3 entries; 5 min 20 s (receipts in the ignored
+`build/timing_lane_1016/`).
 
 **Measured on the switch (2026-10-10, one port build):** `make
 test-level-smoke` and `make test-level-smoke-full` (20 phases through
@@ -2131,6 +2141,13 @@ previous iteration's step V 001D2300 built). It checks:
   the fixture's New Game movie must enter on D_00810E80 = 1 (the canonical
   fork run's, so AREA11 holds the captures' 1 - slot); backed by the fork's
   d0 New Game rows and route 15's rows after E001 (entered on 0, equal);
+  since 2026-10-16 the sampled pair (+0x98, +0x9C) must also equal the
+  tick's loop top (D_00810E88, D_00810E80), as it is taken in step E,
+  after step B and before the movie and step W, and a movie iteration keeps
+  its loop top's relation (the new one holds from the next tick; before,
+  the checker gave the movie iteration the new relation and failed the
+  switch-on run's E001 entry on 0, port tick 13942, though the port was
+  right: GS_EXACT.md 10.4 "The movie iteration's own sample");
 - every world gameplay tick after a world frame holds the route snapshots'
   main list for the other slot (seven tags: the draw environment, the Z-only
   clear +0x3A0, the CALL of the +0x1D8 channel-3 list, channel 0, the page,
@@ -2857,7 +2874,7 @@ the switch) and command 0x20s (1); with the switch the third `stream
 drive:` line counts the SIF DMA transfers of the measured 0x492D0 bytes
 pending at their first query (1) and the transfers of another size,
 done at their first query as at host speed (0 through roger; through
-exit 3, the AREA01 bank load's, which keeps its 22 001FB370 calls
+exit and in `make test-level-smoke-ps2-drive` since 2026-10-16 3, the AREA01 bank load's, which keeps its 22 001FB370 calls
 against the EXIT capture's 26: IOP_STREAM.md "The sound-bank
 transfer").
 

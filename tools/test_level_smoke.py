@@ -3316,9 +3316,12 @@ def field_rule_backing():
 def field_rule_port(ticks, run):
     """The port's loop tops (the tick rows' fld = [D_00810E80, D_00810E88]
     and vs) under the code's rule: per tick, 1 where the relation in force
-    keeps fld = 1 - fi (step W's field +0x98 = 1 - slot +0x9C), 0 where it
-    gives fld == fi (+0x98 == slot); and the movies [(tick index,
-    D_00810E80)]. The relation is derived, never read from the log: from
+    at its loop top keeps fld = 1 - fi (and so step W's field +0x98 = 1 -
+    slot +0x9C as the tick log samples them in step E), 0 where it gives
+    fld == fi (+0x98 == slot); and the movies [(tick index,
+    D_00810E80)]. A movie iteration keeps the relation of its own loop
+    top (its +0x98 is still W(n-1)'s field when the scene task logs it);
+    the ticks after it take the relation the movie's entry gives. The relation is derived, never read from the log: from
     the start-up rule (first loop top (0, 1)) and the frontend movies of the
     run log (field_rule.boot_relation), then from each movie in the log.
     Every loop top must be on the boot's clock (field_rule.check_boot_clock)
@@ -3338,8 +3341,14 @@ def field_rule_port(ticks, run):
             pair = [(ticks[k]['vs'], ticks[k]['fld'][0], ticks[k]['fld'][1]) for k in (prev, i)]
             found = field_rule_movies(pair, where)
             if found:
-                # the movie iteration itself already holds the field 1 its P read
-                rel = relation[prev] = found[0][1]
+                # The tick log samples +0x98 / +0x9C in the scene task (step
+                # E, log_tick_end), after step B and before the movie (step
+                # M) and step W: the movie iteration still holds W(n-1)'s
+                # field and B's slot, its own loop top's relation (the
+                # original's: the fork's probes_1016/movie_end/canon,
+                # counter 15418, B a0 = 0 with +0x98 = 1); the movie's
+                # relation holds from the next tick on.
+                rel = found[0][1]
                 movies.append((prev, rel))
         elif prev is not None:
             iterations, vblanks = t['counter'] - ticks[prev]['counter'], t['vs'] - ticks[prev]['vs']
@@ -3367,10 +3376,13 @@ def check_render_context(ticks, state):
       snapshot with the tick's V and zoom, writes the logged K and
       001CD370(0) projection bit for bit;
     - main-loop steps V / W (001D2300, 001D2580): on every tick +0x98 (the
-      field W stored) against +0x9C follows the code's field rule
-      (field_rule_port: 1 - +0x9C after a movie entered on D_00810E80 = 1,
-      as every AREA11 capture holds, +0x9C after one entered on 0, as route
-      15 after the departure movie), and the loop tops obey it; the list
+      field the previous W stored, sampled in step E after B) against
+      +0x9C (B's slot) equals the tick's loop top (D_00810E88,
+      D_00810E80) and follows the code's field rule (field_rule_port: a
+      movie iteration keeps its loop top's relation; after it, 1 - +0x9C
+      when the movie entered on D_00810E80 = 1, as every AREA11 capture
+      holds, +0x9C when it entered on 0, as route 15 from row 442 after
+      the departure movie of row 441), and the loop tops obey it; the list
       the previous step V built equals the captures' (status frames: the
       status captures' list with the black clear; world frames: the route
       snapshots' seven-tag list with the +0x1D8 CALL), with the cursor at its
@@ -3396,7 +3408,7 @@ def check_render_context(ticks, state):
     ref = rctx_reference()
     status_ref = rctx_status_reference()
     world_lists = rctx_world_lists()
-    fields = status_frames = status_ui = world_list_ticks = inverted = 0
+    fields = status_frames = status_ui = world_list_ticks = inverted = looptop_pairs = 0
     first = state['first_control']
     gameplay, lagged, moved, reseats, prev = 0, 0, 0, 0, None
     # The first status screen's close (0x1AE040 +B = 5): from there on the
@@ -3419,11 +3431,18 @@ def check_render_context(ticks, state):
             slot_ticks += 1
         where = ('render context', 'port tick', t['tick'])
         # Step W's field against step B's slot: the code's field rule.
-        slot = struct.unpack_from('<I', r['field98'], 4)[0]
+        field, slot = struct.unpack_from('<II', r['field98'], 0)
         want = 1 - slot if relation[i] else slot
-        assert slot in (0, 1) and struct.unpack_from('<I', r['field98'], 0)[0] == want, (
+        assert slot in (0, 1) and field == want, (
             where, 'step W field +0x98 / slot +0x9C against the field rule', r['field98'].hex(),
             'relation', relation[i], 'movies', movies)
+        # Sampled in step E: +0x98 is W(n-1)'s field, the loop top's
+        # D_00810E88, and +0x9C B's D_00810E80 (001D1AE0(D_00810E80)).
+        if 'fld' in t:
+            assert (field, slot) == (t['fld'][1], t['fld'][0]), (
+                where, 'step W field +0x98 / slot +0x9C against the tick\'s loop top (D_00810E88, D_00810E80)',
+                r['field98'].hex(), t['fld'])
+            looptop_pairs += 1
         fields += 1
         inverted += not relation[i]
         other = 1 - slot
@@ -3509,7 +3528,8 @@ def check_render_context(ticks, state):
         'render context: the status frames too little exercised', status_frames, status_ui)
     entries = ', '.join(f'port tick {ticks[k]["tick"]} entered on {e}' for k, e in movies)
     print(f'render context: PASS ({fields} ticks hold step W\'s field +0x98 against slot +0x9C by the code\'s '
-          f'field rule ({fields - inverted} as 1 - slot, {inverted} as slot; the movies: {entries or "none"}; '
+          f'field rule ({fields - inverted} as 1 - slot, {inverted} as slot, {looptop_pairs} equal to their loop top\'s '
+          f'(D_00810E88, D_00810E80); the movies: {entries or "none"}, each iteration in its loop top\'s relation; '
           f'the New Game movie entered on 1, the fork\'s; every loop top on the boot\'s clock and in the relation derived from the start-up rule and the movies; the fork\'s rows behind it: {backing}); {world_list_ticks} world frames\' step V lists equal the route snapshots\' (seven tags, '
           f'with the +0x1D8 CALL of the channel-3 list 001C1D00 builds); {status_frames} status frames hold '
           f'the status captures\' flag '

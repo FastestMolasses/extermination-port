@@ -93,6 +93,12 @@ fails the tool. Both traces become (original function, state) per call.
   1393 / 1677, walk04 1455 / 1739, st03 1384 / 1668, cut02 89 / 373, cut15 83 / 346)
   PASS with the empty allow list, and cut02 at 88 and walk04 at 1738 still fail
   (port build/field_final_r1/ft_host.jsonl, ft_drive.jsonl, fo_*.log; ft_head_host.jsonl: ded1bcb's 1257 / 1336 / 2650).
+  Re-checked 2026-10-16 after the timing follow-ups of the demo_level_1017 video (the
+  level smoke's field-rule checker, the ps2-drive target through the AREA01 arrival;
+  no game code changed, the binary is byte-identical to f8616f9's): the newgame-control
+  traces in both modes are byte-identical to field_final_r1's, so no window moved; all
+  ten windows PASS at the indices above and cut02 at 88 / walk04 at 1738 still fail
+  (port build/timing_lane_1016/fo_*.log).
 
 ## 3. The New Game opening (the newgame capture)
 
