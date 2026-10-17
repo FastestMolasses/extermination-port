@@ -297,7 +297,11 @@ static int rcl_step_v(void *context)
     if (em_rcl_001D2300() < 0) return -1;
     if (em_load_veil_live_draw((EmGfx *)context) < 0) return -1;
     /* A list that CALLs channel 3 in an iteration without a world frame
-     * (the options screen's close): the background it draws. */
+     * (the options screen's close): the background it draws. After the
+     * veil, so that it can see the veil's frame: the original sends the
+     * CALL before the veil's channel-0 run, and a list with both faults
+     * there (em_render_kick_background) rather than drawing them in the
+     * reverse order. */
     if (em_render_kick_background((EmGfx *)context) < 0) return -1;
     /* The kick: the Original profile's GS frame runs the kicked list's
      * head and the world frame's recorded draws (em_gs_frame_live). */

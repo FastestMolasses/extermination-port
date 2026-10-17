@@ -258,7 +258,7 @@ typedef struct {
      * the measured size EM_IOP_SIF_DMA_MEASURED_SIZE, whose first status
      * query answered "pending", and the transfers of another size, which
      * no capture measured and which answered "done" at their first query
-     * (host speed). */
+     * (host speed); both counted at that query, when the answer is given. */
     uint32_t sif_dma, sif_dma_unmeasured;
 } EmIopDriveStats;
 void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out);

@@ -1312,6 +1312,9 @@ loader-chain sub-point):**
   with the PS2 disc-drive timing switch (the recorded New Game reads,
   MODULE_LOADER.md 1.7); the PS2 drew 258 (the one frame is its ninth
   sound-bank call, most likely SIF DMA time, which no mode reproduces).
+  (Superseded 2026-10-16: 258 with the switch, the sound-bank SIF DMA's
+  first status query answering pending, IOP_STREAM.md "The sound-bank
+  transfer".)
 - **Evidence.** `make test-sound-bank-reference` (new): the library over the
   title RAM (140 cases, 680 full), the ORIGINAL 001FB370 chain call for
   call on the AREA11 bank, the seeds equal the title capture, the end state
@@ -1329,7 +1332,11 @@ loader-chain sub-point):**
   check_load_veil checks all 55 (257) veil frames against the executed
   0021B1B0. newgame-control 9.599849 (locked_ticks 1301; 1311 with the
   switch); the frame-order windows move 63 ticks (325 with the switch) and
-  pass (LEVEL_SMOKE.md "Frame order").
+  pass (LEVEL_SMOKE.md "Frame order"). (Superseded 2026-10-16: with the
+  switch 68 + 186 dispatches, 9 sound-bank calls, every captured loader
+  state on its captured frame and 258 veil frames, IOP_STREAM.md "The
+  sound-bank transfer"; locked_ticks 1322 with the switch since
+  2026-10-09.)
 - Census 1.46: 001FB100, 001FC6E0, 001FB370, 001FB3E0 and 001FB910 to live
   (708 / 45 / 3 / 0 / 0 / 428, 96.9%); the loader and sound-library rows
   stay boundary rows (a lead decision), their contracts now verified.
@@ -1957,7 +1964,10 @@ background's flat grey; the port drew the background only in the world
 frame close, so it showed black. Step V now draws it whenever 001D2300
 called 001E0DF0 without a world frame (`em_render_kick_background`; not
 in the movie frame): opt_00's three later closes equal the fork's fields
-pixel for pixel. No other presented picture of the main line or the 42
+pixel for pixel (checked by `make test-level-smoke-options` since the
+follow-up of 2026-10-16, `check_present_again.py --opt00-closes`; a list
+with both this background and the load veil faults, GS_EXACT.md section
+11). No other presented picture of the main line or the 42
 side beats changes (every committed picture hashed with and without it).
 The old demo's three black frames (VIDEO_COMPARE, port ticks 1719, 1929
 and segment 12 offset 156) are the START, battery and panel entries: all

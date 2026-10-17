@@ -40,31 +40,83 @@ of this frame and of the frame committed two before it. Checked:
   the frames before and after a pair are not "again" ones (a run that
   ends before the status phase has no entry to check);
 - a "lost" frame is only the frame a movie returned to (a tag with more
-  than one committed frame).
+  than one committed frame);
+- the run has exactly --entries status-screen entries (the Makefile's
+  test-level-smoke passes the count its end phase reaches: START's status
+  at status, the battery's ITEM page at battery, the panel's BATTERY page
+  at panel; 2 for the default battery run, 3 through the level exit), so
+  a renamed tick-log key or a changed pre / post layout, which would find
+  none, fails instead of passing with nothing checked.
 
-    python3 tools/check_present_again.py --present <log> --ticks <ticks.jsonl>
+With --opt00-closes (side beat opt_00, test_level_smoke_options.py; the
+options screen's closes, docs/GS_EXACT.md section 11 "A list that CALLs
+the background and nothing else"): the run has exactly the beat's four
+closes (a tick log line with 0x1AE040 at state 2 before and 1 after: the
+CROSS, CIRCLE, TRIANGLE and SELECT closes), at each one the step V kick drew
+the background (the tick log's background draw count rises by two to the
+next line: the kick's draw and the next frame close's; the line is written
+before step V), and the last three present a GS field of one flat RGBA 48,
+48, 48, 0x80 over 512 x 224 (its fnv64 computed here), the field the fork
+displays at those closes (decomp build/nodraw_r3/fork_optclose_1016a,
+vblanks 305, 353, 401). The first close is not compared by its field: the
+original draws its options picture into the GS there (field mean 34.6),
+where the port's legacy options screen is a GPU overlay over the
+background (an open divergence, GS_EXACT.md section 11).
+
+    python3 tools/check_present_again.py --present <log> --ticks <ticks.jsonl> --entries <n> [--opt00-closes]
 """
 import argparse
 import json
+import struct
 import sys
 from pathlib import Path
+
+# The fork's displayed field at opt_00's later closes: one flat RGBA
+# 48, 48, 48, 0x80 (BACKGROUND.md's grey) over the 512 x 224 field.
+OPT00_FIELD_PIXEL = bytes((48, 48, 48, 0x80))
+FIELD_W, FIELD_H = 512, 224
+OPT00_CLOSES = 4
+
+
+def fnv64(data):
+    """em_gfx_metal.m's fnv64: the FNV-1a 64 step over little-endian 64-bit
+    words, then the bytes left over."""
+    h = 0xCBF29CE484222325
+    n = len(data) - len(data) % 8
+    for (w,) in struct.iter_unpack('<Q', data[:n]):
+        h = ((h ^ w) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    for b in data[n:]:
+        h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return h
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--present', type=Path, required=True)
     ap.add_argument('--ticks', type=Path, required=True)
+    ap.add_argument('--entries', type=int, required=True,
+                    help='the status-screen entries the run must have (the Makefile passes its end phase\'s count)')
+    ap.add_argument('--opt00-closes', action='store_true',
+                    help='side beat opt_00: its four options closes draw the background (see the docstring)')
     a = ap.parse_args()
     frames = {}
     for line in a.present.open():
         f = line.split()
         frames.setdefault(int(f[1]), []).append(f[2:])
-    entries = []
+    entries, closes, draws = [], [], {}
     for line in a.ticks.open():
         t = json.loads(line)
-        if 'counter' in t and 'pre' in t and bytes.fromhex(t['pre'])[3] == 1 and bytes.fromhex(t['post'])[3] == 3:
-            entries.append(t['counter'])
+        if 'counter' in t and 'pre' in t:
+            state = bytes.fromhex(t['pre'])[3], bytes.fromhex(t['post'])[3]
+            if state == (1, 3):
+                entries.append(t['counter'])
+            elif state == (2, 1):
+                closes.append(t['counter'])
+            if 'background' in t:
+                draws[t['counter']] = t['background'][1]
     assert frames, 'the present log is empty'
+    assert len(entries) == a.entries, (f'{len(entries)} status-screen entries (0x1AE040 1 -> 3) in the tick log, '
+                                       f'expected {a.entries}', entries)
 
     def last(tag):
         return frames.get(tag, [[]])[-1]
@@ -111,11 +163,27 @@ def main():
     lost = [t for t, v in frames.items() if v[-1][0] == 'lost']
     for t in lost:
         assert len(frames[t]) > 1, (t, 'a frame presented as drawn over a lost buffer that no movie preceded')
+    closes_note = ''
+    if a.opt00_closes:
+        assert len(closes) == OPT00_CLOSES, (f'{len(closes)} options closes (0x1AE040 2 -> 1) in the tick log, '
+                                             f'expected opt_00\'s {OPT00_CLOSES}', closes)
+        flat = fnv64(OPT00_FIELD_PIXEL * (FIELD_W * FIELD_H))
+        for i, c in enumerate(closes):
+            assert c in draws and c + 1 in draws and draws[c + 1] - draws[c] == 2, \
+                (c, 'the step V kick did not draw the background at the options close (the background draws '
+                    'from this line to the next)', draws.get(c), draws.get(c + 1))
+            if i:
+                f = last(c)
+                assert f[:1] == ['field'] and len(f) == 4, (c, 'the options close is not a GS field frame', f)
+                assert int(f[3], 16) == flat, (c, 'the options close\'s field is not the fork\'s flat background '
+                                                  'grey 48, 48, 48, 0x80', f)
+        closes_note = (f'; opt_00\'s {len(closes)} options closes ({", ".join(map(str, closes))}) drew the background '
+                       f'at the kick, the last {len(closes) - 1} a flat 48, 48, 48, 0x80 field as the fork\'s')
     print(f'present again: PASS {pairs} status-screen entr{"y" if pairs == 1 else "ies"} (0x1AE040 1 -> 3 and the '
           f'next iteration) show the buffers the two frames before them showed (presented pictures read back and equal); {len(others)} other frame(s) that '
           f'drew nothing show their buffer again ({", ".join(map(str, others[:12])) + (", ..." if len(others) > 12 else "") or "none"}; {len(overlaid)} of them with '
           f'their own overlay pass, not compared by pixels); {len(lost)} drawn over '
-          f'a buffer a movie left')
+          f'a buffer a movie left{closes_note}')
 
 
 if __name__ == '__main__':

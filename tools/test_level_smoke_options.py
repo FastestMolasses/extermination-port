@@ -12,6 +12,13 @@ prompt. tools/test_level_smoke.py checks each run as every level-smoke run,
 and tools/level_smoke_options.py its beat against the recording (decomp
 build/c10/options/<beat>/trace.json, docs/CAPTURES_C10.md "OPTIONS").
 
+Each run also writes its EM_PRESENT_LOG, which tools/check_present_again.py
+checks with the run's tick log (the frames that draw nothing; docs/GS_EXACT.md
+section 11): the main line's three status-screen entries (START, battery,
+panel) and, for opt_00, the options closes (--opt00-closes: the step V kick's
+background at each close, and the fork's flat background field at the three
+the fork probe shows; the regression check of em_render_kick_background).
+
 EM_OPTIONS_SIDES=opt_00,opt_03 runs only those; EM_TEST_JOBS=n bounds the
 runs side by side (default 4).
 """
@@ -29,11 +36,14 @@ OUT = ROOT / 'build/level_smoke_options'
 SIDES = level_smoke_options.PHASES
 SIDES = tuple(os.environ['EM_OPTIONS_SIDES'].split(',')) if os.environ.get('EM_OPTIONS_SIDES') else SIDES
 JOBS = max(1, int(os.environ.get('EM_TEST_JOBS', '4')))
+# The main line to truck_crossing passes the three status-screen entries.
+STATUS_ENTRIES = 3
 
 
 def run_side(side):
     env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level', EM_LEVEL_SMOKE_UNTIL=side,
-               EM_AREA_CHANGE_LOG=str(OUT / f'{side}.jsonl'), EM_RAND_TRACE=str(OUT / f'{side}.rand'))
+               EM_AREA_CHANGE_LOG=str(OUT / f'{side}.jsonl'), EM_RAND_TRACE=str(OUT / f'{side}.rand'),
+               EM_PRESENT_LOG=str(OUT / f'{side}.present'))
     log = open(OUT / f'{side}.log', 'w')
     return subprocess.Popen([str(BIN)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT), log
 
@@ -58,6 +68,13 @@ def main():
         if rc != 0:
             failed.append((side, 'run', rc))
             continue
+        present = subprocess.run([sys.executable, str(ROOT / 'tools/check_present_again.py'),
+                                  '--present', str(OUT / f'{side}.present'), '--ticks', str(OUT / f'{side}.jsonl'),
+                                  '--entries', str(STATUS_ENTRIES)] + (['--opt00-closes'] if side == 'opt_00' else []),
+                                 cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(f'level smoke options: {side}: ' + (present.stdout.strip().splitlines() or ['(no output)'])[-1])
+        if present.returncode:
+            failed.append((side, 'present again', present.returncode))
         checks[side] = subprocess.Popen([sys.executable, str(ROOT / 'tools/test_level_smoke.py'),
                                          '--log', str(OUT / f'{side}.jsonl'), '--run-log', str(OUT / f'{side}.log'),
                                          '--rand-trace', str(OUT / f'{side}.rand'), '--require-through', side],

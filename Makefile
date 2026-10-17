@@ -443,11 +443,24 @@ test-collision-world-capture: $(BIN)
 # frames that draw nothing, read back from the GPU; GS_EXACT.md section 11):
 # the default run checks the START and battery status entries; the panel's
 # BATTERY entry (whose first frame draws the letterbox bars over the kept
-# picture) is reached only with EM_TEST_FULL=1.
+# picture) is reached only with EM_TEST_FULL=1. The checker requires the
+# exact entry count the run's end phase reaches (PRESENT_AGAIN_ENTRIES:
+# START's status at status, the battery's ITEM page at battery, the panel's
+# BATTERY page at panel; 2 by default, 3 for runs through panel or later),
+# so a run that finds none fails instead of passing with nothing checked.
+# The side beats before panel (panel_no_battery, status_pages,
+# br_panel_decline) have no count here: run them with test-level-smoke-side.
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,battery)
+LEVEL_SMOKE_END = $(or $(EM_LEVEL_SMOKE_UNTIL),$(LEVEL_SMOKE_UNTIL),last)
+PRESENT_AGAIN_ENTRIES = $(strip \
+    $(if $(filter first_control,$(LEVEL_SMOKE_END)),0, \
+    $(if $(filter status,$(LEVEL_SMOKE_END)),1, \
+    $(if $(filter battery elevator_refusal,$(LEVEL_SMOKE_END)),2, \
+    $(if $(filter panel_no_battery status_pages br_panel_decline,$(LEVEL_SMOKE_END)),,3)))))
 
 .PHONY: test-level-smoke
 test-level-smoke: $(BIN)
+	@test -n "$(PRESENT_AGAIN_ENTRIES)" || { echo "test-level-smoke: no status-entry count for the side beat $(LEVEL_SMOKE_END) (make test-level-smoke-side runs it)"; false; }
 	mkdir -p build/level_smoke
 	rm -f build/level_smoke/status_pages.trace
 	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$${EM_LEVEL_SMOKE_UNTIL:-$(LEVEL_SMOKE_UNTIL)} \
@@ -458,7 +471,8 @@ test-level-smoke: $(BIN)
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log \
 	    --rand-trace build/level_smoke/rand.trace --status-pages-trace build/level_smoke/status_pages.trace \
 	    --require-through $${EM_LEVEL_SMOKE_UNTIL:-$(or $(LEVEL_SMOKE_UNTIL),last)}
-	python3 tools/check_present_again.py --present build/level_smoke/present.log --ticks build/level_smoke/ticks.jsonl
+	python3 tools/check_present_again.py --present build/level_smoke/present.log --ticks build/level_smoke/ticks.jsonl \
+	    --entries $(PRESENT_AGAIN_ENTRIES)
 	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 
 .PHONY: test-level-smoke-full

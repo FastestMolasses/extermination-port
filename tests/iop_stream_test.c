@@ -586,13 +586,25 @@ static void test_bank_transfer_ps2(void)
     CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
     em_iop_stream_drive_stats(s, &d);
     CHECK(d.sif_dma == 2 && d.sif_dma_unmeasured == 2);
+    /* The counts are taken when the first query answers: a measured
+     * transfer replaced by the next one before its query, and one never
+     * queried, are not counted (the replaced one is done). */
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id) == 0);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, 0x100, &id2) == 0 && id2 > id);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id) == 0);
+    em_iop_stream_drive_stats(s, &d);
+    CHECK(d.sif_dma == 2 && d.sif_dma_unmeasured == 2);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st == 0);
+    em_iop_stream_drive_stats(s, &d);
+    CHECK(d.sif_dma == 3 && d.sif_dma_unmeasured == 2);
     em_iop_stream_set_ps2_drive_timing(s, 0);
     CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id) == 0);
     CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);     /* off: the measured size done at once */
     CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, 0x100, &id) == 0);
     CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
     em_iop_stream_drive_stats(s, &d);
-    CHECK(d.sif_dma == 2 && d.sif_dma_unmeasured == 2);
+    CHECK(d.sif_dma == 3 && d.sif_dma_unmeasured == 2);
     em_iop_stream_destroy(s);
 }
 

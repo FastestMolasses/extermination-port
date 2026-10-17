@@ -1523,7 +1523,12 @@ screen module's load (0x2B in 0022A590, 0x2A in 00225AC0's sub-state 3:
 host speed, never longer) and the last state. `make
 test-level-smoke-options` runs the nine side by side (EM_OPTIONS_SIDES=a,b
 runs only those; EM_TEST_JOBS, default 4) and checks each with
-tools/test_level_smoke.py.
+tools/test_level_smoke.py. Each run also writes its EM_PRESENT_LOG, which
+tools/check_present_again.py checks against the run's tick log (since
+2026-10-16; GS_EXACT.md section 11 "Frames that draw nothing"): the main
+line's three status-screen entries and, for opt_00, its four closes, each
+with the step V kick's background (em_render_kick_background) and the last
+three with the fork's flat background field.
 
 dmg_load (a DAMAGE side phase, `make test-level-smoke-damage`) plays
 dmg_flame's program to the title after the death, then dmg_05: Cross on

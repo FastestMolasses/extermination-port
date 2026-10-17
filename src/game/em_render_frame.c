@@ -47,6 +47,7 @@
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_background_live.h"
+#include "game/em_load_veil_live.h"
 #include "game/em_chain_page_live.h"
 #include "game/em_scene.h"
 #include "game/em_props.h"
@@ -971,7 +972,13 @@ int em_render_001D1EF0(void)
  * or with the GPU renderer, through the same gate and asset checks as the
  * frame close. Not in the movie frame: the port's unbound 001D1C10 leaves
  * flag 4 clear there, so its 001D2300 calls 001E0DF0 where the original's
- * does not (RENDER_CONTEXT.md 9.4). 0, or -1 (reported). */
+ * does not (RENDER_CONTEXT.md 9.4). Fail-stop when the load veil drew in
+ * the same iteration (main.c's rcl_step_v draws the veil first): the
+ * original's list sends the channel-3 CALL before the channel-0 run that
+ * holds the veil, so the background lies under the veil there, and the
+ * port has never met a list with both (the main line's last veil frame is
+ * counter 1330, the first draw here 1336); a first meeting faults instead
+ * of drawing the background over the veil. 0, or -1 (reported). */
 int em_render_kick_background(EmGfx *gfx)
 {
     int called = 0;
@@ -981,6 +988,15 @@ int em_render_kick_background(EmGfx *gfx)
     em_background_live_log(&l);
     if (l.draws && l.frame == em_frame_counter())
         return 0; /* the frame close drew it (the world frames) */
+    EmLoadVeilLiveLog veil;
+    em_load_veil_live_log(&veil);
+    if (veil.draws && veil.frame == em_frame_counter()) {
+        fprintf(stderr, "render: the kicked list CALLs the background (001E0DF0) in a frame the load veil drew "
+                        "(counter %u): the original draws the background first, under the veil; not modelled\n",
+                (unsigned)em_frame_counter());
+        em_scene_fault(em_scene_state(), 0x001D2300u, EM_SCENE_FAULT_BAD_RESULT);
+        return -1;
+    }
     const int background = background_gate(gfx);
     if (background <= 0)
         return background;

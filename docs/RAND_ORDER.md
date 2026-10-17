@@ -81,8 +81,10 @@ fails the tool. Both traces become (original function, state) per call.
   since 2026-10-09, the first stream read after a module-loader read; 6 before).
   newgame-control: locked_ticks 1301 at host speed, 1322 with the switch (1311
   before 2026-10-09); the displacement is 9.599849 in both. The frame-order
-  post-control window is native index 1393 (counter 2650) at host speed, 1676 with
-  the switch (1665 from chain step H7 to 2026-10-09; 1330 / 1340 before H7).
+  post-control window is native index 1393 (counter 2650) at host speed, 1677 with
+  the switch (1676 from 2026-10-09 to 2026-10-16, before the sound-bank DMA's pending
+  first query, IOP_STREAM.md "The sound-bank transfer"; 1665 from chain step H7 to
+  2026-10-09; 1330 / 1340 before H7).
 
 ## 3. The New Game opening (the newgame capture)
 

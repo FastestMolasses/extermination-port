@@ -2508,10 +2508,42 @@ drawing), not this step's.
   2704 (`build/nodraw_r3/smoke_mut_noscan_2`); the log costs about a second
   of the default run. The default run reaches the START and battery
   entries; the panel's entry, whose first frame draws the letterbox bars
-  over the kept picture, is covered only with EM_TEST_FULL=1. `make
-  test-gs-world` covers the head probe. The options close has no test of
-  its own beyond the receipts above (its beat runs only in
-  test-level-smoke-side).
+  over the kept picture, is covered only with EM_TEST_FULL=1. The checker
+  requires the exact entry count the run's end phase reaches (`--entries`,
+  from the Makefile's PRESENT_AGAIN_ENTRIES: 2 for the default battery
+  run, 3 through panel or later; follow-up of 2026-10-16), so a renamed
+  tick-log key or a changed pre / post layout fails instead of passing
+  with no entry checked. `make test-gs-world` covers the head probe.
+- The options close's test (follow-up of 2026-10-16): the OPTIONS side
+  runs (`make test-level-smoke-options`, part of test-level-smoke-side,
+  so of EM_TEST_FULL=1) write each beat's EM_PRESENT_LOG and run
+  `check_present_again.py --entries 3` on it, and for opt_00
+  `--opt00-closes`: the beat's four closes (0x1AE040 2 -> 1 in the tick
+  log, wherever the beat's ticks fall) must each have the step V kick's
+  background draw (the tick log's background draw count rises by two to
+  the next line, the kick's and the next frame close's), and the last
+  three a GS field of one flat RGBA 48, 48, 48, 0x80 over 512 x 224, the
+  fork's field at vblanks 305, 353, 401 (its fnv64 computed by the
+  checker). The first close is not compared by field (the original draws
+  its options picture into the GS there; above). Receipts (port, ignored):
+  `build/minors_r1_opt00` (HEAD build: closes at counters 6675, 6723,
+  6771, 6819, ticks 5418, 5466, 5514, 5562), `build/minors_r1_runs/`
+  (`make test-level-smoke-options`, all nine beats PASS); a lane binary
+  whose kick background returns at once (`build/minors_r1_mut_nokbg`)
+  fails it at 6675 while the beat's own level-smoke checks pass, and a
+  present log whose 6723 field is not the grey fails at 6723.
+- The kick's background and the load veil (follow-up of 2026-10-16): in
+  the original's list the channel-3 CALL (001D2300 calling 001E0DF0) comes
+  before the channel-0 run that holds the veil (0021B1B0), so where both
+  draw the background lies under the veil. main.c's `rcl_step_v` draws the
+  veil first and then calls `em_render_kick_background`, which faults
+  (fail-stop, 0x001D2300) when the veil drew in the same iteration instead
+  of drawing the background over it. The port has not met that case: on
+  the main line the veil's last frame is counter 1330 and the kick's first
+  background 1336, and no run of the checks below faults (the default
+  level smoke, test-level-smoke-ps2-drive through roger with its 258 veil
+  frames, the switch-on run through the level exit, the options side runs;
+  port `build/minors_r1_runs/`, ignored).
 
 **What it looks like** (the presentation preview of 2026-10-09, port
 `build/presentation_preview/README.txt`): the picture as a whole stays put

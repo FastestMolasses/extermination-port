@@ -63,8 +63,10 @@ struct EmIopStream {
     uint64_t ch0_tick;
     /* SIF DMA ids handed out (sceSifSetDma at host speed completes at once)
      * and, with the PS2 disc-drive timing switch, the id whose first
-     * sceSifDmaStat has not run yet (0: none; em_iop_stream_sif_set_dma) */
+     * sceSifDmaStat has not run yet (0: none; em_iop_stream_sif_set_dma)
+     * and whether that query answers pending (the measured size) */
     int32_t sif_ids, sif_first_query;
+    uint8_t sif_first_pending;
     /* time */
     uint64_t half_lines, ticks, samples;
     /* EE side */
@@ -678,7 +680,10 @@ int em_iop_stream_boot_driver(EmIopStream *s)
  * EM_IOP_SIF_DMA_MEASURED_SIZE bytes, takes the rule: a transfer of
  * another size (the level exit's AREA01 bank load has three) has no
  * measurement, so it keeps the host-speed answer, done at its first query,
- * and the drive stats count it as unmeasured. The bytes are copied at the
+ * and the drive stats count it as unmeasured. Both counts are taken at
+ * that first query, when the answer is given (a transfer never queried, or
+ * replaced by the next sceSifSetDma before its query, is not counted). The
+ * bytes are copied at the
  * queueing in both modes (no reader looks at them before the transfer is
  * done). The id is the port's own nonzero count (the kernel's ids are not
  * modelled; the caller only tests it against 0). A size that is not whole
@@ -694,15 +699,10 @@ int em_iop_stream_sif_set_dma(EmIopStream *s, const uint8_t *src, uint32_t dst, 
     if (++s->sif_ids <= 0)
         s->sif_ids = 1;
     *id = s->sif_ids;
-    s->sif_first_query = 0;
-    if (s->ps2_drive_timing) {
-        if (size == EM_IOP_SIF_DMA_MEASURED_SIZE) {
-            s->sif_first_query = s->sif_ids;
-            s->drive.sif_dma += 1;
-        } else {
-            s->drive.sif_dma_unmeasured += 1;   /* host speed: done at once */
-        }
-    }
+    /* Switch on: the transfer's first query is the one that answers by the
+     * rule (and is counted, em_iop_stream_sif_dma_stat). */
+    s->sif_first_query = s->ps2_drive_timing ? s->sif_ids : 0;
+    s->sif_first_pending = s->ps2_drive_timing && size == EM_IOP_SIF_DMA_MEASURED_SIZE;
     return 0;
 }
 
@@ -714,8 +714,13 @@ int em_iop_stream_sif_dma_stat(EmIopStream *s, int32_t id, int32_t *stat)
         return fault(s, 0x0010BBC0u, EM_IOP_FAULT_BAD_INDEX);
     if (id == s->sif_first_query) {
         s->sif_first_query = 0;
-        *stat = 0;   /* pending (the switch on only) */
-        return 0;
+        if (s->sif_first_pending) {
+            s->sif_first_pending = 0;
+            s->drive.sif_dma += 1;
+            *stat = 0;   /* pending (the switch on only) */
+            return 0;
+        }
+        s->drive.sif_dma_unmeasured += 1;   /* another size: host speed, done */
     }
     *stat = -1;
     return 0;

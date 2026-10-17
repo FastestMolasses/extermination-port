@@ -1359,7 +1359,10 @@ fields at all of these; it now shows what the original shows.
   black clear and the background's CALL (decomp
   `build/nodraw_r3/fork_optclose_1016a`) and its field one flat grey; the
   port's frames there now equal the fork's fields, 114,688 of 114,688
-  pixels each (with the GPU renderer too). Over the whole main line and the
+  pixels each (with the GPU renderer too), checked by `make
+  test-level-smoke-options` (`check_present_again.py --opt00-closes`:
+  the kick's background at each close and the fork's flat field at those
+  three). Over the whole main line and the
   42 side beats no other presented picture changes (every committed
   picture hashed with and without the background draw, and the previous
   round's field hashes without the head call).
