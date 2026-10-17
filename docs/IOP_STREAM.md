@@ -114,7 +114,7 @@ derived from the captures.
 | Model | Value | Evidence / status |
 |---|---|---|
 | Field | 262.5 H-lines = 525 half-lines | NTSC. `D_00810E90` counts fields: route snapshots show `vsync_counter` == `D_00810E90` |
-| Driver tick | every 64 H-lines (128 half-lines), phase 0 at boot | The driver's own timer setup (0x3C00 / 0xF0, H-line source). The tick phase is unknown. Since chain step AUDIO the SFX side (em_sfx_field) runs the same exchange for the SFX commands, on a tick grid of its own whose phase is 0 at the New Game's area load (this backend's counts from the boot, so its phase follows the title's dwell; SFX_SEQUENCER.md "Where the driver runs"); the audio captures confirm the exchange's two-tick ENVX latency, and a sample's end can land one tick apart where the phases differ |
+| Driver tick | every 64 H-lines (128 half-lines), phase 0 at boot (the comparison-only developer switch `EM_IOP_TICK_PHASE=N` starts it N half-lines into its period: STARTUP.md "Developer switches") | The driver's own timer setup (0x3C00 / 0xF0, H-line source). The tick phase is unknown. Since chain step AUDIO the SFX side (em_sfx_field) runs the same exchange for the SFX commands, on a tick grid of its own whose phase is 0 at the New Game's area load (this backend's counts from the boot, so its phase follows the title's dwell; SFX_SEQUENCER.md "Where the driver runs"); the audio captures confirm the exchange's two-tick ENVX latency, and a sample's end can land one tick apart where the phases differ |
 | SPU2 clock | 48000 Hz against 4.5 MHz / 286 H-lines/s: 572/375 samples per half-line (800.8 per field) | 60 Hz / 800 samples per field fails the long captures (mutation control) |
 | RPC 0x64 | once per field, at its start: queued commands in, the last tick's snapshot out | 001152D8's per-field `001191F0(0x64, ...)`. The phase inside the field is not captured |
 | Transfer completion | issued at a tick, complete from the next tick; SPU RAM written at issue. A channel-0 transfer (command 0x20) runs its callback 0x544 at the start of the next tick | Channel 1: **not pinned by any capture** (completing in the same tick also passes every check). Channel 0: the count reaches the EE at the exchange after the field that ran the command, which v2.6.3's route 00 `D_00275B18` = 0x4E pins (the sound-bank test's mutants: one field earlier leaves 0x4F, one later 0x4D); completing in the same tick gives the same exchange. The fork's route 00 holds 0x48 (the acknowledgement 6 calls later: below) |
@@ -278,10 +278,39 @@ What the capture shows, and the model:
      refills land on its field (no h0 matches all 240: a residual IOP-side spread). The +2 since the 2026-10-09
      port (218) is not a logic change: the 17-field seek after a loader read (fc986dc) moved the music's key-on
      so that a refill falls next to the voice start (219), the movies' host-timed fields made the phase vary
-     from run to run until the field-paced movies (f8616f9) fixed it on the 220 side. **Open** (LAUNCHER_OPTIONS.md
-     "Decisions for the user to review"): no capture records the driver tick's phase; on a PS2 it follows the
-     time since the driver armed its timer (the boot and the title's dwell), so one recording fixes it for one
-     run only. Receipts: decomp `build/seg24_trace_1016/` (the fork lane trace), port `build/seg24_bisect/`.
+     from run to run until the field-paced movies (f8616f9) fixed it on the 220 side. No capture records the driver
+     tick's phase; on a PS2 it follows the time since the driver armed its timer (the boot and the title's dwell),
+     so one recording fixes it for one run only. Receipts: decomp `build/seg24_trace_1016/` (the fork lane trace),
+     port `build/seg24_bisect/`.
+     **Decided 2026-10-17** (user, "Align it for the video"): a comparison-only alignment setting, off by default
+     and not a player or launcher option, the developer switch `EM_IOP_TICK_PHASE=N` (STARTUP.md "Developer
+     switches"; `em_iop_stream_set_tick_phase`: every driver tick N half-lines earlier against the fields, the
+     fields, samples and drive model unchanged; unset, the level smokes' tick logs are byte-identical and
+     newgame-control gives 9.599849). **Fitted: 104 on the level smoke's run, 68 on the video's native playback**
+     (the same relation), re-checked on HEAD df0720c plus the switch (the drive smoke, `EM_PS2_DISC_DRIVE_TIMING=1`,
+     through roger, against the demo_level_1018 fork pass at counter offset 148, counters 4434..12900; 46 phases:
+     0..124 by 4, then 65..67, 97..111 and 121..123 by 1). The
+     switch gives the scratch knob's stream and message rows exactly (phases 0, 72, 104, 120). Segment 24 is 220
+     for phases 0..67 and 123..124 and 219 (the fork's) for 68..122; on every 219 phase all 13 voice-lane events
+     of lane 1 and all 9 of lane 2 equal the fork's (11 of 13 on lane 1 at 220). The lane-0 refills on the fork's
+     field rise from 199 of 240 at phase 0 to a single maximum of 227 at 104 (226 at 97..103 and 105, 224 at
+     106..112, 219 at 120..122), which picks 104. **Residual at 104:** 13 of the 240 refills are one field off,
+     12 one field earlier on the port (port counters 5778, 7998, 8714, 9090, 9806, 9878, 10719, 11095, 11650,
+     11811, 12366, 12742) and one a field later (12725); no phase fixes them all, so the fork's IOP side varies
+     inside a run (the RPC 0x64 reply time or the timer's phase drifting against the field; not measured); none
+     of them moves a voice-lane event in counters 4434..12900. With 104, `make test-level-smoke-ps2-drive` passes through a01_arrival (20 live
+     phases, the checker and the present-again check), and the demo's level smoke run gives segment 24 = 219
+     (the same 227 refills). **The value counts from the backend's boot**, so it depends on the fields a run
+     spends before the level: the native playback of the demo recording (decomp `tools/video_compare` native
+     stage) skips the attract and New Game movies at the first picture the skip test accepts, 204 fields fewer
+     than the level smoke's fixture (which skips at 2.0 s), and 13 x 204 = 92 (mod 128) half-lines moves the
+     relation: playback phase P behaves as smoke phase P + 36 (mod 128), measured at playback phases 0 (= smoke
+     36: 209 refills), 31 / 32 (= 67 / 68: segment 24 220 / 219), 68 (= 104) and 86 / 87 (= 122 / 123: 219 / 220).
+     The playback at 68 equals the smoke at 104 in every stream and message row from counter 1400 to the E001
+     movie (whose length the recording's edit changes). So the comparison video's port pass of
+     demo_level_1018.rec runs with `EM_IOP_TICK_PHASE=68` (`--iop-tick-phase 68`); another recording or another
+     fork run needs its own fit. Port receipts: `build/iop_phase_1017/` (the sweeps' compact rows,
+     `tools/lanes_vs_fork.py`, `play_one.sh`).
   4. The level smoke's check_voice_drive allows exactly the fields each side's sequencer spent on lane 0 first.
 - The music's resume after the battery_ui and panel_power status closes keys on 20 rows after the cue's return,
   as in the audio captures (the read after the page's module-0x21 load: the 17-field rule). Roger's cue-29 resume

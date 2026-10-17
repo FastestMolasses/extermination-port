@@ -4,7 +4,8 @@
  * original lanes (em_stream_lanes_original) field by field with the played
  * samples checked for continuity across buffer wraps, fail-stop faults and
  * the mixer ring, and the drive's two timings (host speed, the default, and
- * the drive model behind the PS2 disc-drive timing switch). No assets
+ * the drive model behind the PS2 disc-drive timing switch), and the
+ * comparison-only tick phase (EM_IOP_TICK_PHASE's setter). No assets
  * needed; the original-instruction oracle and the capture comparisons are
  * tools/test_iop_stream_reference.py. */
 #include "game/em_iop_stream.h"
@@ -188,12 +189,17 @@ static void test_commands(void)
 }
 
 /* The synthetic cue through 001F9820, 001FA790 and 001F9CF0 once per field,
- * with the drive at host speed (ps2 = 0) or on the drive model (1). */
-static void test_stream(const EmIopStreamDisc *disc, int ps2)
+ * with the drive at host speed (ps2 = 0) or on the drive model (1), and the
+ * driver tick grid's phase left alone (phase < 0) or set to phase
+ * (EM_IOP_TICK_PHASE's setter). Returns the rendered PCM's digest. */
+static uint64_t test_stream(const EmIopStreamDisc *disc, int ps2, int phase)
 {
     static Tap t;
+    uint64_t digest;
     EmIopStream *s = em_iop_stream_create();
     em_iop_stream_set_ps2_drive_timing(s, ps2);
+    if (phase >= 0)
+        CHECK(em_iop_stream_set_tick_phase(s, (uint32_t)phase) == 0);
     EmIopVoiceTable table = {voice_table, &sdk_mask};
     EmStreamLanes L;
     EmStreamLanesData data;
@@ -278,7 +284,45 @@ static void test_stream(const EmIopStreamDisc *disc, int ps2)
         em_iop_stream_mix_counters(s, &over, &under, &rate);
         CHECK(rate == 1 && over > 0);
     }
+    digest = em_iop_stream_pcm_digest(s);
     em_iop_stream_destroy(s);
+    return digest;
+}
+
+/* EM_IOP_TICK_PHASE's setter moves only the driver tick grid: the fields,
+ * the half-line clock and the SPU2 samples stay where they are, the ticks
+ * fall where (half_lines + phase) is a multiple of 128, and 0 is the default
+ * grid. Refused for 128 or more and once the clock has started. */
+static void test_tick_phase(const EmIopStreamDisc *disc)
+{
+    enum { PHASE = 104 };
+    EmIopStream *a = em_iop_stream_create(), *b = em_iop_stream_create(), *c = em_iop_stream_create();
+    uint32_t field;
+    CHECK(em_iop_stream_tick_phase(a) == 0);
+    CHECK(em_iop_stream_set_tick_phase(b, 0) == 0 && em_iop_stream_tick_phase(b) == 0);
+    CHECK(em_iop_stream_set_tick_phase(c, 128) == -1 && em_iop_stream_tick_phase(c) == 0);
+    CHECK(em_iop_stream_set_tick_phase(c, PHASE) == 0 && em_iop_stream_tick_phase(c) == PHASE);
+    for (field = 1; field <= 600; field++) {
+        uint64_t h[3], t[3], n[3];
+        CHECK(em_iop_stream_field(a) == 0 && em_iop_stream_field(b) == 0 && em_iop_stream_field(c) == 0);
+        em_iop_stream_clock(a, &h[0], &t[0], &n[0]);
+        em_iop_stream_clock(b, &h[1], &t[1], &n[1]);
+        em_iop_stream_clock(c, &h[2], &t[2], &n[2]);
+        CHECK(h[0] == 525ull * field && h[1] == h[0] && h[2] == h[0]);
+        CHECK(n[1] == n[0] && n[2] == n[0] && n[0] == h[0] * 572u / 375u);
+        CHECK(t[0] == h[0] / 128u && t[1] == t[0]);
+        CHECK(t[2] == (h[0] + PHASE) / 128u);
+    }
+    /* (the first field's ticks: half-lines 128, 256, 384, 512 by default;
+     * 24, 152, 280, 408 with the phase.) Too late once the clock runs: */
+    CHECK(em_iop_stream_set_tick_phase(a, PHASE) == -1 && em_iop_stream_tick_phase(a) == 0);
+    em_iop_stream_destroy(a);
+    em_iop_stream_destroy(b);
+    em_iop_stream_destroy(c);
+    /* The stream still plays every block in order with the phase moved, and
+     * an explicit 0 renders exactly the default's samples. */
+    CHECK(test_stream(disc, 1, 0) == test_stream(disc, 1, -1));
+    (void)test_stream(disc, 1, PHASE);
 }
 
 /* Polls 00112D18 answers busy after a read issued now, advancing one field
@@ -620,8 +664,9 @@ int main(void)
     test_reader(&disc);
     test_reader_host(&disc);
     test_reader_after_loader(&disc);
-    test_stream(&disc, 0);
-    test_stream(&disc, 1);
+    (void)test_stream(&disc, 0, -1);
+    (void)test_stream(&disc, 1, -1);
+    test_tick_phase(&disc);
     if (failures) {
         fprintf(stderr, "iop_stream_test: %d failure(s)\n", failures);
         return 1;

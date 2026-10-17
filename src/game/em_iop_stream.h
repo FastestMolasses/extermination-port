@@ -367,6 +367,18 @@ uint8_t *em_iop_stream_spu_ram(EmIopStream *s);
 EmIopSpuVoice *em_iop_stream_spu_voice(EmIopStream *s, int voice);
 /* The EVOL words command 0x16 sets: [core][0 left, 1 right]. */
 uint16_t em_iop_stream_effect_volume(const EmIopStream *s, int core, int side);
+/* The driver tick grid's phase (a comparison-only developer switch,
+ * EM_IOP_TICK_PHASE: docs/STARTUP.md "Developer switches", IOP_STREAM.md
+ * "Timing"; not a launcher option). The driver's hard timer wakes its thread
+ * every 128 half-lines; no capture records where that grid lies against the
+ * field. 0 (the default): the first tick comes 128 half-lines after the
+ * backend's boot. N (0..127): the timer had already counted N half-lines at
+ * the boot, so every tick comes N half-lines earlier against the fields;
+ * the fields, the SPU2 samples and the drive model are unchanged. Set it
+ * before the first em_iop_stream_field; -1 (unchanged) for N >= 128 or after
+ * the clock has started. */
+int em_iop_stream_set_tick_phase(EmIopStream *s, uint32_t half_lines);
+uint32_t em_iop_stream_tick_phase(const EmIopStream *s);
 /* Half-lines elapsed, driver ticks run, SPU2 samples rendered. */
 void em_iop_stream_clock(const EmIopStream *s, uint64_t *half_lines, uint64_t *ticks,
                          uint64_t *samples);

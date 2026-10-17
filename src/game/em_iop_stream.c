@@ -16,7 +16,10 @@
  * Time is counted in NTSC half-lines. A field is 262.5 H-lines = 525
  * half-lines. The driver's hard timer (command 0x1E: compare 0x3C00 / 0xF0 =
  * 64 on an H-line source, repeat) wakes its thread every 64 H-lines = 128
- * half-lines. The SPU2 renders 48000 samples per second against
+ * half-lines; the grid's phase against the fields is not captured: it is 0
+ * at the backend's boot unless the comparison-only developer switch
+ * EM_IOP_TICK_PHASE moves it (em_iop_stream_set_tick_phase). The SPU2
+ * renders 48000 samples per second against
  * 4500000 / 286 H-lines per second: 1144/375 samples per H-line, i.e.
  * 572/375 per half-line (800.8 per field). */
 #define HALF_LINES_PER_FIELD 525u
@@ -69,6 +72,10 @@ struct EmIopStream {
     uint8_t sif_first_pending;
     /* time */
     uint64_t half_lines, ticks, samples;
+    /* The driver tick grid's phase at the backend's boot (half-lines the
+     * hard timer had already counted; 0 by default, EM_IOP_TICK_PHASE):
+     * ticks fall where (half_lines + tick_phase) is a multiple of 128. */
+    uint32_t tick_phase;
     /* EE side */
     uint32_t ee_queue[EM_EE_QUEUE][4];
     uint32_t ee_count;
@@ -458,6 +465,16 @@ uint16_t em_iop_stream_effect_volume(const EmIopStream *s, int core, int side)
 {
     return s->evol[core & 1][side & 1];
 }
+
+int em_iop_stream_set_tick_phase(EmIopStream *s, uint32_t half_lines)
+{
+    if (!s || half_lines >= HALF_LINES_PER_TICK || s->half_lines != 0)
+        return -1;
+    s->tick_phase = half_lines;
+    return 0;
+}
+
+uint32_t em_iop_stream_tick_phase(const EmIopStream *s) { return s ? s->tick_phase : 0; }
 
 void em_iop_stream_clock(const EmIopStream *s, uint64_t *half_lines, uint64_t *ticks, uint64_t *samples)
 {
@@ -1515,8 +1532,10 @@ int em_iop_stream_field(EmIopStream *s)
     s->ee_count = 0;
     memcpy(s->ee_status, s->drv.status, sizeof s->ee_status);
     end = s->half_lines + HALF_LINES_PER_FIELD;
-    for (h = (s->half_lines / HALF_LINES_PER_TICK + 1) * HALF_LINES_PER_TICK; h <= end;
-         h += HALF_LINES_PER_TICK) {
+    /* The next tick after half_lines on the grid (half_lines + tick_phase)
+     * = 0 mod 128; with tick_phase 0 the multiples of 128. */
+    for (h = ((s->half_lines + s->tick_phase) / HALF_LINES_PER_TICK + 1) * HALF_LINES_PER_TICK - s->tick_phase;
+         h <= end; h += HALF_LINES_PER_TICK) {
         spu_render_to(s, h);
         if (driver_tick(s))
             return -1;

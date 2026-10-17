@@ -497,6 +497,41 @@ line and in src/gs/em_gs_world.h).
 The same bytes in every case (`make test-gs-world` compares them);
 comparison and measurement aids.
 
+### EM_IOP_TICK_PHASE=<half-lines>: the sound driver's tick phase (comparison only)
+
+Added 2026-10-17 (user decision of 2026-10-17, "Align it for the video";
+LAUNCHER_OPTIONS.md "Not launcher options"). The IOP stream backend runs
+the sound driver's hard-timer tick every 128 half-lines (64 H-lines); no
+capture records where that grid lies against the field, and the backend
+puts its phase at 0 at its boot (IOP_STREAM.md "Timing"). The phase
+decides in which field a lane-0 music refill request reaches the EE, and so
+whether the read sequencer 001FA0D0 serves a refill before a voiced line's
+read (IOP_STREAM.md "What it gives the live route with the switch on" item
+3). `EM_IOP_TICK_PHASE=N` (decimal, 0..127) starts the grid N half-lines
+into its period at the backend's boot (`em_iop_stream_set_tick_phase`):
+every driver tick comes N half-lines earlier against the fields; the
+fields, the half-line clock, the SPU2 samples and the drive model do not
+move (`make test-iop-stream` checks it). The value is read once in
+`em_stream_live_boot`, which writes a `stream lanes: IOP tick phase N
+half-lines` line to stderr; a malformed value or one of 128 or more stops
+the boot. Unset (the default) changes nothing: the level smokes' tick logs
+and present logs are byte-identical to the build without the switch, and
+newgame-control gives 9.599849.
+
+It exists to line the port's sound driver up with one recorded PCSX2 run
+for a comparison video (the decomp's `tools/video_compare` passes it with
+`--iop-tick-phase N`), the same kind of alignment as the PS2 side's
+`--fork-title-delay`; it is not a player or launcher option, and the
+Original profile never sets it. Fitted 2026-10-17 to the demo_level_1018
+fork pass (with `EM_PS2_DISC_DRIVE_TIMING=1`; IOP_STREAM.md item 3 has the
+sweep and the residual): 68 for the native playback of that recording (the
+video's pass), 104 for the level smoke's own run. The value counts from
+the backend's boot, so it depends on the fields spent before the level (the
+playback's movie skips take 204 fields fewer than the smoke fixture's,
+which moves it by 13 x 204 mod 128 = 92 half-lines). A value fitted to one
+fork run is that run's: on a PS2 the phase follows the time since the
+driver armed its timer.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

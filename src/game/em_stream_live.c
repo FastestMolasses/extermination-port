@@ -4,6 +4,7 @@
 
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "em_settings.h"
@@ -157,6 +158,28 @@ static int leave(int rc, const char *what)
 
 /* ------------------------------------------------------------ boot */
 
+/* EM_IOP_TICK_PHASE=<half-lines> (0..127, decimal): the IOP stream
+ * backend's driver tick grid starts that many half-lines into its period
+ * (em_iop_stream_set_tick_phase), so a comparison against one recording of
+ * the original can line the sound driver up with it. Unset: nothing
+ * changes. 0 with a line on stderr when set, -1 for a malformed value. */
+static int tick_phase_from_env(EmIopStream *iop)
+{
+    const char *v = getenv("EM_IOP_TICK_PHASE");
+    char *end = NULL;
+    unsigned long n;
+    if (!v)
+        return 0;
+    n = strtoul(v, &end, 10);
+    if (v[0] < '0' || v[0] > '9' || *end || n > 127 ||
+        em_iop_stream_set_tick_phase(iop, (uint32_t)n) != 0) {
+        fprintf(stderr, "stream lanes: EM_IOP_TICK_PHASE must be a half-line count 0..127 (got \"%s\")\n", v);
+        return -1;
+    }
+    fprintf(stderr, "stream lanes: IOP tick phase %lu half-lines (EM_IOP_TICK_PHASE, comparison only)\n", n);
+    return 0;
+}
+
 int em_stream_live_boot(const char *path)
 {
     em_stream_live_shutdown();
@@ -171,6 +194,10 @@ int em_stream_live_boot(const char *path)
     /* The PS2 disc-drive timing switch (em_settings, LAUNCHER_OPTIONS.md):
      * off by default, the disc answers at host speed. */
     em_iop_stream_set_ps2_drive_timing(S.ctx.iop, em_settings()->ps2_disc_drive_timing);
+    /* The comparison-only developer switch EM_IOP_TICK_PHASE (STARTUP.md
+     * "Developer switches"; not a launcher option): unset leaves the driver
+     * tick grid's phase at 0. */
+    if (tick_phase_from_env(S.ctx.iop) < 0) return fail("EM_IOP_TICK_PHASE");
     EmIopVoiceTable table = {S.voice_table, &S.voice_scan};
     em_iop_stream_set_voice_table(S.ctx.iop, &table);
     /* sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail: the five IOP heap blocks. */
