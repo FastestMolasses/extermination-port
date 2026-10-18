@@ -28,7 +28,7 @@ SUITES = tuple('area01_overlay area01_math area01_render area01_render_existing 
                'area00_overlay area00_low area00_world area00_hud area00_fx area00_fx_existing '
                'area02_overlay area02_math area02_misc area02_ui area04_port area22_port '
                'area06_port level8_port level9_port level10_port level11_port level12_port '
-               'level13_port level14_port area00_return area13_route area15_route area19_route area03_route area03_arrival'.split())
+               'level13_port level14_port area00_return area13_route area15_route area19_route area03_route area03_arrival level15_support'.split())
 
 
 def dependencies(root, test, cache=None):

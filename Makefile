@@ -2032,3 +2032,7 @@ test-player-stage-position-reference:
 .PHONY: test-area03-arrival-reference
 test-area03-arrival-reference:
 	python3 tools/test_area03_arrival_reference.py
+
+.PHONY: test-level15-support-reference
+test-level15-support-reference:
+	python3 tools/test_level15_support_reference.py

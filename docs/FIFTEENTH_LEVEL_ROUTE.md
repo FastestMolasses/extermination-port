@@ -529,7 +529,22 @@ The prior turret suite keeps its existing probe boundary unchanged.
 
 All fifteen AREA03 entries observed by this route now have current standalone
 oracle evidence. This establishes neither live binding nor fork capture
-coverage. The 28 missing boot entries remain separately tracked in
+coverage. The remaining missing boot entries are separately tracked in
 [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md), which records the exact gate
 ordering fixes and private test receipts. `make test-area03-arrival-reference`
 runs the new opt-in suite; `EM_TEST_FULL=1` enables exhaustive fail-stop checks.
+
+## Native audit: thirteen boot support entries (2026-10-18)
+
+`em_level15_support` adds standalone translations for the creature timer,
+release/search/duration/spawn/notifier/collision helpers and five connected
+render-command builders, plus `0020F170`. Its full original-instruction test
+passes 739 designed cases and all 575 reachable words, including internal
+calls through the entire five-function render chain, worker writes, aliases
+and fail-stop checks. The exact addresses, C corrections and receipts are in
+[LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
+`make test-level15-support-reference`; full mode is `EM_TEST_FULL=1`.
+
+Fifteen boot entries remain missing: eleven readable C definitions and four
+assembly-only definitions (`0013D2D0`, `0013D850`, `00141C90`, `0020F2A0`).
+No recording or live-binding claim changes with this standalone checkpoint.

@@ -7,7 +7,8 @@ instruction suite, which passes quick and full mode. Five further missing owners
 in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
 routines pass two new full suites. The remaining AREA19 flame/turret owners
 also pass a new full suite. All fifteen AREA03 route entries now pass two further full
-suites. No new routine is wired.
+suites. Thirteen level-15 boot helpers also pass a new full suite.
+No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -236,17 +237,54 @@ rejected (`build/levels/area03-arrival-mutations-1/results.json`). The staged
 index application build passes without warnings
 (`build/levels/area03-arrival-index-build.log`); leak/provenance checks pass.
 
+## Level-15 boot support
+
+The new unwired `em_level15_support` implements thirteen missing entries:
+`001418F0`, `00153EA0`, `00185420`, `001A91C0`, `001BEB70`, `001BEC40`,
+`001C2690`, `001CB200`, `001CB2B0`, `001D4440`, `001D4640`, `001D6580`
+and `0020F170`. These cover the creature timer, release notifier, active-object
+search, duration selector, child spawning, state notification, collision
+transform and render-command construction.
+
+The five translated render helpers call each other internally, and the oracle
+executes those same original callees. They are also separate test entries.
+This tests the entire `001CB2B0` → `001CB200` → `001D4640` → `001D4440` →
+`001D6580` chain without substituting a hook for any translated member.
+External workers retain typed, fail-stop contracts. The C declarations and
+bodies of the external workers were checked where a near-match caller's
+prototype was incomplete: `001D2090` needs the slot and reference pointer;
+`001D2910` takes only its ID. The native calls use those actual contracts.
+
+The suite passes **739 designed cases and 575/575 reachable words**, including
+the full failure sweep, with no coverage exclusions. Inputs include actual
+loaded boot tables from explicitly retained original captures; these are not
+claimed as live recorded invocations. Cases cover signed timer wrap, all
+selector branches, non-boolean flags, negative/unmapped searches, all child
+allocation outcomes, a parent/child alias, float bit boundaries, 64-bit packet
+arguments and workers that replace the render context or later-read fields.
+The duration dispatch table is checked against the local ELF before native
+C dispatch. The comparator is unchanged.
+
+Two translation ordering errors were corrected: the timer/collision helpers
+read Z before X when preparing the angle call, and the render chain reads its
+context pointer before the mesh count. Deliberate mutations of timer boundary,
+duration flag and saved command cursor are detected
+(`build/levels/level15-support-mutations-1/results.json`). The full receipt is
+`build/levels/oracle-level15-support-full-2/`. The staged-index build passes
+without warnings (`build/levels/level15-support-index-build.log`); the staged
+leak/provenance checks pass. No live source list or renderer file changed.
+
 ## Remaining step-2 work
 
-The map currently retains **28 missing non-boundary entries**, after adding the
-thirty-six return/arrival/continuation routines and correcting the existing `001FC520` ownership to
+The map currently retains **15 missing non-boundary entries**, after adding the
+forty-nine return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing group is 28 level-15 boot routines. Some decomp definitions still contain assembly rather
-than a usable C body. They need an explicit source/translation review and oracle
+The missing group is 15 level-15 boot routines: eleven have readable C,
+and four still contain assembly rather than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
 
@@ -266,6 +304,7 @@ make test-area15-route-reference
 make test-area19-route-reference
 make test-area03-route-reference
 make test-area03-arrival-reference
+make test-level15-support-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.
@@ -283,6 +322,10 @@ is staged.
 
 ## Requests for main
 
-None from this checkpoint. No live or protected source changed. The previously
-documented AREA01 voice-timing discrepancy and AREA00 texture-capacity stop
-remain live-phase prerequisites, not waived assertions.
+No live or protected source changed. Source work is needed in the read-only
+decomp for four remaining boot entries: `0013D2D0`, `0013D850`, `00141C90`
+and `0020F2A0`. Their current definitions have assembly bodies rather than
+usable C. They remain missing; this lane has no proposed port diff for them
+and does not infer their behavior from labels. The previously documented
+AREA01 voice-timing discrepancy and AREA00 texture-capacity stop remain
+live-phase prerequisites, not waived assertions.

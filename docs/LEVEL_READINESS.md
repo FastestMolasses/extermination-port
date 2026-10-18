@@ -39,7 +39,7 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 12 | a13d, a19b | 1349 | 721 | 224 | 46 | 358 | 358 | 11 | 0 |
 | 13 | a19c | 1062 | 692 | 214 | 53 | 103 | 103 | 8 | 0 |
 | 14 | a19d, a15 | 1309 | 836 | 288 | 75 | 110 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 286 | 64 | 394 | 366 | 16 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 299 | 64 | 381 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 37 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 38 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -1302,7 +1302,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:0013D850` | 15 | M | — | — |
 | `boot:00140C30` | 15 | M | — | — |
 | `boot:00140F80` | 15 | M | — | — |
-| `boot:001418F0` | 15 | M | — | — |
+| `boot:001418F0` | 15 | V | [em_level15_support_001418F0](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:00141A30` | 15 | M | — | — |
 | `boot:00141C90` | 15 | M | — | — |
 | `boot:00141D20` | 11,12 | V | [em_level11_port_00141D20](../src/game/em_level11_port_creature.c) | [test_level11_port_reference.py](../tools/test_level11_port_reference.py) (current quick pass) |
@@ -1324,7 +1324,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00153A10` | 14 | V | [l14_00153A10](../src/game/em_level14_port_creature.c), [em_level14_port_00153A10](../src/game/em_level14_port_creature.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
 | `boot:00153A90` | 14,15 | V | [l14_00153A90](../src/game/em_level14_port_creature.c), [em_level14_port_00153A90](../src/game/em_level14_port_creature.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
 | `boot:00153B50` | 15 | M | — | — |
-| `boot:00153EA0` | 15 | M | — | — |
+| `boot:00153EA0` | 15 | V | [e00153EA0](../src/game/em_level15_support.c), [em_level15_support_00153EA0](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:00154460` | 9,10,12,13,14,15 | V | [l9_00154460](../src/game/em_level9_port_exit.c), [em_level9_port_00154460](../src/game/em_level9_port_exit.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `boot:001545B0` | 13,15 | V | [l13_001545B0](../src/game/em_level13_port_creature.c), [em_level13_port_001545B0](../src/game/em_level13_port_creature.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `boot:001546C0` | 9,10,12,13,14,15 | V | [em_level9_port_001546C0](../src/game/em_level9_port_exit.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
@@ -1559,7 +1559,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00183EF0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3391](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00184BA0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3392](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00184D20` | 15 | M | — | — |
-| `boot:00185420` | 15 | M | — | — |
+| `boot:00185420` | 15 | V | [e00185420](../src/game/em_level15_support.c), [em_level15_support_00185420](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001854E0` | 14 | L | [L1 census:3393](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
 | `boot:00185760` | 14 | L | [L1 census:3394](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
 | `boot:00185A10` | 14 | L | [L1 census:3395](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
@@ -1703,7 +1703,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001A8E80` | 4,7,11,12,15 | V | [f_1A8E80](../src/game/em_area02_misc.c), [em_area02_misc_001A8E80](../src/game/em_area02_misc.c) | [test_area02_misc_reference.py](../tools/test_area02_misc_reference.py) (current quick pass) |
 | `boot:001A8F40` | 7,11,13,14,15 | V | [em_area06_port_001A8F40](../src/game/em_area06_port_node.c) | [test_area06_port_reference.py](../tools/test_area06_port_reference.py) (current full pass) |
 | `boot:001A9000` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3530](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:001A91C0` | 15 | M | — | — |
+| `boot:001A91C0` | 15 | V | [e001A91C0](../src/game/em_level15_support.c), [em_level15_support_001A91C0](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001A9360` | 4,7,13,14,15 | V | [f_1A9360](../src/game/em_area02_misc.c), [em_area02_misc_001A9360](../src/game/em_area02_misc.c) | [test_area02_misc_reference.py](../tools/test_area02_misc_reference.py) (current quick pass) |
 | `boot:001A96F0` | 12,13,14,15 | V | [l12_001A96F0](../src/game/em_level12_port_boot.c), [em_level12_port_001A96F0](../src/game/em_level12_port_boot.c) | [test_level12_port_reference.py](../tools/test_level12_port_reference.py) (current quick pass) |
 | `boot:001A97B0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3531](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -1916,8 +1916,8 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001BE5F0` | 5,6,7,8,10,12,13,14,15 | V | [a04_1BE5F0](../src/game/em_area04_port.c), [em_area04_port_001BE5F0](../src/game/em_area04_port.c) | [test_area04_port_reference.py](../tools/test_area04_port_reference.py) (current full pass) |
 | `boot:001BE6C0` | 8,15 | V | [l8_001BE6C0](../src/game/em_level8_port_gap.c), [em_level8_port_001BE6C0](../src/game/em_level8_port_gap.c) | [test_level8_port_reference.py](../tools/test_level8_port_reference.py) (current quick pass) |
 | `boot:001BEAC0` | 8,15 | V | [l8_001BEAC0](../src/game/em_level8_port_gap.c), [em_level8_port_001BEAC0](../src/game/em_level8_port_gap.c) | [test_level8_port_reference.py](../tools/test_level8_port_reference.py) (current quick pass) |
-| `boot:001BEB70` | 15 | M | — | — |
-| `boot:001BEC40` | 15 | M | — | — |
+| `boot:001BEB70` | 15 | V | [e001BEB70](../src/game/em_level15_support.c), [em_level15_support_001BEB70](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
+| `boot:001BEC40` | 15 | V | [e001BEC40](../src/game/em_level15_support.c), [em_level15_support_001BEC40](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001BECC0` | 15 | M | — | — |
 | `boot:001BF3C0` | 15 | M | — | — |
 | `boot:001BF5B0` | 8 | V | [l8_001BF5B0](../src/game/em_level8_port_gap.c), [em_level8_port_001BF5B0](../src/game/em_level8_port_gap.c) | [test_level8_port_reference.py](../tools/test_level8_port_reference.py) (current quick pass) |
@@ -1943,7 +1943,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001C24D0` | 3,4,5,6,7,8,9,10,12,13,14,15 | V | [L3 census:141](../docs/THIRD_LEVEL_CENSUS.md) | [test_area00_world_reference.py](../tools/test_area00_world_reference.py) (current quick pass) |
 | `boot:001C2540` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | L | [L2 census:152](../docs/SECOND_LEVEL_CENSUS.md) | [test_area01_exitb_reference.py](../tools/test_area01_exitb_reference.py) (current quick pass) |
 | `boot:001C25E0` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | L | [L2 census:153](../docs/SECOND_LEVEL_CENSUS.md) | — |
-| `boot:001C2690` | 15 | M | — | — |
+| `boot:001C2690` | 15 | V | [e001C2690](../src/game/em_level15_support.c), [em_level15_support_001C2690](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001C2770` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | L | [L2 census:154](../docs/SECOND_LEVEL_CENSUS.md) | — |
 | `boot:001C2FF0` | 3,4,5,6,7,8,9,10,12,13,14,15 | V | [L3 census:142](../docs/THIRD_LEVEL_CENSUS.md) | — |
 | `boot:001C39F0` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | V | [L2 census:155](../docs/SECOND_LEVEL_CENSUS.md) | — |
@@ -2032,8 +2032,8 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001CB060` | 12 | V | [em_level12_port_001CB060](../src/game/em_level12_port_boot.c) | [test_level12_port_reference.py](../tools/test_level12_port_reference.py) (current quick pass) |
 | `boot:001CB140` | 13,15 | V | [l13_001CB140](../src/game/em_level13_port_boot.c), [em_level13_port_001CB140](../src/game/em_level13_port_boot.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `boot:001CB1F0` | 13,15 | V | [em_level13_port_001CB1F0](../src/game/em_level13_port_boot.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
-| `boot:001CB200` | 15 | M | — | — |
-| `boot:001CB2B0` | 15 | M | — | — |
+| `boot:001CB200` | 15 | V | [e001CB200](../src/game/em_level15_support.c), [em_level15_support_001CB200](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
+| `boot:001CB2B0` | 15 | V | [e001CB2B0](../src/game/em_level15_support.c), [em_level15_support_001CB2B0](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001CB2C0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3720](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001CB360` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | L | [L2 census:164](../docs/SECOND_LEVEL_CENSUS.md) | — |
 | `boot:001CB3C0` | 2,3,4,5,6,7,8,9,11,12,13,14,15 | L | [L1 census:3721](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2149,8 +2149,8 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001D40D0` | 12 | V | [em_level12_port_001D40D0](../src/game/em_level12_port_boot.c) | [test_level12_port_reference.py](../tools/test_level12_port_reference.py) (current quick pass) |
 | `boot:001D42E0` | 13,15 | V | [l13_001D42E0](../src/game/em_level13_port_boot.c), [em_level13_port_001D42E0](../src/game/em_level13_port_boot.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `boot:001D4430` | 13,15 | V | [l13_001D4430](../src/game/em_level13_port_boot.c), [em_level13_port_001D4430](../src/game/em_level13_port_boot.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
-| `boot:001D4440` | 15 | M | — | — |
-| `boot:001D4640` | 15 | M | — | — |
+| `boot:001D4440` | 15 | V | [e001D4440](../src/game/em_level15_support.c), [em_level15_support_001D4440](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
+| `boot:001D4640` | 15 | V | [e001D4640](../src/game/em_level15_support.c), [em_level15_support_001D4640](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001D4650` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | M | native boundary: GS/VIF packet build / VU1 kick | — |
 | `boot:001D4740` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | M | native boundary: GS/VIF packet build / VU1 kick | — |
 | `boot:001D4750` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3819](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2176,7 +2176,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001D5BD0` | 2,3,4,5,6,7,8,10,14,15 | L | [L2 census:176](../docs/SECOND_LEVEL_CENSUS.md) | [test_area01_render_reference.py](../tools/test_area01_render_reference.py) (current quick pass) |
 | `boot:001D5C80` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3831](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D63B0` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | L | [L1 census:3832](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:001D6580` | 15 | M | — | — |
+| `boot:001D6580` | 15 | V | [e001D6580](../src/game/em_level15_support.c), [em_level15_support_001D6580](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001D66A0` | 4,10,11,15 | L | [L1 census:3833](../docs/FIRST_LEVEL_CENSUS.md) | [test_area02_misc_reference.py](../tools/test_area02_misc_reference.py) (current quick pass) |
 | `boot:001D6930` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3834](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D6B10` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3835](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2595,7 +2595,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:0020E6F0` | 4,11,15 | L | [L1 census:4082](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0020EC80` | 4,11,15 | L | [L1 census:4083](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0020EE50` | 2,4,8,9,11,14,15 | L | [L1 census:4084](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:0020F170` | 15 | M | — | — |
+| `boot:0020F170` | 15 | V | [e0020F170](../src/game/em_level15_support.c), [em_level15_support_0020F170](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:0020F2A0` | 15 | M | — | — |
 | `boot:0020F950` | 2,5 | L | [L1 census:4085](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
 | `boot:00210030` | 2,5 | L | [L1 census:4086](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
