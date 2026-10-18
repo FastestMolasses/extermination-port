@@ -2036,3 +2036,7 @@ test-area03-arrival-reference:
 .PHONY: test-level15-support-reference
 test-level15-support-reference:
 	python3 tools/test_level15_support_reference.py
+
+.PHONY: test-level15-creatures-reference
+test-level15-creatures-reference:
+	python3 tools/test_level15_creatures_reference.py

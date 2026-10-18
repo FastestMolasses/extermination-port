@@ -8,7 +8,7 @@ in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
 routines pass two new full suites. The remaining AREA19 flame/turret owners
 also pass a new full suite. All fifteen AREA03 route entries now pass two further full
 suites. Thirteen level-15 boot helpers also pass a new full suite.
-No new routine is wired.
+Four further creature entries pass another full suite. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -274,16 +274,41 @@ duration flag and saved command cursor are detected
 without warnings (`build/levels/level15-support-index-build.log`); the staged
 leak/provenance checks pass. No live source list or renderer file changed.
 
+## Level-15 creature attack, initialization and damage
+
+The unwired `em_level15_creatures` adds `0012F6C0` (attack/animation state),
+`0013D490` (creature initialization), `00141A30` (damage and state selection)
+and `00153B50` (hurt/death and knock-back movement). All four decomp C
+bodies were read. External calls and the draw callback are explicit workers.
+
+The full original-instruction suite passes **847 cases and 509/509 reachable
+words**, including all fail-stop sites, with no coverage exclusions. Designed
+cases cover state/clip/status combinations, setup results, signed counter
+wrap, all damage flag branches, floating-point boundaries, initialization with
+overlapping source/destination records, and workers that change later-read
+state, positions, damage or movement speed. Captured boot text is validated
+against the ELF; these designed calls are not claimed as recorded invocations.
+
+The first knock-back translation read acceleration/velocity and speed/position
+in the wrong order. It now reads acceleration before velocity, reloads velocity
+before position, and reads speed before each horizontal position after the
+trigonometry worker returns. The oracle checks each access; no comparison was
+changed. Charge-scale, fall-clamp and attack-timer mutations all fail
+(`build/levels/level15-creatures-mutations-1/results.json`). The full receipt is
+`build/levels/oracle-level15-creatures-full-1/`. The staged-index build passes
+without warnings (`build/levels/level15-creatures-index-build.log`) and staged
+leak/provenance checks pass. Live source lists and protected files are unchanged.
+
 ## Remaining step-2 work
 
-The map currently retains **15 missing non-boundary entries**, after adding the
-forty-nine return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
+The map currently retains **11 missing non-boundary entries**, after adding the
+fifty-three return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing group is 15 level-15 boot routines: eleven have readable C,
+The missing group is 11 level-15 boot routines: seven have readable C,
 and four still contain assembly rather than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -305,6 +330,7 @@ make test-area19-route-reference
 make test-area03-route-reference
 make test-area03-arrival-reference
 make test-level15-support-reference
+make test-level15-creatures-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.

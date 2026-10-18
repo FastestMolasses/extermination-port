@@ -548,3 +548,16 @@ and fail-stop checks. The exact addresses, C corrections and receipts are in
 Fifteen boot entries remain missing: eleven readable C definitions and four
 assembly-only definitions (`0013D2D0`, `0013D850`, `00141C90`, `0020F2A0`).
 No recording or live-binding claim changes with this standalone checkpoint.
+
+## Native audit: four creature entries (2026-10-18)
+
+The standalone `em_level15_creatures` adds `0012F6C0`, `0013D490`,
+`00141A30` and `00153B50`. Their full oracle sweep passes 847 designed
+cases and all 509 reachable words, including worker writes, overlapping
+initialization records and every selected fail-stop site. The exact
+knock-back access-order corrections and private receipts are described in
+[LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in target is
+`make test-level15-creatures-reference`, with `EM_TEST_FULL=1` for full mode.
+
+Eleven boot entries remain missing: seven readable C definitions and the
+same four assembly-only source blockers. None of the new routines is wired.
