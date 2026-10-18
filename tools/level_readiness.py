@@ -41,7 +41,7 @@ CENSUSES = {
     15: ('a15b_delta', 'a19e_delta', 'a03_delta'),
 }
 AREAS = ('00', '01', '02', '03', '04', '06', '13', '15', '19', '22')
-ASSET_PROFILES = ('00', '01', '02', '04', '06', '13', '13x', '15', '19', '19x', '19s1', '22')
+ASSET_PROFILES = ('00', '01', '02', '03', '04', '06', '13', '13x', '15', '19', '19x', '19s1', '22')
 STATUS = ('live', 'verified', 'unverified', 'missing')
 DEFINITION = re.compile(r'\b([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{', re.S)
 ADDRESS = re.compile(r'(?<![\w])(?:0x)?(00[0-9A-Fa-f]{6})(?![\w])')
@@ -458,7 +458,7 @@ def markdown(report):
         'harnesses already contain entry tables, original-image identity checks, ordered call/store comparisons '
         'and coverage assertions. Their presence alone does not promote a row. Keep additions opt-in and unwired.',
         '2. Complete per-area delivery exports: object/world texture catalogs and shadow receivers beyond '
-        'AREA00/AREA01, complete module packs, and AREA03 assets. Check later reload/event captures as well as '
+        'AREA00/AREA01. Complete module packs and AREA03 arrival assets now pass their delivery checks. Check later reload/event captures as well as '
         'each exporter’s original fixture set. Historical docs have stale gaps resolved by later profiles.',
         '3. Measure every catalog and registry before choosing capacity. AREA00 requires 579 texture keys '
         'against 512 slots; never truncate. The allowed graphics change needs O(1) lookup plus unchanged '
@@ -512,7 +512,7 @@ def markdown(report):
         delivery = 'complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md'
         lines.append(f'| AREA{area} | ' + (link(texture) if (ROOT / texture).exists() else 'missing area catalog exporter') +
                      ' | ' + (link(shadow) if (ROOT / shadow).exists() else link('tools/export_level_shadow_receivers.py')) +
-                     f' | {delivery} | ' + ('no area exporter/checker yet' if area == '03' else 'collision, tables, doors, SFX, models, messages, scripts: profiles below') + ' |')
+                     f' | {delivery} | collision, tables, doors, SFX, models, messages, scripts: profiles below |')
     for a in report['assets']:
         lines += ['', f"### AREA{a['profile'].upper()} export profile", '', link(a['document']), '',
                   'Exporters: ' + ', '.join(link(p) for p in a['exporters']) + '.', '',
@@ -539,8 +539,9 @@ def markdown(report):
               'proofs. A saved GS image alone does not prove the displayed framebuffer. Later live pixels '
               'and SPU residency remain separate capture work.', '',
               '## Requests for main', '',
-              'No shared or protected source change is part of this map. Concrete diffs and regressions '
-              'will be recorded here if later work needs a change outside the allowed texture-capacity exception. '
+              'No shared or protected source change is part of this map. The AREA04 zero-key original-draw '
+              'counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. '
+              'They remain outside the allowed texture-capacity exception. '
               'Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity '
               'change proven necessary by the complete-area measurements.', '',
               '## Readiness checkpoint (2026-10-18)', '',

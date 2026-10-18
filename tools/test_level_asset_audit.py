@@ -52,11 +52,11 @@ class AssetAuditTests(unittest.TestCase):
         for profile in A.PROFILES:
             jobs = A.commands(profile)
             self.assertEqual(jobs[-1], ('verify', f'tools/test_area{profile}_assets_reference.py'))
-            self.assertEqual(len(jobs), 5 if profile in A.SPLIT else 4)
+            self.assertEqual(len(jobs), 2 if profile == '03' else 5 if profile in A.SPLIT else 4)
             if profile in A.REQUIRES:
                 self.assertLess(A.PROFILES.index(A.REQUIRES[profile]), A.PROFILES.index(profile))
         with self.assertRaises(ValueError):
-            A.commands('03')
+            A.commands('unrecorded')
 
 
 if __name__ == '__main__':

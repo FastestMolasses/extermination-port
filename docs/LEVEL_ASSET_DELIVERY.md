@@ -17,7 +17,11 @@ claim of transitive or live certification. The runner refuses asset symlinks.
 Each check retains its documented capture selection. AREA00 uses the selected
 fork references; many older profiles explicitly read the retained legacy
 captures. Setting `EM_REFERENCE=fork` does not rewrite those hardcoded inputs.
-AREA03 still needs its level/collision/table/SFX/model/message/script profile.
+AREA03's new level/collision/table/SFX/model/message/script profile now passes
+too; its full receipt is `build/levels/area03-profile-2/results.json`.
+See [AREA03_ASSETS.md](AREA03_ASSETS.md) for the two-snapshot scope, twelve
+native loaders, five failing controls and the original derivation of three
+retained render-colour words. It adds 1,000 SFX entries and 78 samples.
 
 The canonical AREA00/AREA01 world-texture and receiver exports also passed,
 followed by full AREA00 resource and delivery checks. Receipt:
@@ -98,9 +102,9 @@ Receipts: `build/levels/shadows-all-1/results.json` and the per-profile
 
 | Resource | Measured now | Native bound | Remaining proof |
 |---|---|---|---|
-| Object textures | AREA00 579 keys/sub; AREA01 460 | 512 | Complete later-area catalogs, choose largest requirement, O(1) Metal lookup and before/after smokes |
-| SFX entries | Each existing area/sub export has 1000 | 4096 per loaded registry | AREA03, later event coverage and combined scope delivery |
-| SFX samples | Existing area/sub exports range from 15 to 77 | 1024 per registry | AREA03 and the full combined catalog |
+| Object textures | AREA00 579 keys/sub; AREA01 460; bank/shared probe reaches 607 nonzero keys in AREA13 reload | 512 | Complete area-effect discovery and runtime material classification, choose maximum, O(1) lookup and after-change smokes |
+| SFX entries | Each recorded area/sub export has 1000 | 4096 per loaded registry | Later event coverage and combined scope delivery |
+| SFX samples | Recorded area/sub exports range from 15 to 78 | 1024 per registry | The full combined catalog |
 | Actor pool | Original and native capacity 256 | 256 | Peak occupancy and retained-node coverage per route |
 | Receiver list | Full banks above accepted | 512 selected per shadow | Peak selected list per route |
 | Loader storage | All 15 complete loads pass | 16 host regions; 32 MiB per read | Reload sequences and remaining boundary workers |
@@ -116,14 +120,24 @@ logs remain under `build/levels/bootstrap-private-{1,2,3,4}/` and
 `build/levels/area01-boot-export-1/`. The native baseline builds with zero
 warnings; headless newgame-control passes at 9.599849
 (`build/levels/capacity-before-control-2/run.log`). The texture capacity has
-not changed. The default first-level run through AREA01 arrival and its
-strict checker and present-again check pass
-(`build/levels/capacity-before-smokes-2/gpu0-a01_arrival/`). Its checker was
-rerun with `EM_LEVEL_SMOKE_BIN` pointing at the private binary. Remaining
-tick/RNG/frame-hash baseline collection is still in progress.
+not changed. All four baseline runs pass: first-level exit/AREA01 arrival
+and AREA01 through `a01_02`, each with default and GPU rendering. Their
+strict checkers and present-again checks pass. Tick, RNG and presented-pixel
+hash logs are retained under `build/levels/capacity-before-smokes-2/`;
+`results.json` records their hashes. The first default check was rerun with
+`EM_LEVEL_SMOKE_BIN` pointing at the private binary.
+
+The later-area bank/shared texture probe is diagnostic, not a completed
+catalog exporter. Nonzero texels verify against every selected freeze for
+all profiles. AREA15 sub 1 required reading a model across adjacent
+descriptor ranges rather than stopping at an extracted file boundary.
+AREA13 reload required each capture's original player texture mode/costume;
+the default mode did not reproduce all thirteen freezes. Receipts are in
+`build/levels/catalog-probe-{1,3,4}/`. Area-specific effect discovery and
+zero-key classifications remain open; no complete live catalog is claimed.
 
 Remaining stage-3 work: full later-area texture discovery and residency
-checks, AREA03's other asset categories, later reload/event coverage, complete
+checks, later reload/event coverage, complete
 capacity tables, then the explicitly permitted registry change and both
 renderer proofs. Stage 4 recordings and stage 5 AREA00 binding have not begun.
 
@@ -145,6 +159,24 @@ keeps the same comparisons and covers every listed case.
 
 ## Requests for main
 
-None from this checkpoint. No shared live source or renderer changed.
+No shared live source or renderer changed. One concrete later-area renderer
+requirement is now established: AREA04's static bank contains zero-TEX0
+vertices that the original actually draws with texturing enabled. Replaying
+the original level/clip programs over the retained display lists produces
+two such triangles in each buffer of `a02_05_progression_exit`. A third
+checked display list (`a04_s1_reel_blocks`) submits zero-key source blocks
+but emits no zero-key triangle. Receipt:
+`build/levels/catalog-zero-oracle-1/report.json`.
+
+The current decomp geometry exporter's `walk_records` rejects a zero TEX0,
+so its mesh reconstruction misses these records. The raw static bank export
+preserves every byte. A complete port path must keep these vertices and
+honour the original key's live GS-memory sampling; it must not substitute
+disc texels or delete the key. Required change for main: supply runtime GS
+texture data for such primitives through the protected GS/render path and
+prove their pixels against the original. The registry-capacity exception
+does not authorize that renderer change. Tendril and other zero-key users
+still need their own draw-mode classifications.
+
 The source blockers and shared proof gaps from stage 2 remain listed in
 `LEVEL_READINESS.md`; the asset proofs do not clear them.

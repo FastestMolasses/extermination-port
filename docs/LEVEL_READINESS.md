@@ -15,7 +15,7 @@ Function keys include the resident overlay. All census `functions` rows are used
 ## Ranked work
 
 1. Audit the U/M queue and reuse the existing original-instruction harnesses. The level 8–14 harnesses already contain entry tables, original-image identity checks, ordered call/store comparisons and coverage assertions. Their presence alone does not promote a row. Keep additions opt-in and unwired.
-2. Complete per-area delivery exports: object/world texture catalogs and shadow receivers beyond AREA00/AREA01, complete module packs, and AREA03 assets. Check later reload/event captures as well as each exporter’s original fixture set. Historical docs have stale gaps resolved by later profiles.
+2. Complete per-area delivery exports: object/world texture catalogs and shadow receivers beyond AREA00/AREA01. Complete module packs and AREA03 arrival assets now pass their delivery checks. Check later reload/event captures as well as each exporter’s original fixture set. Historical docs have stale gaps resolved by later profiles.
 3. Measure every catalog and registry before choosing capacity. AREA00 requires 579 texture keys against 512 slots; never truncate. The allowed graphics change needs O(1) lookup plus unchanged default/GPU first-level and AREA01 tick logs, rand counters/state, presented-frame hashes, and newgame-control 9.599849. The combined SFX registry also needs a size audit.
 4. Restore the missing fork route chain from a04b_00, then record later groups. Existing legacy captures remain original evidence; fork file presence alone is not parity or successful replay. Record displayed fields and missing boundary counters where needed; use the shared run lock.
 5. Continue AREA00 arrival at `D_00248290` / `0015AB00` after capacity proof, then neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite voice discrepancy and every first divergent row. See [LEVEL3_BINDING.md](../docs/LEVEL3_BINDING.md).
@@ -425,7 +425,7 @@ The current private export and reference-test receipts are recorded in [LEVEL_AS
 | AREA00 | [export_area00_world_textures.py](../tools/export_area00_world_textures.py) | [export_area00_shadow_receivers.py](../tools/export_area00_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
 | AREA01 | [export_area01_world_textures.py](../tools/export_area01_world_textures.py) | [export_area01_shadow_receivers.py](../tools/export_area01_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
 | AREA02 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA03 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | no area exporter/checker yet |
+| AREA03 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
 | AREA04 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
 | AREA06 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
 | AREA13 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
@@ -546,6 +546,40 @@ The checker does not check the descriptive side files: `scene.txt`, the
 hulls and the 0019C6F0 calls per capture, and `moved_uids` against its own
 rows) and in `tables.json` (the run-time words of each capture) with its own
 results.
+
+
+### AREA03 export profile
+
+[AREA03_ASSETS.md](../docs/AREA03_ASSETS.md)
+
+Exporters: [export_area03_assets.py](../tools/export_area03_assets.py), [export_area03_common.py](../tools/export_area03_common.py).
+
+Reference: [test_area03_assets_reference.py](../tools/test_area03_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
+
+
+| Output under `assets/levels/03/` | Source and verification |
+|---|---|
+| `sub0/level/00_id44.emdl`, material sidecar | 467 static objects; disc-upload texels equal both GS freezes; captured draw-state checks |
+| `sub0/level/static_bank.emsc` | Complete directory, grid and object blocks; every byte equals original RAM |
+| `sub0/area03.emcl` | Grid collision rebuilt independently from the captured original pointers and tables |
+| `sub0/area03_cells.bin`, `cells.json` | 29 UIDs, 17,716 bytes; moved hulls derived by original 001A2370 / 00219F50 machinery |
+| `sub0/roster.emro` | 21 placements and one group of 15; independent original table walks and captured records |
+| `sub0/world_models.emwm` | 18 complete models; original delivered bytes, header/bone bounds and native parser |
+| `sub0/message_data.emmd` | Original global and area message banks; captured pointer/record re-derivation |
+| `spawn_table.emsp`, `door_destinations.emsp` | Four spawn rows and twelve door records; original table walks, capture comparisons and native loaders |
+| `scripts.emsc`, `overlay_data.emsc` | Five source-named chains, 77 distinct records; full overlay windows and every observed mutation checked |
+| `sub0/sfx/area03_banks.bin`, `sfx_registry.emsr` | 1,000 scoped entries, 78 samples; disc containers and full registry re-derived from captured driver tables |
+
+The descriptor relocates no dynamic-object list. Its retained pointer must
+equal the preceding AREA19 snapshot, and every recorded display list must
+contain no dynamic-kernel draw. No stale pointer is exported as geometry.
+
+`export_area03_common.py` configures the existing AREA13 delivery pipelines.
+AREA03's turret owner `00823930` supplies the matrix at
+`*(node + 0x11C) + 0x90` to its four cell-hull transforms. The readable
+overlay C contains no cell-flag or overlay-door caller; a direct-target scan
+also checks the pinned original overlay, including its pre-existing init
+unit. Unexpected hull changes, data writes and calls still fail.
 
 
 ### AREA04 export profile
@@ -869,7 +903,7 @@ run-time word) with its own results.
 
 ## Requests for main
 
-No shared or protected source change is part of this map. Concrete diffs and regressions will be recorded here if later work needs a change outside the allowed texture-capacity exception. Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity change proven necessary by the complete-area measurements.
+No shared or protected source change is part of this map. The AREA04 zero-key original-draw counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. They remain outside the allowed texture-capacity exception. Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity change proven necessary by the complete-area measurements.
 
 ## Readiness checkpoint (2026-10-18)
 

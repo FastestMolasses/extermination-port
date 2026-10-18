@@ -2069,3 +2069,7 @@ test-level-module-pack-reference:
 .PHONY: test-level-shadow-receivers-reference
 test-level-shadow-receivers-reference:
 	python3 tools/test_level_shadow_receivers_reference.py
+
+.PHONY: test-area03-assets-reference
+test-area03-assets-reference:
+	python3 tools/test_area03_assets_reference.py

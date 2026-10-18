@@ -18,7 +18,7 @@ import sys
 import time
 
 ROOT=Path(__file__).resolve().parents[1]
-PROFILES=('01','00','02','04','22','06','13','13x','19','19x','19s1','15')
+PROFILES=('01','00','02','04','22','06','13','13x','19','19x','19s1','15','03')
 SPLIT={'13x','19x','19s1','15'}
 REQUIRES={'13x':'13','19x':'19','19s1':'19'}
 
@@ -40,6 +40,9 @@ def private_assets(root):
 
 def commands(profile):
     if profile not in PROFILES:raise ValueError('unknown asset profile')
+    if profile=='03':
+        return [('export','tools/export_area03_assets.py'),
+                ('verify','tools/test_area03_assets_reference.py')]
     jobs=[('export',f'tools/export_area{profile}_{part}.py') for part in ('level','tables','sfx')]
     if profile in SPLIT:jobs.append(('export',f'tools/export_area{profile}_split.py'))
     jobs.append(('verify',f'tools/test_area{profile}_assets_reference.py'))
