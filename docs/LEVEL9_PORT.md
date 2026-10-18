@@ -482,3 +482,19 @@ Nothing calls these entries. To run them live a host must:
 - **Mutation sweep** is a bounded sample (the lane's one round, 151
   mutants, plus the review's 44), not exhaustive.
 - **Reuse checks** use the other harnesses' own models and case lists.
+
+## Full-census continuation audit (2026-10-18)
+
+The earlier delivery above covers its original delta inventory. The full route
+census additionally runs AREA13 `00823580` (door), `00823830` (cutscene),
+`00823A40` (interaction) and `00824A80` (switch). These now have standalone
+translations in `em_area13_route.c`, with typed explicit workers and no live
+caller. The old level-9 hook for `00823830` remains a worker boundary; binding
+the new routine is later live work.
+
+`make test-area13-route-reference` passes 546 cases and 225/225 reachable words.
+The full failure sweep also passes; its source-fingerprinted receipt is
+`build/levels/oracle-area13-full-1/`. The retained original route snapshots are
+v2.6.3 inputs, explicitly identified as such. The door translation was corrected
+to read state before owner pointer. See `LEVEL_ORACLE_AUDIT.md` for the checks,
+mutations and remaining full-route backlog. Nothing in this extension is wired.

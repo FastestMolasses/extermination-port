@@ -33,13 +33,13 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 6 | a22 | 908 | 663 | 96 | 41 | 108 | 108 | 7 | 7 |
 | 7 | a01u, a06 | 1044 | 751 | 131 | 52 | 110 | 110 | 13 | 13 |
 | 8 | a06b, a01v, a22b, a04b | 1082 | 727 | 205 | 43 | 107 | 107 | 12 | 7 |
-| 9 | a13 | 996 | 716 | 124 | 42 | 114 | 110 | 6 | 0 |
-| 10 | a19, a13b | 1039 | 694 | 188 | 42 | 115 | 110 | 10 | 0 |
-| 11 | a13c | 922 | 669 | 113 | 30 | 110 | 108 | 7 | 0 |
-| 12 | a13d, a19b | 1349 | 721 | 221 | 46 | 361 | 358 | 11 | 0 |
+| 9 | a13 | 996 | 716 | 128 | 42 | 110 | 110 | 6 | 0 |
+| 10 | a19, a13b | 1039 | 694 | 191 | 42 | 112 | 110 | 10 | 0 |
+| 11 | a13c | 922 | 669 | 115 | 30 | 108 | 108 | 7 | 0 |
+| 12 | a13d, a19b | 1349 | 721 | 222 | 46 | 360 | 358 | 11 | 0 |
 | 13 | a19c | 1062 | 692 | 212 | 53 | 105 | 103 | 8 | 0 |
 | 14 | a19d, a15 | 1309 | 836 | 286 | 75 | 112 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 263 | 64 | 417 | 366 | 16 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 269 | 64 | 411 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 32 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 34 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -2779,13 +2779,13 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA06:008242C0` | 7 | V | [em_area06_port_008242C0](../src/game/em_area06_port_overlay.c) | [test_area06_port_reference.py](../tools/test_area06_port_reference.py) (current full pass) |
 | `overlay:AREA06:00824340` | 7,8 | V | [em_area06_port_00824340](../src/game/em_area06_port_overlay.c) | [test_area06_port_reference.py](../tools/test_area06_port_reference.py) (current full pass) |
 | `overlay:AREA06:00824560` | 7,8 | V | [a6_00824560](../src/game/em_area06_port_overlay.c), [em_area06_port_00824560](../src/game/em_area06_port_overlay.c) | [test_area06_port_reference.py](../tools/test_area06_port_reference.py) (current full pass) |
-| `overlay:AREA13:00823580` | 9,10,11,12 | M | — | — |
+| `overlay:AREA13:00823580` | 9,10,11,12 | V | [em_area13_route_00823580](../src/game/em_area13_route.c) | [test_area13_route_reference.py](../tools/test_area13_route_reference.py) (current full pass) |
 | `overlay:AREA13:008236E0` | 10 | V | [em_level10_port_008236E0](../src/game/em_level10_port_boot.c) | [test_level10_port_reference.py](../tools/test_level10_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00823700` | 9,10 | V | [em_level9_port_00823700](../src/game/em_level9_port_area13.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
-| `overlay:AREA13:00823830` | 9 | M | — | — |
+| `overlay:AREA13:00823830` | 9 | V | [cutscene_00823830](../src/game/em_area13_route.c), [em_area13_route_00823830](../src/game/em_area13_route.c) | [test_area13_route_reference.py](../tools/test_area13_route_reference.py) (current full pass) |
 | `overlay:AREA13:00823940` | 9 | V | [l9_00823940](../src/game/em_level9_port_area13.c), [em_level9_port_00823940](../src/game/em_level9_port_area13.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00823A10` | 9 | V | [em_level9_port_00823A10](../src/game/em_level9_port_area13.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
-| `overlay:AREA13:00823A40` | 9,10 | M | — | — |
+| `overlay:AREA13:00823A40` | 9,10 | V | [interaction_00823A40](../src/game/em_area13_route.c), [em_area13_route_00823A40](../src/game/em_area13_route.c) | [test_area13_route_reference.py](../tools/test_area13_route_reference.py) (current full pass) |
 | `overlay:AREA13:00823BC0` | 9,10 | V | [em_level9_port_00823BC0](../src/game/em_level9_port_area13.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00823C10` | 9,10 | V | [l9_00823C10](../src/game/em_level9_port_area13.c), [em_level9_port_00823C10](../src/game/em_level9_port_area13.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00823D50` | 9,10 | V | [l9_00823D50](../src/game/em_level9_port_area13.c), [em_level9_port_00823D50](../src/game/em_level9_port_area13.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
@@ -2799,7 +2799,7 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA13:008248C0` | 11 | V | [em_level11_port_008248C0](../src/game/em_level11_port_area13.c) | [test_level11_port_reference.py](../tools/test_level11_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00824960` | 11 | V | [em_level11_port_00824960](../src/game/em_level11_port_area13.c) | [test_level11_port_reference.py](../tools/test_level11_port_reference.py) (current quick pass) |
 | `overlay:AREA13:008249F0` | 11 | V | [l11_008249F0](../src/game/em_level11_port_area13.c), [em_level11_port_008249F0](../src/game/em_level11_port_area13.c) | [test_level11_port_reference.py](../tools/test_level11_port_reference.py) (current quick pass) |
-| `overlay:AREA13:00824A80` | 9,10,11 | M | — | — |
+| `overlay:AREA13:00824A80` | 9,10,11 | V | [switch_00824A80](../src/game/em_area13_route.c), [em_area13_route_00824A80](../src/game/em_area13_route.c) | [test_area13_route_reference.py](../tools/test_area13_route_reference.py) (current full pass) |
 | `overlay:AREA13:00824BB0` | 9,10,11,12 | V | [em_level9_port_00824BB0](../src/game/em_level9_port_turret.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00826140` | 9,10,11,12 | V | [em_level9_port_00826140](../src/game/em_level9_port_turret.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `overlay:AREA13:00826610` | 11 | V | [em_level11_port_00826610](../src/game/em_level11_port_area13.c) | [test_level11_port_reference.py](../tools/test_level11_port_reference.py) (current quick pass) |
@@ -2829,14 +2829,14 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA15:00823780` | 14 | V | [a15_00823780](../src/game/em_level14_port_area15.c), [em_level14_port_00823780](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
 | `overlay:AREA15:00823850` | 14,15 | V | [em_level14_port_00823850](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
 | `overlay:AREA15:008239F0` | 14,15 | V | [a15_008239F0](../src/game/em_level14_port_area15.c), [em_level14_port_008239F0](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
-| `overlay:AREA15:00823B40` | 15 | M | — | — |
-| `overlay:AREA15:00823C80` | 15 | M | — | — |
+| `overlay:AREA15:00823B40` | 15 | V | [em_area15_route_00823B40](../src/game/em_area15_route.c) | [test_area15_route_reference.py](../tools/test_area15_route_reference.py) (current full pass) |
+| `overlay:AREA15:00823C80` | 15 | V | [transition_00823C80](../src/game/em_area15_route.c), [em_area15_route_00823C80](../src/game/em_area15_route.c) | [test_area15_route_reference.py](../tools/test_area15_route_reference.py) (current full pass) |
 | `overlay:AREA15:00823E40` | 14,15 | V | [a15_00823E40](../src/game/em_level14_port_area15.c), [em_level14_port_00823E40](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
-| `overlay:AREA15:00823F60` | 15 | M | — | — |
+| `overlay:AREA15:00823F60` | 15 | V | [camera_00823F60](../src/game/em_area15_route.c), [em_area15_route_00823F60](../src/game/em_area15_route.c) | [test_area15_route_reference.py](../tools/test_area15_route_reference.py) (current full pass) |
 | `overlay:AREA15:00824070` | 14,15 | V | [em_level14_port_00824070](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
-| `overlay:AREA15:00824240` | 15 | M | — | — |
-| `overlay:AREA15:00824350` | 15 | M | — | — |
-| `overlay:AREA15:008243E0` | 15 | M | — | — |
+| `overlay:AREA15:00824240` | 15 | V | [release_00824240](../src/game/em_area15_route.c), [em_area15_route_00824240](../src/game/em_area15_route.c) | [test_area15_route_reference.py](../tools/test_area15_route_reference.py) (current full pass) |
+| `overlay:AREA15:00824350` | 15 | V | [script_00824350](../src/game/em_area15_route.c), [em_area15_route_00824350](../src/game/em_area15_route.c) | [test_area15_route_reference.py](../tools/test_area15_route_reference.py) (current full pass) |
+| `overlay:AREA15:008243E0` | 15 | V | [talk_008243E0](../src/game/em_area15_route.c), [em_area15_route_008243E0](../src/game/em_area15_route.c) | [test_area15_route_reference.py](../tools/test_area15_route_reference.py) (current full pass) |
 | `overlay:AREA15:00824510` | 14,15 | V | [em_level14_port_00824510](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
 | `overlay:AREA15:00824560` | 14,15 | V | [a15_00824560](../src/game/em_level14_port_area15.c), [em_level14_port_00824560](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |
 | `overlay:AREA15:008247B0` | 14,15 | V | [a15_008247B0](../src/game/em_level14_port_area15.c), [em_level14_port_008247B0](../src/game/em_level14_port_area15.c) | [test_level14_port_reference.py](../tools/test_level14_port_reference.py) (current quick pass) |

@@ -4,7 +4,8 @@
 standalone suites in the audit inventory pass their current quick modes. Four
 missing routines on the AREA00 return now have a translation and a new original
 instruction suite, which passes quick and full mode. Five further missing owners
-in AREA04/06 now pass their expanded full suites. No new routine is wired.
+in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
+routines pass two new full suites. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -102,17 +103,52 @@ retain older stale receipts explicitly until their sources are retested.
 The isolated staged-index build of this extension passes with zero warnings
 (`build/levels/arrival-index-build.log`); the staged leak/provenance checks pass.
 
+## AREA13 and AREA15 full-route extensions
+
+The full census also finds four AREA13 and six AREA15 routines omitted by the
+old delta inventories. New standalone `em_area13_route` and `em_area15_route`
+modules implement their matching decomp C. They keep explicit workers and the
+same borrowed-memory, typed-call and fail-stop contracts. They are built only
+by opt-in test targets and have no live caller. The existing level-9/14 suites
+and their worker boundaries are unchanged.
+
+| Area | Runtime entries | Cases | Reachable words | Full receipt |
+|---|---|---:|---:|---|
+| AREA13 | `00823580`, `00823830`, `00823A40`, `00824A80` | 546 | 225/225 | `build/levels/oracle-area13-full-1/` |
+| AREA15 | `00823B40`, `00823C80`, `00823F60`, `00824240`, `00824350`, `008243E0` | 562 | 326/326 | `build/levels/oracle-area15-full-1/` |
+
+Both suites configure the existing level-14 comparator without modifying it.
+They compare original text identity, ordered accesses, worker arguments,
+call-boundary and final whole memory, poisoned starts, and every failed access
+or call at the selected full-contract sites. Cases include actual captured
+actors, all state/substate branches, signed countdown boundaries, flag/result
+lanes, floating-point boundaries, and worker mutations of later-read fields.
+All reachable words are exercised with no exclusions. Original captures are
+explicitly selected from the retained v2.6.3 routes; these passes do not establish
+fork recording coverage.
+
+The AREA13 door first reads its state, then its owner pointer. The initial
+translation reversed those reads; the oracle rejected it. AREA15's two
+countdowns reload the signed halfword after decrement/store; retaining only the
+local result omitted an observable read. Both translations were corrected,
+with all comparisons retained. Four deliberate mutations were detected: the
+door's owner flag, the cutscene completion flag, the camera callback's return
+value, and the countdown boundary (`build/levels/route-mutations-1/results.json`).
+The quick suites take about one second each with two workers on this Mac.
+The isolated staged-index application build passes with zero warnings
+(`build/levels/continuation-index-build.log`); the staged leak checks pass.
+
 ## Remaining step-2 work
 
-The map currently retains **55 missing non-boundary entries**, after adding the
-nine return/arrival routines and correcting the existing `001FC520` ownership to
+The map currently retains **45 missing non-boundary entries**, after adding the
+nineteen return/arrival/continuation routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing groups include AREA13/19 functions missed by earlier deltas, the AREA15 continuation and AREA03 arrival, plus the
-level-15 boot routines. Some decomp definitions still contain assembly rather
+The missing groups include two AREA19 functions missed by earlier deltas, the
+AREA03 arrival, and level-15 boot routines. Some decomp definitions still contain assembly rather
 than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -128,6 +164,8 @@ Native arm64 macOS, with the user's local decomp inputs:
 ```sh
 make test-level-readiness
 make test-area00-return-reference
+make test-area13-route-reference
+make test-area15-route-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.
