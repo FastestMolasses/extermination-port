@@ -98,48 +98,111 @@ separate runtime measurement.
 Receipts: `build/levels/shadows-all-1/results.json` and the per-profile
 `build/levels/shadow-reference/PROFILE/report.json` files.
 
-## Capacity and remaining work
+## Texture catalogs and measured capacities
 
-| Resource | Measured now | Native bound | Remaining proof |
-|---|---|---|---|
-| Object textures | AREA00 579 keys/sub; AREA01 460; bank/shared probe reaches 607 nonzero keys in AREA13 reload | 512 | Complete area-effect discovery and runtime material classification, choose maximum, O(1) lookup and after-change smokes |
-| SFX entries | Each recorded area/sub export has 1000 | 4096 per loaded registry | Later event coverage and combined scope delivery |
-| SFX samples | Recorded area/sub exports range from 15 to 78 | 1024 per registry | The full combined catalog |
-| Actor pool | Original and native capacity 256 | 256 | Peak occupancy and retained-node coverage per route |
-| Receiver list | Full banks above accepted | 512 selected per shadow | Peak selected list per route |
-| Loader storage | All 15 complete loads pass | 16 host regions; 32 MiB per read | Reload sequences and remaining boundary workers |
+`export_level_world_textures.py` preserves every reference from the delivered
+static/dynamic/model banks, bound library/resource models, shared producers
+and the recorded page draws. Its exporter-only page oracle executes the
+original VU programs, including `001E9280`'s additional surface packet. The
+shared smoke model and native VU kernels are unchanged. All eight previously
+supported program packets retain identical parsed upload/constant bytes;
+three false source-address mutations are rejected.
 
-The canonical AREA11/AREA01/AREA00 SFX registry passed the AREA00 delivery
-check with 3278 entries and 234 samples. That is not the all-area union.
+All sixteen profile/subarea exports pass. Every fixed texel comes from the
+disc upload replay and matches every selected original GS freeze. AREA13
+reload has two mode/costume variants; they are separate EMOT files. AREA15
+sub 1 has a model crossing adjacent descriptor ranges, whose entire extent
+is checked against original loaded RAM. Catalog JSON retains zero keys as
+unresolved draw-class/live-GS references. It does not invent fixed texels or
+claim these catalogs can all be bound by the current renderer.
+
+The page replay found a missing `001E9E60` surface material in the earlier
+AREA00 catalog. Both canonical AREA00 exports now contain 580 fixed keys
+and pass the original GS and native resource-loader checks. The generic
+catalog additionally retains model 0's zero reference. This supersedes the
+old 579-key completeness claim; no AREA00 gameplay phase is promoted.
+
+| Profile/sub | Fixed textures + unresolved keys | Largest EMOT bytes | SFX entries / samples | Actor snapshot max / 256 | Effect snapshot max / 128 |
+|---|---:|---:|---:|---:|---:|
+| 00/0 | 580 + 1 | 6,973,040 | 1000 / 46 | 134 | 0 |
+| 00/1 | 580 + 1 | 6,973,040 | 1000 / 46 | 130 | 0 |
+| 01/0 | 460 + 0 | 5,644,080 | 1000 / 46 | 94 | 0 |
+| 02/0 | 419 + 0 | 5,769,048 | 1000 / 45 | 116 | 0 |
+| 02/1 | 311 + 0 | 3,401,016 | 1000 / 15 | 32 | 0 |
+| 03/0 | 386 + 1 | 4,987,968 | 1000 / 78 | 55 | 0 |
+| 04/0 | 535 + 1 | 6,325,816 | 1000 / 42 | 130 | 0 |
+| 06/0 | 369 + 0 | 5,534,376 | 1000 / 77 | 120 | 0 |
+| 13/0 | 594 + 1 | 7,292,864 | 1000 / 49 | 125 | 0 |
+| 13x/0 | 609 + 1 | 8,376,616 | 1000 / 49 | 120 | 0 |
+| 15/0 | 381 + 0 | 4,293,576 | 1000 / 19 | 40 | 0 |
+| 15/1 | 453 + 0 | 7,195,272 | 1000 / 31 | 47 | 0 |
+| 19/0 | 510 + 1 | 6,178,784 | 1000 / 75 | 130 | 0 |
+| 19x/0 | 553 + 1 | 6,982,632 | 1000 / 75 | 130 | 0 |
+| 19s1/1 | 478 + 1 | 5,825,760 | 1000 / 66 | 79 | 0 |
+| 22/0 | 339 + 1 | 4,433,880 | 1000 / 33 | 55 | 0 |
+
+The table measures **retained snapshots**, not whole-route high-water marks.
+Actor occupancy is independently checked against the original free counter;
+effect occupancy uses `001F40C0`'s live short. Zero captured effect entities
+does not establish that the route never allocates them. Whole-bank shadow
+sizes are above; the 512-receiver bound applies to one selected shadow list,
+whose route peak remains unmeasured. Original actor/effect capacities remain
+256/128. All fifteen module deliveries pass with the existing 16 host-region
+and 32 MiB read limits; this does not prove every reload sequence.
+
+The largest fixed catalog has 609 keys (AREA13 reload), plus one unresolved
+zero key. `EM_GFX_OBJECT_TEX_MAX` is raised to 1024. The Metal registry uses
+2048 open-addressed index buckets at at most half load, preserving full
+CLD-masked keys, insertion order, replacement and reset behavior. Expected
+lookup cost is constant. The real Metal fixture fills all 1024 slots,
+exercises 220 bucket collisions, checks pixel replacement through both APIs,
+refuses a new key when full, resets/refills, and retries a failed allocation.
+The fixture also distinguishes two different full-width keys in the same
+bucket and passes ASan/UBSan. Its pixels are synthetic; it opens no window.
+
+The canonical AREA11/AREA01/AREA00 SFX registry has 3278 entries and 234
+samples. The union of available area registries plus that canonical file
+has 14274 distinct scope/id entries and 348 distinct sample payloads. It
+exceeds the 4096-entry bound; samples fit the 1024 bound. Two entries conflict
+with an older inferred office binding, detailed under Requests for main.
+The tool reports that conflict instead of choosing a source silently. Each
+per-area 1000-entry registry fits. No SFX capacity or live binding changes.
+
+Receipts: `build/levels/world-textures-all-1/results.json`,
+`build/levels/world-texture-reference/PROFILE/full.json`,
+`build/levels/world-textures-all-1/page-parser.log`,
+`build/levels/area00-textures-complete-1/results.json`,
+`build/levels/capacities/report.json`, and `build/levels/texture-registry/`.
+The production EMOT parser also accepts all seventeen variant files with
+exact keys and texel bytes and rejects truncation for each:
+`build/levels/texture-catalog-parser/full.json`.
+The AREA03 quick texture check compares both freezes and rejects malformed
+layout, truncation and a changed texel; full mode repeats all profiles.
+
+## Registry regression proof
 
 First-level prerequisites were rebuilt from the disc into this worktree's
-real private `assets/`, using the documented exporters. The initial manifest
-needed source-backed canopy/panel/elevator entries before the patching
-exporters, and AREA01 required the separate boot-script export. Recipes and
-logs remain under `build/levels/bootstrap-private-{1,2,3,4}/` and
-`build/levels/area01-boot-export-1/`. The native baseline builds with zero
-warnings; headless newgame-control passes at 9.599849
-(`build/levels/capacity-before-control-2/run.log`). The texture capacity has
-not changed. All four baseline runs pass: first-level exit/AREA01 arrival
-and AREA01 through `a01_02`, each with default and GPU rendering. Their
-strict checkers and present-again checks pass. Tick, RNG and presented-pixel
-hash logs are retained under `build/levels/capacity-before-smokes-2/`;
-`results.json` records their hashes. The first default check was rerun with
-`EM_LEVEL_SMOKE_BIN` pointing at the private binary.
+real private `assets/`. Recipes and logs remain under
+`build/levels/bootstrap-private-{1,2,3,4}/` and
+`build/levels/area01-boot-export-1/`. The native before/after builds have zero
+warnings. Both headless newgame-control runs pass at 9.599849:
+`build/levels/capacity-before-control-2/run.log` and
+`build/levels/capacity-after-control-1/run.log`.
 
-The later-area bank/shared texture probe is diagnostic, not a completed
-catalog exporter. Nonzero texels verify against every selected freeze for
-all profiles. AREA15 sub 1 required reading a model across adjacent
-descriptor ranges rather than stopping at an extracted file boundary.
-AREA13 reload required each capture's original player texture mode/costume;
-the default mode did not reproduce all thirteen freezes. Receipts are in
-`build/levels/catalog-probe-{1,3,4}/`. Area-specific effect discovery and
-zero-key classifications remain open; no complete live catalog is claimed.
+All four before/after runs pass their strict and present-again checks:
+first-level exit/AREA01 arrival and AREA01 through `a01_02`, each with default
+and GPU rendering. All twelve before/after comparisons are byte-identical:
+ticks, RNG counter/state trace, and presented-pixel hash log for each run.
+Receipts and hashes are under `build/levels/capacity-before-smokes-2/` and
+`build/levels/capacity-after-smokes-1/`. The isolated staged-index native build
+also passes with zero warnings (`build/levels/texture-capacity-index-build-1.log`);
+its temporary checkout was removed by enumerated absolute paths.
+The capacity/index exception meets its required regression proof.
 
-Remaining stage-3 work: full later-area texture discovery and residency
-checks, later reload/event coverage, complete
-capacity tables, then the explicitly permitted registry change and both
-renderer proofs. Stage 4 recordings and stage 5 AREA00 binding have not begun.
+Stage 3 now has recorded-area data exports and measured capacities; full
+native later-area drawing, unsampled runtime peaks, additional events/reloads
+and unrecorded branches remain separate proof. Stage 4 recordings and stage 5
+AREA00 binding have not begun.
 
 ## Reproduce (native arm64 macOS)
 
@@ -149,6 +212,10 @@ python3 tools/export_level_module_pack.py
 EM_HEADLESS=1 EM_REFERENCE=fork EM_TEST_FULL=1 make test-level-module-pack-reference
 # Repeat this export for each profile in the table above (one call per profile).
 python3 tools/export_level_shadow_receivers.py --profile 03
+python3 tools/export_level_world_textures.py --profile 03
+EM_HEADLESS=1 EM_TEST_FULL=1 make test-level-world-textures-reference
+python3 tools/level_asset_capacities.py
+EM_HEADLESS=1 make test-level-texture-registry
 EM_HEADLESS=1 EM_REFERENCE=fork EM_TEST_FULL=1 make test-level-shadow-receivers-reference
 PYTHONPATH=tools python3 -m unittest test_level_asset_audit
 ```
@@ -159,8 +226,8 @@ keeps the same comparisons and covers every listed case.
 
 ## Requests for main
 
-No shared live source or renderer changed. One concrete later-area renderer
-requirement is now established: AREA04's static bank contains zero-TEX0
+Only the explicitly permitted texture capacity/index changes touch graphics.
+One further later-area renderer requirement is established: AREA04's static bank contains zero-TEX0
 vertices that the original actually draws with texturing enabled. Replaying
 the original level/clip programs over the retained display lists produces
 two such triangles in each buffer of `a02_05_progression_exit`. A third
@@ -177,6 +244,19 @@ texture data for such primitives through the protected GS/render path and
 prove their pixels against the original. The registry-capacity exception
 does not authorize that renderer change. Tendril and other zero-key users
 still need their own draw-mode classifications.
+
+SFX: the all-scope union exceeds the current entry limit. Main must either
+select a complete per-area registry with the shared scopes on each load or
+raise the combined bound with live delivery proof. Do not truncate it. The
+two conflicting entries are AREA02 sub 1 IDs 1021 and 1022: the canonical
+`export_sfx_registry.area_bindings()` still uses an office coverage-match
+bank without a capture, while the AREA02 exporter proves the bound banks
+against its recorded driver headers. The sample payloads agree, but note /
+center differ for both and scalar differs for 1022. Required source change:
+replace that inferred `(2, 1)` binding with the verified AREA02 sub-1 binding;
+preserve other scopes and verify the shared live path. Receipts:
+`build/levels/sfx-union-conflicts-1/{summary,classification,fields}.json`.
+This is an existing-entry correction, outside the additive shared-file rule.
 
 The source blockers and shared proof gaps from stage 2 remain listed in
 `LEVEL_READINESS.md`; the asset proofs do not clear them.

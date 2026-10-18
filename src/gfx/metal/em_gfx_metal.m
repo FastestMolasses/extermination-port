@@ -40,6 +40,10 @@
 #include <time.h>
 
 #define EM_GFX_GS_SURFACE_MAX 8u
+/* At most half full; empty buckets contain zero, occupied buckets index + 1. */
+#define EM_GFX_OBJECT_TEX_BUCKETS (2u * EM_GFX_OBJECT_TEX_MAX)
+_Static_assert((EM_GFX_OBJECT_TEX_BUCKETS & (EM_GFX_OBJECT_TEX_BUCKETS - 1u)) == 0u,
+               "object texture bucket count must be a power of two");
 /* A kept field's bytes (em_gfx_gs_head): 512 x 224 PSMCT32. */
 #define EM_GFX_SCAN_BYTES ((size_t)EM_GS_WORLD_FIELD_W * EM_GS_WORLD_FIELD_H * 4u)
 
@@ -220,6 +224,7 @@ struct EmGfx {
         id<MTLTexture> tex;
     }                            objTex[EM_GFX_OBJECT_TEX_MAX];
     uint32_t                     objTexCount;
+    uint32_t                     objTexIndex[EM_GFX_OBJECT_TEX_BUCKETS];
     id<MTLRenderPipelineState>   objPipeline;
     EmObjectUnitResult           objResult;
     uint32_t                     objWarned;
@@ -3192,16 +3197,50 @@ int em_gfx_world_textures_reset(EmGfx *g)
     if (!g) return -1;
     for (uint32_t i = 0; i < g->objTexCount; ++i) [g->objTex[i].tex release];
     memset(g->objTex, 0, sizeof g->objTex);
+    memset(g->objTexIndex, 0, sizeof g->objTexIndex);
     g->objTexCount = 0;
     return 0;
+}
+
+/* Mix both halves of the full TEX0 key; CLD is normalized by the caller.
+ * Open addressing gives expected constant-time lookup at <= 50% load.
+ * Texture records remain in insertion order, including replacement slots. */
+static uint32_t object_texture_bucket(uint64_t key)
+{
+    uint32_t h = (uint32_t)key ^ (uint32_t)(key >> 32);
+    h ^= h >> 16;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15;
+    h *= 0x846CA68Bu;
+    h ^= h >> 16;
+    return h & (EM_GFX_OBJECT_TEX_BUCKETS - 1u);
 }
 
 static const struct EmGfxObjectTex *object_texture(const EmGfx *g, uint64_t tex0)
 {
     const uint64_t key = tex0 & ~(UINT64_C(7) << 61);
-    for (uint32_t i = 0; i < g->objTexCount; i++)
-        if (g->objTex[i].tex0 == key) return &g->objTex[i];
+    uint32_t bucket = object_texture_bucket(key);
+    for (uint32_t n = 0; n < EM_GFX_OBJECT_TEX_BUCKETS; ++n) {
+        uint32_t entry = g->objTexIndex[bucket];
+        if (!entry) return NULL;
+        if (g->objTex[entry - 1u].tex0 == key) return &g->objTex[entry - 1u];
+        bucket = (bucket + 1u) & (EM_GFX_OBJECT_TEX_BUCKETS - 1u);
+    }
     return NULL;
+}
+
+/* Caller has established that the key is absent and capacity is available. */
+static struct EmGfxObjectTex *object_texture_insert(EmGfx *g, uint64_t key)
+{
+    uint32_t bucket = object_texture_bucket(key);
+    while (g->objTexIndex[bucket])
+        bucket = (bucket + 1u) & (EM_GFX_OBJECT_TEX_BUCKETS - 1u);
+    uint32_t index = g->objTexCount++;
+    struct EmGfxObjectTex *slot = &g->objTex[index];
+    memset(slot, 0, sizeof *slot);
+    slot->tex0 = key;
+    g->objTexIndex[bucket] = index + 1u;
+    return slot;
 }
 
 int em_gfx_object_texture(EmGfx *g, uint64_t tex0, const uint8_t *rgba, uint32_t width,
@@ -3221,9 +3260,7 @@ int em_gfx_object_texture(EmGfx *g, uint64_t tex0, const uint8_t *rgba, uint32_t
     if (!slot) {
         if (g->objTexCount >= EM_GFX_OBJECT_TEX_MAX)
             return object_fail(g, OBJ_WARN_INPUT, "texture registration", "EM_GFX_OBJECT_TEX_MAX reached");
-        slot = &g->objTex[g->objTexCount++];
-        memset(slot, 0, sizeof *slot);
-        slot->tex0 = key;
+        slot = object_texture_insert(g, key);
     }
     MTLTextureDescriptor *td = [MTLTextureDescriptor
         texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Uint
@@ -3498,9 +3535,7 @@ int em_gfx_gs_texture(EmGfx *g, uint64_t tex0, const uint8_t *rgba, uint32_t wid
     if (!slot) {
         if (g->objTexCount >= EM_GFX_OBJECT_TEX_MAX)
             return gs_fail(g, GS_WARN_INPUT, "texture registration: table full", key);
-        slot = &g->objTex[g->objTexCount++];
-        memset(slot, 0, sizeof *slot);
-        slot->tex0 = key;
+        slot = object_texture_insert(g, key);
     }
     MTLTextureDescriptor *td = [MTLTextureDescriptor
         texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Uint

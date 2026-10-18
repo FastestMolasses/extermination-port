@@ -10,8 +10,8 @@ also pass a new full suite. All fifteen AREA03 route entries now pass two furthe
 suites. Thirteen level-15 boot helpers also pass a new full suite.
 Four further creature entries and two rising-hazard entries pass two more
 full suites. No new routine is wired.
-Assets, missing fork recordings, the registry exception and AREA00 live phases
-remain later work packages, in the requested order.
+The later asset and registry work is recorded in LEVEL_ASSET_DELIVERY.md;
+missing fork recordings and AREA00 live phases remain subsequent packages.
 
 ## What the fresh receipts establish
 
@@ -499,3 +499,13 @@ player/state/render helpers and custom test paths outside this lane's owned
 standalone modules. Existing tests are listed where their entry can be proven;
 this lane proposes no unmeasured changes to those shared or protected owners.
 There is no live diff requiring approval in this checkpoint.
+
+## Texture-capacity dependency refresh (2026-10-18)
+
+The stage-3 registry change updates `em_gfx.h`, which is in the conservative
+transitive dependency closure of all 48 suites. Their old receipts correctly
+become stale even though the standalone translation bodies are unchanged.
+All 48 fresh quick suites pass under `build/levels/oracle-capacity-refresh-1/`,
+and the metadata receipt is published. Every existing assertion and full-sweep
+test is preserved; those exhaustive sweeps were not rerun. The regenerated
+readiness map again uses the source-matching receipts.

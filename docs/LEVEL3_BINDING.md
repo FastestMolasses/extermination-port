@@ -2,13 +2,24 @@
 
 2026-10-13, written on branch `level3` (based on port `d86f73c`, worked in
 the `../extermination-port-level3` worktree, merged into main 2026-10-14). AREA00 now loads through the shaft exit,
-but **arrival and first world frames do not pass**. The native run stops at
-arrival frame 0 because the complete 579-key texture catalog exceeds the
-protected 512-slot graphics registry. No protected file, decomp source,
+but **arrival and first world frames do not pass**. That checkpoint stopped at
+arrival frame 0 because its 579-key texture catalog exceeded the
+then-protected 512-slot graphics registry. The 2026-10-18 capacity follow-up
+is below; historical smoke rows have not been relabelled as passing. No protected file, decomp source,
 README or user test runner was edited. Nothing was merged or pushed, and
 no emulator was launched.
 
 ## Current state
+
+2026-10-18 asset follow-up: original page replay found an additional
+`001E9E60` surface texture. Both canonical AREA00 catalogs now hold 580 fixed
+keys, checked against every selected GS freeze and uploaded by the native
+resource-loader fixture. The explicitly authorized graphics change raises
+the registry to 1024 with a hash index. All four default/GPU smokes pass
+with byte-identical ticks, RNG and presented-pixel logs; control is 9.599849. This does not certify an AREA00 frame. After that proof and the
+missing recording work, resume at `D_00248290` / `0015AB00` against the fork
+route. Full asset receipts and retained runtime-material limits are in
+[LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md).
 
 2026-10-18 standalone follow-up on branch `levels`: four missing AREA01 routines
 on the AREA00 return (`00823A90`, `00823CD0`, `008240E0`, `00826010`) now have an
@@ -17,7 +28,7 @@ passes 521 cases and all 534 reachable non-branch words, including 30 captured
 actor cases and the full fail-stop sweep. This is no AREA00 phase promotion.
 See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for exact scope and receipts.
 
-The new scene selection reaches AREA00 after ordinary New Game, AREA11
+The previously recorded native scene selection reaches AREA00 after ordinary New Game, AREA11
 and AREA01. The original load completes and selects AREA00 collision and
 scene resources. At counter 26922 the existing shaft phase observes
 AREA00 state 0, before rebuild. The following page-render request faults
@@ -30,7 +41,7 @@ bank and per-subarea resources. AREA01 wrappers keep their existing area-1
 behavior. The shared owner remains authoritative for each global, actor,
 player, weapon, model and collision span. Unknown workers still fault.
 
-Completed prerequisites include both verified 579-key texture catalogs,
+Completed prerequisites now include both verified 580-key texture catalogs,
 shadow banks (sub 0: 1,100 objects / 1,802 blocks; sub 1: 1,099 / 1,783),
 the full module deliveries and canonical SFX scopes for subareas 0/1.
 The complete sound registry preserves the earlier entries and samples;
@@ -47,7 +58,7 @@ required native row comparisons have not passed.
 | Boundary | Existing owner / required binding | State |
 |---|---|---|
 | AREA01 shaft exit / module read | `em_scene_task`, `em_module_loader`, full AREA00 sub-0/1 pack entries | Native sub-0 delivery and scene selection reached; sub-1 sectors independently checked |
-| Texture delivery | `em_world_textures_live`, the single graphics registry | Both selectors wired; 579 keys refused at protected capacity 512, including the live arrival |
+| Texture delivery | `em_world_textures_live`, the single graphics registry | Both selectors wired; corrected 580-key catalogs pass resource upload at capacity 1024; required default/GPU registry regressions pass |
 | Shadow receivers | `em_shadow_live`, `em_shadow_original` | Both selectors wired and checked, with transactional failure cases |
 | Collision and static bank | `em_collision_world`, loader resource `0028A5A0`, `em_render_context_live` | AREA00 paths selected; static bank remains loader-owned |
 | Overlay initialization | existing `001E7780` plus `em_area00_state_00824E00` | Selected initializer, six common resets and both record clears verified against original instructions |
@@ -73,7 +84,7 @@ a refused write cannot fall back to a mutable legacy byte view.
 
 | Requested phase | New smoke scope | Native comparison result |
 |---|---|---|
-| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: load/scene selection reached; arrival frame 0 faults at the protected texture capacity |
+| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: load/scene selection reached; historical arrival frame 0 faulted at capacity 512; full live phase not rerun yet |
 | 2. First world and neutral frames | Fork a01_07 f539..4555, including final 60 neutral rows | 0/4,017 rows certified; no native arrival alignment before the frame-0 fault |
 | 3. Movement / collision | `a00_00..a00_10` | Not reached |
 | 4. Camera | Per-row eye/target/forward/flags plus whole endpoint camera RAM | Checker contract passes; native AREA00 camera not reached |
@@ -127,11 +138,15 @@ match, then message state is `(2, 2, 64)` instead of `(2, 1, 64)` at row
 957 (`build/level3/area01-prefix-live.log`). This diagnostic is not a
 complete phase pass.
 
-## Requests for main
+## Historical capacity request and remaining main prerequisites
 
-**Texture registry capacity, confirmed by the production catalog parser.**
-`src/em_gfx.h` defines `EM_GFX_OBJECT_TEX_MAX=512`; the protected Metal
-registry enforces that limit. Each verified AREA00 export contains 579
+The following records the 2026-10-13 refusal. The user authorized this
+capacity/index exception on 2026-10-18; its implementation and passing
+regression proof are described above and in LEVEL_ASSET_DELIVERY.md.
+
+**Historical texture registry refusal, confirmed by the production catalog parser.**
+`src/em_gfx.h` then defined `EM_GFX_OBJECT_TEX_MAX=512`; the protected Metal
+registry enforced that limit. Each AREA00 export then contained 579
 distinct keys, following AREA01's eager whole-bank/shared-resource method.
 `em_world_textures_live.c::catalog` rejects the header before uploading
 anything. `test_area00_resources_reference.py` reproduces that refusal
@@ -144,8 +159,9 @@ its binary-hash receipt; no arrival alignment is reached.
 Requested change: raise `EM_GFX_OBJECT_TEX_MAX` to **1024**, audit every
 array/count consumer (including Metal), then run the existing registry,
 GS and pixel regressions and this resource fixture. No change to original
-game behavior, sampled texels or assertions is requested. This branch
-does not edit the protected header or any renderer file.
+game behavior, sampled texels or assertions is requested. The earlier `level3` branch
+did not edit that header or any renderer file; the present `levels` exception
+is limited to capacity and lookup.
 
 This is a capacity requirement of the existing **eager export policy**,
 not a proof that 579 textures are simultaneously needed by gameplay.

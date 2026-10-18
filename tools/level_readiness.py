@@ -457,13 +457,12 @@ def markdown(report):
         '1. Audit the U/M queue and reuse the existing original-instruction harnesses. The level 8–14 '
         'harnesses already contain entry tables, original-image identity checks, ordered call/store comparisons '
         'and coverage assertions. Their presence alone does not promote a row. Keep additions opt-in and unwired.',
-        '2. Complete per-area delivery exports: object/world texture catalogs and shadow receivers beyond '
-        'AREA00/AREA01. Complete module packs and AREA03 arrival assets now pass their delivery checks. Check later reload/event captures as well as '
-        'each exporter’s original fixture set. Historical docs have stale gaps resolved by later profiles.',
-        '3. Measure every catalog and registry before choosing capacity. AREA00 requires 579 texture keys '
-        'against 512 slots; never truncate. The allowed graphics change needs O(1) lookup plus unchanged '
-        'default/GPU first-level and AREA01 tick logs, rand counters/state, presented-frame hashes, and '
-        'newgame-control 9.599849. The combined SFX registry also needs a size audit.',
+        '2. Recorded-area exports now pass: sixteen texture/shadow profile-subareas, fifteen original module '
+        'deliveries, and thirteen area asset profiles including AREA03 arrival. Zero-key runtime materials '
+        'and unrecorded events/reloads remain explicit limits. See LEVEL_ASSET_DELIVERY.md.',
+        '3. The largest fixed texture catalog has 609 keys; AREA00 now has 580 after page discovery. '
+        'The allowed 1024-slot hash registry passes all required default/GPU regressions. SFX scope union '
+        'requires 14274 entries against 4096 and exposes two inferred-office conflicts; main owns that binding decision.',
         '4. Restore the missing fork route chain from a04b_00, then record later groups. Existing legacy '
         'captures remain original evidence; fork file presence alone is not parity or successful replay. '
         'Record displayed fields and missing boundary counters where needed; use the shared run lock.',
@@ -510,7 +509,7 @@ def markdown(report):
         texture = f'tools/export_area{area}_world_textures.py'
         shadow = f'tools/export_area{area}_shadow_receivers.py'
         delivery = 'complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md'
-        lines.append(f'| AREA{area} | ' + (link(texture) if (ROOT / texture).exists() else 'missing area catalog exporter') +
+        lines.append(f'| AREA{area} | ' + (link(texture) if (ROOT / texture).exists() else link('tools/export_level_world_textures.py')) +
                      ' | ' + (link(shadow) if (ROOT / shadow).exists() else link('tools/export_level_shadow_receivers.py')) +
                      f' | {delivery} | collision, tables, doors, SFX, models, messages, scripts: profiles below |')
     for a in report['assets']:
@@ -518,13 +517,13 @@ def markdown(report):
                   'Exporters: ' + ', '.join(link(p) for p in a['exporters']) + '.', '',
                   'Reference: ' + (link(a['checker']) if a['checker'] else 'missing') + '. ' + a['verification'] + '.', '']
         lines += [o['row'] for o in a['outputs']]
-    lines += ['', '## Capacity blockers', '',
-              '| Resource | Current capacity | Measured requirement available before this work | Work remaining |',
+    lines += ['', '## Capacity limits', '',
+              '| Resource | Current capacity | Measured requirement | Work remaining |',
               '|---|---:|---|---|',
-              '| Object textures | 512 (`src/em_gfx.h`) | AREA11 487; AREA01 460; AREA00 sub 0/1 579 each (LEVEL3_BINDING) | Export every later catalog; choose maximum; allowed O(1) registry change and regression proof |',
-              '| SFX entries / samples | 4096 / 1024 (`em_sfx_bank.c`) | AREA11/01/00 combined 3278 / 234 (LEVEL3_BINDING) | Measure complete scopes, unsupported cases and samples for every later area; capacity changes require main |',
-              '| Actor records | 256 (`em_actor_pool.h`) | No per-area peak measured here | Measure live high-water counts; never equate placement count with peak spawned actors |',
-              '| Other fixed pools | Not audited yet | Unknown | Inventory owner/model/collision/effect capacities during asset work |', '',
+              '| Object textures | 1024 (`src/em_gfx.h`), hash lookup | Fixed maximum 609; AREA00 580; unresolved zero keys retained separately | All required default/GPU regressions pass; runtime materials need main |',
+              '| SFX entries / samples | 4096 / 1024 (`em_sfx_bank.c`) | Available catalog union 14274 / 348; two conflicting office entries | Complete per-area selection or larger combined registry and corrected office binding require main |',
+              '| Actor records | 256 (`em_actor_pool.h`) | Snapshot maximum 134; original free counters agree | Whole-route peaks remain unmeasured |',
+              '| Effect entities / selected receivers | 128 / 512 | Effect snapshots contain zero live entries; all sixteen full receiver banks parse | Snapshot absence is not a route peak; selected receiver peak remains unmeasured |', '',
               '## Capture limits still requiring work', '',
               '- The retained legacy censuses are route-shape coverage. Some census replays differ from their '
               'recordings, and overlay swaps can leave blind spots. No full fork census is inferred from a route trace.',
@@ -539,7 +538,7 @@ def markdown(report):
               'proofs. A saved GS image alone does not prove the displayed framebuffer. Later live pixels '
               'and SPU residency remain separate capture work.', '',
               '## Requests for main', '',
-              'No shared or protected source change is part of this map. The AREA04 zero-key original-draw '
+              'The explicit texture capacity/index exception passes its regression proof. The AREA04 zero-key original-draw '
               'counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. '
               'They remain outside the allowed texture-capacity exception. '
               'Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity '

@@ -2073,3 +2073,15 @@ test-level-shadow-receivers-reference:
 .PHONY: test-area03-assets-reference
 test-area03-assets-reference:
 	python3 tools/test_area03_assets_reference.py
+
+.PHONY: test-level-world-textures-reference
+test-level-world-textures-reference:
+	python3 tools/test_level_texture_page_reference.py
+	python3 tools/test_level_world_textures_reference.py
+	python3 tools/test_level_texture_catalogs.py
+
+.PHONY: test-level-texture-registry
+test-level-texture-registry:
+	@mkdir -p build/levels/texture-registry
+	clang -O2 -Wall -Wextra -Werror -Isrc -Wl,-dead_strip tests/level_texture_registry_test.m -framework Cocoa -framework Metal -framework QuartzCore -o build/levels/texture-registry/test
+	EM_HEADLESS=1 build/levels/texture-registry/test

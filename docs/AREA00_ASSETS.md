@@ -565,3 +565,17 @@ the two loader decisions (findings 2 and 3). When AREA00 is bound:
   explained. Both files equal the reused AREA01 builder's rebuild, both
   have max index = vertex count - 1 and no degenerate triangles, so this
   is not an export fault.
+
+## Recorded-page catalog correction (2026-10-18)
+
+The later-level asset audit replays the original VU page programs as well as
+reading the model banks. It found `001E9E60`'s first surface texture in both
+AREA00 subareas; that reference was absent from the earlier 579-key catalog.
+`export_area00_world_textures.py` now includes it: 580 fixed textures per sub,
+with all selected GS freezes exact and the complete native resource upload
+passing at capacity 1024. Receipt:
+`build/levels/area00-textures-complete-1/results.json`.
+The generic later-level catalog also retains model 0's zero reference as an
+unresolved draw-class/runtime entry. See [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md)
+for the full table and registry regression proof. This is data-delivery proof,
+not native AREA00 gameplay or pixel certification.
