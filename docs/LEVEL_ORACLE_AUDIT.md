@@ -5,7 +5,8 @@ standalone suites in the audit inventory pass their current quick modes. Four
 missing routines on the AREA00 return now have a translation and a new original
 instruction suite, which passes quick and full mode. Five further missing owners
 in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
-routines pass two new full suites. No new routine is wired.
+routines pass two new full suites. The remaining AREA19 flame/turret owners
+also pass a new full suite. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -138,17 +139,50 @@ The quick suites take about one second each with two workers on this Mac.
 The isolated staged-index application build passes with zero warnings
 (`build/levels/continuation-index-build.log`); the staged leak checks pass.
 
+## AREA19 flame and turret owners
+
+`em_area19_route_flame.c` implements `00824690`; `em_area19_route_turret.c`
+implements `00827DD0`. Both are unwired, with explicit typed workers and an
+opt-in target. The turret adapts this project's existing AREA01 translation
+after a full reading of the matching AREA19 C: AREA19 has no flag-6 gate or
+state-100 wait, and a failed collision probe chooses its effect from the hit
+kind saved before the call. This is independently tested against AREA19's own
+original instructions; the AREA01 source and its tests were not modified.
+
+The new suite passes **714 cases, 1,395/1,395 reachable words** (217 flame,
+1,178 turret), with every access/call failure at the selected full-contract
+sites. The full receipt is `build/levels/oracle-area19-full-1/`. The original
+flame packet and spark-vector addresses are entry SP minus `0x70` and `0x10`;
+the first native attempt used offsets one slot too low and failed the call
+comparison. Correcting the translation made the comparison pass.
+
+Tests include real AREA19 actor records from the explicitly retained original
+v2.6.3 route, designed flame state/flag/random/phase boundaries, and callee
+writes to packet, phase and vector bytes. The existing adversarial AREA01
+turret cases are also reused as **designed fixtures**: their local input data
+is paired with the original AREA19 text, whose identity is checked. These
+hybrid test images are never described as AREA19 captures. They preserve the
+existing pointer-aliasing, floating-point and worker-mutation cases. Four new
+missed-probe cases ensure the effect uses the saved hit kind even when the
+worker replaces that byte. No code/data bytes are written into the repository.
+
+All three deliberate mutations were detected: wrong missed-hit effect,
+adding a wind-down gate, and changing flame phase speed
+(`build/levels/area19-mutations-2/results.json`). No coverage exclusion or
+comparison relaxation was introduced. The staged-index application build
+passes with zero warnings (`build/levels/area19-index-build.log`), and the
+staged leak/provenance checks pass.
+
 ## Remaining step-2 work
 
-The map currently retains **45 missing non-boundary entries**, after adding the
-nineteen return/arrival/continuation routines and correcting the existing `001FC520` ownership to
+The map currently retains **43 missing non-boundary entries**, after adding the
+twenty-one return/arrival/continuation routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing groups include two AREA19 functions missed by earlier deltas, the
-AREA03 arrival, and level-15 boot routines. Some decomp definitions still contain assembly rather
+The missing groups are the AREA03 arrival and level-15 boot routines. Some decomp definitions still contain assembly rather
 than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -166,6 +200,7 @@ make test-level-readiness
 make test-area00-return-reference
 make test-area13-route-reference
 make test-area15-route-reference
+make test-area19-route-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.

@@ -1999,11 +1999,13 @@ test-area01-target-hit-reference:
 	python3 tools/test_area01_target_hit_live_reference.py
 
 # The AREA01 crash sweep's remaining original-instruction suites (LEVEL2_CRASHES.md).
-.PHONY: test-area13-route-reference test-area15-route-reference
+.PHONY: test-area13-route-reference test-area15-route-reference test-area19-route-reference
 test-area13-route-reference:
 	python3 tools/test_area13_route_reference.py
 test-area15-route-reference:
 	python3 tools/test_area15_route_reference.py
+test-area19-route-reference:
+	python3 tools/test_area19_route_reference.py
 
 .PHONY: test-aim-fire-target-pool-reference test-area01-aim-model-reference test-area01-crawl-clip-reference test-area01-hull-live-reference test-area01-stream-export test-area01-terminal-progress-reference test-player-spawn-contact-reference test-player-spawn-rotation-reference test-player-stage-position-reference
 test-aim-fire-target-pool-reference:

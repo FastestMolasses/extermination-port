@@ -34,12 +34,12 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 7 | a01u, a06 | 1044 | 751 | 131 | 52 | 110 | 110 | 13 | 13 |
 | 8 | a06b, a01v, a22b, a04b | 1082 | 727 | 205 | 43 | 107 | 107 | 12 | 7 |
 | 9 | a13 | 996 | 716 | 128 | 42 | 110 | 110 | 6 | 0 |
-| 10 | a19, a13b | 1039 | 694 | 191 | 42 | 112 | 110 | 10 | 0 |
+| 10 | a19, a13b | 1039 | 694 | 193 | 42 | 110 | 110 | 10 | 0 |
 | 11 | a13c | 922 | 669 | 115 | 30 | 108 | 108 | 7 | 0 |
-| 12 | a13d, a19b | 1349 | 721 | 222 | 46 | 360 | 358 | 11 | 0 |
-| 13 | a19c | 1062 | 692 | 212 | 53 | 105 | 103 | 8 | 0 |
-| 14 | a19d, a15 | 1309 | 836 | 286 | 75 | 112 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 269 | 64 | 411 | 366 | 16 | 0 |
+| 12 | a13d, a19b | 1349 | 721 | 224 | 46 | 358 | 358 | 11 | 0 |
+| 13 | a19c | 1062 | 692 | 214 | 53 | 103 | 103 | 8 | 0 |
+| 14 | a19d, a15 | 1309 | 836 | 288 | 75 | 110 | 110 | 23 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 271 | 64 | 409 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 34 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 35 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -2853,7 +2853,7 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA19:00823580` | 10,12,13,14,15 | V | [em_level10_port_00823580](../src/game/em_level10_port_area19.c) | [test_level10_port_reference.py](../tools/test_level10_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00823780` | 13,14,15 | V | [l13_00823780](../src/game/em_level13_port_area19.c), [em_level13_port_00823780](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00823D10` | 13,14,15 | V | [l13_00823D10](../src/game/em_level13_port_area19.c), [em_level13_port_00823D10](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
-| `overlay:AREA19:00824690` | 10,12,13,14,15 | M | — | — |
+| `overlay:AREA19:00824690` | 10,12,13,14,15 | V | [em_area19_route_00824690](../src/game/em_area19_route_flame.c) | [test_area19_route_reference.py](../tools/test_area19_route_reference.py) (current full pass) |
 | `overlay:AREA19:00824A90` | 13 | V | [em_level13_port_00824A90](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00824BE0` | 12 | V | [l12_00824BE0](../src/game/em_level12_port_area19.c), [em_level12_port_00824BE0](../src/game/em_level12_port_area19.c) | [test_level12_port_reference.py](../tools/test_level12_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00824EF0` | 12 | V | [em_level12_port_00824EF0](../src/game/em_level12_port_area19.c) | [test_level12_port_reference.py](../tools/test_level12_port_reference.py) (current quick pass) |
@@ -2882,7 +2882,7 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA19:00827B10` | 13 | V | [em_level13_port_00827B10](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00827B20` | 13 | V | [em_level13_port_00827B20](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00827B60` | 13,14,15 | V | [em_level13_port_00827B60](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
-| `overlay:AREA19:00827DD0` | 10,12,13,14,15 | M | — | — |
+| `overlay:AREA19:00827DD0` | 10,12,13,14,15 | V | [turret_00827DD0](../src/game/em_area19_route_turret.c), [em_area19_route_00827DD0](../src/game/em_area19_route_turret.c) | [test_area19_route_reference.py](../tools/test_area19_route_reference.py) (current full pass) |
 | `overlay:AREA19:00829370` | 10,12,13,14,15 | V | [em_level10_port_00829370](../src/game/em_level10_port_area19.c) | [test_level10_port_reference.py](../tools/test_level10_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00829840` | 13,14 | V | [em_level13_port_00829840](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 | `overlay:AREA19:008298D0` | 10,12,13,14,15 | U | [em_area01_ovl_00828850](../src/game/em_area01_overlay.c) | — |
