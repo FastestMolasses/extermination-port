@@ -418,20 +418,20 @@ These are conservative beat associations. On transition beats the census does no
 
 ## Asset exporters and loader outputs
 
-These are exporter/loader inventories, not a claim that this private worktree has exported or verified them. Run the named reference test after export. The rows below preserve each asset document’s output contract; old refusal notes must be reconciled with newer bindings. Descriptive JSON/scene/material sidecars are not byte-for-byte runtime proof.
+The current private export and reference-test receipts are recorded in [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md). The rows below preserve each asset document’s output contract; old refusal notes must be reconciled with newer bindings. Descriptive JSON/scene/material sidecars are not byte-for-byte runtime proof.
 
 | Area | World/object texture catalog | Shadow receivers | Module delivery | Remaining common categories |
 |---|---|---|---|---|
-| AREA00 | [export_area00_world_textures.py](../tools/export_area00_world_textures.py) | [export_area00_shadow_receivers.py](../tools/export_area00_shadow_receivers.py) | AREA00 delivery reference; AREA01 existing pack | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA01 | [export_area01_world_textures.py](../tools/export_area01_world_textures.py) | [export_area01_shadow_receivers.py](../tools/export_area01_shadow_receivers.py) | AREA00 delivery reference; AREA01 existing pack | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA02 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA03 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | no area exporter/checker yet |
-| AREA04 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA06 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA13 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA15 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA19 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
-| AREA22 | missing area catalog exporter | missing area receiver exporter | complete per-area pack proof pending | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA00 | [export_area00_world_textures.py](../tools/export_area00_world_textures.py) | [export_area00_shadow_receivers.py](../tools/export_area00_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA01 | [export_area01_world_textures.py](../tools/export_area01_world_textures.py) | [export_area01_shadow_receivers.py](../tools/export_area01_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA02 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA03 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | no area exporter/checker yet |
+| AREA04 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA06 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA13 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA15 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA19 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
+| AREA22 | missing area catalog exporter | [export_level_shadow_receivers.py](../tools/export_level_shadow_receivers.py) | complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md | collision, tables, doors, SFX, models, messages, scripts: profiles below |
 
 ### AREA00 export profile
 
@@ -439,7 +439,7 @@ These are exporter/loader inventories, not a claim that this private worktree ha
 
 Exporters: [export_area00_common.py](../tools/export_area00_common.py), [export_area00_level.py](../tools/export_area00_level.py), [export_area00_sfx.py](../tools/export_area00_sfx.py), [export_area00_shadow_receivers.py](../tools/export_area00_shadow_receivers.py), [export_area00_tables.py](../tools/export_area00_tables.py), [export_area00_world_textures.py](../tools/export_area00_world_textures.py).
 
-Reference: [test_area00_assets_reference.py](../tools/test_area00_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area00_assets_reference.py](../tools/test_area00_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 The exports use the formats the port already reads for AREA11 and AREA01:
@@ -478,7 +478,7 @@ The checker does not check the descriptive side files: `scene.txt`, the
 
 Exporters: [export_area01_boot_scripts.py](../tools/export_area01_boot_scripts.py), [export_area01_common.py](../tools/export_area01_common.py), [export_area01_level.py](../tools/export_area01_level.py), [export_area01_sfx.py](../tools/export_area01_sfx.py), [export_area01_shadow_receivers.py](../tools/export_area01_shadow_receivers.py), [export_area01_tables.py](../tools/export_area01_tables.py), [export_area01_water_effects.py](../tools/export_area01_water_effects.py), [export_area01_world_textures.py](../tools/export_area01_world_textures.py).
 
-Reference: [test_area01_assets_reference.py](../tools/test_area01_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area01_assets_reference.py](../tools/test_area01_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 | Output (`assets/area01/`) | What | Port loader |
 |---|---|---|
@@ -513,7 +513,7 @@ compares.
 
 Exporters: [export_area02_common.py](../tools/export_area02_common.py), [export_area02_level.py](../tools/export_area02_level.py), [export_area02_sfx.py](../tools/export_area02_sfx.py), [export_area02_tables.py](../tools/export_area02_tables.py).
 
-Reference: [test_area02_assets_reference.py](../tools/test_area02_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area02_assets_reference.py](../tools/test_area02_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 The exports use the formats the port already reads for AREA11, AREA01 and
@@ -554,7 +554,7 @@ results.
 
 Exporters: [export_area04_common.py](../tools/export_area04_common.py), [export_area04_level.py](../tools/export_area04_level.py), [export_area04_sfx.py](../tools/export_area04_sfx.py), [export_area04_tables.py](../tools/export_area04_tables.py).
 
-Reference: [test_area04_assets_reference.py](../tools/test_area04_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area04_assets_reference.py](../tools/test_area04_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 The exports use the formats the port already reads for AREA11, AREA01,
@@ -593,7 +593,7 @@ hulls per capture, and `moved_uids` against its own rows) and in
 
 Exporters: [export_area06_common.py](../tools/export_area06_common.py), [export_area06_level.py](../tools/export_area06_level.py), [export_area06_sfx.py](../tools/export_area06_sfx.py), [export_area06_tables.py](../tools/export_area06_tables.py).
 
-Reference: [test_area06_assets_reference.py](../tools/test_area06_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area06_assets_reference.py](../tools/test_area06_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 | Output (`assets/area06/`) | What | Port loader |
@@ -627,7 +627,7 @@ The checker does not check the descriptive side files (`scene.txt`, the
 
 Exporters: [export_area13_common.py](../tools/export_area13_common.py), [export_area13_level.py](../tools/export_area13_level.py), [export_area13_sfx.py](../tools/export_area13_sfx.py), [export_area13_tables.py](../tools/export_area13_tables.py).
 
-Reference: [test_area13_assets_reference.py](../tools/test_area13_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area13_assets_reference.py](../tools/test_area13_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 Per target, under `sub0/` (AREA13) or `area19/sub0/` (AREA19):
@@ -666,7 +666,7 @@ The checker does not check the descriptive side files (`scene.txt`, the
 
 Exporters: [export_area13x_common.py](../tools/export_area13x_common.py), [export_area13x_level.py](../tools/export_area13x_level.py), [export_area13x_sfx.py](../tools/export_area13x_sfx.py), [export_area13x_split.py](../tools/export_area13x_split.py), [export_area13x_tables.py](../tools/export_area13x_tables.py).
 
-Reference: [test_area13x_assets_reference.py](../tools/test_area13x_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area13x_assets_reference.py](../tools/test_area13x_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 `assets/area13/reload/` (ignored, about 4.7 MB): `reload.json` (per file:
@@ -684,7 +684,7 @@ exporters). Port loaders as in AREA13_ASSETS.md "Outputs".
 
 Exporters: [export_area15_common.py](../tools/export_area15_common.py), [export_area15_level.py](../tools/export_area15_level.py), [export_area15_sfx.py](../tools/export_area15_sfx.py), [export_area15_split.py](../tools/export_area15_split.py), [export_area15_tables.py](../tools/export_area15_tables.py).
 
-Reference: [test_area15_assets_reference.py](../tools/test_area15_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area15_assets_reference.py](../tools/test_area15_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 `assets/area15/` (ignored, about 16 MB):
@@ -732,7 +732,7 @@ loads through `em_script_image_load` (as AREA01's).
 
 Exporters: [export_area19_common.py](../tools/export_area19_common.py), [export_area19_level.py](../tools/export_area19_level.py), [export_area19_sfx.py](../tools/export_area19_sfx.py), [export_area19_tables.py](../tools/export_area19_tables.py).
 
-Reference: [test_area19_assets_reference.py](../tools/test_area19_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area19_assets_reference.py](../tools/test_area19_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 Under `assets/area19/sub0/`: `level/00_id44.emdl` (+ `.gsmat.json`),
@@ -756,7 +756,7 @@ exported asset; they extend what each one is checked against.
 
 Exporters: [export_area19x_common.py](../tools/export_area19x_common.py), [export_area19x_level.py](../tools/export_area19x_level.py), [export_area19x_sfx.py](../tools/export_area19x_sfx.py), [export_area19x_split.py](../tools/export_area19x_split.py), [export_area19x_tables.py](../tools/export_area19x_tables.py).
 
-Reference: [test_area19x_assets_reference.py](../tools/test_area19x_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area19x_assets_reference.py](../tools/test_area19x_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 `assets/area19/reload/` (ignored, about 4.4 MB): `reload.json` (per file:
@@ -774,7 +774,7 @@ the two creature images load through `em_script_image_load`.
 
 Exporters: [export_area19s1_common.py](../tools/export_area19s1_common.py), [export_area19s1_level.py](../tools/export_area19s1_level.py), [export_area19s1_sfx.py](../tools/export_area19s1_sfx.py), [export_area19s1_split.py](../tools/export_area19s1_split.py), [export_area19s1_tables.py](../tools/export_area19s1_tables.py).
 
-Reference: [test_area19s1_assets_reference.py](../tools/test_area19s1_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area19s1_assets_reference.py](../tools/test_area19s1_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 `assets/area19s1/` (ignored, about 9 MB), in `assets/area19/`'s layout:
@@ -820,7 +820,7 @@ Port loaders as in AREA13_ASSETS.md "Outputs".
 
 Exporters: [export_area22_common.py](../tools/export_area22_common.py), [export_area22_level.py](../tools/export_area22_level.py), [export_area22_sfx.py](../tools/export_area22_sfx.py), [export_area22_tables.py](../tools/export_area22_tables.py).
 
-Reference: [test_area22_assets_reference.py](../tools/test_area22_assets_reference.py). historical capture comparisons; not rerun in this worktree.
+Reference: [test_area22_assets_reference.py](../tools/test_area22_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
 
 | Output (`assets/area22/`) | What | Port loader |
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 private exports and remaining capacity work; new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 

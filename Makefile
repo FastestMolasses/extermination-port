@@ -2060,3 +2060,12 @@ test-level15-particles-reference:
 .PHONY: test-area19-partner-reference
 test-area19-partner-reference:
 	python3 tools/test_area19_partner_reference.py
+
+# Explicit later-area asset checks; no change to default test targets.
+.PHONY: test-level-module-pack-reference
+test-level-module-pack-reference:
+	python3 tools/test_level_module_pack_reference.py
+
+.PHONY: test-level-shadow-receivers-reference
+test-level-shadow-receivers-reference:
+	python3 tools/test_level_shadow_receivers_reference.py

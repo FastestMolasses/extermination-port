@@ -307,7 +307,7 @@ def asset_inventory(root):
         checker = f'tools/test_area{profile}_assets_reference.py'
         output.append({'profile': profile, 'document': str(doc.relative_to(root)),
                        'exporters': exporters, 'checker': checker if (root / checker).is_file() else None,
-                       'outputs': outputs, 'verification': 'historical capture comparisons; not rerun in this worktree'})
+                       'outputs': outputs, 'verification': 'full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped'})
     return output
 
 
@@ -500,8 +500,8 @@ def markdown(report):
         for issue in level['census_issues']:
             lines += ['', f"Census limit: `{issue['kind']}` in `{issue['source']}`: `{json.dumps(issue['value'], sort_keys=True)}`."]
     lines += ['', '## Asset exporters and loader outputs', '',
-              'These are exporter/loader inventories, not a claim that this private worktree has exported '
-              'or verified them. Run the named reference test after export. The rows below preserve each '
+              'The current private export and reference-test receipts are recorded in '
+              '[LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md). The rows below preserve each '
               'asset document’s output contract; old refusal notes must be reconciled with newer bindings. '
               'Descriptive JSON/scene/material sidecars are not byte-for-byte runtime proof.', '',
               '| Area | World/object texture catalog | Shadow receivers | Module delivery | Remaining common categories |',
@@ -509,9 +509,9 @@ def markdown(report):
     for area in AREAS:
         texture = f'tools/export_area{area}_world_textures.py'
         shadow = f'tools/export_area{area}_shadow_receivers.py'
-        delivery = 'AREA00 delivery reference; AREA01 existing pack' if area in ('00', '01') else 'complete per-area pack proof pending'
+        delivery = 'complete sector delivery and original-loader proof: LEVEL_ASSET_DELIVERY.md'
         lines.append(f'| AREA{area} | ' + (link(texture) if (ROOT / texture).exists() else 'missing area catalog exporter') +
-                     ' | ' + (link(shadow) if (ROOT / shadow).exists() else 'missing area receiver exporter') +
+                     ' | ' + (link(shadow) if (ROOT / shadow).exists() else link('tools/export_level_shadow_receivers.py')) +
                      f' | {delivery} | ' + ('no area exporter/checker yet' if area == '03' else 'collision, tables, doors, SFX, models, messages, scripts: profiles below') + ' |')
     for a in report['assets']:
         lines += ['', f"### AREA{a['profile'].upper()} export profile", '', link(a['document']), '',
@@ -552,7 +552,8 @@ def markdown(report):
               f"The current standalone audit has {report['oracle_audit']['current_suites']} source-matching passing receipts; "
               f"{len(report['oracle_audit']['stale_tests'])} receipts are stale. "
               'See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining '
-              'step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.', '',
+              'step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 '
+              'private exports and remaining capacity work; new captures and AREA00 continuation are still pending.', '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '
               'For exact beats, first-hit metadata, census hashes, owner definitions and test entry locations, '
