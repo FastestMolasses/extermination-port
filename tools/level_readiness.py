@@ -587,8 +587,10 @@ def markdown(report):
         'The supplemental index is LEVEL_ROUTE_EVIDENCE.json. Existing legacy '
         'captures remain original evidence; a fork recording does not establish legacy parity. '
         'Record displayed fields and missing boundary counters where needed; use the shared run lock.',
-        '5. Continue AREA00 arrival at `D_00248290` / `0015AB00` after capacity proof, then neutral frames, '
-        'movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite '
+        '5. AREA00 surface dimensions, pickup library models and crate roots now pass delivery/oracle checks. '
+        'Arrival aligns, then fails at frame 0 in `00156620`: the protected AREA11 owner table has 32 '
+        'views, while the original AREA00 crates/drums alone require 39. Main must resolve that capacity '
+        'before neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite '
         'voice discrepancy and every first divergent row. See ' + link('docs/LEVEL3_BINDING.md') + '.', '',
         '## Route coverage and function counts', '',
         'Counts are unique `(region, address)` per level; reused rows occur in several levels. '
@@ -644,6 +646,7 @@ def markdown(report):
               '| Object textures | 1024 (`src/em_gfx.h`), hash lookup | Fixed maximum 609; AREA00 580; unresolved zero keys retained separately | All required default/GPU regressions pass; runtime materials need main |',
               '| SFX entries / samples | 4096 / 1024 (`em_sfx_bank.c`) | Available catalog union 14274 / 348; two conflicting office entries | Complete per-area selection or larger combined registry and corrected office binding require main |',
               '| Actor records | 256 (`em_actor_pool.h`) | Snapshot maximum 134; original free counters agree | Whole-route peaks remain unmeasured |',
+              '| Shared box/world owner views | 32 (`em_area11_boxes.c`, protected) | AREA00 arrival has 26 crates + 13 drums, at least 39 views | Native frame-0 refusal confirmed; proposed canonical actor-capacity bound in LEVEL3_BINDING.md requires main |',
               '| Effect entities / selected receivers | 128 / 512 | Effect snapshots contain zero live entries; all sixteen full receiver banks parse | Snapshot absence is not a route peak; selected receiver peak remains unmeasured |', '',
               '## Capture limits still requiring work', '',
               '- The retained legacy censuses are route-shape coverage. Some census replays differ from their '
@@ -664,8 +667,9 @@ def markdown(report):
               'The explicit texture capacity/index exception passes its regression proof. The AREA04 zero-key original-draw '
               'counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. '
               'They remain outside the allowed texture-capacity exception. '
-              'Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity '
-              'change proven necessary by the complete-area measurements.', '',
+              'AREA00 now reaches the protected 32-view box/world owner limit, with a measured minimum of 39; '
+              'LEVEL3_BINDING.md contains the proposed diff and validation required from main. '
+              'Other prerequisites: AREA01’s strict voice timing discrepancy and the measured SFX capacity/scope decision.', '',
               '## Readiness checkpoint (2026-10-18)', '',
               'Eighteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, '
               'combined-report membership, missing evidence, snapshot completeness, and complete boundary provenance. The report '
@@ -677,7 +681,8 @@ def markdown(report):
               'See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining '
               'step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 '
               'private exports and remaining capacity work. Supplemental fork captures are indexed separately; '
-              'AREA00 continuation remains the next binding stage.', '',
+              'AREA00 continuation is at the protected 32-view owner capacity; see LEVEL3_BINDING.md for the '
+              'proposed main-owned change and exact evidence.', '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '
               'For exact beats, first-hit metadata, census hashes, owner definitions and test entry locations, '

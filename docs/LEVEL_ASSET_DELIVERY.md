@@ -201,8 +201,10 @@ The capacity/index exception meets its required regression proof.
 
 Stage 3 now has recorded-area data exports and measured capacities; full
 native later-area drawing, unsampled runtime peaks, additional events/reloads
-and unrecorded branches remain separate proof. Stage 4 recordings and stage 5
-AREA00 binding have not begun.
+and unrecorded branches remain separate proof. Stage 4 subsequently completed
+the retained fork route gaps (LEVEL_ROUTE_EVIDENCE.md). Stage 5 supplies the
+AREA00 surface/crate roots and retained pickup models, then reaches a
+protected 32-view owner limit; see LEVEL3_BINDING.md.
 
 ## Reproduce (native arm64 macOS)
 
@@ -227,6 +229,13 @@ keeps the same comparisons and covers every listed case.
 ## Requests for main
 
 Only the explicitly permitted texture capacity/index changes touch graphics.
+The later AREA00 continuation also proves a host owner-view capacity issue:
+`em_area11_boxes.c` allows 32 views, while its original arrival contains 26
+crates and 13 drums, requiring at least 39 before other world owners.
+The 256-slot original actor pool is a separate capacity. LEVEL3_BINDING.md
+records the exact native failure, a proposed main-owned diff, and an
+ASan/UBSan fixture confirming the current refusal and reuse behavior.
+
 One further later-area renderer requirement is established: AREA04's static bank contains zero-TEX0
 vertices that the original actually draws with texturing enabled. Replaying
 the original level/clip programs over the retained display lists produces

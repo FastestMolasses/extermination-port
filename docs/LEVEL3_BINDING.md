@@ -16,10 +16,40 @@ no emulator was launched.
 keys, checked against every selected GS freeze and uploaded by the native
 resource-loader fixture. The explicitly authorized graphics change raises
 the registry to 1024 with a hash index. All four default/GPU smokes pass
-with byte-identical ticks, RNG and presented-pixel logs; control is 9.599849. This does not certify an AREA00 frame. After that proof and the
-missing recording work, resume at `D_00248290` / `0015AB00` against the fork
-route. Full asset receipts and retained runtime-material limits are in
+with byte-identical ticks, RNG and presented-pixel logs; control is 9.599849. This does not certify an AREA00 frame. The subsequent
+surface and retained-library delivery work is described below. Full asset receipts and retained runtime-material limits are in
 [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md).
+
+The stage-5 continuation adds the 40-byte `D_00248290` read view through
+the existing effect pack, preserving its 50 earlier windows. The full
+`0015AB00` oracle passes 160 cases and 30,000 worker calls. The unchanged
+production read provider passes 820 exact subrange checks and five bounds
+refusals under ASan/UBSan. All 13 retained fork snapshots match the table.
+
+The next native fault was model `0x4F` at `00C7CBC0`, called by
+`0015AFA0` through `001B1020`. AREA00's roster requires five library
+models, of which `4F/59` were missing from the retained export. Extending
+two existing read-only spans supplies both while preserving all earlier
+bytes, flags and the 16-region limit. All five models match 13 snapshots;
+55 original-instruction binding cases pass over the 11 AREA00-resident
+snapshots. No native game source changed for either addition.
+See [AREA00_ASSETS.md](AREA00_ASSETS.md) for reproduction and exact scope.
+
+The following native attempt passed those resource reads and stopped at
+the crate registry's AREA00 selector `0024A850` inside `001551B0`. Adding
+that halfword and `0024D820`'s pointer to the same export supplies the
+existing lazy resolver; group data remains loader-owned. The full crate
+oracle passes 86 ticks and 442 worker calls, with both lazy access and
+sticky missing-root faults checked. These additions still change no
+native game source and do not promote an AREA00 phase by themselves.
+
+With all three additions, ordinary New Game reaches arrival alignment at
+counter 26925, then fails at arrival frame 0 in drum callback `00156620`:
+the protected `em_area11_boxes.c` owner table has 32 slots. The original
+arrival has 26 crates and 13 drums, so those callbacks alone require 39
+views. This is the current stop; the 512-texture refusal below is historical.
+The explicit ownership rule prohibits changing this AREA11 file. The
+proposed change and its required validation are in **Requests for main**.
 
 2026-10-18 standalone follow-up on branch `levels`: four missing AREA01 routines
 on the AREA00 return (`00823A90`, `00823CD0`, `008240E0`, `00826010`) now have an
@@ -28,7 +58,7 @@ passes 521 cases and all 534 reachable non-branch words, including 30 captured
 actor cases and the full fail-stop sweep. This is no AREA00 phase promotion.
 See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for exact scope and receipts.
 
-The previously recorded native scene selection reaches AREA00 after ordinary New Game, AREA11
+The historical capacity diagnostic's native scene selection reaches AREA00 after ordinary New Game, AREA11
 and AREA01. The original load completes and selects AREA00 collision and
 scene resources. At counter 26922 the existing shaft phase observes
 AREA00 state 0, before rebuild. The following page-render request faults
@@ -69,7 +99,10 @@ required native row comparisons have not passed.
 | Scripts | `em_area_script`, existing script host | AREA00 window `8284E0..82BB50`, mutable loader data and area-specific callbacks selected; arrival `824E40` checked against original instructions |
 | Messages | `em_message_live` | AREA00 EMMD selected during rebuild; canonical request/presenter state retained |
 | Sound | existing stream/SFX owners | Complete AREA00 sub-0/1 registry scopes; 3,278 combined entries / 234 samples; no unsupported-case bypass |
-| Ferry / cab / shaft workers | existing roster, WORLD, FX and effect services | Direct `001B6660`, `0019C6F0`, `001B0C60`, marker/depth/transform adapters installed; standalone comparisons pass; native world execution blocked by textures |
+| Surface initialization | existing effect-table provider and `em_area01_exitb` | `D_00248290` added from pinned ELF; full initialization/packet-state oracle and production read bounds pass |
+| Pickup models | existing retained library provider and shared model adapter | Five roster models delivered exactly within 16 regions; production provider and 55 original binding cases pass |
+| Crate registry | existing box owner, effect windows and module loader | Six-byte AREA00 roots exported exactly; production lazy resolver passes 86 original crate ticks |
+| Ferry / cab / shaft workers | existing roster, WORLD, FX and effect services | Direct `001B6660`, `0019C6F0`, `001B0C60`, marker/depth/transform adapters installed; standalone comparisons pass; native phases remain uncertified |
 | Player and camera | existing player closures and camera owners | Canonical selected-area views installed; no AREA00 native row pass |
 | Return / bridge | AREA01 overlay plus revisit translations | Main and plain side returns remain separate strict phases; neither reached |
 
@@ -84,8 +117,8 @@ a refused write cannot fall back to a mutable legacy byte view.
 
 | Requested phase | New smoke scope | Native comparison result |
 |---|---|---|
-| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: load/scene selection reached; historical arrival frame 0 faulted at capacity 512; full live phase not rerun yet |
-| 2. First world and neutral frames | Fork a01_07 f539..4555, including final 60 neutral rows | 0/4,017 rows certified; no native arrival alignment before the frame-0 fault |
+| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: alignment at counter 26925, then frame-0 `00156620` fault when the 32 shared owner views are exhausted |
+| 2. First world and neutral frames | Fork a01_07 f539..4555, including final 60 neutral rows | 0/4,017 rows certified; alignment reached, but the first owner walk still fails |
 | 3. Movement / collision | `a00_00..a00_10` | Not reached |
 | 4. Camera | Per-row eye/target/forward/flags plus whole endpoint camera RAM | Checker contract passes; native AREA00 camera not reached |
 | 5. Drawing | Future original packet and displayed-field comparisons | Not implemented/certified; exact exported texels are not a pixel comparison |
@@ -179,6 +212,51 @@ No additional protected VU program gap was established. Current page
 support includes the known sprite/streak/kind-2/kind-6/floor/ripple paths.
 Later channel-9 workers reached in `a00_09` remain an integration audit
 item, not a substantiated request to edit a protected file.
+
+## Requests for main
+
+**Raise the protected shared owner-view capacity.** In
+`src/game/em_area11_boxes.c`, `BOX_MAX=32` limits both the `Box` views and
+draw-order indices. `box_for` refuses the 33rd simultaneously held view.
+This is host bookkeeping; the original actor pool still has 256 slots.
+The AREA00 arrival and nine subsequent resident captures contain 26 crates
+and 13 drums (39 views before counting doors and other world owners).
+The last resident capture retains 32 crates/drums. The live failure is
+`more AREA11 boxes than slots`, from `00156620`, at arrival frame 0.
+
+Proposed diff for main to review and apply; it is **not applied** here:
+
+```diff
+--- a/src/game/em_area11_boxes.c
++++ b/src/game/em_area11_boxes.c
+@@
+-    /* four crates, two drums, the truck and the door, and the other world
+-     * owners bound through em_area11_boxes_owner_* (the terminal, the panel,
+-     * the prop 001C4820, the item owners; room for the rest) */
+-    BOX_MAX = 32,
++    /* At most one host view per live canonical actor slot. Generation and
++     * freed-slot checks retain the existing ownership and reuse rules. */
++    BOX_MAX = EM_ACTOR_POOL_CAPACITY,
+```
+
+`tools/test_area00_owner_capacity.py` compiles the unchanged protected
+provider under ASan/UBSan. It confirms 32 successful views, refusal of the
+33rd, and correct freed/generation reuse. Its independent capture census
+confirms the 39-view minimum. `--require-supported` correctly fails with
+the present capacity; its default diagnostic mode reports the mismatch.
+The fixture exercises the configured bound and does not lock in 32 as
+correct game behavior. Main should require acceptance through the
+canonical pool capacity, then exercise full/reused draw-order
+storage, default/GPU AREA11 and AREA01 `--until a01_02` exact logs and pixels,
+control 9.599849, and this same AREA00 arrival replay. Neither increasing
+the actor/bone pool nor reassigning or omitting owners is requested.
+Private evidence: `build/levels/area00-owner-capacity/receipt.json` and
+`build/levels/area00-arrival-crate-1/`.
+
+**Keep the AREA01 voice prerequisite explicit.** The existing a01_03
+row-957 discrepancy remains a strict failure. Its audio/movie/frame owner
+is outside this worktree's authorization. No checker assertion or replay
+row has been dropped or realigned to bypass it.
 
 ## Verification and reproduction
 
@@ -275,20 +353,52 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The first reproducible AREA00 stop is now `001CB800`, caused by the exact
-catalog-capacity check described above. Arrival has no aligned native
-rows; movement, camera, interactions, drawing and both returns remain
-uncertified. Standalone owner/adapter tests cannot establish their live
-call order or the absence of later missing workers. The inherited AREA01
-voice-timing discrepancy also remains a strict prerequisite failure.
+The current reproducible stop is `00156620` at arrival frame 0, caused by
+the protected 32-view owner table. Surface dimensions, retained pickup
+models and crate roots are now supplied exactly, with no native game-code
+changes. Arrival aligns, but still has zero certified rows. Movement,
+camera, interactions, drawing and both returns remain uncertified.
+Standalone tests do not establish live call order or eliminate later
+missing workers. The inherited AREA01 voice discrepancy also remains.
 
-After main supplies the graphics capacity change, rerun arrival before
-expanding downstream phases. Preserve the first fault and bind any
-remaining transitive worker to its existing owner. Then compare all
+After main resolves the owner-view capacity, rerun arrival before
+expanding downstream phases. Preserve the first fault and bind remaining
+workers to their existing owners. Then compare all
 4,017 arrival/neutral rows and the ending camera memory, followed by each
 route phase and the independent side return. Drawing still requires
 original packet and displayed-field comparisons. Promote census rows
 only after their native AREA00 behavior is exercised and compared.
+
+Stage-5 native evidence, all on the unchanged executable built from
+`11d2f10` (same native source as `ab1cd94`), with input-only replays:
+
+| Private receipt under `build/levels/` | Result |
+|---|---|
+| `area00-arrival-before-1/` | `00248290` read refusal, arrival frame 0 |
+| `area00-arrival-surface-1/run.log`, `receipt.json` | Surface read passes; `001B1020` reports missing retained model |
+| `area00-arrival-model-diagnostic-1/run.log`, `area00-readview-preflight-1/diagnostic-parity.json` | Private logging build identifies caller `0015AFA0`, missing model address `00C7CBC0`; ticks and RNG counter/state match the preceding run |
+| `area00-arrival-library-1/run.log`, `receipt.json` | Model construction passes; crate selector `0024A850` is missing |
+| `area00-arrival-crate-1/` | Arrival aligns at 26925; 32-view capacity fails at `00156620`, frame 0; 254.403 seconds, native parity false |
+
+The final resource pack has 53 effect windows and 16 retained model
+regions. Generated assets are private regular files in this worktree.
+No protected AREA11 or rendering source was changed during stage 5.
+Intermediate native tick/RNG files are superseded by the final replay;
+their hashes and the diagnostic comparison are retained in the private
+preflight receipts. Original captures and the before/final native pair remain.
+
+Final stage-5 regressions pass with the final private assets installed:
+AREA11 through `a01_arrival` and AREA01 through `a01_02`, each with default
+and GPU rendering. All twelve tick, RNG and presented-pixel files are
+byte-identical to the stage-3 after-capacity baseline. Asset hashes stayed
+unchanged throughout all four final runs. New Game control is 9.599849.
+Combined receipt: `build/levels/area00-readview-preflight-1/final-regressions.json`;
+default traces: `build/levels/area00-final-defaults-2/`; GPU traces:
+`build/levels/area00-final-regressions-1/gpu1-a01_arrival/` and `gpu1-a01_02/`.
+The isolated staged-index native build has zero warnings
+(`build/levels/area00-index-build-1.log`). Eighteen readiness tests and the
+unchanged AREA00 harness contract also pass. These regressions do not
+certify an AREA00 gameplay frame.
 
 ## Topic commits
 

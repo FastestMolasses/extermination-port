@@ -18,7 +18,7 @@ Function keys include the resident overlay. All census `functions` rows are used
 2. Recorded-area exports now pass: sixteen texture/shadow profile-subareas, fifteen original module deliveries, and thirteen area asset profiles including AREA03 arrival. Zero-key runtime materials and unrecorded events/reloads remain explicit limits. See LEVEL_ASSET_DELIVERY.md.
 3. The largest fixed texture catalog has 609 keys; AREA00 now has 580 after page discovery. The allowed 1024-slot hash registry passes all required default/GPU regressions. SFX scope union requires 14274 entries against 4096 and exposes two inferred-office conflicts; main owns that binding decision.
 4. 115 supplemental fork beats have completed saved-state resume checks; 0 retained route beats still lack a fork recording. 28 supplemental boundaries record 88 previously unsampled ticks and match every endpoint field. 0 between-beat ticks on the supplemental branch still need a boundary receipt. The supplemental index is LEVEL_ROUTE_EVIDENCE.json. Existing legacy captures remain original evidence; a fork recording does not establish legacy parity. Record displayed fields and missing boundary counters where needed; use the shared run lock.
-5. Continue AREA00 arrival at `D_00248290` / `0015AB00` after capacity proof, then neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite voice discrepancy and every first divergent row. See [LEVEL3_BINDING.md](../docs/LEVEL3_BINDING.md).
+5. AREA00 surface dimensions, pickup library models and crate roots now pass delivery/oracle checks. Arrival aligns, then fails at frame 0 in `00156620`: the protected AREA11 owner table has 32 views, while the original AREA00 crates/drums alone require 39. Main must resolve that capacity before neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite voice discrepancy and every first divergent row. See [LEVEL3_BINDING.md](../docs/LEVEL3_BINDING.md).
 
 ## Route coverage and function counts
 
@@ -437,7 +437,7 @@ The current private export and reference-test receipts are recorded in [LEVEL_AS
 
 [AREA00_ASSETS.md](../docs/AREA00_ASSETS.md)
 
-Exporters: [export_area00_common.py](../tools/export_area00_common.py), [export_area00_level.py](../tools/export_area00_level.py), [export_area00_sfx.py](../tools/export_area00_sfx.py), [export_area00_shadow_receivers.py](../tools/export_area00_shadow_receivers.py), [export_area00_tables.py](../tools/export_area00_tables.py), [export_area00_world_textures.py](../tools/export_area00_world_textures.py).
+Exporters: [export_area00_common.py](../tools/export_area00_common.py), [export_area00_level.py](../tools/export_area00_level.py), [export_area00_library.py](../tools/export_area00_library.py), [export_area00_runtime_tables.py](../tools/export_area00_runtime_tables.py), [export_area00_sfx.py](../tools/export_area00_sfx.py), [export_area00_shadow_receivers.py](../tools/export_area00_shadow_receivers.py), [export_area00_tables.py](../tools/export_area00_tables.py), [export_area00_world_textures.py](../tools/export_area00_world_textures.py).
 
 Reference: [test_area00_assets_reference.py](../tools/test_area00_assets_reference.py). full private rerun recorded in LEVEL_ASSET_DELIVERY.md; coverage remains profile-scoped.
 
@@ -891,6 +891,7 @@ run-time word) with its own results.
 | Object textures | 1024 (`src/em_gfx.h`), hash lookup | Fixed maximum 609; AREA00 580; unresolved zero keys retained separately | All required default/GPU regressions pass; runtime materials need main |
 | SFX entries / samples | 4096 / 1024 (`em_sfx_bank.c`) | Available catalog union 14274 / 348; two conflicting office entries | Complete per-area selection or larger combined registry and corrected office binding require main |
 | Actor records | 256 (`em_actor_pool.h`) | Snapshot maximum 134; original free counters agree | Whole-route peaks remain unmeasured |
+| Shared box/world owner views | 32 (`em_area11_boxes.c`, protected) | AREA00 arrival has 26 crates + 13 drums, at least 39 views | Native frame-0 refusal confirmed; proposed canonical actor-capacity bound in LEVEL3_BINDING.md requires main |
 | Effect entities / selected receivers | 128 / 512 | Effect snapshots contain zero live entries; all sixteen full receiver banks parse | Snapshot absence is not a route peak; selected receiver peak remains unmeasured |
 
 ## Capture limits still requiring work
@@ -903,11 +904,11 @@ run-time word) with its own results.
 
 ## Requests for main
 
-The explicit texture capacity/index exception passes its regression proof. The AREA04 zero-key original-draw counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. They remain outside the allowed texture-capacity exception. Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity change proven necessary by the complete-area measurements.
+The explicit texture capacity/index exception passes its regression proof. The AREA04 zero-key original-draw counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. They remain outside the allowed texture-capacity exception. AREA00 now reaches the protected 32-view box/world owner limit, with a measured minimum of 39; LEVEL3_BINDING.md contains the proposed diff and validation required from main. Other prerequisites: AREA01’s strict voice timing discrepancy and the measured SFX capacity/scope decision.
 
 ## Readiness checkpoint (2026-10-18)
 
-Eighteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, snapshot completeness, and complete boundary provenance. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 private exports and remaining capacity work. Supplemental fork captures are indexed separately; AREA00 continuation remains the next binding stage.
+Eighteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, snapshot completeness, and complete boundary provenance. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 private exports and remaining capacity work. Supplemental fork captures are indexed separately; AREA00 continuation is at the protected 32-view owner capacity; see LEVEL3_BINDING.md for the proposed main-owned change and exact evidence.
 
 ## Complete function index
 

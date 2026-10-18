@@ -579,3 +579,99 @@ The generic later-level catalog also retains model 0's zero reference as an
 unresolved draw-class/runtime entry. See [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md)
 for the full table and registry regression proof. This is data-delivery proof,
 not native AREA00 gameplay or pixel certification.
+
+
+## Surface dimension read view (2026-10-18)
+
+`tools/export_area00_runtime_tables.py` extends the existing effect pack
+with the two retained 20-byte rows at `D_00248290`. `0015AB00` selects a
+row with signed actor field `+54`, stores its address at `+30`, and passes
+the doubled horizontal dimensions to `001E8E80`. These are surface
+dimensions, not a new interaction descriptor. The unchanged runtime
+resolves the window through `em_effects_live_window`; its composition
+rejects writes before reaching this provider.
+
+The exporter uses the pinned local ELF, requires both row indices in the
+original fork owners, and compares the complete 40-byte window in all
+13 retained snapshots, including arrival and both returns. There are 88
+owner observations. It preserves all 50 earlier effect windows, including
+the AREA01 impact sources, and refuses an overwrite that would discard
+or change an installed window. The output stays local at
+`assets/effect_tables.emet`; no table values are embedded in source.
+
+The opt-in `tools/test_area00_surface_reference.py` checks the production
+loader and read provider under ASan/UBSan: the old pack refuses the missing
+window, all 820 nonempty subranges match the original bytes, and five
+out-of-range reads fail. It also rejects a changed table and a dropped
+installed window. The quick oracle has eight cases. With `EM_TEST_FULL=1`,
+all 80 retained AREA00 owner observations run through original initialization
+and drawing states: 160 cases and 30,000 compared worker calls, with
+ordered stores, complete RAM/scratchpad and call arguments equal. Drawing
+state here means packet construction; it does not certify displayed pixels.
+
+```sh
+# Native arm64 macOS, from the port worktree.
+python3 tools/export_area00_runtime_tables.py
+python3 tools/test_area00_surface_reference.py
+EM_TEST_FULL=1 python3 tools/test_area00_surface_reference.py
+```
+
+Private verification: `build/levels/area00-surface-reference/receipt.json`
+and `build/levels/area00-readview-preflight-1/reference-full.log`. The
+live continuation and its next boundary are recorded in LEVEL3_BINDING.md.
+
+The same exporter also supplies AREA00's two immutable crate registry roots:
+the halfword at `0024A850` and pointer at `0024D820`. The pointer array and
+terminated groups remain in the module loader's existing overlay storage.
+The complete pack now has 53 windows: 50 preserved windows, the surface
+dimensions and these two roots. All 46 added bytes match the pinned ELF and
+13 fork snapshots. The production effect provider additionally passes all
+13 nonempty root subranges and two cross-window refusals under ASan/UBSan.
+
+`tools/test_area00_crate_registry_reference.py` exercises the unchanged
+production box registry over those exported roots and borrowed overlay
+data. The full run has 43 captured registry-using owners across 11
+AREA00-resident snapshots: 86 original owner ticks and 442 worker calls.
+Both successful and busy allocation paths match; missing roots fault and
+remain latched. This retains the crate oracle's explicit scripted model,
+collision, draw, sound and effect boundaries; it does not certify them.
+Receipt: `build/levels/area00-crate-registry-reference/receipt.json`.
+
+```sh
+EM_TEST_FULL=1 python3 tools/test_area00_crate_registry_reference.py
+```
+
+## Retained pickup library delivery (2026-10-18)
+
+The first native constructor after the surface fix reached `0015AFA0` /
+`0015AC00` and failed inside `001B1020`: model `0x4F` resolved to
+`00C7CBC0`, outside the retained resource spans. The original roster for
+both subareas requires library ids `4D/4F/58/59/72`. The earlier export
+covered three of those five models.
+
+`tools/export_area00_library.py` extends the existing read-only library
+spans `4D..4F` and `58..59` from the user's disc. It adds 15,072 bytes,
+preserving the resource table, all earlier region bytes and flags, and the
+16-region count. No protected AREA11 provider or fixed capacity changes.
+Run it after `export_roger_banks.py`; repeating it is idempotent. It refuses
+symlink output paths, altered existing spans and overlapping regions.
+
+All five models (46,640 bytes) and the complete extended spans (25,760
+bytes, including intervening bytes) match the 13 retained fork snapshots. Their
+133 live pickup handles also match the roster's library selections.
+The production provider is exercised unchanged under ASan/UBSan, including
+the predecessor's missing-model refusals and the original high-bit id alias.
+The full original-instruction model-binding oracle passes 55 cases over
+the 11 AREA00-resident snapshots, comparing complete RAM and scratchpad,
+return values and worker-call counts. The quick sample has ten cases.
+
+```sh
+# Native arm64 macOS, from the port worktree.
+python3 tools/export_area00_library.py
+python3 tools/test_area00_library_reference.py
+EM_TEST_FULL=1 python3 tools/test_area00_library_reference.py
+```
+
+Private receipts: `build/levels/area00-library-export/receipt.json` and
+`build/levels/area00-library-reference/receipt.json`. These prove resource
+delivery and shared model construction, not a completed native AREA00 phase.
