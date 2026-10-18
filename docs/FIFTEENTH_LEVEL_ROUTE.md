@@ -585,3 +585,15 @@ receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in targe
 is `make test-level15-motion-reference`; `EM_TEST_FULL=1` enables full mode.
 Two readable-C boot routines and four assembly-only definitions remain missing.
 No live binding or recording coverage is claimed by this checkpoint.
+
+## Native audit: perception predicate (2026-10-18)
+
+The unwired `em_level15_perception` adds `00184D20`. Its full suite passes
+1,058 cases and all 323 reachable words, explicitly accounting for five
+unreachable words behind the retained-class gate. Tests cover every class
+byte, event/subtype gates, all shapes, boundary math and worker-written fields.
+The parameter-pointer and access-order corrections, mutation checks and private
+receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
+`make test-level15-perception-reference`, with `EM_TEST_FULL=1` for full mode.
+One readable-C boot routine and four assembly-only definitions remain missing;
+this checkpoint changes no live route or capture-coverage claim.

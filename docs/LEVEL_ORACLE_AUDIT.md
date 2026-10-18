@@ -354,16 +354,37 @@ and state-dispatch mutations are detected
 without warnings (`build/levels/level15-motion-index-build.log`), with clean
 staged leak/provenance checks. No live source or source list changed.
 
+## Level-15 perception predicate
+
+The unwired `em_level15_perception` adds `00184D20` from its byte-matched C.
+The full original-instruction sweep passes **1,058 cases and all 323 reachable
+words**. The five other words in the static graph belong only to shape 1's
+class-10 branch: the retained class has already passed a gate accepting only
+4 or 6. That exclusion is explicit and checked, with every class byte and
+worker writes that change the stored class covered. No oracle comparison is
+disabled. Cases also cover event/subtype gates, all shapes, height/radius/angle
+boundaries, non-finite inputs, actual original math helpers, poisoned inputs
+and every failure site. Calls are designed inputs over retained captures.
+
+The oracle corrected parameter-pointer reuse and memory-read ordering for
+shapes 1 and 2: one pointer serves both horizontal components, and later
+radius/height/heading reads retain the pointer until the next worker call.
+Event-gate, fixed-radius and retained-parameters mutations are detected
+(`build/levels/level15-perception-mutations-1/results.json`). The full receipt
+is `build/levels/oracle-level15-perception-full-1/`; the staged-index build
+passes without warnings (`build/levels/level15-perception-index-build.log`).
+Staged leak/provenance checks pass. No live source or source list changed.
+
 ## Remaining step-2 work
 
-The map currently retains **6 missing non-boundary entries**, after adding the
-fifty-eight return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
+The map currently retains **5 missing non-boundary entries**, after adding the
+fifty-nine return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing group is six level-15 boot routines: two have readable C,
+The missing group is five level-15 boot routines: one has readable C,
 and four still contain assembly rather than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -388,6 +409,7 @@ make test-level15-support-reference
 make test-level15-creatures-reference
 make test-level15-fountain-reference
 make test-level15-motion-reference
+make test-level15-perception-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.

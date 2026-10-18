@@ -2048,3 +2048,7 @@ test-level15-fountain-reference:
 .PHONY: test-level15-motion-reference
 test-level15-motion-reference:
 	python3 tools/test_level15_motion_reference.py
+
+.PHONY: test-level15-perception-reference
+test-level15-perception-reference:
+	python3 tools/test_level15_perception_reference.py
