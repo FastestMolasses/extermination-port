@@ -5,14 +5,15 @@
  * 001C1A80, which first ran right after the AREA22 arrival), plus the three
  * overlay functions they call that have no port translation: 0x823580
  * (called by 0x823700) and 0x824830 / 0x824930 (called by 0x8246B0).
- * Docs: docs/AREA04_PORT.md.
+ * The full-route audit also adds the previously omitted owners 00824320
+ * and 00825510. These remain standalone and unwired. Docs: docs/AREA04_PORT.md.
  *
  * Addresses are engine (runtime) addresses. The overlay is linked 0x40
  * below where it runs, so the decomp's splat/link names are 0x40 lower
  * (0x823B90 is func_overlay_AREA04_00823B50).
  *
  * Ground truth: the decomp's C under src/overlays/AREA04/ (byte-identical
- * for all 17 overlay functions here; decomp docs/AREA04_OVERLAY.md), the
+ * for all 19 overlay functions here; decomp docs/AREA04_OVERLAY.md), the
  * decomp's src/func_001BE5F0.c (inline asm) and src/func_001C1A80.c
  * (NEARMISS: its body was checked against the original instructions, and
  * where the NEARMISS text and the instructions differ the instructions
@@ -34,7 +35,8 @@
  *
  * Calls between the translations: 0x823700 -> 0x823580, 0x8246B0 ->
  * 0x824830 / 0x824930, 001C1A80 -> 001BE5F0. They call each other directly
- * (no hook); every function is also a public entry.
+ * (no hook); every function is also a public entry. 00824320 also calls
+ * 00824490 directly, with its original nested stack pointer.
  *
  * Stack locals: 0x824490 copies the 64-byte area at 0x828220 into its own
  * frame (sp - 0x40 .. sp - 0x01) and passes its address to 001B1EA0. Its
@@ -171,11 +173,19 @@ typedef struct {
     int (*w_001FB9F0)(void *ctx, int32_t n0, int32_t n1, int32_t n2, int32_t n3);
     int (*w_001FBD50)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3);
 
+    /* Full-route owners omitted by the earlier delta inventory. */
+    int (*w_001BA540)(void *ctx, uint32_t self);
+    int (*w_001BA8E0)(void *ctx, uint32_t self, int32_t kind);
+    int (*w_001CA6F0)(void *ctx, uint32_t self, int32_t flags);
+    int (*w_008245F0)(void *ctx, uint32_t self);
+
     /* ---- the actor's own callback: the function at actor +0x4C, called with the actor */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t actor);
 } EmArea04PortHooks;
 
 /* Owners: every entry returns 0, or -1 on a fault. */
+int em_area04_port_00824320(const EmArea04PortHooks *h, uint32_t self, uint32_t sp, EmArea04PortFault *fault);
+int em_area04_port_00825510(const EmArea04PortHooks *h, uint32_t self, EmArea04PortFault *fault);
 int em_area04_port_00823700(const EmArea04PortHooks *h, uint32_t self, EmArea04PortFault *fault);
 int em_area04_port_00823B90(const EmArea04PortHooks *h, uint32_t self, EmArea04PortFault *fault);
 int em_area04_port_00823EE0(const EmArea04PortHooks *h, uint32_t self, EmArea04PortFault *fault);

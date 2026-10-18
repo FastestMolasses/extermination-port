@@ -129,8 +129,9 @@ def main():
     env.update(EM_HEADLESS='1', EM_REFERENCE='fork', EM_TEST_JOBS='2', PYTHONUNBUFFERED='1')
     if args.full:
         env['EM_TEST_FULL'] = '1'
-    old, _ = current_evidence(ROOT, args.evidence)
-    rows = dict(old)
+    current_evidence(ROOT, args.evidence)  # validate retained rows, including stale ones
+    old = json.loads(args.evidence.read_text())['suites'] if args.evidence.is_file() else []
+    rows = {row['test']: row for row in old}  # retain stale history; --check still rejects it
     for suite in args.suite or SUITES:
         test = f'tools/test_{suite}_reference.py'
         paths = dependencies(ROOT, test)

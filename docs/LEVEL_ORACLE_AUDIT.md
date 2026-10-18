@@ -3,7 +3,8 @@
 2026-10-18, branch `levels`. **Step 2 is in progress.** All 31 pre-existing
 standalone suites in the audit inventory pass their current quick modes. Four
 missing routines on the AREA00 return now have a translation and a new original
-instruction suite, which passes quick and full mode. No new routine is wired.
+instruction suite, which passes quick and full mode. Five further missing owners
+in AREA04/06 now pass their expanded full suites. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -79,17 +80,38 @@ compare the typed hook order and signatures against the test table. The new
 full-pass receipt is under `build/levels/oracle-return-full-1/`; the aggregate
 receipts are under `build/levels/oracle-audit-1/`. These are private, ignored logs.
 
+## AREA04 and AREA06 full-route extensions
+
+The AREA04 module adds `00824320` and `00825510`; the AREA06 module adds
+`00823B50`, `008240E0` and `00824340`. Their own docs describe the recovered
+behavior and concrete translation corrections. The existing modules and tests
+were extended additively, with every old comparison and coverage requirement
+retained. Each new function also runs as an independent oracle entry.
+
+| Module | Full cases | Reachable words | Native failure runs | Receipt |
+|---|---:|---:|---:|---|
+| AREA04 | 2,881 | 1,864/1,864 | 623 | `build/levels/oracle-area04-full-1/` |
+| AREA06 | 3,649 | 5,091/5,091 | 2,958 | `build/levels/oracle-area06-full-1/` |
+
+AREA06's existing reuse checks also pass, including 455 strip-node ticks,
+6,000 overhead-bar state cases and status/message checks. Level 8 is rerun
+because its local test dependencies include these modules; its quick rerun passes.
+The expanded quick modes take 4.8 seconds (AREA04) and 7.9 seconds (AREA06),
+with two workers on this Mac. Subset audits now
+retain older stale receipts explicitly until their sources are retested.
+The isolated staged-index build of this extension passes with zero warnings
+(`build/levels/arrival-index-build.log`); the staged leak/provenance checks pass.
+
 ## Remaining step-2 work
 
-The map currently retains **60 missing non-boundary entries**, after adding the
-four return routines and correcting the existing `001FC520` ownership to
+The map currently retains **55 missing non-boundary entries**, after adding the
+nine return/arrival routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing groups include AREA04/06 arrival/return functions, AREA13/19 functions
-missed by earlier deltas, the AREA15 continuation and AREA03 arrival, plus the
+The missing groups include AREA13/19 functions missed by earlier deltas, the AREA15 continuation and AREA03 arrival, plus the
 level-15 boot routines. Some decomp definitions still contain assembly rather
 than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest

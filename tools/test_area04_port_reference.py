@@ -148,7 +148,9 @@ FUNCS = {
     0x823EE0: ('em_area04_port_00823EE0', 0x220, 'owner'),
     0x824100: ('em_area04_port_00824100', 0xE4, 'owner'),
     0x8241F0: ('em_area04_port_008241F0', 0x130, 'owner'),
+    0x824320: ('em_area04_port_00824320', 0x170, 'owner_sp'),
     0x824490: ('em_area04_port_00824490', 0x158, 'owner_sp'),
+    0x825510: ('em_area04_port_00825510', 0x370, 'owner'),
     0x8246B0: ('em_area04_port_008246B0', 0x178, 'owner'),
     0x824830: ('em_area04_port_00824830', 0xFC, 'owner'),
     0x824930: ('em_area04_port_00824930', 0x10C, 'owner'),
@@ -242,6 +244,10 @@ HOOKS = [
     ('w_001FB0B0', 0x1FB0B0, [(I, 4)], None),
     ('w_001FB9F0', 0x1FB9F0, [(I, 4), (I, 5), (I, 6), (I, 7)], None),
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], None),
+    ('w_001BA540', 0x1BA540, [(U, 4)], None),
+    ('w_001BA8E0', 0x1BA8E0, [(U, 4), (I, 5)], None),
+    ('w_001CA6F0', 0x1CA6F0, [(U, 4), (I, 5)], None),
+    ('w_008245F0', 0x8245F0, [(U, 4)], None),
 ]
 BY_ADDRESS = {address: (name, args, result) for name, address, args, result in HOOKS}
 
@@ -1344,7 +1350,7 @@ SCRIBBLED_CALLBACKS = frozenset({0x1234560, 0x2345670})
 # Owner behaviours (+0x10) and the entries that take such a node.
 OWNER_ENTRIES = {
     0x823700: (0x823700, 0x823580), 0x823B90: (0x823B90,), 0x823EE0: (0x823EE0,), 0x824100: (0x824100,),
-    0x8241F0: (0x8241F0,), 0x824320: (0x824490,), 0x8246B0: (0x8246B0, 0x824830, 0x824930),
+    0x8241F0: (0x8241F0,), 0x824320: (0x824320, 0x824490), 0x825510: (0x825510,), 0x8246B0: (0x8246B0, 0x824830, 0x824930),
     0x824DC0: (0x824DC0,), 0x825880: (0x825880,), 0x825B00: (0x825B00,), 0x825D60: (0x825D60,),
     0x825DF0: (0x825DF0,), 0x8260C0: (0x8260C0,),
 }
@@ -1422,6 +1428,7 @@ def case_list(elf):
             add('capture %s %06X @%X' % (BOOT_BEAT, entry, node), BOOT_BEAT, entry, entry_args(entry, node))
     captured = len(cases)
     targeted_cases(add)
+    full_route_cases(add)
     targeted = len(cases) - captured
 
     # ---------------------------------------------------------------- perturbed
@@ -1447,6 +1454,40 @@ def case_list(elf):
                                0x1B10B0)}
                 add('perturbed %06X %d' % (entry, i), beat, entry, entry_args(entry, node), p, queues=q)
     return cases, captured, targeted
+
+
+def full_route_cases(add):
+    """Original-record cases for the two owners omitted by delta-only lists."""
+    beat = 'a04_00_door45_event'
+    ram, _ = CAPTURES[beat]
+    npc = owners(ram, 0x824320)[0]
+    platform = owners(ram, 0x825510)[0]
+    for state in (0,1,2,3,4,255):
+        for phase in (0,1,2,255):
+            for result in (0,1,-1):
+                add(f'gap/824320/{state}/{phase}/{result}',beat,0x824320,[npc,STACK_TOP],
+                    [(npc+4,b8(state)),(npc+5,b8(0)),(0x8107E9,b8(phase))],
+                    queues={0x1BA1C0:[result]})
+    for kind in (0,0x11,0xFF):
+        for state in (0,1,2,3,4):
+            for step in (0,1,4,8,16,255):
+                for flag in (0,1):
+                    for result in (0,1,-1):
+                        add(f'gap/825510/{kind}/{state}/{step}/{flag}/{result}',beat,0x825510,[platform],
+                            [(platform+3,b8(kind)),(platform+4,b8(state)),(platform+5,b8(step)),
+                             (platform+0xB,b8(4 if flag else 0)),(0x8107BD,b8(flag)),(0x81083D,b8(flag))],
+                            queues={0x1BA1F0:[result],0x1B0FD0:[result]})
+    for z in F_VALUES + [0.3, -0.3]:
+        add(f'gap/825510/float/{z}',beat,0x825510,[platform],
+            [(platform+3,b8(0)),(platform+4,b8(1)),(platform+5,b8(2)),(platform+0xB8,f32b(z))])
+    for raw in (NAN,NEG_INF,0x7F800001,0x80000001):
+        add(f'gap/825510/bits/{raw:x}',beat,0x825510,[platform],
+            [(platform+3,b8(0)),(platform+4,b8(1)),(platform+5,b8(2)),(platform+0xB8,bits32(raw))])
+    add('gap/824320/reload-kind',beat,0x824320,[npc,STACK_TOP],[(npc+4,b8(0))],
+        queues={0x1BA1C0:[0],0x1B10B0:[Scribble(0,[(npc+0xD,b8(0xEF))])]})
+    add('gap/825510/reload-step',beat,0x825510,[platform],
+        [(platform+3,b8(0)),(platform+4,b8(1)),(platform+5,b8(0)),(platform+0xB,b8(0))],
+        queues={0x1F4BF0:[Scribble(None,[(platform+5,b8(1))])],0x1BA1F0:[1]})
 
 
 def targeted_cases(add):

@@ -3890,10 +3890,10 @@
     },
     {
       "test": "tools/test_area04_port_reference.py",
-      "mode": "quick",
+      "mode": "full",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T14:51:36.728375+00:00",
-      "seconds": 3.932,
+      "finished_utc": "2026-10-18T15:02:58.194347+00:00",
+      "seconds": 15.864,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4049,15 +4049,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "06fa82fbb8296bcf119619265a73a7206f862fa66593349bb84a189569a46fcf",
-      "private_log": "build/levels/oracle-audit-1/area04_port.log"
+      "source_sha256": "ec41871abcba64e5231944f516a3cceb70559044f4e14bef5d82d5f805465c93",
+      "private_log": "build/levels/oracle-area04-full-1/area04_port.log"
     },
     {
       "test": "tools/test_area06_port_reference.py",
-      "mode": "quick",
+      "mode": "full",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T14:51:50.005573+00:00",
-      "seconds": 6.686,
+      "finished_utc": "2026-10-18T15:11:46.064104+00:00",
+      "seconds": 73.116,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4519,8 +4519,8 @@
         "tools/test_truck_original_reference.py",
         "tools/vu1_vm.py"
       ],
-      "source_sha256": "af2a4912c6c79f41729bbb51acfbbf29a16e01119def0d939d61b054f790ac48",
-      "private_log": "build/levels/oracle-audit-1/area06_port.log"
+      "source_sha256": "17662a75f516e6a46f8b60d4d59ba16244c94e7adf0b3cba6479ea5df90b88ba",
+      "private_log": "build/levels/oracle-area06-full-1/area06_port.log"
     },
     {
       "test": "tools/test_area22_port_reference.py",
@@ -5531,8 +5531,8 @@
       "test": "tools/test_level8_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T14:52:03.155861+00:00",
-      "seconds": 12.601,
+      "finished_utc": "2026-10-18T15:12:50.707225+00:00",
+      "seconds": 15.256,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -5732,8 +5732,8 @@
         "tools/test_status_pages_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "4d45c9d48e1e26f94b8339c5f7e083504664af570b9d15eb2d83ad819a6938ab",
-      "private_log": "build/levels/oracle-audit-1/level8_port.log"
+      "source_sha256": "9180965d62583932f3522034ba788977328c362264bea297199d2e8c9e2bff98",
+      "private_log": "build/levels/oracle-level8-refresh-1/level8_port.log"
     },
     {
       "test": "tools/test_level9_port_reference.py",

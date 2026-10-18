@@ -21,6 +21,10 @@
  *            event; OVERLAY/AREA01.BIN, id 2)
  * The other census rows have translations in other modules and are reused
  * (docs/AREA06_PORT.md section 0).
+ * The full-route audit adds AREA06 00823B50, 008240E0 and 00824340.
+ * 00823B50 carries its three local period tables in the caller's stack view.
+ * 001BA1F0 now exposes its result; prior callers deliberately ignore it.
+ *
  *
  * Ground truth: the decomp's C where it is byte-identical, and the original
  * instructions (read locally, never reproduced) for the NEARMISS, inline
@@ -43,7 +47,7 @@
  * are original addresses; a hook returns >= 0 on success and its original
  * result (when used) in *result (float results as the float whose bits are
  * the original's; 64-bit register arguments as uint64_t). The actor's +0x4C
- * method (00219870, 0x824560) is `w_callback(ctx, function, actor)`. `ctx`
+ * method (00219870, 0x824340, 0x824560) is `w_callback(ctx, function, actor)`. `ctx`
  * is passed unchanged and never dereferenced.
  *
  * Fail-stop: a NULL `bytes` mapping (fault 5, also for a misaligned
@@ -133,7 +137,7 @@ typedef struct {
     int (*w_001B1EA0)(void *ctx, int32_t n0, uint32_t a1, uint32_t a2, int32_t n3, int32_t *result);
     int (*w_001BA1A0)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001BA1C0)(void *ctx, uint32_t a0, int32_t n1, int32_t *result);
-    int (*w_001BA1F0)(void *ctx, uint32_t a0);
+    int (*w_001BA1F0)(void *ctx, uint32_t a0, int32_t *result);
     int (*w_001C5570)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, int32_t n3, uint32_t *result);
     int (*w_001C6380)(void *ctx, uint32_t a0);
     int (*w_001CB5B0)(void *ctx, int32_t n0);
@@ -160,6 +164,12 @@ typedef struct {
 
     /* The actor's +0x4C method, called by 00219870 and 0x824560 with the
      * function read from +0x4C and the actor. */
+    /* Full-route arrivals omitted by the original delta group. */
+    int (*w_00102B08)(void *ctx, uint32_t dst, uint32_t src, float angle);
+    int (*w_001B6F00)(void *ctx, uint32_t self, uint32_t vector, float yaw);
+    int (*w_001C4760)(void *ctx, int32_t kind, int32_t value);
+    int (*w_001D04B0)(void *ctx, uint32_t matrix, int32_t count, uint32_t table, float time, float phase);
+    int (*w_001B17A0)(void *ctx, uint32_t self, int32_t *result);
     int (*w_callback)(void *ctx, uint32_t function, uint32_t actor);
 } EmArea06PortHooks;
 
@@ -200,6 +210,11 @@ int em_area06_port_001CE860(const EmArea06PortHooks *h, int32_t a0, int32_t a1, 
                             int32_t count, uint64_t tag, float width, uint32_t sp, EmArea06PortFault *fault);
 
 /* AREA06 overlay (runtime addresses). */
+int em_area06_port_00823B50(const EmArea06PortHooks *h, uint32_t self, uint32_t sp, EmArea06PortFault *fault);
+int em_area06_port_008240E0(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault);
+int em_area06_port_00824340(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault);
+
+
 int em_area06_port_00823580(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault);
 int em_area06_port_008242C0(const EmArea06PortHooks *h, uint32_t self, uint32_t st, int32_t *result,
                             EmArea06PortFault *fault);
