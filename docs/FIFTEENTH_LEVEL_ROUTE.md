@@ -573,3 +573,15 @@ and receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in
 target is `make test-level15-fountain-reference`, with `EM_TEST_FULL=1` for
 full mode. Five readable-C boot routines and four assembly-only definitions
 remain missing; the live route remains unbound.
+
+## Native audit: movement dispatcher and motion (2026-10-18)
+
+The unwired `em_level15_motion` adds `0013D600`, `00140C30` and `00140F80`.
+The full suite passes 237 cases and all 670 reachable words, including nested
+native calls, all movement states, animation-table boundaries, worker writes
+and exhaustive fail-stop checks. Original execution resolved stack-local float
+addresses and two access-order/value-retention differences; details and private
+receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in target
+is `make test-level15-motion-reference`; `EM_TEST_FULL=1` enables full mode.
+Two readable-C boot routines and four assembly-only definitions remain missing.
+No live binding or recording coverage is claimed by this checkpoint.

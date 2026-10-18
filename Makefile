@@ -2044,3 +2044,7 @@ test-level15-creatures-reference:
 .PHONY: test-level15-fountain-reference
 test-level15-fountain-reference:
 	python3 tools/test_level15_fountain_reference.py
+
+.PHONY: test-level15-motion-reference
+test-level15-motion-reference:
+	python3 tools/test_level15_motion_reference.py

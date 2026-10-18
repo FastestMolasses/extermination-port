@@ -327,16 +327,43 @@ Rise-speed, child-cap and retained-parent mutations are detected
 without warnings (`build/levels/level15-fountain-index-build.log`), with clean
 staged leak/provenance checks. No live code or source list changed.
 
+## Level-15 movement dispatcher and motion
+
+The unwired `em_level15_motion` adds `0013D600`, `00140C30` and
+`00140F80`. The dispatcher calls the two translated motion routines directly;
+the remaining callees are explicit fail-stop worker contracts. The three C
+bodies and the readable `0011E0A8` helper definition were inspected. An
+assembly-only helper was accidentally printed during a source read; it was
+not copied into the native sources, staged or committed. Subsequent source
+reads reject assembly bodies before displaying C.
+
+The full suite passes **237 cases and 670/670 reachable words**, with all
+original comparisons enabled and exhaustive fail-stop checks. Cases cover
+all dispatcher states, movement states, animation tables and wrap boundaries,
+facing probes, water effects, non-finite phases and workers that change fields
+read later. Captured boot text and dispatcher tables are checked against the
+ELF; the calls themselves are designed inputs over retained AREA03 snapshots.
+
+Original execution establishes the two local float slots at entry SP minus
+8 and 4, including the dispatcher's nested frame adjustment. The native C was
+corrected to retain the vertical arithmetic result and read acceleration before
+speed. Adversarial worker-write cases also pass. Local-float-slot, probe-angle
+and state-dispatch mutations are detected
+(`build/levels/level15-motion-mutations-1/results.json`). The full receipt is
+`build/levels/oracle-level15-motion-full-1/`. The staged-index build passes
+without warnings (`build/levels/level15-motion-index-build.log`), with clean
+staged leak/provenance checks. No live source or source list changed.
+
 ## Remaining step-2 work
 
-The map currently retains **9 missing non-boundary entries**, after adding the
-fifty-five return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
+The map currently retains **6 missing non-boundary entries**, after adding the
+fifty-eight return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing group is nine level-15 boot routines: five have readable C,
+The missing group is six level-15 boot routines: two have readable C,
 and four still contain assembly rather than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -360,6 +387,7 @@ make test-area03-arrival-reference
 make test-level15-support-reference
 make test-level15-creatures-reference
 make test-level15-fountain-reference
+make test-level15-motion-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.
