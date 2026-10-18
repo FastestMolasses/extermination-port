@@ -39,7 +39,7 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 12 | a13d, a19b | 1349 | 721 | 224 | 46 | 358 | 358 | 11 | 0 |
 | 13 | a19c | 1062 | 692 | 214 | 53 | 103 | 103 | 8 | 0 |
 | 14 | a19d, a15 | 1309 | 836 | 288 | 75 | 110 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 303 | 64 | 377 | 366 | 16 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 305 | 64 | 375 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 39 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 40 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -1918,8 +1918,8 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001BEAC0` | 8,15 | V | [l8_001BEAC0](../src/game/em_level8_port_gap.c), [em_level8_port_001BEAC0](../src/game/em_level8_port_gap.c) | [test_level8_port_reference.py](../tools/test_level8_port_reference.py) (current quick pass) |
 | `boot:001BEB70` | 15 | V | [e001BEB70](../src/game/em_level15_support.c), [em_level15_support_001BEB70](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
 | `boot:001BEC40` | 15 | V | [e001BEC40](../src/game/em_level15_support.c), [em_level15_support_001BEC40](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
-| `boot:001BECC0` | 15 | M | — | — |
-| `boot:001BF3C0` | 15 | M | — | — |
+| `boot:001BECC0` | 15 | V | [em_level15_fountain_001BECC0](../src/game/em_level15_fountain.c) | [test_level15_fountain_reference.py](../tools/test_level15_fountain_reference.py) (current full pass) |
+| `boot:001BF3C0` | 15 | V | [e001BF3C0](../src/game/em_level15_fountain.c), [em_level15_fountain_001BF3C0](../src/game/em_level15_fountain.c) | [test_level15_fountain_reference.py](../tools/test_level15_fountain_reference.py) (current full pass) |
 | `boot:001BF5B0` | 8 | V | [l8_001BF5B0](../src/game/em_level8_port_gap.c), [em_level8_port_001BF5B0](../src/game/em_level8_port_gap.c) | [test_level8_port_reference.py](../tools/test_level8_port_reference.py) (current quick pass) |
 | `boot:001BF630` | 2,3,4,6,7,8 | V | [L2 census:147](../docs/SECOND_LEVEL_CENSUS.md) | — |
 | `boot:001BF6B0` | 8 | V | [l8_001BF6B0](../src/game/em_level8_port_gap.c), [em_level8_port_001BF6B0](../src/game/em_level8_port_gap.c) | [test_level8_port_reference.py](../tools/test_level8_port_reference.py) (current quick pass) |

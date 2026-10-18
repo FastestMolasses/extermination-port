@@ -561,3 +561,15 @@ knock-back access-order corrections and private receipts are described in
 
 Eleven boot entries remain missing: seven readable C definitions and the
 same four assembly-only source blockers. None of the new routines is wired.
+
+## Native audit: rising hazard and children (2026-10-18)
+
+The unwired `em_level15_fountain` adds `001BECC0` and `001BF3C0`. Its full
+original-instruction suite passes 1,046 cases and all 439 reachable words,
+including eight captured AREA03 actors, worker-written fields and parent
+pointer retention. Three incorrect near-match call declarations and several
+memory-access ordering differences were corrected in the native C; details
+and receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in
+target is `make test-level15-fountain-reference`, with `EM_TEST_FULL=1` for
+full mode. Five readable-C boot routines and four assembly-only definitions
+remain missing; the live route remains unbound.

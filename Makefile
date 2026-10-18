@@ -2040,3 +2040,7 @@ test-level15-support-reference:
 .PHONY: test-level15-creatures-reference
 test-level15-creatures-reference:
 	python3 tools/test_level15_creatures_reference.py
+
+.PHONY: test-level15-fountain-reference
+test-level15-fountain-reference:
+	python3 tools/test_level15_fountain_reference.py

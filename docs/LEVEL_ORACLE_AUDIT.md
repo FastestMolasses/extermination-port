@@ -8,7 +8,8 @@ in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
 routines pass two new full suites. The remaining AREA19 flame/turret owners
 also pass a new full suite. All fifteen AREA03 route entries now pass two further full
 suites. Thirteen level-15 boot helpers also pass a new full suite.
-Four further creature entries pass another full suite. No new routine is wired.
+Four further creature entries and two rising-hazard entries pass two more
+full suites. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -299,16 +300,43 @@ changed. Charge-scale, fall-clamp and attack-timer mutations all fail
 without warnings (`build/levels/level15-creatures-index-build.log`) and staged
 leak/provenance checks pass. Live source lists and protected files are unchanged.
 
+## Level-15 rising hazard and children
+
+The standalone `em_level15_fountain` adds `001BECC0` and `001BF3C0`, with
+explicit workers and no live caller. Both near-match decomp C bodies were
+read. Their call declarations were checked against the callees and then
+against original execution: `001BEAC0` receives the owner and scratch vector,
+`001C1570` receives the owner, and `001B1020` receives the child, model, clip
+and frame. The near-match callers had omitted or misidentified these arguments.
+
+The full suite passes **1,046 cases and 439/439 reachable words**, including
+eight actual captured actor records from the retained AREA03 arrival inputs.
+The other cases cover every parent/child state, phase/fade boundaries, damage
+and cooldown flags, signed timers, non-boolean modes and workers that change
+later-read fields or replace the child's parent pointer. The comparator is
+unchanged, all reachable words are covered, and full fail-stop checks pass.
+
+The oracle corrected redundant reads of phase/fade arithmetic results, the
+cooldown and initial damage mask. It also established that the child retains
+its parent state for the two comparisons and reads its mode before parent
+height. The parent pointer captured before the bind worker remains in use
+after that worker returns, even if the worker changes the object's pointer.
+Rise-speed, child-cap and retained-parent mutations are detected
+(`build/levels/level15-fountain-mutations-1/results.json`). The full receipt is
+`build/levels/oracle-level15-fountain-full-1/`. The staged-index build passes
+without warnings (`build/levels/level15-fountain-index-build.log`), with clean
+staged leak/provenance checks. No live code or source list changed.
+
 ## Remaining step-2 work
 
-The map currently retains **11 missing non-boundary entries**, after adding the
-fifty-three return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
+The map currently retains **9 missing non-boundary entries**, after adding the
+fifty-five return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing group is 11 level-15 boot routines: seven have readable C,
+The missing group is nine level-15 boot routines: five have readable C,
 and four still contain assembly rather than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -331,6 +359,7 @@ make test-area03-route-reference
 make test-area03-arrival-reference
 make test-level15-support-reference
 make test-level15-creatures-reference
+make test-level15-fountain-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.
