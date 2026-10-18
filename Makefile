@@ -2028,3 +2028,7 @@ test-player-spawn-rotation-reference:
 	python3 tools/test_player_spawn_rotation_reference.py
 test-player-stage-position-reference:
 	python3 tools/test_player_stage_position_reference.py
+
+.PHONY: test-area03-arrival-reference
+test-area03-arrival-reference:
+	python3 tools/test_area03_arrival_reference.py

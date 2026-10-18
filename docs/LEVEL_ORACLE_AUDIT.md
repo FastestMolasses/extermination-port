@@ -6,8 +6,8 @@ missing routines on the AREA00 return now have a translation and a new original
 instruction suite, which passes quick and full mode. Five further missing owners
 in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
 routines pass two new full suites. The remaining AREA19 flame/turret owners
-also pass a new full suite. Eight AREA03 entries now pass a further full
-suite. No new routine is wired.
+also pass a new full suite. All fifteen AREA03 route entries now pass two further full
+suites. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -203,20 +203,49 @@ not clear captured data to satisfy that assertion.
 Lift-height and turret-effect mutations were detected
 (`build/levels/area03-mutations-1/results.json`). The staged-index native build
 passes without warnings (`build/levels/area03-index-build.log`), and the staged
-leak/provenance scan passes. Seven remaining AREA03 route functions are still
-missing; this checkpoint does not claim the whole area is ready.
+leak/provenance scan passes. This checkpoint established the first eight
+AREA03 entries; the seven remaining entries are covered below.
+
+## AREA03 gates, lift controls and turret probe
+
+A separate `em_area03_arrival` module covers the remaining seven overlay
+entries without changing the established turret suite's probe boundary:
+`00824D30`, `00825430`, `008256E0`, `00825980`, `00825DF0`, `00826340`
+and `008265D0`. All seven matching C definitions were read. The new module
+remains unwired, with explicit typed workers and an opt-in test target.
+
+The full suite passes **965 cases and 1,279/1,279 reachable words**, with no
+coverage exclusions and the existing ordered-access, call-boundary memory,
+whole-memory, poisoned-start and fail-stop comparisons retained. It includes
+actual AREA03 actors from both explicitly retained v2.6.3 arrival captures,
+all gate/lift state branches, phase/timer and collision boundaries, worker
+writes to later-read fields, and an alias case in which the first gate bone
+store changes the phase used by the second bone. Two six-entry dispatch tables
+are verified against the local overlay before substituting native C dispatch.
+The original probe's loaded tint stays borrowed data; no tint bytes are embedded.
+
+The oracle rejected two gate translation errors: the work flag was read twice
+instead of retained once, and the first bone update reread phase unnecessarily
+while the second loaded the pointer and phase in the wrong order. The C now
+retains phase for the first bone, then reads the bone-table pointer, reloads
+phase and reads the second bone pointer. No comparison changed.
+
+The full receipt is `build/levels/oracle-area03-arrival-full-1/`. Deliberate
+mutations of the gate reread, lift timer and probe kind boundary were all
+rejected (`build/levels/area03-arrival-mutations-1/results.json`). The staged
+index application build passes without warnings
+(`build/levels/area03-arrival-index-build.log`); leak/provenance checks pass.
 
 ## Remaining step-2 work
 
-The map currently retains **35 missing non-boundary entries**, after adding the
-twenty-nine return/arrival/continuation routines and correcting the existing `001FC520` ownership to
+The map currently retains **28 missing non-boundary entries**, after adding the
+thirty-six return/arrival/continuation routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing groups are seven further AREA03 arrival routines and 28 level-15
-boot routines. Some decomp definitions still contain assembly rather
+The missing group is 28 level-15 boot routines. Some decomp definitions still contain assembly rather
 than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -236,6 +265,7 @@ make test-area13-route-reference
 make test-area15-route-reference
 make test-area19-route-reference
 make test-area03-route-reference
+make test-area03-arrival-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.

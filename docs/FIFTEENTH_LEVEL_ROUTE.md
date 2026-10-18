@@ -517,3 +517,19 @@ with AREA03 original text is labeled as designed test input, not a new capture.
 No live binding, new recording or asset export is claimed by these passes.
 The remaining seven AREA03 functions and 28 missing boot entries stay on the
 step-2 backlog in `LEVEL_READINESS.md` / `LEVEL_ORACLE_AUDIT.md`.
+
+## Native audit: remaining AREA03 arrival entries (2026-10-18)
+
+The separate unwired `em_area03_arrival` module verifies the turret probe
+`00824D30`, gates `00825430` / `008256E0`, and lift controls `00825980`,
+`00825DF0`, `00826340` / `008265D0`. The original-instruction suite passes
+965 cases and all 1,279 reachable words, including the full failure sweep,
+actual retained arrival actors, bone/phase aliasing and worker-written fields.
+The prior turret suite keeps its existing probe boundary unchanged.
+
+All fifteen AREA03 entries observed by this route now have current standalone
+oracle evidence. This establishes neither live binding nor fork capture
+coverage. The 28 missing boot entries remain separately tracked in
+[LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md), which records the exact gate
+ordering fixes and private test receipts. `make test-area03-arrival-reference`
+runs the new opt-in suite; `EM_TEST_FULL=1` enables exhaustive fail-stop checks.

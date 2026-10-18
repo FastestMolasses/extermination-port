@@ -39,7 +39,7 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 12 | a13d, a19b | 1349 | 721 | 224 | 46 | 358 | 358 | 11 | 0 |
 | 13 | a19c | 1062 | 692 | 214 | 53 | 103 | 103 | 8 | 0 |
 | 14 | a19d, a15 | 1309 | 836 | 288 | 75 | 110 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 279 | 64 | 401 | 366 | 16 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 286 | 64 | 394 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 36 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 37 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -2738,16 +2738,16 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA02:00825100` | 4 | V | [a02_825100](../src/game/em_area02_overlay.c), [em_area02_ovl_00825100](../src/game/em_area02_overlay.c) | [test_area02_overlay_reference.py](../tools/test_area02_overlay_reference.py) (current quick pass) |
 | `overlay:AREA03:00823540` | 15 | V | [em_area03_route_00823580](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
 | `overlay:AREA03:00823930` | 15 | V | [turret_00823930](../src/game/em_area03_route_turret.c), [em_area03_route_00823930](../src/game/em_area03_route_turret.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
-| `overlay:AREA03:00824D30` | 15 | M | — | — |
+| `overlay:AREA03:00824D30` | 15 | V | [em_area03_arrival_00824D30](../src/game/em_area03_arrival_probe.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
 | `overlay:AREA03:00825290` | 15 | V | [em_area03_route_00825290](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
-| `overlay:AREA03:00825430` | 15 | M | — | — |
-| `overlay:AREA03:008256E0` | 15 | M | — | — |
-| `overlay:AREA03:00825980` | 15 | M | — | — |
-| `overlay:AREA03:00825DF0` | 15 | M | — | — |
+| `overlay:AREA03:00825430` | 15 | V | [em_area03_arrival_00825430](../src/game/em_area03_arrival_actors.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
+| `overlay:AREA03:008256E0` | 15 | V | [em_area03_arrival_008256E0](../src/game/em_area03_arrival_actors.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
+| `overlay:AREA03:00825980` | 15 | V | [em_area03_arrival_00825980](../src/game/em_area03_arrival_actors.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
+| `overlay:AREA03:00825DF0` | 15 | V | [em_area03_arrival_00825DF0](../src/game/em_area03_arrival_actors.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
 | `overlay:AREA03:00826270` | 15 | V | [em_area03_route_00826270](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
 | `overlay:AREA03:00826330` | 15 | V | [em_area03_route_00826330](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
-| `overlay:AREA03:00826340` | 15 | M | — | — |
-| `overlay:AREA03:008265D0` | 15 | M | — | — |
+| `overlay:AREA03:00826340` | 15 | V | [em_area03_arrival_00826340](../src/game/em_area03_arrival_actors.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
+| `overlay:AREA03:008265D0` | 15 | V | [em_area03_arrival_008265D0](../src/game/em_area03_arrival_actors.c) | [test_area03_arrival_reference.py](../tools/test_area03_arrival_reference.py) (current full pass) |
 | `overlay:AREA03:00826860` | 15 | V | [em_area03_route_00826860](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
 | `overlay:AREA03:00826880` | 15 | V | [em_area03_route_00826880](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
 | `overlay:AREA03:008268B0` | 15 | V | [em_area03_route_008268B0](../src/game/em_area03_route_misc.c) | [test_area03_route_reference.py](../tools/test_area03_route_reference.py) (current full pass) |
