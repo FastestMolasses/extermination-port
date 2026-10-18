@@ -1,5 +1,9 @@
 # After the keypad: eighth-level route, original ground truth
 
+The route tables below retain the original legacy recording. The 2026-10-18
+fork continuation is tracked separately at the end of this document; its
+different inputs and ancestry do not replace the legacy reference path.
+
 Lane "NEXT" (world graph, then capture), 2026-09-28 (session s88). Original
 executable SHA-256
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
@@ -389,3 +393,120 @@ end); leads, not ground truth.
 5. AREA22's reader [9] (item 0x23 now held) and the room behind door
    [10], and AREA04's lift [56] (item 0x29, sub 1 only): not played.
 6. a04b_00's census replay never gets door [45] to take the Use (above).
+
+
+## Fork continuation work (2026-10-18)
+
+The missing fork chain was reproducibly stopped at `a04b_00_door45`.
+The isolated retry in
+`../Extermination/build/fork_refs/levels-recordings-20261018-1/`
+matched the retained failed trace's rows and input timeline exactly. The
+read-only per-frame probe in `levels-recordings-20261018-5/` found that
+all five Use edges failed one of two requirements: the player was still
+in the idle animation blend-out substates, or the door was out of range.
+The door was published in the interaction list, with its lock bit set;
+the global interaction gates were clear.
+
+The source distinction is `00161020`: its idle cases 1 and 2 call the
+Use dispatcher `00160220`; its blend-out cases do not. A zero animation
+clip does not establish that the player is in a polling state. Waiting
+with neutral input for idle case 1 fixed the door. The two-frame press
+then completed `a04b_00_door45` in 1,444 sampled rows, and the saved state
+resumed in a separate hidden session (`levels-recordings-20261018-6/`).
+No game-memory edit or teleport was used.
+
+`levels-recordings-20261018-7/` continued through the NPC and the return
+through door 45, both resume-checked. Its reader attempt exposed the
+other problem with waiting for clip zero: the original idle clip is
+selected through `00174A50` / `0017B490`, so nonzero clips can also occur
+while the player has control. Waiting for the actual idle polling state
+instead completed the reader in `levels-recordings-20261018-8/`.
+
+That branch reached the lift with too little health and died before
+using its button. A separate east-side approach in
+`levels-recordings-20261018-9/` also died. These failures are retained as
+private diagnostics, not successful route receipts. The carried healing
+item requires a medical station (`002160B0`, kind 2); the successful
+original fork side beat `a02_s0_mts_bed` already records that recovery.
+`levels-recordings-20261018-10/` rebuilt the route from that
+checkpoint, starting `a02_00_duct` from the recovered state and replaying
+all 29 intervening main-line beats. It then passed all five AREA04 return
+beats, all six first-visit AREA13 beats, the three AREA19 beats and the
+return ladder. This is an explicit fork branch with
+its own source-state provenance, not an adjustment to a captured health
+field. The continuation now reaches the AREA03 elevator, including all
+retained side beats; the final treatment prerequisite is documented in
+FIFTEENTH_LEVEL_ROUTE.md.
+
+The return to AREA13 exposed a second recorder defect: its 12 hardcoded
+owner addresses all referred to different slots on the recovered branch.
+`a13b_02_button15` completed its room transition, but the helper watched
+the wrong button and timed out. The sampler identities for all ten
+earlier groups matched their original anchor snapshots; the mismatch
+starts with the AREA13 reload (`levels-recordings-20261018-10/owner-audit.json`).
+The wrapper's `--owner-binding` compares class/model, param/UID,
+kind/link, table index and callback against the original anchor snapshot.
+Every rebound owner must have exactly one match in the live actor list.
+These are the placement fields copied by `001B6990`, not moving position
+or animation fields. Only sampler read addresses change.
+
+`levels-recordings-20261018-11/` re-recorded door 17 with the corrected
+sampler, then passed the other four AREA13 return beats and all seven
+battery-machine beats, including the cure and blast. The eight rooftop
+beats passed in `levels-recordings-20261018-12/`. For their sampler,
+13 older watched slots retain their validated earlier bindings and five
+new owners match the later anchor. The recorded ancestry between those
+anchors stays in the same area/sub-area. Freed slots can be reused; as
+in the original fixed-slot sampler, a retained key is not proof that
+its former actor is still alive. Each trace records the bindings and
+anchor hashes. The original route predicates are unchanged.
+
+The reusable wrapper is `tools/record_level_routes.py`, run with the
+decomp's `.venv/bin/python` on macOS arm64 (the fork runs under Rosetta).
+It imports the decomp capture tools, uses their hidden owned sessions
+and shared `build/.pcsx2.lock`, stops on failure, and leaves detailed
+logs and all game data inside ignored `build/fork_refs`. Its
+`--idle-state-wait` policy changes neutral controller timing only;
+`--source-beat a02_00_duct=a02_s0_mts_bed` records the branch explicitly.
+The wrapper rejects game-memory writes during route driving.
+
+`LEVEL_ROUTE_EVIDENCE.json` indexes accepted supplemental trace hashes
+and their completed saved-state resume checks. `level_readiness.py`
+reads that index without replacing any canonical capture. The boundary
+recorder (`tools/record_level_boundaries.py`) has captured 88 missing
+neutral ticks across 28 boundaries in `levels-boundaries-20261018-1/`
+through `-8/`. Every final row matches every sampled field of the next
+beat's first row. The readiness tool rechecks the consecutive counters,
+source-state and trace hashes, complete endpoint rows and passing
+receipts. No between-beat counters remain unrecorded on the indexed
+supplemental branch. All 164 retained route beats now have fork captures;
+115 have supplemental recording/resume receipts. No new census, native
+pixel result or legacy-parity result is inferred from these captures.
+
+Validation: 18 readiness/receipt checks and 10 sampler/helper checks pass.
+The stage-4 isolated staged-index build receipt is
+`build/levels/recordings-index-build-1.log` in the port worktree.
+The hidden-session registry is empty and the shared run lock is free.
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+12 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a01v_00_catwalk_east` | `a06b_01_door1` | 555 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a01v/a01v_00_catwalk_east` |
+| `a01v_01_gap_jump` | `a01v_00_catwalk_east` | 177 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a01v/a01v_01_gap_jump` |
+| `a01v_02_door18` | `a01v_01_gap_jump` | 690 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a01v/a01v_02_door18` |
+| `a04b_00_door45` | `a22b_01_door6` | 1242 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_00_door45` |
+| `a04b_01_npc` | `a04b_00_door45` | 8690 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_01_npc` |
+| `a04b_02_door45_out` | `a04b_01_npc` | 714 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_02_door45_out` |
+| `a04b_03_reader` | `a04b_02_door45_out` | 2414 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_03_reader` |
+| `a04b_04_lift` | `a04b_03_reader` | 2083 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_04_lift` |
+| `a06b_00_trigger_jump` | `a06_03_room_out` | 780 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a06b/a06b_00_trigger_jump` |
+| `a06b_01_door1` | `a06b_00_trigger_jump` | 740 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a06b/a06b_01_door1` |
+| `a22b_00_to_door7` | `a01v_02_door18` | 1018 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a22b/a22b_00_to_door7` |
+| `a22b_01_door6` | `a22b_00_to_door7` | 886 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a22b/a22b_01_door6` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 0 indexed boundary receipts capture 0 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

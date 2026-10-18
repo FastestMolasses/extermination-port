@@ -249,7 +249,100 @@ def scene_of(row):
     return f'AREA{int(value[:2], 16):02d}/sub{int(value[2:4], 16)}'
 
 
-def capture_inventory(decomp, groups):
+def verified_boundary(decomp, name, entry, target):
+    """Validate every boundary counter and the complete endpoint row."""
+    evidence = entry['boundary']
+    base = (decomp / 'build/fork_refs').resolve()
+    paths = {}
+    for key in ('trace', 'run_status'):
+        relative = Path(evidence[key])
+        path = (decomp / relative).resolve()
+        if relative.is_absolute() or '..' in relative.parts or base not in path.parents:
+            raise ValueError('boundary evidence escapes fork_refs: ' + name)
+        paths[key] = path
+    if digest(paths['trace']) != evidence['trace_sha256']:
+        raise ValueError('boundary trace hash mismatch: ' + name)
+    data = read_json(paths['trace'])
+    if data['name'] != name or data['target_trace'] != entry['trace'] or data['target_trace_sha256'] != entry['trace_sha256']:
+        raise ValueError('boundary target identity mismatch: ' + name)
+    if data.get('differing_keys'):
+        raise ValueError('boundary endpoint differs: ' + name)
+    rows, gap = data['rows'], data['gap']
+    if gap <= 1 or len(rows) != gap + 1 or data['missing_counters'] != gap - 1:
+        raise ValueError('incomplete boundary rows: ' + name)
+    if any(row['counter'] != rows[0]['counter'] + i or row['boundary_frame'] != i for i, row in enumerate(rows)):
+        raise ValueError('nonconsecutive boundary counters: ' + name)
+    actual = {k: v for k, v in rows[-1].items() if k != 'boundary_frame'}
+    expected = {k: v for k, v in target['rows'][0].items() if k != 'f'}
+    if actual != expected:
+        raise ValueError('boundary endpoint differs: ' + name)
+    source = Path(target['source_state']).resolve()
+    source_trace = source.parent / 'trace.json'
+    if base not in source.parents or data['source_trace'] != str(source_trace.relative_to(decomp.resolve())):
+        raise ValueError('boundary source identity mismatch: ' + name)
+    if digest(source) != data['source_state_sha256'] or digest(source_trace) != data['source_trace_sha256']:
+        raise ValueError('boundary source hash mismatch: ' + name)
+    if read_json(source_trace)['rows'][-1]['counter'] != rows[0]['counter']:
+        raise ValueError('boundary source counter mismatch: ' + name)
+    results = read_json(paths['run_status'])['results']
+    if not any(r.get('name') == name and r.get('result') == 'passed'
+               and r.get('target_trace_sha256') == entry['trace_sha256'] for r in results):
+        raise ValueError('boundary lacks passing endpoint check: ' + name)
+    return {'trace': evidence['trace'], 'trace_sha256': evidence['trace_sha256'],
+            'missing_counters_recorded': gap - 1, 'endpoint_all_fields_equal': True}
+
+
+def supplemental_captures(root, decomp, boundary_metadata=None):
+    """Accept explicitly indexed, resume-checked captures without replacing old ones.
+
+    Only trace/status metadata is read. Hashes bind the index to the actual
+    trace; the driver's passing result follows route_capture.run_beat's
+    separate saved-state resume check. This is not a legacy-parity claim.
+    """
+    index = root / 'docs/LEVEL_ROUTE_EVIDENCE.json'
+    if not index.exists():
+        return {}
+    data = read_json(index)
+    if data.get('schema') != 1:
+        raise ValueError('unsupported supplemental route evidence schema')
+    base = (decomp / 'build/fork_refs').resolve()
+    output = {}
+    for name, entry in data['beats'].items():
+        paths = {}
+        if ('driver' in entry) != ('driver_sha256' in entry):
+            raise ValueError(f'incomplete supplemental capture-driver identity: {name}')
+        path_keys = ('trace', 'run_status', 'driver') if 'driver' in entry else ('trace', 'run_status')
+        for key in path_keys:
+            relative = Path(entry[key])
+            path = (decomp / relative).resolve()
+            if relative.is_absolute() or '..' in relative.parts or base not in path.parents:
+                raise ValueError(f'supplemental route evidence escapes fork_refs: {name}')
+            paths[key] = path
+        trace = paths['trace']
+        if trace.parent.name != name or trace.name != 'trace.json':
+            raise ValueError(f'supplemental route identity mismatch: {name}')
+        if digest(trace) != entry['trace_sha256']:
+            raise ValueError(f'supplemental route trace hash mismatch: {name}')
+        if 'driver' in paths and digest(paths['driver']) != entry['driver_sha256']:
+            raise ValueError(f'supplemental capture-driver hash mismatch: {name}')
+        results = read_json(paths['run_status'])['results']
+        if not any(r.get('name') == name and r.get('result') == 'passed' for r in results):
+            raise ValueError(f'supplemental route lacks completed resume check: {name}')
+        doc = read_json(trace)
+        if doc.get('beat') != name or doc.get('emulator') != 'fork' or doc.get('teleports') != []:
+            raise ValueError(f'invalid supplemental fork route provenance: {name}')
+        if 'boundary' in entry:
+            boundary = verified_boundary(decomp, name, entry, doc)
+            if boundary_metadata is not None:
+                boundary_metadata[name] = boundary
+        output[name] = trace
+    return output
+
+
+def capture_inventory(decomp, groups, supplemental=None, boundaries=None):
+    decomp = decomp.resolve()
+    supplemental = supplemental or {}
+    boundaries = boundaries or {}
     output = []
     for group in groups:
         legacy = decomp / 'build/s87' / ('route_' + group)
@@ -265,9 +358,19 @@ def capture_inventory(decomp, groups):
             if not rows:
                 raise ValueError(f'empty route: {p}')
             scenes = sorted({scene_of(r) for r in rows})
-            fpath = fork / p.parent.name / 'trace.json'
+            fpath = supplemental.get(p.parent.name, fork / p.parent.name / 'trace.json')
             fdata = read_json(fpath) if fpath.is_file() else None
             frows = fdata['rows'] if fdata else []
+            gap = None
+            if p.parent.name in supplemental:
+                source_trace = Path(fdata['source_state']).resolve().parent / 'trace.json'
+                if (decomp / 'build/fork_refs').resolve() not in source_trace.parents:
+                    raise ValueError('supplemental boundary source escapes fork_refs: ' + p.parent.name)
+                previous = read_json(source_trace)['rows']
+                gap = frows[0]['counter'] - previous[-1]['counter']
+                if not 0 <= gap <= 120:
+                    raise ValueError('unexpected supplemental boundary counter gap: ' + p.parent.name)
+            recorded = boundaries.get(p.parent.name, {}).get('missing_counters_recorded', 0)
             # Presence is not parity. Capture snapshots are checked for presence
             # only; instruction/data images are never read by this tool.
             snapshot_files = ('eeMemory.bin', 'scratchpad.bin', 'gs.bin', 'state.p2s')
@@ -280,6 +383,10 @@ def capture_inventory(decomp, groups):
                 'legacy_trace_sha256': digest(p),
                 'fork_trace': str(fpath.relative_to(decomp)) if fdata else None,
                 'fork_trace_sha256': digest(fpath) if fdata else None,
+                'fork_supplemental_resume_checked': p.parent.name in supplemental,
+                'fork_boundary_before': boundaries.get(p.parent.name),
+                'fork_counter_gap_before': gap,
+                'fork_unrecorded_boundary_counters': max(0, gap - 1 - recorded) if gap is not None else None,
                 'legacy_missing_snapshot_files': [n for n in snapshot_files if not (p.parent / n).is_file()],
                 'fork_missing_snapshot_files': [n for n in snapshot_files if not (fpath.parent / n).is_file()] if fdata else list(snapshot_files),
                 'first_counter': rows[0].get('counter'), 'last_counter': rows[-1].get('counter'),
@@ -329,6 +436,7 @@ def classify(key, owners, ledgers, tests):
 
 
 def build_report(root, decomp):
+    decomp = decomp.resolve()
     definitions, owners = source_definitions(root)
     for key, (file, symbol) in ALIASES.items():
         owners[key] += [d for d in definitions.get(symbol, []) if d['file'] == file]
@@ -362,8 +470,10 @@ def build_report(root, decomp):
     boundary_data = read_json(decomp / 'build/s87/census/classified.json')
     boundaries = {function_key(r): r for r in boundary_data['functions']
                   if r['port_status'] == 'boundary'}
+    fork_boundaries = {}
+    supplemental = supplemental_captures(root, decomp, fork_boundaries)
     for level, groups in GROUPS.items():
-        captures = capture_inventory(decomp, groups)
+        captures = capture_inventory(decomp, groups, supplemental, fork_boundaries)
         scene_by_beat = {c['beat']: c['scenes'] for c in captures}
         keys = set()
         issues = []
@@ -431,6 +541,11 @@ def link(path, label=None):
 
 def markdown(report):
     functions = {f['key']: f for f in report['functions']}
+    captures = [c for level in report['levels'] for c in level['captures']]
+    missing_fork = [c['beat'] for c in captures if not c['fork_rows']]
+    supplemental_count = sum(c.get('fork_supplemental_resume_checked', False) for c in captures)
+    fork_boundaries = [c['fork_boundary_before'] for c in captures if c.get('fork_boundary_before')]
+    pending_boundary_ticks = sum(c.get('fork_unrecorded_boundary_counters') or 0 for c in captures)
     lines = [
         '# Level readiness: levels 2–15', '',
         'Generated by `python3 tools/level_readiness.py --write`. Native arm64 macOS; '
@@ -463,8 +578,14 @@ def markdown(report):
         '3. The largest fixed texture catalog has 609 keys; AREA00 now has 580 after page discovery. '
         'The allowed 1024-slot hash registry passes all required default/GPU regressions. SFX scope union '
         'requires 14274 entries against 4096 and exposes two inferred-office conflicts; main owns that binding decision.',
-        '4. Restore the missing fork route chain from a04b_00, then record later groups. Existing legacy '
-        'captures remain original evidence; fork file presence alone is not parity or successful replay. '
+        f'4. {supplemental_count} supplemental fork beats have completed saved-state resume checks; '
+        f'{len(missing_fork)} retained route beats still lack a fork recording. '
+        f'{len(fork_boundaries)} supplemental boundaries record '
+        f'{sum(b["missing_counters_recorded"] for b in fork_boundaries)} previously unsampled ticks '
+        'and match every endpoint field. '
+        f'{pending_boundary_ticks} between-beat ticks on the supplemental branch still need a boundary receipt. '
+        'The supplemental index is LEVEL_ROUTE_EVIDENCE.json. Existing legacy '
+        'captures remain original evidence; a fork recording does not establish legacy parity. '
         'Record displayed fields and missing boundary counters where needed; use the shared run lock.',
         '5. Continue AREA00 arrival at `D_00248290` / `0015AB00` after capacity proof, then neutral frames, '
         'movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite '
@@ -527,9 +648,11 @@ def markdown(report):
               '## Capture limits still requiring work', '',
               '- The retained legacy censuses are route-shape coverage. Some census replays differ from their '
               'recordings, and overlay swaps can leave blind spots. No full fork census is inferred from a route trace.',
-              '- a04b_00 is not a completed fork beat. Later groups have legacy traces but no fork chain. '
-              'The earlier fork chain diverges from the legacy path at a02_02 after disc timing differences.',
-              '- Level 10 has unrecorded between-beat counters; levels 11 and 12 also record boundary gaps. '
+              f'- {len(missing_fork)} retained route beats lack fork recordings' +
+              (f'; the first is `{missing_fork[0]}`.' if missing_fork else '.') +
+              ' The earlier fork chain diverges from the legacy path at a02_02 after disc timing differences. '
+              'Later fork captures document that playthrough and do not replace the legacy reference path.',
+              '- The legacy level-10 route has unrecorded between-beat counters; levels 11 and 12 also record boundary gaps. '
               'The level-12 overlay blind spot is supplemented by a19b_swap_delta and a19b_area13_delta '
               '(level 13’s documented remeasurement).',
               '- AREA03 has arrival and lift coverage only; its exit and subareas 1/2 are outside the retained '
@@ -544,8 +667,8 @@ def markdown(report):
               'Known prerequisites: AREA01’s strict voice timing discrepancy; any SFX/pool capacity '
               'change proven necessary by the complete-area measurements.', '',
               '## Readiness checkpoint (2026-10-18)', '',
-              'Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, '
-              'combined-report membership, missing evidence, and snapshot completeness. The report '
+              'Eighteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, '
+              'combined-report membership, missing evidence, snapshot completeness, and complete boundary provenance. The report '
               'regenerates deterministically from the retained metadata. The staged-index native build '
               'passes with zero compiler warnings (`build/levels/readiness-index-build.log`). '
               'No native gameplay or pixel pass is claimed by this tooling-only checkpoint. '
@@ -553,7 +676,8 @@ def markdown(report):
               f"{len(report['oracle_audit']['stale_tests'])} receipts are stale. "
               'See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining '
               'step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 '
-              'private exports and remaining capacity work; new captures and AREA00 continuation are still pending.', '',
+              'private exports and remaining capacity work. Supplemental fork captures are indexed separately; '
+              'AREA00 continuation remains the next binding stage.', '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '
               'For exact beats, first-hit metadata, census hashes, owner definitions and test entry locations, '

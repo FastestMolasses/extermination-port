@@ -440,3 +440,46 @@ Scratch snapshots under `../Extermination/build/thirteenthcap/probe/`
    `portable-data/memcards/Mcd001.ps2` / `Mcd002.ps2` carry mtimes
    2026-10-01 23:46 (PCSX2's shutdown); no in-game save was made, but that
    the cards' content is unchanged is not proven.
+
+
+## Fork traversal recovery (2026-10-18)
+
+The recovered fork branch reached AREA19 with all 16 A19B sampler owners
+matching their expected slots. The first bar crossing passed, but
+`a19c_01_bar841` stopped before the event room in
+`../Extermination/build/fork_refs/levels-recordings-20261018-14/`. A read-only
+per-frame probe in `levels-recordings-20261018-15/` reproduced every failed
+trace row and input. It found the player in a hit reaction while the action
+byte still said hanging. The traversal helper treated the stationary
+reaction as the bar endpoint; the drop helper then treated the reaction's
+changed player substate as a completed drop. The player never reached the
+room, so the original script-start assertion correctly failed.
+
+`00181D70` is the original transition into this hang hit reaction. The
+wrapper's opt-in `--hang-state-wait` requires the normal player/hang state
+and an uninterrupted hanging window before accepting a stationary bar
+endpoint. It waits for the normal hang Use-polling state before pressing
+Cross and excludes damage reactions from the drop-complete predicate.
+Controller timing changes; the destination, script and story-flag
+assertions remain in place. `a19c_01_bar841` passed and its saved state
+resumed separately in `levels-recordings-20261018-17/`. All seven beats
+from the second bar through door 52 passed and resumed in that run.
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+8 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a19c_00_bar840` | `a19b_02_ladder1023` | 870 | `build/fork_refs/levels-recordings-20261018-14/s87/route_a19c/a19c_00_bar840` |
+| `a19c_01_bar841` | `a19c_00_bar840` | 7957 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_01_bar841` |
+| `a19c_02_use7` | `a19c_01_bar841` | 1551 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_02_use7` |
+| `a19c_03_slide` | `a19c_02_use7` | 1044 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_03_slide` |
+| `a19c_04_walkway` | `a19c_03_slide` | 1084 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_04_walkway` |
+| `a19c_05_door27` | `a19c_04_walkway` | 1542 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_05_door27` |
+| `a19c_06_ladder959` | `a19c_05_door27` | 1976 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_06_ladder959` |
+| `a19c_07_door52` | `a19c_06_ladder959` | 625 | `build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_07_door52` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 0 indexed boundary receipts capture 0 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

@@ -619,3 +619,51 @@ boundaries, aliases, worker writes and fail-stop checks. The AREA19 overlay
 identity is checked independently; reuse is no longer inferred from a label.
 See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for receipts and mutation
 checks. The opt-in target is `make test-area19-partner-reference`.
+
+
+## Fork treatment prerequisite (2026-10-18)
+
+The recovered branch passed the AREA15 event and both script sequences
+in `../Extermination/build/fork_refs/levels-recordings-20261018-19/`.
+Its bed attempt correctly failed the treatment-prompt check: the AREA02
+recovery had consumed item 0x20, which the legacy route retained until
+this bed. The assertion requiring full health and zero infection is
+unchanged. The input-only detour in `levels-recordings-20261018-25/`
+collects the live AREA15 replacement. Its private approach was planned
+against the verified collision export. The recorder resolves the pickup
+and Use radius from live RAM, requires the inventory increase, closes the
+original pickup page, and retraces the approach before continuing the
+existing bed sequence. The 5,852-row bed trace proves item collection and
+consumption, full health and zero infection. Both bed and door 14 passed
+separate saved-state resume checks. No inventory or health field is
+written by the recorder. The route file and capture driver hashes are
+retained with the trace. At door 14, all three A19E sampler owners match
+the reference identities and addresses (`levels-recordings-20261018-25/`
+`a19e-owner-audit.json`).
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+16 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a03_00_elevator` | `a19e_07_door25` | 2558 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a03/a03_00_elevator` |
+| `a15b_00_event` | `a15_01_door51` | 2119 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_00_event` |
+| `a15b_01_return` | `a15b_00_event` | 3778 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_01_return` |
+| `a15b_02_scripts` | `a15b_01_return` | 11364 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_02_scripts` |
+| `a15b_03_bed` | `a15b_02_scripts` | 5852 | `build/fork_refs/levels-recordings-20261018-25/s87/route_a15b/a15b_03_bed` |
+| `a15b_04_door14` | `a15b_03_bed` | 1277 | `build/fork_refs/levels-recordings-20261018-25/s87/route_a15b/a15b_04_door14` |
+| `a19e_00_hall` | `a15b_04_door14` | 1095 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_00_hall` |
+| `a19e_01_ceiling` | `a19e_00_hall` | 2102 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_01_ceiling` |
+| `a19e_02_truck` | `a19e_01_ceiling` | 1344 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_02_truck` |
+| `a19e_03_battery` | `a19e_02_truck` | 502 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_03_battery` |
+| `a19e_04_tower` | `a19e_03_battery` | 1541 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_04_tower` |
+| `a19e_05_down` | `a19e_04_tower` | 1094 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_05_down` |
+| `a19e_06_panel24` | `a19e_05_down` | 1716 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_06_panel24` |
+| `a19e_07_door25` | `a19e_06_panel24` | 710 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_07_door25` |
+| `a19e_s0_down694` | `a15b_04_door14` | 1757 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_s0_down694` |
+| `a19e_s1_panel` | `a19e_s0_down694` | 1364 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_s1_panel` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 9 indexed boundary receipts capture 28 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

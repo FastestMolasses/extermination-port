@@ -17,7 +17,7 @@ Function keys include the resident overlay. All census `functions` rows are used
 1. Audit the U/M queue and reuse the existing original-instruction harnesses. The level 8–14 harnesses already contain entry tables, original-image identity checks, ordered call/store comparisons and coverage assertions. Their presence alone does not promote a row. Keep additions opt-in and unwired.
 2. Recorded-area exports now pass: sixteen texture/shadow profile-subareas, fifteen original module deliveries, and thirteen area asset profiles including AREA03 arrival. Zero-key runtime materials and unrecorded events/reloads remain explicit limits. See LEVEL_ASSET_DELIVERY.md.
 3. The largest fixed texture catalog has 609 keys; AREA00 now has 580 after page discovery. The allowed 1024-slot hash registry passes all required default/GPU regressions. SFX scope union requires 14274 entries against 4096 and exposes two inferred-office conflicts; main owns that binding decision.
-4. Restore the missing fork route chain from a04b_00, then record later groups. Existing legacy captures remain original evidence; fork file presence alone is not parity or successful replay. Record displayed fields and missing boundary counters where needed; use the shared run lock.
+4. 115 supplemental fork beats have completed saved-state resume checks; 0 retained route beats still lack a fork recording. 28 supplemental boundaries record 88 previously unsampled ticks and match every endpoint field. 0 between-beat ticks on the supplemental branch still need a boundary receipt. The supplemental index is LEVEL_ROUTE_EVIDENCE.json. Existing legacy captures remain original evidence; a fork recording does not establish legacy parity. Record displayed fields and missing boundary counters where needed; use the shared run lock.
 5. Continue AREA00 arrival at `D_00248290` / `0015AB00` after capacity proof, then neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite voice discrepancy and every first divergent row. See [LEVEL3_BINDING.md](../docs/LEVEL3_BINDING.md).
 
 ## Route coverage and function counts
@@ -32,14 +32,14 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 5 | a04 | 879 | 633 | 103 | 38 | 105 | 105 | 10 | 10 |
 | 6 | a22 | 908 | 663 | 98 | 39 | 108 | 108 | 7 | 7 |
 | 7 | a01u, a06 | 1044 | 751 | 133 | 50 | 110 | 110 | 13 | 13 |
-| 8 | a06b, a01v, a22b, a04b | 1082 | 727 | 208 | 40 | 107 | 107 | 12 | 7 |
-| 9 | a13 | 996 | 716 | 132 | 38 | 110 | 110 | 6 | 0 |
-| 10 | a19, a13b | 1039 | 694 | 196 | 39 | 110 | 110 | 10 | 0 |
-| 11 | a13c | 922 | 669 | 118 | 27 | 108 | 108 | 7 | 0 |
-| 12 | a13d, a19b | 1349 | 721 | 227 | 43 | 358 | 358 | 11 | 0 |
-| 13 | a19c | 1062 | 692 | 217 | 50 | 103 | 103 | 8 | 0 |
-| 14 | a19d, a15 | 1309 | 836 | 295 | 68 | 110 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 316 | 58 | 370 | 366 | 16 | 0 |
+| 8 | a06b, a01v, a22b, a04b | 1082 | 727 | 208 | 40 | 107 | 107 | 12 | 12 |
+| 9 | a13 | 996 | 716 | 132 | 38 | 110 | 110 | 6 | 6 |
+| 10 | a19, a13b | 1039 | 694 | 196 | 39 | 110 | 110 | 10 | 10 |
+| 11 | a13c | 922 | 669 | 118 | 27 | 108 | 108 | 7 | 7 |
+| 12 | a13d, a19b | 1349 | 721 | 227 | 43 | 358 | 358 | 11 | 11 |
+| 13 | a19c | 1062 | 692 | 217 | 50 | 103 | 103 | 8 | 8 |
+| 14 | a19d, a15 | 1309 | 836 | 295 | 68 | 110 | 110 | 23 | 23 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 316 | 58 | 370 | 366 | 16 | 16 |
 
 ### Level 2
 
@@ -110,11 +110,11 @@ These are conservative beat associations. On transition beats the census does no
 | `a01r_03_door16` | AREA01/sub0, AREA02/sub1 | 938 | 941 |  |
 | `a01r_s0_pickup` | AREA01/sub0 | 374 | 374 |  |
 | `a01r_s1_door14_locked` | AREA01/sub0 | 760 | 760 |  |
-| `a02_00_duct` | AREA02/sub0, AREA02/sub1 | 1413 | 1423 |  |
+| `a02_00_duct` | AREA02/sub0, AREA02/sub1 | 1413 | 1448 |  |
 | `a02_01_switch` | AREA02/sub0 | 630 | 630 |  |
 | `a02_02_ladder_escape` | AREA02/sub0 | 1016 | 1016 |  |
 | `a02_03_over_wreck` | AREA02/sub0 | 1022 | 831 |  |
-| `a02_04_panel` | AREA02/sub0 | 1118 | 1577 |  |
+| `a02_04_panel` | AREA02/sub0 | 1118 | 1114 |  |
 | `a02_05_progression_exit` | AREA02/sub0, AREA04/sub0 | 1720 | 1726 |  |
 | `a02_s0_mts_bed` | AREA02/sub1 | 1008 | 1008 |  |
 
@@ -138,7 +138,7 @@ These are conservative beat associations. On transition beats the census does no
 | `a04_02_console` | AREA04/sub0 | 942 | 942 |  |
 | `a04_03_back_to_hall` | AREA04/sub0 | 1015 | 1015 |  |
 | `a04_04_conveyor` | AREA04/sub0 | 553 | 553 |  |
-| `a04_05_progression_exit` | AREA04/sub0, AREA22/sub0 | 717 | 723 |  |
+| `a04_05_progression_exit` | AREA04/sub0, AREA22/sub0 | 717 | 829 |  |
 | `a04_s0_door45_locked` | AREA04/sub0 | 325 | 324 |  |
 | `a04_s1_reel_blocks` | AREA04/sub0 | 438 | 438 |  |
 | `a04_s2_pickup` | AREA04/sub0 | 358 | 358 |  |
@@ -185,9 +185,9 @@ These are conservative beat associations. On transition beats the census does no
 | `a01u_s0_pickup` | AREA01/sub0 | 359 | 357 |  |
 | `a01u_s1_door18_back` | AREA01/sub0, AREA22/sub0 | 964 | 970 |  |
 | `a06_00_beam` | AREA06/sub0 | 357 | 357 |  |
-| `a06_01_crate_door2` | AREA06/sub0 | 683 | 719 |  |
-| `a06_02_keypad` | AREA06/sub0 | 1699 | 1699 |  |
-| `a06_03_room_out` | AREA06/sub0 | 398 | 395 |  |
+| `a06_01_crate_door2` | AREA06/sub0 | 683 | 679 |  |
+| `a06_02_keypad` | AREA06/sub0 | 1699 | 1617 |  |
+| `a06_03_room_out` | AREA06/sub0 | 398 | 314 |  |
 | `a06_04_beam_collapse` | AREA06/sub0 | 526 | 526 |  |
 | `a06_05_door3_locked` | AREA06/sub0 | 932 | 1011 |  |
 | `a06_s0_door1_back` | AREA01/sub0, AREA06/sub0 | 719 | 726 |  |
@@ -208,17 +208,17 @@ These are conservative beat associations. On transition beats the census does no
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
 | `a06b_00_trigger_jump` | AREA06/sub0 | 780 | 780 |  |
-| `a06b_01_door1` | AREA01/sub0, AREA06/sub0 | 815 | 822 |  |
+| `a06b_01_door1` | AREA01/sub0, AREA06/sub0 | 815 | 740 |  |
 | `a01v_00_catwalk_east` | AREA01/sub0 | 555 | 555 |  |
 | `a01v_01_gap_jump` | AREA01/sub0 | 178 | 177 |  |
-| `a01v_02_door18` | AREA01/sub0, AREA22/sub0 | 765 | 771 |  |
-| `a22b_00_to_door7` | AREA22/sub0 | 1099 | 1099 |  |
+| `a01v_02_door18` | AREA01/sub0, AREA22/sub0 | 765 | 690 |  |
+| `a22b_00_to_door7` | AREA22/sub0 | 1099 | 1018 |  |
 | `a22b_01_door6` | AREA04/sub0, AREA22/sub0 | 880 | 886 |  |
-| `a04b_00_door45` | AREA04/sub0 | 1265 | 0 | not recorded |
-| `a04b_01_npc` | AREA04/sub0 | 8690 | 0 | not recorded |
-| `a04b_02_door45_out` | AREA04/sub0 | 1942 | 0 | not recorded |
-| `a04b_03_reader` | AREA04/sub0 | 2018 | 0 | not recorded |
-| `a04b_04_lift` | AREA04/sub0, AREA13/sub0 | 2042 | 0 | not recorded |
+| `a04b_00_door45` | AREA04/sub0 | 1265 | 1242 |  |
+| `a04b_01_npc` | AREA04/sub0 | 8690 | 8690 |  |
+| `a04b_02_door45_out` | AREA04/sub0 | 1942 | 714 |  |
+| `a04b_03_reader` | AREA04/sub0 | 2018 | 2414 |  |
+| `a04b_04_lift` | AREA04/sub0, AREA13/sub0 | 2042 | 2083 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -238,12 +238,12 @@ Census limit: `beats_incomplete` in `build/s87/census/a04b_delta.json`: `["a04b_
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a13_00_door8` | AREA13/sub0 | 7063 | 0 | not recorded |
-| `a13_01_door14` | AREA13/sub0 | 574 | 0 | not recorded |
-| `a13_02_door17` | AREA13/sub0 | 1098 | 0 | not recorded |
-| `a13_03_item27` | AREA13/sub0 | 563 | 0 | not recorded |
-| `a13_04_hatch` | AREA13/sub0 | 812 | 0 | not recorded |
-| `a13_05_shaft` | AREA13/sub0, AREA19/sub0 | 914 | 0 | not recorded |
+| `a13_00_door8` | AREA13/sub0 | 7063 | 7063 |  |
+| `a13_01_door14` | AREA13/sub0 | 574 | 572 |  |
+| `a13_02_door17` | AREA13/sub0 | 1098 | 1098 |  |
+| `a13_03_item27` | AREA13/sub0 | 563 | 562 |  |
+| `a13_04_hatch` | AREA13/sub0 | 812 | 812 |  |
+| `a13_05_shaft` | AREA13/sub0, AREA19/sub0 | 914 | 925 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -258,16 +258,16 @@ These are conservative beat associations. On transition beats the census does no
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a19_00_duct` | AREA19/sub0 | 1624 | 0 | not recorded |
-| `a19_01_pickup_g2` | AREA19/sub0 | 344 | 0 | not recorded |
-| `a19_02_duct_back` | AREA19/sub0 | 1651 | 0 | not recorded |
-| `a13b_00_ladder_up` | AREA13/sub0, AREA19/sub0 | 894 | 0 | not recorded |
-| `a13b_01_door17` | AREA13/sub0 | 550 | 0 | not recorded |
-| `a13b_02_button15` | AREA13/sub0 | 762 | 0 | not recorded |
-| `a13b_03_door8` | AREA13/sub0 | 309 | 0 | not recorded |
-| `a13b_04_lift_call` | AREA13/sub0 | 547 | 0 | not recorded |
-| `a13b_05_lift_ride` | AREA04/sub0, AREA13/sub0 | 1608 | 0 | not recorded |
-| `a13b_s0_roof_ladder` | AREA13/sub0 | 890 | 0 | not recorded |
+| `a19_00_duct` | AREA19/sub0 | 1624 | 1591 |  |
+| `a19_01_pickup_g2` | AREA19/sub0 | 344 | 338 |  |
+| `a19_02_duct_back` | AREA19/sub0 | 1651 | 1651 |  |
+| `a13b_00_ladder_up` | AREA13/sub0, AREA19/sub0 | 894 | 904 |  |
+| `a13b_01_door17` | AREA13/sub0 | 550 | 550 |  |
+| `a13b_02_button15` | AREA13/sub0 | 762 | 762 |  |
+| `a13b_03_door8` | AREA13/sub0 | 309 | 309 |  |
+| `a13b_04_lift_call` | AREA13/sub0 | 547 | 547 |  |
+| `a13b_05_lift_ride` | AREA04/sub0, AREA13/sub0 | 1608 | 1794 |  |
+| `a13b_s0_roof_ladder` | AREA13/sub0 | 890 | 890 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -283,13 +283,13 @@ These are conservative beat associations. On transition beats the census does no
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a13c_00_recharger` | AREA13/sub0 | 995 | 0 | not recorded |
-| `a13c_01_to_machine` | AREA13/sub0 | 1460 | 0 | not recorded |
-| `a13c_02_battery` | AREA13/sub0 | 1178 | 0 | not recorded |
-| `a13c_03_blast` | AREA13/sub0 | 2190 | 0 | not recorded |
-| `a13c_04_cure` | AREA13/sub0 | 2183 | 0 | not recorded |
-| `a13c_05_boom` | AREA13/sub0 | 1844 | 0 | not recorded |
-| `a13c_06_south` | AREA13/sub0 | 343 | 0 | not recorded |
+| `a13c_00_recharger` | AREA13/sub0 | 995 | 995 |  |
+| `a13c_01_to_machine` | AREA13/sub0 | 1460 | 1460 |  |
+| `a13c_02_battery` | AREA13/sub0 | 1178 | 1178 |  |
+| `a13c_03_blast` | AREA13/sub0 | 2190 | 2190 |  |
+| `a13c_04_cure` | AREA13/sub0 | 2183 | 2277 |  |
+| `a13c_05_boom` | AREA13/sub0 | 1844 | 1837 |  |
+| `a13c_06_south` | AREA13/sub0 | 343 | 336 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -303,17 +303,17 @@ These are conservative beat associations. On transition beats the census does no
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a13d_00_stair` | AREA13/sub0 | 906 | 0 | not recorded |
-| `a13d_01_ladder405` | AREA13/sub0 | 458 | 0 | not recorded |
-| `a13d_02_block890` | AREA13/sub0 | 637 | 0 | not recorded |
-| `a13d_03_jump` | AREA13/sub0 | 286 | 0 | not recorded |
-| `a13d_04_ladder426` | AREA13/sub0 | 395 | 0 | not recorded |
-| `a13d_05_ladder432` | AREA13/sub0 | 761 | 0 | not recorded |
-| `a13d_06_door20` | AREA13/sub0 | 544 | 0 | not recorded |
-| `a13d_07_hatch63` | AREA13/sub0 | 544 | 0 | not recorded |
-| `a19b_00_arrival` | AREA13/sub0, AREA19/sub0 | 1795 | 0 | not recorded |
-| `a19b_01_ledge` | AREA19/sub0 | 992 | 0 | not recorded |
-| `a19b_02_ladder1023` | AREA19/sub0 | 1770 | 0 | not recorded |
+| `a13d_00_stair` | AREA13/sub0 | 906 | 906 |  |
+| `a13d_01_ladder405` | AREA13/sub0 | 458 | 410 |  |
+| `a13d_02_block890` | AREA13/sub0 | 637 | 588 |  |
+| `a13d_03_jump` | AREA13/sub0 | 286 | 286 |  |
+| `a13d_04_ladder426` | AREA13/sub0 | 395 | 391 |  |
+| `a13d_05_ladder432` | AREA13/sub0 | 761 | 761 |  |
+| `a13d_06_door20` | AREA13/sub0 | 544 | 544 |  |
+| `a13d_07_hatch63` | AREA13/sub0 | 544 | 544 |  |
+| `a19b_00_arrival` | AREA13/sub0, AREA19/sub0 | 1795 | 1806 |  |
+| `a19b_01_ledge` | AREA19/sub0 | 992 | 992 |  |
+| `a19b_02_ladder1023` | AREA19/sub0 | 1770 | 1770 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -328,14 +328,14 @@ These are conservative beat associations. On transition beats the census does no
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a19c_00_bar840` | AREA19/sub0 | 870 | 0 | not recorded |
-| `a19c_01_bar841` | AREA19/sub0 | 7838 | 0 | not recorded |
-| `a19c_02_use7` | AREA19/sub0 | 1551 | 0 | not recorded |
-| `a19c_03_slide` | AREA19/sub0 | 923 | 0 | not recorded |
-| `a19c_04_walkway` | AREA19/sub0 | 1083 | 0 | not recorded |
-| `a19c_05_door27` | AREA19/sub0 | 1542 | 0 | not recorded |
-| `a19c_06_ladder959` | AREA19/sub0, AREA19/sub1 | 1979 | 0 | not recorded |
-| `a19c_07_door52` | AREA19/sub1 | 625 | 0 | not recorded |
+| `a19c_00_bar840` | AREA19/sub0 | 870 | 870 |  |
+| `a19c_01_bar841` | AREA19/sub0 | 7838 | 7957 |  |
+| `a19c_02_use7` | AREA19/sub0 | 1551 | 1551 |  |
+| `a19c_03_slide` | AREA19/sub0 | 923 | 1044 |  |
+| `a19c_04_walkway` | AREA19/sub0 | 1083 | 1084 |  |
+| `a19c_05_door27` | AREA19/sub0 | 1542 | 1542 |  |
+| `a19c_06_ladder959` | AREA19/sub0, AREA19/sub1 | 1979 | 1976 |  |
+| `a19c_07_door52` | AREA19/sub1 | 625 | 625 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -350,29 +350,29 @@ These are conservative beat associations. On transition beats the census does no
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a19d_00_beastA` | AREA19/sub1 | 642 | 0 | not recorded |
-| `a19d_01_ceiling` | AREA19/sub1 | 2608 | 0 | not recorded |
-| `a19d_02_lockB` | AREA19/sub1 | 511 | 0 | not recorded |
-| `a19d_03_beastB` | AREA19/sub1 | 458 | 0 | not recorded |
-| `a19d_04_alcove` | AREA19/sub1 | 1190 | 0 | not recorded |
-| `a19d_05_valve37` | AREA19/sub1 | 870 | 0 | not recorded |
-| `a19d_06_g3` | AREA19/sub1 | 441 | 0 | not recorded |
-| `a19d_07_cage` | AREA19/sub0, AREA19/sub1 | 2704 | 0 | not recorded |
-| `a19d_08_west` | AREA19/sub0 | 643 | 0 | not recorded |
-| `a19d_09_westdeck` | AREA19/sub0 | 353 | 0 | not recorded |
-| `a19d_10_area82E050` | AREA19/sub0 | 1115 | 0 | not recorded |
-| `a19d_11_bar858` | AREA19/sub0 | 446 | 0 | not recorded |
-| `a19d_12_post` | AREA19/sub0 | 203 | 0 | not recorded |
-| `a19d_13_bar1195` | AREA19/sub0 | 526 | 0 | not recorded |
-| `a19d_14_roof` | AREA19/sub0 | 639 | 0 | not recorded |
-| `a19d_15_deckB` | AREA19/sub0 | 446 | 0 | not recorded |
-| `a19d_16_ladder694` | AREA19/sub0, AREA19/sub1 | 1171 | 0 | not recorded |
-| `a19d_17_seal_far` | AREA19/sub1 | 558 | 0 | not recorded |
-| `a19d_18_seal` | AREA19/sub1 | 275 | 0 | not recorded |
-| `a19d_19_flights` | AREA19/sub1 | 904 | 0 | not recorded |
-| `a19d_20_door50` | AREA15/sub0, AREA19/sub1 | 9951 | 0 | not recorded |
-| `a15_00_door14` | AREA15/sub0, AREA19/sub1 | 1128 | 0 | not recorded |
-| `a15_01_door51` | AREA15/sub1, AREA19/sub1 | 1155 | 0 | not recorded |
+| `a19d_00_beastA` | AREA19/sub1 | 642 | 385 |  |
+| `a19d_01_ceiling` | AREA19/sub1 | 2608 | 2578 |  |
+| `a19d_02_lockB` | AREA19/sub1 | 511 | 465 |  |
+| `a19d_03_beastB` | AREA19/sub1 | 458 | 568 |  |
+| `a19d_04_alcove` | AREA19/sub1 | 1190 | 1125 |  |
+| `a19d_05_valve37` | AREA19/sub1 | 870 | 763 |  |
+| `a19d_06_g3` | AREA19/sub1 | 441 | 344 |  |
+| `a19d_07_cage` | AREA19/sub0, AREA19/sub1 | 2704 | 2744 |  |
+| `a19d_08_west` | AREA19/sub0 | 643 | 643 |  |
+| `a19d_09_westdeck` | AREA19/sub0 | 353 | 353 |  |
+| `a19d_10_area82E050` | AREA19/sub0 | 1115 | 1117 |  |
+| `a19d_11_bar858` | AREA19/sub0 | 446 | 441 |  |
+| `a19d_12_post` | AREA19/sub0 | 203 | 203 |  |
+| `a19d_13_bar1195` | AREA19/sub0 | 526 | 526 |  |
+| `a19d_14_roof` | AREA19/sub0 | 639 | 522 |  |
+| `a19d_15_deckB` | AREA19/sub0 | 446 | 942 |  |
+| `a19d_16_ladder694` | AREA19/sub0, AREA19/sub1 | 1171 | 1179 |  |
+| `a19d_17_seal_far` | AREA19/sub1 | 558 | 558 |  |
+| `a19d_18_seal` | AREA19/sub1 | 275 | 275 |  |
+| `a19d_19_flights` | AREA19/sub1 | 904 | 895 |  |
+| `a19d_20_door50` | AREA15/sub0, AREA19/sub1 | 9951 | 9955 |  |
+| `a15_00_door14` | AREA15/sub0, AREA19/sub1 | 1128 | 1140 |  |
+| `a15_01_door51` | AREA15/sub1, AREA19/sub1 | 1155 | 1163 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -389,22 +389,22 @@ These are conservative beat associations. On transition beats the census does no
 
 | Beat | Observed area/subarea (legacy) | Legacy rows | Fork rows | Fork snapshot files missing |
 |---|---|---:|---:|---|
-| `a15b_00_event` | AREA15/sub1 | 2119 | 0 | not recorded |
-| `a15b_01_return` | AREA15/sub0, AREA15/sub1 | 3774 | 0 | not recorded |
-| `a15b_02_scripts` | AREA15/sub0 | 11364 | 0 | not recorded |
-| `a15b_03_bed` | AREA15/sub0 | 1820 | 0 | not recorded |
-| `a15b_04_door14` | AREA15/sub0, AREA19/sub1 | 1265 | 0 | not recorded |
-| `a19e_00_hall` | AREA19/sub1 | 1095 | 0 | not recorded |
-| `a19e_01_ceiling` | AREA19/sub1 | 2157 | 0 | not recorded |
-| `a19e_02_truck` | AREA19/sub1 | 1296 | 0 | not recorded |
-| `a19e_03_battery` | AREA19/sub1 | 502 | 0 | not recorded |
-| `a19e_04_tower` | AREA19/sub1 | 1288 | 0 | not recorded |
-| `a19e_05_down` | AREA19/sub0, AREA19/sub1 | 1083 | 0 | not recorded |
-| `a19e_06_panel24` | AREA19/sub0 | 1730 | 0 | not recorded |
-| `a19e_07_door25` | AREA03/sub0, AREA19/sub0 | 700 | 0 | not recorded |
-| `a19e_s0_down694` | AREA19/sub0, AREA19/sub1 | 1747 | 0 | not recorded |
-| `a19e_s1_panel` | AREA19/sub0 | 1283 | 0 | not recorded |
-| `a03_00_elevator` | AREA03/sub0 | 2575 | 0 | not recorded |
+| `a15b_00_event` | AREA15/sub1 | 2119 | 2119 |  |
+| `a15b_01_return` | AREA15/sub0, AREA15/sub1 | 3774 | 3778 |  |
+| `a15b_02_scripts` | AREA15/sub0 | 11364 | 11364 |  |
+| `a15b_03_bed` | AREA15/sub0 | 1820 | 5852 |  |
+| `a15b_04_door14` | AREA15/sub0, AREA19/sub1 | 1265 | 1277 |  |
+| `a19e_00_hall` | AREA19/sub1 | 1095 | 1095 |  |
+| `a19e_01_ceiling` | AREA19/sub1 | 2157 | 2102 |  |
+| `a19e_02_truck` | AREA19/sub1 | 1296 | 1344 |  |
+| `a19e_03_battery` | AREA19/sub1 | 502 | 502 |  |
+| `a19e_04_tower` | AREA19/sub1 | 1288 | 1541 |  |
+| `a19e_05_down` | AREA19/sub0, AREA19/sub1 | 1083 | 1094 |  |
+| `a19e_06_panel24` | AREA19/sub0 | 1730 | 1716 |  |
+| `a19e_07_door25` | AREA03/sub0, AREA19/sub0 | 700 | 710 |  |
+| `a19e_s0_down694` | AREA19/sub0, AREA19/sub1 | 1747 | 1757 |  |
+| `a19e_s1_panel` | AREA19/sub0 | 1283 | 1364 |  |
+| `a03_00_elevator` | AREA03/sub0 | 2575 | 2558 |  |
 
 | Area/subarea | Functions associated with its beats |
 |---|---:|
@@ -896,8 +896,8 @@ run-time word) with its own results.
 ## Capture limits still requiring work
 
 - The retained legacy censuses are route-shape coverage. Some census replays differ from their recordings, and overlay swaps can leave blind spots. No full fork census is inferred from a route trace.
-- a04b_00 is not a completed fork beat. Later groups have legacy traces but no fork chain. The earlier fork chain diverges from the legacy path at a02_02 after disc timing differences.
-- Level 10 has unrecorded between-beat counters; levels 11 and 12 also record boundary gaps. The level-12 overlay blind spot is supplemented by a19b_swap_delta and a19b_area13_delta (level 13’s documented remeasurement).
+- 0 retained route beats lack fork recordings. The earlier fork chain diverges from the legacy path at a02_02 after disc timing differences. Later fork captures document that playthrough and do not replace the legacy reference path.
+- The legacy level-10 route has unrecorded between-beat counters; levels 11 and 12 also record boundary gaps. The level-12 overlay blind spot is supplemented by a19b_swap_delta and a19b_area13_delta (level 13’s documented remeasurement).
 - AREA03 has arrival and lift coverage only; its exit and subareas 1/2 are outside the retained level-15 route. Unvisited subareas of other areas and unplayed branches remain unverified.
 - Per-row game state, endpoint RAM/GS, displayed fields, audio and census coverage are different proofs. A saved GS image alone does not prove the displayed framebuffer. Later live pixels and SPU residency remain separate capture work.
 
@@ -907,7 +907,7 @@ The explicit texture capacity/index exception passes its regression proof. The A
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 private exports and remaining capacity work; new captures and AREA00 continuation are still pending.
+Eighteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, snapshot completeness, and complete boundary provenance. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 private exports and remaining capacity work. Supplemental fork captures are indexed separately; AREA00 continuation remains the next binding stage.
 
 ## Complete function index
 

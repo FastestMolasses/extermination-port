@@ -540,3 +540,51 @@ Scratch snapshots under `../Extermination/build/fourteenthcap/probe/`
    `portable-data/memcards/Mcd001.ps2` / `Mcd002.ps2` carry mtimes
    2026-10-02 03:36 (PCSX2's shutdown); no in-game save was made, but that
    the cards' content is unchanged is not proven.
+
+
+## Fork sampler audit (2026-10-18)
+
+The recovered fork branch arrives from
+`../Extermination/build/fork_refs/levels-recordings-20261018-17/` at
+`a19c_07_door52`. All 14 live A19D owners match the original anchor's
+class/model, param/UID, kind/link, table index and callback at the same
+addresses. The remaining key, `r34_8279E0`, already names a freed slot in
+the legacy anchor; the fork has reused that slot for another owner. Its
+rows are retained as fixed-slot observations, not identified samples of
+placement 34. No route predicate uses that key. The private audit is
+`levels-recordings-20261018-17/a19d-owner-audit.json`. Recording continues
+in `levels-recordings-20261018-19/`; accepted beats are indexed separately.
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+23 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a15_00_door14` | `a19d_20_door50` | 1140 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15/a15_00_door14` |
+| `a15_01_door51` | `a15_00_door14` | 1163 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15/a15_01_door51` |
+| `a19d_00_beastA` | `a19c_07_door52` | 385 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_00_beastA` |
+| `a19d_01_ceiling` | `a19d_00_beastA` | 2578 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_01_ceiling` |
+| `a19d_02_lockB` | `a19d_01_ceiling` | 465 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_02_lockB` |
+| `a19d_03_beastB` | `a19d_02_lockB` | 568 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_03_beastB` |
+| `a19d_04_alcove` | `a19d_03_beastB` | 1125 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_04_alcove` |
+| `a19d_05_valve37` | `a19d_04_alcove` | 763 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_05_valve37` |
+| `a19d_06_g3` | `a19d_05_valve37` | 344 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_06_g3` |
+| `a19d_07_cage` | `a19d_06_g3` | 2744 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_07_cage` |
+| `a19d_08_west` | `a19d_07_cage` | 643 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_08_west` |
+| `a19d_09_westdeck` | `a19d_08_west` | 353 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_09_westdeck` |
+| `a19d_10_area82E050` | `a19d_09_westdeck` | 1117 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_10_area82E050` |
+| `a19d_11_bar858` | `a19d_10_area82E050` | 441 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_11_bar858` |
+| `a19d_12_post` | `a19d_11_bar858` | 203 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_12_post` |
+| `a19d_13_bar1195` | `a19d_12_post` | 526 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_13_bar1195` |
+| `a19d_14_roof` | `a19d_13_bar1195` | 522 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_14_roof` |
+| `a19d_15_deckB` | `a19d_14_roof` | 942 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_15_deckB` |
+| `a19d_16_ladder694` | `a19d_15_deckB` | 1179 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_16_ladder694` |
+| `a19d_17_seal_far` | `a19d_16_ladder694` | 558 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_17_seal_far` |
+| `a19d_18_seal` | `a19d_17_seal_far` | 275 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_18_seal` |
+| `a19d_19_flights` | `a19d_18_seal` | 895 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_19_flights` |
+| `a19d_20_door50` | `a19d_19_flights` | 9955 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_20_door50` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 6 indexed boundary receipts capture 13 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.
