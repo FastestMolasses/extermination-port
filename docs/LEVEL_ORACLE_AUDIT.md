@@ -375,18 +375,44 @@ is `build/levels/oracle-level15-perception-full-1/`; the staged-index build
 passes without warnings (`build/levels/level15-perception-index-build.log`).
 Staged leak/provenance checks pass. No live source or source list changed.
 
+## Level-15 particle emitter
+
+The unwired `em_level15_particles` adds `0015A750` from its near-match C.
+The full suite passes **258 cases and 214/214 reachable words**, including
+fourteen captured actor records, every valid kind, RNG/phase boundaries,
+out-of-range kinds, original matrix workers, worker-written fields and the
+full fail-stop sweep. The original descriptor is at entry SP minus `0x60`.
+
+For out-of-range kinds the original retains the caller's incoming count in
+`s1`; the native API exposes that count explicitly. The oracle seeds only that
+entry context, then executes the original function unchanged. Cases verify
+negative, zero, one and multiple-emission counts. Valid kinds replace the
+incoming value. Any future binding must supply the original caller context;
+this is not a live binding or an invented default count.
+
+The callee definition exposed a fifth argument omitted from the near-match
+call declaration. Original execution confirms submission copy mode `1`.
+The oracle also corrected frame-delta-before-RNG reads and the phase reload
+when wrapping after the final increment. Copy-mode, incoming-count and
+phase-reload mutations are detected
+(`build/levels/level15-particles-mutations-1/results.json`). The full receipt
+is `build/levels/oracle-level15-particles-full-1/`; the staged-index build
+passes without warnings (`build/levels/level15-particles-index-build.log`).
+Staged leak/provenance checks pass. No live source or source list changed.
+
 ## Remaining step-2 work
 
-The map currently retains **5 missing non-boundary entries**, after adding the
-fifty-nine return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
+The map currently retains **4 missing non-boundary entries**, after adding the
+sixty return/arrival/continuation/support routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing group is five level-15 boot routines: one has readable C,
-and four still contain assembly rather than a usable C body. They need an explicit source/translation review and oracle
-cases, not a status promotion. The complete addresses, membership and earliest
+The missing group is four level-15 boot routines whose definitions contain
+assembly rather than usable C bodies. All missing route entries with usable C
+now have unwired translations and fresh full oracle receipts. The four source
+blockers still need C recovery and oracle cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
 
 The 92 remaining unverified entries also include shared first-level definitions
@@ -410,6 +436,7 @@ make test-level15-creatures-reference
 make test-level15-fountain-reference
 make test-level15-motion-reference
 make test-level15-perception-reference
+make test-level15-particles-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.

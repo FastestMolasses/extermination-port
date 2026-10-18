@@ -597,3 +597,15 @@ receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
 `make test-level15-perception-reference`, with `EM_TEST_FULL=1` for full mode.
 One readable-C boot routine and four assembly-only definitions remain missing;
 this checkpoint changes no live route or capture-coverage claim.
+
+## Native audit: particle emitter (2026-10-18)
+
+The unwired `em_level15_particles` adds `0015A750`. Its full suite passes
+258 cases and all 214 reachable words, including fourteen captured actor
+records and an explicit incoming-count contract for out-of-range kinds.
+Original execution confirms the descriptor's stack address, submission copy
+mode, read order and phase reload. Details, mutation checks and private
+receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
+`make test-level15-particles-reference`, with `EM_TEST_FULL=1` for full mode.
+All formerly missing route entries with usable C now have standalone proof.
+The four assembly-only source blockers remain missing; the route stays unbound.

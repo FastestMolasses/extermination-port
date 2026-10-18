@@ -39,7 +39,7 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 | 12 | a13d, a19b | 1349 | 721 | 224 | 46 | 358 | 358 | 11 | 0 |
 | 13 | a19c | 1062 | 692 | 214 | 53 | 103 | 103 | 8 | 0 |
 | 14 | a19d, a15 | 1309 | 836 | 288 | 75 | 110 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 309 | 64 | 371 | 366 | 16 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 310 | 64 | 370 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 42 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 43 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -1358,7 +1358,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00159E70` | 4,5,6,8,10 | V | [f_159E70](../src/game/em_area02_math.c) | [test_area02_math_reference.py](../tools/test_area02_math_reference.py) (current quick pass) |
 | `boot:0015A200` | 9,12,14,15 | V | [em_level9_port_0015A200](../src/game/em_level9_port_exit.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `boot:0015A2C0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L2 census:88](../docs/SECOND_LEVEL_CENSUS.md) | [test_area01_sys_reference.py](../tools/test_area01_sys_reference.py) (current quick pass) |
-| `boot:0015A750` | 15 | M | — | — |
+| `boot:0015A750` | 15 | V | [em_level15_particles_0015A750](../src/game/em_level15_particles.c) | [test_level15_particles_reference.py](../tools/test_level15_particles_reference.py) (current full pass) |
 | `boot:0015AB00` | 2,3,4 | V | [L2 census:89](../docs/SECOND_LEVEL_CENSUS.md), [L3 census:115](../docs/THIRD_LEVEL_CENSUS.md) | [test_area01_exitb_reference.py](../tools/test_area01_exitb_reference.py) (current quick pass) |
 | `boot:0015AC00` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | L | [L1 census:3551](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0015AE20` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3552](../docs/FIRST_LEVEL_CENSUS.md) | — |
