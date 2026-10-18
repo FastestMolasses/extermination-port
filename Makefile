@@ -2056,3 +2056,7 @@ test-level15-perception-reference:
 .PHONY: test-level15-particles-reference
 test-level15-particles-reference:
 	python3 tools/test_level15_particles_reference.py
+
+.PHONY: test-area19-partner-reference
+test-area19-partner-reference:
+	python3 tools/test_area19_partner_reference.py

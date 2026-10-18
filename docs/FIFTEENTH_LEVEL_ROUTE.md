@@ -609,3 +609,13 @@ receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
 `make test-level15-particles-reference`, with `EM_TEST_FULL=1` for full mode.
 All formerly missing route entries with usable C now have standalone proof.
 The four assembly-only source blockers remain missing; the route stays unbound.
+
+## Native audit: AREA19 partner reuse (2026-10-18)
+
+`test_area19_partner_reference.py` verifies AREA19 runtime `008298D0` against
+the unchanged shared AREA01 implementation. The full original-instruction
+sweep passes 378 cases and all 72 reachable words, including state/timer/ID
+boundaries, aliases, worker writes and fail-stop checks. The AREA19 overlay
+identity is checked independently; reuse is no longer inferred from a label.
+See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for receipts and mutation
+checks. The opt-in target is `make test-area19-partner-reference`.

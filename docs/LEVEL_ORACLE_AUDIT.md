@@ -400,6 +400,35 @@ is `build/levels/oracle-level15-particles-full-1/`; the staged-index build
 passes without warnings (`build/levels/level15-particles-index-build.log`).
 Staged leak/provenance checks pass. No live source or source list changed.
 
+## Shared entry proof and AREA19 reuse
+
+Fresh quick runs of the existing `aim_fire_control`, `aim_fire_lamp`,
+`aim_fire_target` and `status_pages` suites pass. Their original assertions and
+source files are unchanged; the private receipts are
+`build/levels/oracle-shared-<suite>-1/`. The source-fingerprinted receipts are
+now included in this audit, so their explicit entry tables can support the
+readiness map. Custom or implicit test entries still are not inferred from
+filenames, hook tables or labels.
+
+The new `area19_partner` suite executes AREA19's own `008298D0` text against
+the existing `em_area01_ovl_00828850` implementation. The AREA19 C definition
+was read and each retained capture's loaded overlay checked against AREA19.BIN.
+The full suite passes **378 cases and 72/72 reachable words**, including all
+state bytes, signed timer boundaries, unsigned identifiers, aliases, worker
+writes and exhaustive fail-stop checks. Timer-boundary, partner-delay and
+identifier-sign mutations in private copies of the native source are detected
+(`build/levels/area19-partner-mutations-1/results.json`). No shared native
+source changed. The full receipt is `build/levels/oracle-area19-partner-full-1/`.
+The opt-in target is `make test-area19-partner-reference`.
+
+This closes the owned standalone-translation portion of step 2: sixty missing
+route routines were added with full original-instruction proof, and the
+existing later-level suites have current receipts. Four decomp source blockers
+and the separately listed shared live-code evidence gaps remain explicit.
+The staged-index build passes without warnings
+(`build/levels/shared-proof-index-build.log`), as do staged leak/provenance
+checks. No live binding or default test group changed.
+
 ## Remaining step-2 work
 
 The map currently retains **4 missing non-boundary entries**, after adding the
@@ -415,7 +444,7 @@ now have unwired translations and fresh full oracle receipts. The four source
 blockers still need C recovery and oracle cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
 
-The 92 remaining unverified entries also include shared first-level definitions
+The 82 remaining unverified entries also include shared first-level definitions
 whose custom tests or live bindings are outside these standalone groups. This
 checkpoint does not certify them from names or ask to change protected owners.
 
@@ -437,6 +466,7 @@ make test-level15-fountain-reference
 make test-level15-motion-reference
 make test-level15-perception-reference
 make test-level15-particles-reference
+make test-area19-partner-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.
@@ -461,3 +491,11 @@ usable C. They remain missing; this lane has no proposed port diff for them
 and does not infer their behavior from labels. The previously documented
 AREA01 voice-timing discrepancy and AREA00 texture-capacity stop remain
 live-phase prerequisites, not waived assertions.
+
+The 82 shared live-code entries still marked unverified in the readiness map
+need evidence at their exact original entry or binding boundary before a
+status promotion. They include platform/audio/stream and frame owners, shared
+player/state/render helpers and custom test paths outside this lane's owned
+standalone modules. Existing tests are listed where their entry can be proven;
+this lane proposes no unmeasured changes to those shared or protected owners.
+There is no live diff requiring approval in this checkpoint.

@@ -26,20 +26,20 @@ Counts are unique `(region, address)` per level; reused rows occur in several le
 
 | Level | Route groups | Functions | L | V | U | M | Native boundary | Legacy beats | Fork traces present |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2 | a01 | 982 | 743 | 87 | 41 | 111 | 111 | 16 | 16 |
-| 3 | a00 | 1270 | 715 | 151 | 45 | 359 | 359 | 12 | 12 |
-| 4 | a01r, a02 | 1430 | 804 | 209 | 51 | 366 | 366 | 13 | 13 |
-| 5 | a04 | 879 | 633 | 101 | 40 | 105 | 105 | 10 | 10 |
-| 6 | a22 | 908 | 663 | 96 | 41 | 108 | 108 | 7 | 7 |
-| 7 | a01u, a06 | 1044 | 751 | 131 | 52 | 110 | 110 | 13 | 13 |
-| 8 | a06b, a01v, a22b, a04b | 1082 | 727 | 205 | 43 | 107 | 107 | 12 | 7 |
-| 9 | a13 | 996 | 716 | 128 | 42 | 110 | 110 | 6 | 0 |
-| 10 | a19, a13b | 1039 | 694 | 193 | 42 | 110 | 110 | 10 | 0 |
-| 11 | a13c | 922 | 669 | 115 | 30 | 108 | 108 | 7 | 0 |
-| 12 | a13d, a19b | 1349 | 721 | 224 | 46 | 358 | 358 | 11 | 0 |
-| 13 | a19c | 1062 | 692 | 214 | 53 | 103 | 103 | 8 | 0 |
-| 14 | a19d, a15 | 1309 | 836 | 288 | 75 | 110 | 110 | 23 | 0 |
-| 15 | a15b, a19e, a03 | 1537 | 793 | 310 | 64 | 370 | 366 | 16 | 0 |
+| 2 | a01 | 982 | 743 | 89 | 39 | 111 | 111 | 16 | 16 |
+| 3 | a00 | 1270 | 715 | 153 | 43 | 359 | 359 | 12 | 12 |
+| 4 | a01r, a02 | 1430 | 804 | 212 | 48 | 366 | 366 | 13 | 13 |
+| 5 | a04 | 879 | 633 | 103 | 38 | 105 | 105 | 10 | 10 |
+| 6 | a22 | 908 | 663 | 98 | 39 | 108 | 108 | 7 | 7 |
+| 7 | a01u, a06 | 1044 | 751 | 133 | 50 | 110 | 110 | 13 | 13 |
+| 8 | a06b, a01v, a22b, a04b | 1082 | 727 | 208 | 40 | 107 | 107 | 12 | 7 |
+| 9 | a13 | 996 | 716 | 132 | 38 | 110 | 110 | 6 | 0 |
+| 10 | a19, a13b | 1039 | 694 | 196 | 39 | 110 | 110 | 10 | 0 |
+| 11 | a13c | 922 | 669 | 118 | 27 | 108 | 108 | 7 | 0 |
+| 12 | a13d, a19b | 1349 | 721 | 227 | 43 | 358 | 358 | 11 | 0 |
+| 13 | a19c | 1062 | 692 | 217 | 50 | 103 | 103 | 8 | 0 |
+| 14 | a19d, a15 | 1309 | 836 | 295 | 68 | 110 | 110 | 23 | 0 |
+| 15 | a15b, a19e, a03 | 1537 | 793 | 316 | 58 | 370 | 366 | 16 | 0 |
 
 ### Level 2
 
@@ -873,7 +873,7 @@ No shared or protected source change is part of this map. Concrete diffs and reg
 
 ## Readiness checkpoint (2026-10-18)
 
-Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 43 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
+Thirteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, combined-report membership, missing evidence, and snapshot completeness. The report regenerates deterministically from the retained metadata. The staged-index native build passes with zero compiler warnings (`build/levels/readiness-index-build.log`). No native gameplay or pixel pass is claimed by this tooling-only checkpoint. The current standalone audit has 48 source-matching passing receipts; 0 receipts are stale. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining step-2 gaps. Private exports, new captures and AREA00 continuation are still pending.
 
 ## Complete function index
 
@@ -1481,10 +1481,10 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00179FF0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3347](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0017A0B0` | 14 | L | [L1 census:3348](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0017A130` | 14 | L | [L1 census:3349](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:0017A800` | 14 | U | [pitch_to_target](../src/game/em_aim_fire_control.c) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) |
+| `boot:0017A800` | 14 | V | [pitch_to_target](../src/game/em_aim_fire_control.c) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) (current quick pass) |
 | `boot:0017A8B0` | 14 | L | [L1 census:3350](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) |
 | `boot:0017ABA0` | 14 | L | [L1 census:3353](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) |
-| `boot:0017AF70` | 14 | U | [track_target](../src/game/em_aim_fire_control.c) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) |
+| `boot:0017AF70` | 14 | V | [track_target](../src/game/em_aim_fire_control.c) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) (current quick pass) |
 | `boot:0017B300` | 14 | L | [L1 census:3354](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_control_reference.py](../tools/test_aim_fire_control_reference.py) |
 | `boot:0017B460` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3355](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0017B490` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3356](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -1554,16 +1554,16 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00183440` | 9,12,14,15 | V | [em_level9_port_00183440](../src/game/em_level9_port_exit.c), [stub_00183440](../src/game/em_player_stage_live.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
 | `boot:001837A0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3389](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001838B0` | 9,10,12,13,14,15 | V | [em_level9_port_001838B0](../src/game/em_level9_port_exit.c), [stub_001838B0](../src/game/em_player_stage_live.c) | [test_level9_port_reference.py](../tools/test_level9_port_reference.py) (current quick pass) |
-| `boot:00183AC0` | 14 | L | [L1 census:3390](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
+| `boot:00183AC0` | 14 | L | [L1 census:3390](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
 | `boot:00183C40` | 4,7,13,14,15 | V | [f_183C40](../src/game/em_area02_math.c) | [test_area02_math_reference.py](../tools/test_area02_math_reference.py) (current quick pass) |
 | `boot:00183EF0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3391](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00184BA0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3392](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00184D20` | 15 | V | [em_level15_perception_00184D20](../src/game/em_level15_perception.c) | [test_level15_perception_reference.py](../tools/test_level15_perception_reference.py) (current full pass) |
 | `boot:00185420` | 15 | V | [e00185420](../src/game/em_level15_support.c), [em_level15_support_00185420](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current full pass) |
-| `boot:001854E0` | 14 | L | [L1 census:3393](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
-| `boot:00185760` | 14 | L | [L1 census:3394](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
-| `boot:00185A10` | 14 | L | [L1 census:3395](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
-| `boot:00185E30` | 14 | U | [em_aim_fire_target_00185E30](../src/game/em_aim_fire_target.c) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) |
+| `boot:001854E0` | 14 | L | [L1 census:3393](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
+| `boot:00185760` | 14 | L | [L1 census:3394](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
+| `boot:00185A10` | 14 | L | [L1 census:3395](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
+| `boot:00185E30` | 14 | V | [em_aim_fire_target_00185E30](../src/game/em_aim_fire_target.c) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
 | `boot:001860A0` | 14 | L | [L1 census:3396](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001861C0` | 14 | L | [L1 census:3397](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00187350` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3398](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2160,11 +2160,11 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001D4B10` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3822](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D4B20` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3823](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D4B50` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3824](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:001D4B80` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | U | [em_aim_fire_lamp_001D4B80](../src/game/em_aim_fire_lamp.c) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) |
+| `boot:001D4B80` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | V | [em_aim_fire_lamp_001D4B80](../src/game/em_aim_fire_lamp.c) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) (current quick pass) |
 | `boot:001D4C20` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | M | native boundary: GS/VIF packet build / VU1 kick | — |
 | `boot:001D4CD0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3825](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D4DA0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3826](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:001D4E20` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | U | [em_aim_fire_lamp_001D4E20](../src/game/em_aim_fire_lamp.c) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) |
+| `boot:001D4E20` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | V | [em_aim_fire_lamp_001D4E20](../src/game/em_aim_fire_lamp.c) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) (current quick pass) |
 | `boot:001D4EA0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | M | native boundary: GS/VIF packet build / VU1 kick | — |
 | `boot:001D4F30` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3827](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D4FB0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3828](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2217,8 +2217,8 @@ Every retained function has one row below; the level column is its membership se
 | `boot:001D98A0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3863](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001D9EE0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3864](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001DA080` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3865](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:001DA1E0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3866](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) |
-| `boot:001DA290` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3867](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) |
+| `boot:001DA1E0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3866](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) (current quick pass) |
+| `boot:001DA290` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3867](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_lamp_reference.py](../tools/test_aim_fire_lamp_reference.py) (current quick pass) |
 | `boot:001DA310` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3868](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001DA6A0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3869](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:001DD7B0` | 2,3,4,5,6,7,8,9,10,12,13,14,15 | V | [L1 census:3878](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2576,7 +2576,7 @@ Every retained function has one row below; the level column is its membership se
 | `boot:0020B0D0` | 2,4,8,9,11,14,15 | L | [L1 census:4063](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0020B210` | 2,4,8,9,11,14,15 | L | [L1 census:4064](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0020BEF0` | 2,4,8,9,11,14,15 | L | [L1 census:4065](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:0020BF20` | 4,10,15 | L | [L1 census:4066](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
+| `boot:0020BF20` | 4,10,15 | L | [L1 census:4066](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
 | `boot:0020CCB0` | 2,4,11,14,15 | L | [L1 census:4067](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0020CD40` | 4,11,14,15 | L | [L1 census:4068](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:0020CD60` | 2,4,5,6,7,8,9,10,11,14,15 | L | [L1 census:4069](../docs/FIRST_LEVEL_CENSUS.md) | — |
@@ -2604,21 +2604,21 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00210C00` | 2,5 | L | [L1 census:4089](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
 | `boot:00210F30` | 2 | L | [L1 census:4090](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
 | `boot:00211400` | 2,5 | L | [L1 census:4091](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
-| `boot:00211970` | 4,10,15 | L | [L1 census:4092](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:002121A0` | 4,10 | L | [L1 census:4093](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:002125B0` | 4,10 | L | [L1 census:4094](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:00212B60` | 4,10 | L | [L1 census:4095](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:00212F30` | 4,10 | L | [L1 census:4096](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
+| `boot:00211970` | 4,10,15 | L | [L1 census:4092](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:002121A0` | 4,10 | L | [L1 census:4093](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:002125B0` | 4,10 | L | [L1 census:4094](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:00212B60` | 4,10 | L | [L1 census:4095](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:00212F30` | 4,10 | L | [L1 census:4096](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
 | `boot:002131B0` | 2,6,7,9 | L | [L1 census:4097](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
 | `boot:002134C0` | 2,6,7,9 | L | [L1 census:4098](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
 | `boot:00213F30` | 2,6,7,9 | L | [L1 census:4099](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
 | `boot:00214020` | 2,6,7,9 | L | [L1 census:4100](../docs/FIRST_LEVEL_CENSUS.md) | [test_area01_ui_reference.py](../tools/test_area01_ui_reference.py) (current quick pass) |
-| `boot:00214570` | 9 | U | [em_status_pages_00214570](../src/game/em_status_pages_item.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
+| `boot:00214570` | 9 | V | [em_status_pages_00214570](../src/game/em_status_pages_item.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
 | `boot:002149F0` | 2,4,11,15 | L | [L1 census:4101](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:00215870` | 8,9,15 | U | [em_status_pages_00215870](../src/game/em_status_pages_item.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:00215FE0` | 4,11,14,15 | U | [em_status_pages_00215FE0](../src/game/em_status_pages_item.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:002160B0` | 2,4,11,14,15 | L | [L1 census:4102](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
-| `boot:00217090` | 15 | U | [em_status_pages_00217090](../src/game/em_status_pages_parts.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) |
+| `boot:00215870` | 8,9,15 | V | [em_status_pages_00215870](../src/game/em_status_pages_item.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:00215FE0` | 4,11,14,15 | V | [em_status_pages_00215FE0](../src/game/em_status_pages_item.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:002160B0` | 2,4,11,14,15 | L | [L1 census:4102](../docs/FIRST_LEVEL_CENSUS.md) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
+| `boot:00217090` | 15 | V | [em_status_pages_00217090](../src/game/em_status_pages_parts.c) | [test_status_pages_reference.py](../tools/test_status_pages_reference.py) (current quick pass) |
 | `boot:00219550` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:4104](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00219870` | 7,8,9,10,11,12,13,14,15 | V | [a6_00219870](../src/game/em_area06_port_node.c), [em_area06_port_00219870](../src/game/em_area06_port_node.c) | [test_area06_port_reference.py](../tools/test_area06_port_reference.py) (current full pass) |
 | `boot:00219F50` | 7,8,9,10,12,13,14,15 | V | [a6_00219F50](../src/game/em_area06_port_node.c), [em_area06_port_00219F50](../src/game/em_area06_port_node.c) | [test_area06_port_reference.py](../tools/test_area06_port_reference.py) (current full pass) |
@@ -2885,7 +2885,7 @@ Every retained function has one row below; the level column is its membership se
 | `overlay:AREA19:00827DD0` | 10,12,13,14,15 | V | [turret_00827DD0](../src/game/em_area19_route_turret.c), [em_area19_route_00827DD0](../src/game/em_area19_route_turret.c) | [test_area19_route_reference.py](../tools/test_area19_route_reference.py) (current full pass) |
 | `overlay:AREA19:00829370` | 10,12,13,14,15 | V | [em_level10_port_00829370](../src/game/em_level10_port_area19.c) | [test_level10_port_reference.py](../tools/test_level10_port_reference.py) (current quick pass) |
 | `overlay:AREA19:00829840` | 13,14 | V | [em_level13_port_00829840](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
-| `overlay:AREA19:008298D0` | 10,12,13,14,15 | U | [em_area01_ovl_00828850](../src/game/em_area01_overlay.c) | — |
+| `overlay:AREA19:008298D0` | 10,12,13,14,15 | V | [em_area01_ovl_00828850](../src/game/em_area01_overlay.c) | [test_area19_partner_reference.py](../tools/test_area19_partner_reference.py) (current full pass) |
 | `overlay:AREA19:00829A70` | 13,14,15 | V | [em_level13_port_00829A70](../src/game/em_level13_port_area19.c) | [test_level13_port_reference.py](../tools/test_level13_port_reference.py) (current quick pass) |
 
 ## Reproduce
