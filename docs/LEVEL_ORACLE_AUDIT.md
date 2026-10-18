@@ -6,7 +6,8 @@ missing routines on the AREA00 return now have a translation and a new original
 instruction suite, which passes quick and full mode. Five further missing owners
 in AREA04/06 now pass their expanded full suites. Ten more missing AREA13/15
 routines pass two new full suites. The remaining AREA19 flame/turret owners
-also pass a new full suite. No new routine is wired.
+also pass a new full suite. Eight AREA03 entries now pass a further full
+suite. No new routine is wired.
 Assets, missing fork recordings, the registry exception and AREA00 live phases
 remain later work packages, in the requested order.
 
@@ -173,16 +174,49 @@ comparison relaxation was introduced. The staged-index application build
 passes with zero warnings (`build/levels/area19-index-build.log`), and the
 staged leak/provenance checks pass.
 
+## AREA03 initialization, callbacks and turret pair
+
+The new `em_area03_route` module verifies eight entries: init `00823580`
+(the census names the enclosing pad `00823540`), turret `00823930`, partner
+`00825290`, lift-offset callback `00826270`, script-parameter callback
+`00826330`, toggle `00826860`, and sound callbacks `00826880` / `008268B0`.
+They are unwired. The matching AREA03 C was read, including its differences
+from the AREA19 turret: AREA03 uses different effect scratch vectors and
+always selects the generic effect for non-actor hits, without a second probe.
+
+The suite passes **878 cases and 1,249/1,249 reachable words**, including the
+full fail-stop sweep (`build/levels/oracle-area03-full-1/`). It retains every
+comparison and uses actual original AREA03 actors plus explicitly designed
+AREA01 twin fixtures carrying original AREA03 text. The callback cases cover
+both toggle branches, non-boolean flags, signed/float bit boundaries and return
+values. All inputs remain local; no binary data is committed.
+
+Two observable ordering mistakes in the first translations were fixed in C:
+the initializer publishes its table pointer after the other three stores; the
+lift callback reads player/camera heights before publishing the spawn entry,
+then stores those heights before reading/updating the target height. The
+original's order is now checked one access at a time. The old harness's chosen
+scratch range is occupied in AREA03, so this suite selects a different common
+256 KiB zero window and retains the complete zero-memory assertion. It does
+not clear captured data to satisfy that assertion.
+
+Lift-height and turret-effect mutations were detected
+(`build/levels/area03-mutations-1/results.json`). The staged-index native build
+passes without warnings (`build/levels/area03-index-build.log`), and the staged
+leak/provenance scan passes. Seven remaining AREA03 route functions are still
+missing; this checkpoint does not claim the whole area is ready.
+
 ## Remaining step-2 work
 
-The map currently retains **43 missing non-boundary entries**, after adding the
-twenty-one return/arrival/continuation routines and correcting the existing `001FC520` ownership to
+The map currently retains **35 missing non-boundary entries**, after adding the
+twenty-nine return/arrival/continuation routines and correcting the existing `001FC520` ownership to
 `em_sfx_service_release`. The latter has an existing original-instruction test
 inside `test_area11_sfx_reference.py`, but its custom entry path is not yet a
 fresh receipt in this audit. It remains unverified here; no duplicate translation
 was added.
 
-The missing groups are the AREA03 arrival and level-15 boot routines. Some decomp definitions still contain assembly rather
+The missing groups are seven further AREA03 arrival routines and 28 level-15
+boot routines. Some decomp definitions still contain assembly rather
 than a usable C body. They need an explicit source/translation review and oracle
 cases, not a status promotion. The complete addresses, membership and earliest
 recorded beat are retained in the readiness report and its ignored JSON output.
@@ -201,6 +235,7 @@ make test-area00-return-reference
 make test-area13-route-reference
 make test-area15-route-reference
 make test-area19-route-reference
+make test-area03-route-reference
 EM_TEST_FULL=1 make test-area00-return-reference
 python3 tools/level_oracle_audit.py --check
 # OUT must be a new directory; this explicitly runs the multi-minute aggregate.

@@ -498,3 +498,22 @@ Scratch snapshots under `../Extermination/build/fifteenthcap/probe/`
    SHA-256 757d6f77... / 47ebe237..., equal to the pre-copies recorded in
    decomp docs/GS_CONFORMANCE.md, and SHA-1 equal to
    `build/s87/c7cap/fb2/pre/portable-data_memcards_Mcd00{1,2}.ps2`.
+
+## Native preparation audit (2026-10-18; branch `levels`)
+
+The original route above remains the ground truth. The native preparation
+now has separate unwired original-instruction proof for all six AREA15 event
+continuation routines (`em_area15_route`, 562 cases / 326 reachable words),
+and eight AREA03 routines (`em_area03_route`, 878 cases / 1,249 reachable words):
+init `00823580` (inside census pad `00823540`), turret `00823930`, partner
+`00825290`, lift callback `00826270`, parameter callback `00826330`, toggle
+`00826860`, and sound callbacks `00826880` / `008268B0`.
+
+Full receipts are `build/levels/oracle-area15-full-1/` and
+`build/levels/oracle-area03-full-1/` in the native worktree; source fingerprints
+are retained in `docs/LEVEL_ORACLE_EVIDENCE.json`. AREA03 input snapshots remain
+explicitly selected original v2.6.3 recordings. Reused AREA01 adversarial data
+with AREA03 original text is labeled as designed test input, not a new capture.
+No live binding, new recording or asset export is claimed by these passes.
+The remaining seven AREA03 functions and 28 missing boot entries stay on the
+step-2 backlog in `LEVEL_READINESS.md` / `LEVEL_ORACLE_AUDIT.md`.
