@@ -1933,6 +1933,19 @@ test-area01-flame-services-reference:
 test-area01-matrix-service:
 	python3 tools/test_area01_matrix_service_reference.py
 
+.PHONY: test-area00-return-reference test-level-readiness verify-level-oracles
+test-area00-return-reference:
+	EM_HEADLESS=1 python3 tools/test_area00_return_reference.py
+
+test-level-readiness:
+	python3 tools/test_level_readiness.py
+	python3 tools/test_level_oracle_audit.py
+
+# Explicit multi-minute aggregate; never part of the default test targets.
+# OUT must be a new ignored directory; EM_TEST_FULL requests exhaustive sweeps.
+verify-level-oracles:
+	python3 tools/level_oracle_audit.py --run $(OUT) $(if $(filter 1,$(EM_TEST_FULL)),--full,)
+
 .PHONY: test-area01-static-ground
 test-area01-static-ground:
 	python3 tools/test_area01_static_ground_reference.py

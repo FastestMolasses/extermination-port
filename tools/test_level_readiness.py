@@ -47,6 +47,27 @@ class ReadinessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             R.static_expression(ast.parse('start_emulator()', mode='eval').body, {})
 
+    def test_native_entry_table_is_indexed_but_size_table_alone_is_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'tools').mkdir()
+            (root / 'tools/test_area00_fx_reference.py').write_text(
+                "SIZES = {0x123456: 16, 0x123460: 32}\n"
+                "ENTRIES = {0x123456: ('rr', None)}\n"
+                "SOURCES = ['src/game/em_area00_fx_gs.c']\n")
+            owner = {'file': 'src/game/em_area00_fx_gs.c', 'symbol': 'e00123456'}
+            entries = R.oracle_entries(root, {}, {'boot:00123456': [owner]})
+            self.assertEqual(list(entries), ['boot:00123456'])
+            self.assertEqual(entries['boot:00123456'][0]['definitions'], [owner])
+            self.assertEqual(entries['boot:00123456'][0]['entry_table'], 'ENTRIES')
+
+    def test_passing_receipt_requires_an_identified_native_definition(self):
+        key = 'boot:00123456'
+        test = {'execution_evidence': {'mode': 'quick'}, 'definitions': []}
+        self.assertEqual(R.classify(key, [{}], {}, {key: [test]})[0], 'unverified')
+        test['definitions'] = [{'file': 'owned.c'}]
+        self.assertEqual(R.classify(key, [{}], {}, {key: [test]})[0], 'verified')
+
     def test_definitions_not_calls_comments_or_declarations(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

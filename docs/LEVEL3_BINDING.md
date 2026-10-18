@@ -10,6 +10,13 @@ no emulator was launched.
 
 ## Current state
 
+2026-10-18 standalone follow-up on branch `levels`: four missing AREA01 routines
+on the AREA00 return (`00823A90`, `00823CD0`, `008240E0`, `00826010`) now have an
+unwired translation in `em_area00_return.c`. Its original-instruction test
+passes 521 cases and all 534 reachable non-branch words, including 30 captured
+actor cases and the full fail-stop sweep. This is no AREA00 phase promotion.
+See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for exact scope and receipts.
+
 The new scene selection reaches AREA00 after ordinary New Game, AREA11
 and AREA01. The original load completes and selects AREA00 collision and
 scene resources. At counter 26922 the existing shaft phase observes
