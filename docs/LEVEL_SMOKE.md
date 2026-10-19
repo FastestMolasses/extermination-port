@@ -1847,6 +1847,8 @@ compared past row 957; the AREA00 arrival fault-stops at frame 0 (the
 32-view owner table, LEVEL3_BINDING.md), so a00_00..a00_10, a00_s0 and the
 AREA01 revisit (a01r_00..a01r_02, the bugs' attack on Roger and the
 bridge, AREA01_REVISIT.md) are not reached. No revisit harness exists yet.
+(Later on 2026-10-19 the owner table was raised to 256; the AREA00 arrival
+now stops at frame 0 in `0022DCD0`'s read `00269400`.)
 
 a01_03 row 957 is traced to the disc drive's per-read seek time
 (LEVEL2_BINDING.md "State (2026-10-19)"): the fork's far seeks to the
@@ -1947,7 +1949,10 @@ stated):
 2026-10-19 (port main 789b4b4): unchanged. Arrival aligns, then the
 frame-0 fault in `00156620` (`em_area11_boxes.c` `BOX_MAX = 32`, at least
 39 needed); zero AREA00 rows pass; the contract checks pass
-(`build/merge-1019-post/area00-harness.log`).
+(`build/merge-1019-post/area00-harness.log`). Later the same day the table
+was raised to the actor pool's 256 (LEVEL3_BINDING.md "Owner-view capacity
+(resolved 2026-10-19)"); arrival now stops at frame 0 in `0022DCD0`
+(the unexported read `00269400`), every earlier tick record unchanged.
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

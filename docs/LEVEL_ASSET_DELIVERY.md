@@ -242,8 +242,9 @@ Stage 3 now has recorded-area data exports and measured capacities; full
 native later-area drawing, unsampled runtime peaks, additional events/reloads
 and unrecorded branches remain separate proof. Stage 4 subsequently completed
 the retained fork route gaps (LEVEL_ROUTE_EVIDENCE.json). Stage 5 supplies the
-AREA00 surface/crate roots and retained pickup models, then reaches a
-protected 32-view owner limit; see LEVEL3_BINDING.md.
+AREA00 surface/crate roots and retained pickup models, then reached a
+32-view owner limit (raised to the actor pool's 256 on 2026-10-19; the
+arrival now stops at `0022DCD0`'s read `00269400`); see LEVEL3_BINDING.md.
 
 ## Reproduce (native arm64 macOS)
 
@@ -269,11 +270,10 @@ keeps the same comparisons and covers every listed case.
 
 Only the explicitly permitted texture capacity/index changes touch graphics.
 The later AREA00 continuation also proves a host owner-view capacity issue:
-`em_area11_boxes.c` allows 32 views, while its original arrival contains 26
+`em_area11_boxes.c` allowed 32 views, while its original arrival contains 26
 crates and 13 drums, requiring at least 39 before other world owners.
-The 256-slot original actor pool is a separate capacity. LEVEL3_BINDING.md
-records the exact native failure, a proposed main-owned diff, and an
-ASan/UBSan fixture confirming the current refusal and reuse behavior.
+Resolved 2026-10-19: the bound is now the actor pool's 256
+(LEVEL3_BINDING.md "Owner-view capacity (resolved 2026-10-19)").
 
 One further later-area renderer requirement is established: AREA04's static bank contains zero-TEX0
 vertices that the original actually draws with texturing enabled. Replaying

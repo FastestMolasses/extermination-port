@@ -14,14 +14,18 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
-**2026-10-19, port main 789b4b4 (the `levels` branch merged): AREA00 does
-not play yet.** The stop is unchanged: ordinary New Game reaches the AREA00
-arrival alignment (counter 26925 with the drive-timing switch, 26634 at
-host speed) and fault-stops at arrival frame 0 in drum callback `00156620`,
-because `em_area11_boxes.c` still holds `BOX_MAX = 32` owner views (the
-original arrival needs at least 39: 26 crates and 13 drums). That file is
-first-level code; the proposed change and its validation are in **Requests
-for main**. Zero AREA00 rows are certified: arrival, a00_00..a00_10 and the
+**2026-10-19 (port main 479f387 plus the owner-view raise): AREA00 does
+not play yet; the stop moved.** `em_area11_boxes.c`'s owner-view table now
+holds `BOX_MAX = EM_ACTOR_POOL_CAPACITY` (256) views, one per record of the
+original's actor pool, instead of 32 (the original arrival holds 26 crates
+and 13 drums, at least 39 views; "Owner-view capacity (resolved)" below).
+Ordinary New Game still reaches the arrival alignment (counter 26925 with
+the drive-timing switch) and now passes the crate and drum callbacks; it
+fault-stops at arrival frame 0 in the `[39]` owner `0022DCD0`
+(`em_area01_exita`, NEARMISS C in the decomp), which reads an unexported
+runtime address `00269400` (`em_area01: owner 0022DCD0 node 007B55D0
+failed at 00269400`; ignored `build/frontier2_i1_20261019_065540/a00-arrival-new/`).
+That read view is the next AREA00 unit. Zero AREA00 rows are certified: arrival, a00_00..a00_10 and the
 side return a00_s0 are all open, and so is the AREA01 revisit that follows
 a00_10 (AREA01_REVISIT.md). The harness itself passes its contract checks
 (`tools/test_level_smoke_area00.py --verify-harness`: 13 C branch paths,
@@ -73,9 +77,10 @@ the documented command) or 26634 at host speed
 (`build/levels/area00-arrival-hostspeed-review-1/`), then fails at arrival frame 0 in drum callback `00156620`:
 the protected `em_area11_boxes.c` owner table has 32 slots. The original
 arrival has 26 crates and 13 drums, so those callbacks alone require 39
-views. This is the current stop; the 512-texture refusal below is historical.
-The explicit ownership rule prohibits changing this AREA11 file. The
-proposed change and its required validation are in **Requests for main**.
+views. That was the stop until 2026-10-19, when main raised the table (the
+2026-10-13 branch's ownership rule had kept this AREA11 file unchanged);
+see "Owner-view capacity (resolved 2026-10-19)". The 512-texture refusal
+below is historical.
 
 2026-10-18 standalone follow-up on branch `levels`: four missing AREA01 routines
 on the AREA00 return (`00823A90`, `00823CD0`, `008240E0`, `00826010`) now have an
@@ -143,7 +148,7 @@ a refused write cannot fall back to a mutable legacy byte view.
 
 | Requested phase | New smoke scope | Native comparison result |
 |---|---|---|
-| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: alignment at counter 26925 (drive timing) / 26634 (host speed), then frame-0 `00156620` fault when the 32 shared owner views are exhausted |
+| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: alignment at counter 26925 (drive timing) / 26634 (host speed), then (since the owner-view raise, 2026-10-19) a frame-0 fault in `0022DCD0` at the unexported read `00269400`; before it, the `00156620` fault of the 32-view table |
 | 2. First world and neutral frames | Fork a01_07 f539..4555, including final 60 neutral rows | 0/4,017 rows certified; alignment reached, but the first owner walk still fails |
 | 3. Movement / collision | `a00_00..a00_10` | Not reached |
 | 4. Camera | Per-row eye/target/forward/flags plus whole endpoint camera RAM | Checker contract passes; native AREA00 camera not reached |
@@ -239,7 +244,26 @@ support includes the known sprite/streak/kind-2/kind-6/floor/ripple paths.
 Later channel-9 workers reached in `a00_09` remain an integration audit
 item, not a substantiated request to edit a protected file.
 
-## Requests for main
+## Owner-view capacity (resolved 2026-10-19)
+
+Applied on port main (iteration frontier2 i1): `BOX_MAX = EM_ACTOR_POOL_CAPACITY`
+in `src/game/em_area11_boxes.c`, so the host view table can never refuse an
+owner the original's 256-slot pool holds. The crate and drum callbacks
+(`001551B0`, `00156620`, both NEARMISS C in the decomp) are unchanged; the
+table is host bookkeeping. Slots are taken first-free in index order and
+reused by the freed / generation checks, so every owner the first level and
+AREA01 bind lands in the same slot as before (the fixture asserts slot n
+for the n-th owner). Proof (ignored `build/frontier2_i1_20261019_065540/`):
+`tools/test_area00_owner_capacity.py --require-supported --out ...` passes
+(bound 256, 39 needed, ASan/UBSan refusal and reuse); newgame-control
+9.599849; the AREA01 replay through a01_02 passes with its tick log
+byte-identical to the 789b4b4 receipt; the drive-switch New Game replay to
+the AREA00 arrival has every tick record byte-identical to the unchanged
+binary's (25,669 of 25,670 rows; the last is the faulting arrival frame
+itself, which now runs further) and identical RNG values; the full and
+drive-switch level smokes pass (receipts in the same folder).
+
+The original request follows for the record.
 
 **Raise the protected shared owner-view capacity.** In
 `src/game/em_area11_boxes.c`, `BOX_MAX=32` limits both the `Box` views and
@@ -250,7 +274,7 @@ and 13 drums (39 views before counting doors and other world owners).
 The last resident capture retains 32 crates/drums. The live failure is
 `more AREA11 boxes than slots`, from `00156620`, at arrival frame 0.
 
-Proposed diff for main to review and apply; it is **not applied** here:
+Proposed diff for main (applied 2026-10-19, above):
 
 ```diff
 --- a/src/game/em_area11_boxes.c
@@ -318,7 +342,7 @@ nice -n 15 python3 tools/test_area01_sfx_registry.py
 nice -n 15 python3 tools/test_world_textures_reference.py
 nice -n 15 python3 tools/test_scene_no_shadow.py
 nice -n 15 env EM_HEADLESS=1 EM_STARTUP_TEST=newgame-control build/extermination
-# Long diagnostic: currently expected to fail at 00156620 (the 32-view owner table).
+# Long diagnostic: currently expected to fail at frame 0 in 0022DCD0 (the unexported read 00269400).
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/live-arrival-1
 # Later full-route and independent side-return checks:
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
@@ -379,8 +403,9 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop is `00156620` at arrival frame 0, caused by
-the protected 32-view owner table. Surface dimensions, retained pickup
+The current reproducible stop (2026-10-19) is `0022DCD0` at arrival frame
+0, reading the unexported `00269400`; the earlier `00156620` stop (the
+32-view owner table) is resolved. Surface dimensions, retained pickup
 models and crate roots are now supplied exactly, with no native game-code
 changes. Arrival aligns, but still has zero certified rows. Movement,
 camera, interactions, drawing and both returns remain uncertified.
@@ -389,7 +414,7 @@ missing workers. The inherited AREA01 a01_03 row-957 difference also
 remains; since 2026-10-19 it is traced to the disc drive's per-read seek
 time and waits for a user decision (LEVEL2_BINDING.md "State (2026-10-19)").
 
-After main resolves the owner-view capacity, rerun arrival before
+With the owner-view capacity resolved, supply the `00269400` read and rerun arrival before
 expanding downstream phases. Preserve the first fault and bind remaining
 workers to their existing owners. Then compare all
 4,017 arrival/neutral rows and the ending camera memory, followed by each

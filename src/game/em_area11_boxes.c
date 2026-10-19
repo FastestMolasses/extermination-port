@@ -40,10 +40,14 @@
 #include "game/em_truck_original.h"
 
 enum {
-    /* four crates, two drums, the truck and the door, and the other world
-     * owners bound through em_area11_boxes_owner_* (the terminal, the panel,
-     * the prop 001C4820, the item owners; room for the rest) */
-    BOX_MAX = 32,
+    /* Host views of the crates, drums, the truck, the door and the other
+     * world owners bound through em_area11_boxes_owner_*: at most one per
+     * live record of the original's 256-slot actor pool (D_00275BC8), so the
+     * table can never refuse an owner the original holds (AREA00's arrival
+     * alone holds 26 crates and 13 drums). A slot is taken first-free in
+     * index order and reused by the freed / generation checks, so the
+     * first 32 slots (all AREA11 and AREA01 ever held) are unchanged. */
+    BOX_MAX = EM_ACTOR_POOL_CAPACITY,
     BONE_SLOTS = EM_SLG_BONE_SLOTS,
     RATTLE_ROWS = 7
 };

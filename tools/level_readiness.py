@@ -593,9 +593,10 @@ def markdown(report):
         'captures remain original evidence; a fork recording does not establish legacy parity. '
         'Record displayed fields and missing boundary counters where needed; use the shared run lock.',
         '5. AREA00 surface dimensions, pickup library models and crate roots now pass delivery/oracle checks. '
-        'Arrival aligns, then fails at frame 0 in `00156620`: the protected AREA11 owner table has 32 '
-        'views, while the original AREA00 crates/drums alone require 39. Main must resolve that capacity '
-        'before neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite '
+        'Arrival aligns; the shared owner-view table now holds the actor pool\'s 256 views (the original AREA00 '
+        'crates/drums alone require 39; raised 2026-10-19), and arrival fails at frame 0 in `0022DCD0`, which '
+        'reads the unexported `00269400`. Supply that read before neutral frames, movement, camera, drawing, '
+        'interactions and both returns. Preserve the strict AREA01 prerequisite '
         'difference (a01_03 row 957, traced 2026-10-19 to the disc drive\'s per-read seek time; a user decision) and every first '
         'divergent row. See ' + link('docs/LEVEL3_BINDING.md') + ' and ' + link('docs/LEVEL2_BINDING.md') + '.', '',
         '## Route coverage and function counts', '',
@@ -652,7 +653,7 @@ def markdown(report):
               '| Object textures | 1024 (`src/em_gfx.h`), hash lookup | Fixed maximum 609; AREA00 580; unresolved zero keys retained separately | All required default/GPU regressions pass; runtime materials need main |',
               '| SFX entries / samples | 4096 / 1024 (`em_sfx_bank.c`) | Available catalog union 14274 / 348; two conflicting office entries | Complete per-area selection or larger combined registry and corrected office binding require main |',
               '| Actor records | 256 (`em_actor_pool.h`) | Snapshot maximum 134; original free counters agree | Whole-route peaks remain unmeasured |',
-              '| Shared box/world owner views | 32 (`em_area11_boxes.c`, protected) | AREA00 arrival has 26 crates + 13 drums, at least 39 views | Native frame-0 refusal confirmed; proposed canonical actor-capacity bound in LEVEL3_BINDING.md requires main |',
+              '| Shared box/world owner views | 256 (`em_area11_boxes.c`, the actor pool bound) | AREA00 arrival has 26 crates + 13 drums, at least 39 views | Raised 2026-10-19 with byte-identical first-level and AREA01 ticks; the arrival passes 00156620 (LEVEL3_BINDING.md) |',
               '| Effect entities / selected receivers | 128 / 512 | Effect snapshots contain zero live entries; all sixteen full receiver banks parse | Snapshot absence is not a route peak; selected receiver peak remains unmeasured |', '',
               '## Capture limits still requiring work', '',
               '- The retained legacy censuses are route-shape coverage. Some census replays differ from their '
@@ -673,8 +674,8 @@ def markdown(report):
               'The explicit texture capacity/index exception passes its regression proof. The AREA04 zero-key original-draw '
               'counterexample and required runtime texture handling are recorded in LEVEL_ASSET_DELIVERY.md. '
               'They remain outside the allowed texture-capacity exception. '
-              'AREA00 now reaches the protected 32-view box/world owner limit, with a measured minimum of 39; '
-              'LEVEL3_BINDING.md contains the proposed diff and validation required from main. '
+              'The AREA00 box/world owner-view limit (32, with a measured minimum of 39) is resolved: the bound is '
+              'the actor pool\'s 256 (LEVEL3_BINDING.md). '
               'Other prerequisites: the user\'s decision on AREA01\'s a01_03 row-957 difference (the disc drive\'s per-read seek time, '
               'LEVEL2_BINDING.md) and the measured SFX capacity/scope decision.', '',
               '## Readiness checkpoint (2026-10-18)', '',
@@ -688,16 +689,16 @@ def markdown(report):
               'See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for the new translations and remaining '
               'step-2 gaps. [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md) records the stage-3 '
               'private exports and remaining capacity work. Supplemental fork captures are indexed separately; '
-              'AREA00 continuation is at the protected 32-view owner capacity; see LEVEL3_BINDING.md for the '
-              'proposed main-owned change and exact evidence.', '',
+              'AREA00 continuation then reached the 32-view owner capacity, resolved on 2026-10-19; see '
+              'LEVEL3_BINDING.md for the change and exact evidence.', '',
               '## Native play state (2026-10-19)', '',
               'Measured on port main 789b4b4, headless. From New Game the port plays the whole first level '
               '(newgame-control 9.599849; the full and drive-switch level smokes pass), then AREA01 row for row '
               'through a01_02 (arrival, a01_00 781, a01_01 306, a01_02 591 rows) and a01_03 rows f0..f956 of 992 with '
               'the drive-timing switch. Row 957 is the disc drive\'s per-read seek time (6 or 7 fields on the fork, the '
               'model\'s 6); a private diagnostic build serving the fork\'s per-read values passes all 992 rows; the harness '
-              'path waits for a user decision (LEVEL2_BINDING.md). AREA00 fault-stops at arrival frame 0 (the 32-view '
-              'owner table, LEVEL3_BINDING.md); a00_00..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the '
+              'path waits for a user decision (LEVEL2_BINDING.md). AREA00 fault-stops at arrival frame 0 (since the '
+              'owner-view raise, in 0022DCD0 at the unexported read 00269400; LEVEL3_BINDING.md); a00_00..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the '
               'bugs\' attack on Roger and the bridge, AREA01_REVISIT.md) are not reached, and the revisit has no harness yet.', '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '

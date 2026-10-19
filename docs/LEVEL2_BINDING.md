@@ -56,7 +56,8 @@ port main after Codex's `levels` branch was merged (789b4b4, reviewed
 - **Plays without a fault but uncompared** past row 957: the replay
   reaches the shaft door, the conversations and the level exit; the AREA00
   load completes and the AREA00 arrival fault-stops at frame 0
-  (LEVEL3_BINDING.md "Current state": the 32-view owner table).
+  (LEVEL3_BINDING.md "Current state": since 2026-10-19 the `0022DCD0`
+  read `00269400`; the 32-view owner table is raised).
 
 **Decision needed (user):** how the harnesses match the drive's per-read
 seek spread: (a) a comparison-only drive replay (a developer switch, off by
