@@ -462,9 +462,8 @@ Nothing calls these entries. To run them live a host must:
   001EFE00, 001FBD50, 001F5940, 001F66F0, 001CFB50, 001CFBE0 ...) to the
   modules that name them by address (`em_roger_actor`, `em_director_original`,
   `em_effect_original`, `em_effects_live`, `em_effect_kinds`,
-  `em_player_misc`, ...), or to fail-stop stand-ins; the seven AREA15
-  hooks (0x823B40 .. 0x824C90) have no translation (this route did not run
-  them);
+  `em_player_misc`, ...), or to fail-stop stand-ins; the AREA15 hooks remain explicit boundaries (see the full-census
+  continuation audit below for six newly verified translations);
 - run the AREA15 entries as the node behaviours of their placements (sub 0:
   0x8235A0 [0], 0x825320, 0x825430, 0x825D10, and the placements that end at
   once: 0x824070, 0x824510, 0x824990, 0x824E00; sub 1: 0x823850, 0x8252D0,
@@ -487,9 +486,9 @@ Nothing calls these entries. To run them live a host must:
   branch both ways, the bound cases), not a reading of the code.
 - **Census lower bound.** The census sets are those of the route shape, not
   of the exact frames (FOURTEENTH_LEVEL_ROUTE.md section 5: most replays
-  walked different paths); functions run only off this route (the seven
-  AREA15 hooks, 00153B50 / 00153EA0, the other 0x823xxx sub-handlers) are
-  not rows here.
+  walked different paths); functions absent from this delta (the AREA15 hooks, 00153B50 /
+  00153EA0, the other 0x823xxx sub-handlers) are not rows here. The full
+  level-15 census does include several of them; see the continuation below.
 - **Stubbed callees' inputs.** Only the RUN helpers are proven not to read a
   register their hook does not pass; the other hooks' argument lists were
   taken from earlier lanes' HOOKS tables and the decomp's prototypes, and
@@ -503,3 +502,21 @@ Nothing calls these entries. To run them live a host must:
 - **Float proofs rest on the EE model** (`em_ee_float.h`).
 - **Mutation sweep** is a bounded sample, not exhaustive.
 - **The reused 19** were not re-run over the a19d images (section 3.5).
+
+## Full-census continuation audit (2026-10-18)
+
+The full level-15 route runs six AREA15 subroutines absent from this delivery's
+delta inventory: `00823B40` countdown/range gate, `00823C80` transition,
+`00823F60` camera callback, and script/interaction handlers `00824240`,
+`00824350`, `008243E0`. They now have standalone translations in
+`em_area15_route.c`. Existing level-14 worker boundaries stay unchanged and the
+new module has no live caller. `00824C90` is still a worker boundary outside
+this new six-entry inventory; this extension does not certify it.
+
+`make test-area15-route-reference` passes 562 cases and 326/326 reachable words,
+including the full fail-stop sweep. The source-fingerprinted full receipt is
+`build/levels/oracle-area15-full-1/`. Inputs are explicitly retained original
+v2.6.3 captures. The two countdown translations were corrected to reread their
+signed halfword after the decrement store; the comparisons were unchanged.
+Camera return and timer-boundary mutations were detected. See
+`LEVEL_ORACLE_AUDIT.md` for the shared checks and the remaining route backlog.

@@ -1,5 +1,32 @@
 # AREA04 new functions (level-3/4 side track lane A04T)
 
+## Full-route audit extension (2026-10-18)
+
+The original delta-only inventory below is now extended by two missing owners
+from the full census: `00824320` (the owner of `00824490`, including model setup,
+progression flag handling and destruction) and `00825510` (the subtype-0x11
+platform/script owner and the other subtypes' prompt/talk path). The public module
+now has 21 entries. Both follow their matching decomp C and remain **UNWIRED**.
+`00824320` calls the existing `00824490` directly with entry SP minus `0x20`;
+its other handler, `008245F0`, remains an explicit hook to the existing level-8
+translation. That hook is not a second translation or a live binding.
+
+The expanded quick run initially passed 2,047 cases, 1,864/1,864 reachable
+non-branch words and the complete hook contract: 630 native failure runs across
+41 sites, 61 hooks plus the callback, and all 21 entries' memory-view refusals.
+The new entries account for 64 and 163 reachable words respectively. The oracle
+caught the prompt setup's write order: after reading z, the first three color
+words are stored before the transformed z and w, then the final color word.
+The translation was corrected; the access-order assertion was unchanged.
+After adding float-boundary and scribbling-worker cases, the full sweep passes
+2,881 cases, all 1,864 reachable words and 623 native failure runs. Its receipt
+is `build/levels/oracle-area04-full-1/`. The current proof is recorded in [LEVEL_ORACLE_EVIDENCE.json](LEVEL_ORACLE_EVIDENCE.json); the current
+source fingerprint is the authority for whether that run still applies.
+
+The following sections retain the original 19-entry delivery's historical
+measurements. See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for current scope,
+remaining route gaps and reproduction commands.
+
 Lane A04T, 2026-09-28. It covers the 16 functions the AREA04 route census
 found new (decomp `build/s87/census/a04_delta.json`, `new_functions`): the 14
 AREA04 overlay functions that ran on the main line and the two boot

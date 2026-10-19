@@ -2,7 +2,7 @@
  * docs/AREA04_PORT.md).
  *
  * Each function below is a translation of the original code at the named
- * runtime address. The 17 overlay functions follow the decomp's
+ * runtime address. The 19 overlay functions follow the decomp's
  * byte-identical C (src/overlays/AREA04/<name>.c, link name = runtime -
  * 0x40); 001BE5F0 follows the original instructions (the decomp holds it as
  * inline asm) and 001C1A80 follows the decomp's NEARMISS C checked against
@@ -652,6 +652,137 @@ int em_area04_port_00824490(const EmArea04PortHooks *h, uint32_t self, uint32_t 
     if (a04_begin(&o, h, fault)) return -1;
     a04_824490(&o, self, sp);
     return a04_end(&o);
+}
+
+/* Full-route census gap: the owner of 00824490. The original owner frame
+ * precedes the nested handler's local frame; the other state handler is the
+ * existing level-8 translation and remains an explicit worker here. */
+int em_area04_port_00824320(const EmArea04PortHooks *h, uint32_t self, uint32_t sp, EmArea04PortFault *fault)
+{
+    A04 state, *o = &state;
+    int32_t r = 0;
+    uint32_t phase;
+    if (a04_begin(o, h, fault)) return -1;
+    switch (a04_u8(o, self + 4)) {
+    case 0:
+        if (a04_c_001BA1C0(o, self, 0x1A, &r)) return -1;
+        if (r) {
+            a04_w8(o, self + 4, 3); a04_w8(o, D_008107E9, 0xFF);
+        } else {
+            if (a04_u8(o, D_008107E9) == 1) a04_w32(o, self + 0xC4, 0xBFC90FDBu);
+            if (a04_c_001B10B0(o, self, (int32_t)a04_u8(o, self + 0xD), 0x52, &r)) return -1;
+            if (a04_c_001C63E0(o, self, 0)) return -1;
+            if (a04_c_001CA6F0(o, self, 2)) return -1;
+            if (a04_c_001BA8E0(o, self, (int32_t)a04_u8(o, self + 0xD))) return -1;
+            a04_w32(o, self + 0x58, a04_u32(o, 0x28A5DC));
+            a04_w32(o, self + 0x30, 0x828210);
+            a04_w8(o, self + 4, 1); a04_w8(o, self, 1);
+        }
+        break;
+    case 1:
+        phase = a04_u8(o, D_008107E9);
+        if (phase == 0) a04_824490(o, self, sp - 0x20);
+        else if (phase == 1 && a04_c_008245F0(o, self)) return -1;
+        if (a04_c_001C68C0(o, self)) return -1;
+        if (a04_c_001B17A0(o, self, &r)) return -1;
+        a04_callback(o, self);
+        break;
+    case 2: case 3:
+        if (a04_c_001BA540(o, self)) return -1;
+        a04_c_001AFC10(o, self);
+        break;
+    default: break;
+    }
+    return a04_end(o);
+}
+
+/* Full-route census gap: the placed subtype-0x11 platform/script owner and
+ * the other subtypes' prompt and talk sequence. State 1 deliberately falls
+ * into state 4's completion test after either script selection. */
+int em_area04_port_00825510(const EmArea04PortHooks *h, uint32_t self, EmArea04PortFault *fault)
+{
+    A04 state, *o = &state;
+    int32_t r = 0;
+    uint32_t block = self + 0x1F0, x, y, z;
+    if (a04_begin(o, h, fault)) return -1;
+    switch (a04_u8(o, self + 4)) {
+    case 0:
+        if (a04_u8(o, self + 3) == 0x11) {
+            y = a04_u8(o, 0x8107BD) ? em_ee_bits(55.0f) : F_14_9;
+            a04_w32(o, self + 0xB0, em_ee_bits(317.0f));
+            a04_w32(o, self + 0xB4, y);
+            a04_w32(o, self + 0xB8, em_ee_bits(260.0f));
+        } else a04_w32(o, self + 0x30, 0x82C1E0);
+        if (a04_c_001B0FD0(o, self, &r)) return -1;
+        if (!r) {
+            if (a04_c_001C6380(o, self)) return -1;
+            if (a04_c_001A2370(o, self, self + 0xD0)) return -1;
+            a04_w8(o, self + 4, 1); a04_w8(o, self, 1);
+        }
+        break;
+    case 1:
+        if (a04_u8(o, self + 3) == 0x11) {
+            switch (a04_u8(o, self + 5)) {
+            case 0:
+                if (a04_u8(o, D_0081083D) == 1) a04_w8(o, self + 5, 1);
+                break;
+            case 1:
+                if (a04_u8(o, 0x8107BD) == 0) {
+                    if (a04_c_001BA1A0(o, block, 0x82C060)) return -1;
+                    a04_w8(o, self + 5, 4);
+                } else {
+                    if (a04_c_001BA1A0(o, block, 0x82C120)) return -1;
+                    a04_w8(o, self + 5, 8);
+                }
+                /* fall through */
+            case 4:
+                if (a04_c_001BA1F0(o, self, &r)) return -1;
+                if (r) { a04_w8(o, self + 5, 0x10); a04_w8(o, 0x8107BD, 1); }
+                if (a04_c_001C6380(o, self)) return -1;
+                if (a04_c_001A2370(o, self, self + 0xD0)) return -1;
+                break;
+            case 8:
+                if (a04_c_001BA1F0(o, self, &r)) return -1;
+                if (r) { a04_w8(o, self + 5, 0x10); a04_w8(o, 0x8107BD, 0); }
+                if (a04_c_001C6380(o, self)) return -1;
+                if (a04_c_001A2370(o, self, self + 0xD0)) return -1;
+                break;
+            case 0x10: a04_w8(o, self + 5, 0); break;
+            default: break;
+            }
+            if (a04_c_001B1B70(o, self)) return -1;
+            if (a04_c_001C6380(o, self)) return -1;
+            a04_callback(o, self);
+        } else {
+            x = a04_u32(o, self + 0xB0); a04_w32(o, S_700038A0, x);
+            y = a04_u32(o, self + 0xB4); a04_w32(o, S_700038A4, y);
+            z = a04_u32(o, self + 0xB8);
+            a04_w32(o, S_700038B0, 0); a04_w32(o, S_700038B4, 0x80);
+            a04_w32(o, S_700038B8, 0);
+            a04_w32(o, S_700038A8, em_ee_sub_bits(z, em_ee_bits(0.3f)));
+            a04_w32(o, S_700038AC, F_ONE); a04_w32(o, S_700038BC, 0x80);
+            if (a04_c_001F4BF0(o, S_700038A0, S_700038B0)) return -1;
+            switch (a04_u8(o, self + 5)) {
+            case 0:
+                if (a04_u8(o, self + 0xB) & 4) {
+                    if (a04_c_001BA1A0(o, block, 0x82BD60)) return -1;
+                    a04_w8(o, self + 5, 1);
+                }
+                break;
+            case 1:
+                if (a04_c_001BA1F0(o, self, &r)) return -1;
+                if (r) { a04_w8(o, self + 0xB, 0); a04_w8(o, self + 5, 0); }
+                break;
+            default: break;
+            }
+            if (a04_c_001B17A0(o, self, &r)) return -1;
+            a04_callback(o, self);
+        }
+        break;
+    case 2: case 3: a04_c_001AFC10(o, self); break;
+    default: break;
+    }
+    return a04_end(o);
 }
 
 /* ------------------------------------------------------------------------

@@ -498,4 +498,36 @@ static inline void a04_open(A04 *o, const EmArea04PortHooks *h, EmArea04PortFaul
     memset(o->sink, 0, sizeof o->sink);
 }
 
+static inline int a04_c_001BA540(A04 *o, uint32_t self)
+{
+    if (a04_failed(o)) return -1;
+    if (!o->h->w_001BA540) return a04_latch(o, 0x001BA540u, EM_AREA04_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001BA540(o->h->ctx, self) < 0 ?
+        a04_latch(o, 0x001BA540u, EM_AREA04_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a04_c_001BA8E0(A04 *o, uint32_t self, int32_t value)
+{
+    if (a04_failed(o)) return -1;
+    if (!o->h->w_001BA8E0) return a04_latch(o, 0x001BA8E0u, EM_AREA04_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001BA8E0(o->h->ctx, self, value) < 0 ?
+        a04_latch(o, 0x001BA8E0u, EM_AREA04_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a04_c_001CA6F0(A04 *o, uint32_t self, int32_t value)
+{
+    if (a04_failed(o)) return -1;
+    if (!o->h->w_001CA6F0) return a04_latch(o, 0x001CA6F0u, EM_AREA04_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001CA6F0(o->h->ctx, self, value) < 0 ?
+        a04_latch(o, 0x001CA6F0u, EM_AREA04_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a04_c_008245F0(A04 *o, uint32_t self)
+{
+    if (a04_failed(o)) return -1;
+    if (!o->h->w_008245F0) return a04_latch(o, 0x008245F0u, EM_AREA04_PORT_FAULT_NULL_WORKER);
+    return o->h->w_008245F0(o->h->ctx, self) < 0 ?
+        a04_latch(o, 0x008245F0u, EM_AREA04_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 #endif /* EM_AREA04_PORT_INTERNAL_H */

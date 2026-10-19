@@ -155,11 +155,14 @@ FUNCS = {
     0x21AE90: ('em_area06_port_0021AE90', 0x2F0, [U], None),
     0x1CE860: ('em_area06_port_001CE860', 0x678, [I, I, U, U, I, Q, F, S], None),
     0x823580: ('em_area06_port_00823580', 0x58C, [U], None),
+    0x823B50: ('em_area06_port_00823B50', 0x58C, [U, S], None),
+    0x8240E0: ('em_area06_port_008240E0', 0x1A4, [U], None),
+    0x824340: ('em_area06_port_00824340', 0x214, [U], None),
     0x8242C0: ('em_area06_port_008242C0', 0x80, [U, U], I),
     0x824560: ('em_area06_port_00824560', 0x18BC, [U, S], None),
     0x826950: ('em_area06_port_00826950', 0x244, [U, U, U], I),
 }
-OVERLAY_OF = {0x823580: 6, 0x8242C0: 6, 0x824560: 6, 0x826950: 2}
+OVERLAY_OF = {0x823B50: 6, 0x8240E0: 6, 0x824340: 6, 0x823580: 6, 0x8242C0: 6, 0x824560: 6, 0x826950: 2}
 
 
 def has_result(entry):
@@ -217,7 +220,7 @@ HOOKS = [
     ('w_001B1EA0', 0x1B1EA0, [(I, 4), (U, 5), (U, 6), (I, 7)], I),
     ('w_001BA1A0', 0x1BA1A0, [(U, 4), (U, 5)], None),
     ('w_001BA1C0', 0x1BA1C0, [(U, 4), (I, 5)], I),
-    ('w_001BA1F0', 0x1BA1F0, [(U, 4)], None),
+    ('w_001BA1F0', 0x1BA1F0, [(U, 4)], I),
     ('w_001C5570', 0x1C5570, [(U, 4), (U, 5), (I, 6), (I, 7)], U),
     ('w_001C6380', 0x1C6380, [(U, 4)], None),
     ('w_001CB5B0', 0x1CB5B0, [(I, 4)], None),
@@ -241,6 +244,11 @@ HOOKS = [
     ('w_00207D00', 0x207D00, [(I, 4), (I, 5)], None),
     ('w_00207E40', 0x207E40, [(I, 4), (I, 5), (I, 6), (I, 7), (I, 8), (U, 9), (Q, 10)], None),
     ('w_0020CD60', 0x20CD60, [], None),
+    ('w_00102B08', 0x102B08, [(U, 4), (U, 5), (F, 12)], None),
+    ('w_001B6F00', 0x1B6F00, [(U, 4), (U, 5), (F, 12)], None),
+    ('w_001C4760', 0x1C4760, [(I, 4), (I, 5)], None),
+    ('w_001D04B0', 0x1D04B0, [(U, 4), (I, 5), (U, 6), (F, 12), (F, 13)], None),
+    ('w_001B17A0', 0x1B17A0, [(U, 4)], I),
 ]
 BY_ADDRESS = {address: (name, args, result) for name, address, args, result in HOOKS}
 
@@ -1393,7 +1401,7 @@ def poison_patches(oracle, ram, spad):
     return patches, (bytes(stack) if any(stack) else None)
 
 
-SELF_ENTRIES = {0x219870, 0x824560}   # the entries that reach their node's +0x4C method
+SELF_ENTRIES = {0x219870, 0x824560, 0x824340}   # the entries that reach their node's +0x4C method
 SCRIBBLED_CALLBACKS = set()
 HEAVY = {0x219870, 0x824560, 0x207350, 0x1944B0, 0x1CE860}
 
@@ -1537,6 +1545,9 @@ def case_list(elf):
     for beat in BEATS:
         ram, spad = CAPTURES[beat]
         if RESIDENT[beat] == 6:
+            for entry in (0x823B50, 0x8240E0, 0x824340):
+                for node in owners(ram, entry):
+                    add(f'capture {beat} {entry:06X} @{node:X}', beat, entry, [node])
             for node in owners(ram, 0x219870):
                 add('capture %s 219870 @%X' % (beat, node), beat, 0x219870, [node])
                 add('capture %s 219F50 @%X' % (beat, node), beat, 0x219F50, [node])
@@ -1556,6 +1567,7 @@ def case_list(elf):
         add('capture %s 1EA210' % beat, beat, 0x1EA210, [fb(2.0)])
     captured = len(cases)
     targeted_cases(add)
+    full_route_cases(add)
     targeted = len(cases) - captured
     perturbed_cases(add, rng)
     return cases, captured, targeted
@@ -1598,6 +1610,60 @@ def perturbed_cases(add, rng):
             [(PLAYER + 0x230, w32(rng.randrange(29, 38))), (0x810690, rf(0, 60)), (CAM + 0xC, rf(-50, 50)),
              (CAM + 0x44, rf(-3.1, 3.1)), (PLAYER + 0xC4, rf(-3.1, 3.1)), (0x810700, bytes([rng.choice([6, 8, 0x13]), 1]))],
             full=True)
+
+
+def full_route_cases(add):
+    beat = 'a06_02_keypad'
+    ram, _ = CAPTURES[beat]
+    spawner = owners(ram, 0x823B50)[0]
+    switch = owners(ram, 0x824340)[0]
+    effect = FREE + 0x3100
+    spawned = FREE + 0x4000
+    for state in (0,1,2,3,4):
+        for step in (0,1,2,3):
+            for stop in (0,1):
+                for timer in (0,1,12,13,40,41,48,49):
+                    add(f'gap/823B50/{state}/{step}/{stop}/{timer}',beat,0x823B50,[spawner],
+                        [(spawner+4,b8(state)),(spawner+5,b8(step)),(0x810702,b8(stop)),
+                         (spawner+0x1F0,w32(timer & 1)),(spawner+0x1F4,w32(timer)),(spawner+0x1F8,w32(0))],
+                        queues={0x122BB8:[0]*8,0x1EFEB0:[0,spawned]},run_set=RUN-{0x122BB8})
+    for step in (0,1,2):
+        for choice in (0,1,2,3,5,6,7,0x7FFFFFFF,-3,-6,-12):
+            add(f'gap/823B50/random/{step}/{choice}',beat,0x823B50,[spawner],
+                [(spawner+4,b8(1)),(spawner+5,b8(step)),(0x810702,b8(0)),(spawner+0x1F4,w32(1)),
+                 (spawner+0x1F8,w32(choice%3)),(spawner+0x1F0,w32(0))],
+                queues={0x122BB8:[choice,0,choice,choice],0x1EFEB0:[0,spawned]},run_set=RUN-{0x122BB8})
+    add('gap/823B50/spawn-refused',beat,0x823B50,[spawner],
+        [(spawner+4,b8(1)),(spawner+5,b8(2)),(0x810702,b8(0)),(spawner+0x1F4,w32(1)),
+         (spawner+0x1F8,w32(0)),(spawner+0x1F0,w32(0))],
+        queues={0x122BB8:[0]*8,0x1EFEB0:[0,0]},run_set=RUN-{0x122BB8})
+    for state in (0,1,2,3,4):
+        for variant in (0,1,2,3,255):
+            for time in (0.0,1.0,1.085,1.1,-1.0):
+                add(f'gap/8240E0/{state}/{variant}/{time}',beat,0x8240E0,[effect],
+                    [(effect,bytes(0x2F0)),(effect+4,b8(state)),(effect+0xD,b8(variant)),(effect+0x1F0,f32b(time))],
+                    queues={0x122BB8:[0x7FFFFFFF,0]},run_set=RUN-{0x122BB8})
+    for state in (0,1,2,3,4):
+        for step in (0,1,2,3):
+            for flag in (0,0x20):
+                for bit in (0,1):
+                    for result in (0,1,-1):
+                        add(f'gap/824340/{state}/{step}/{flag}/{bit}/{result}',beat,0x824340,[switch],
+                            [(switch+4,b8(state)),(switch+5,b8(step)),(switch+0xB,b8(4*bit)),
+                             (0x810845,b8(flag)),(0x810C87,b8(bit)),(0x810CCA,b8(bit))],
+                            queues={0x1BA1F0:[result],0x1B17A0:[result]})
+    for raw in (0,0x80000000,1,0x80000001,0x7F800001,0xFF800000,fb(1.085)-1,fb(1.085)+1):
+        add(f'gap/8240E0/bits/{raw:x}',beat,0x8240E0,[effect],
+            [(effect,bytes(0x2F0)),(effect+4,b8(1)),(effect+0xD,b8(2)),(effect+0x1F0,w32(raw))])
+    add('gap/8240E0/reload-time',beat,0x8240E0,[effect],
+        [(effect,bytes(0x2F0)),(effect+4,b8(1)),(effect+0xD,b8(2))],
+        queues={0x1D04B0:[Scribble(None,[(effect+0x1F0,f32b(0.25)),(effect+0x1F8,f32b(0.5))])]})
+    add('gap/823B50/period-copy',beat,0x823B50,[spawner],
+        [(spawner+4,b8(0)),(0x810702,b8(1))],
+        queues={0x122BB8:[Scribble(0,[(0x826AC8,w32(777))]),1]},run_set=RUN-{0x122BB8})
+    add('gap/824340/reload-step',beat,0x824340,[switch],
+        [(switch+4,b8(1)),(switch+5,b8(0)),(switch+0xB,b8(4))],
+        queues={0x1B6F00:[Scribble(None,[(switch+5,b8(17))])],0x1B17A0:[1]})
 
 
 def targeted_cases(add):

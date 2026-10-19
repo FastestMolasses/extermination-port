@@ -1933,6 +1933,19 @@ test-area01-flame-services-reference:
 test-area01-matrix-service:
 	python3 tools/test_area01_matrix_service_reference.py
 
+.PHONY: test-area00-return-reference test-level-readiness verify-level-oracles
+test-area00-return-reference:
+	EM_HEADLESS=1 python3 tools/test_area00_return_reference.py
+
+test-level-readiness:
+	python3 tools/test_level_readiness.py
+	python3 tools/test_level_oracle_audit.py
+
+# Explicit multi-minute aggregate; never part of the default test targets.
+# OUT must be a new ignored directory; EM_TEST_FULL requests exhaustive sweeps.
+verify-level-oracles:
+	python3 tools/level_oracle_audit.py --run $(OUT) $(if $(filter 1,$(EM_TEST_FULL)),--full,)
+
 .PHONY: test-area01-static-ground
 test-area01-static-ground:
 	python3 tools/test_area01_static_ground_reference.py
@@ -1985,6 +1998,17 @@ test-area01-target-hit-reference:
 	python3 tools/test_area01_target_hit_reference.py
 	python3 tools/test_area01_target_hit_live_reference.py
 
+# Level route continuation references (LEVEL_ORACLE_AUDIT.md).
+.PHONY: test-area13-route-reference test-area15-route-reference test-area19-route-reference test-area03-route-reference
+test-area13-route-reference:
+	python3 tools/test_area13_route_reference.py
+test-area15-route-reference:
+	python3 tools/test_area15_route_reference.py
+test-area19-route-reference:
+	python3 tools/test_area19_route_reference.py
+test-area03-route-reference:
+	python3 tools/test_area03_route_reference.py
+
 # The AREA01 crash sweep's remaining original-instruction suites (LEVEL2_CRASHES.md).
 .PHONY: test-aim-fire-target-pool-reference test-area01-aim-model-reference test-area01-crawl-clip-reference test-area01-hull-live-reference test-area01-stream-export test-area01-terminal-progress-reference test-player-spawn-contact-reference test-player-spawn-rotation-reference test-player-stage-position-reference
 test-aim-fire-target-pool-reference:
@@ -2005,3 +2029,60 @@ test-player-spawn-rotation-reference:
 	python3 tools/test_player_spawn_rotation_reference.py
 test-player-stage-position-reference:
 	python3 tools/test_player_stage_position_reference.py
+
+.PHONY: test-area03-arrival-reference
+test-area03-arrival-reference:
+	python3 tools/test_area03_arrival_reference.py
+
+.PHONY: test-level15-support-reference
+test-level15-support-reference:
+	python3 tools/test_level15_support_reference.py
+
+.PHONY: test-level15-creatures-reference
+test-level15-creatures-reference:
+	python3 tools/test_level15_creatures_reference.py
+
+.PHONY: test-level15-fountain-reference
+test-level15-fountain-reference:
+	python3 tools/test_level15_fountain_reference.py
+
+.PHONY: test-level15-motion-reference
+test-level15-motion-reference:
+	python3 tools/test_level15_motion_reference.py
+
+.PHONY: test-level15-perception-reference
+test-level15-perception-reference:
+	python3 tools/test_level15_perception_reference.py
+
+.PHONY: test-level15-particles-reference
+test-level15-particles-reference:
+	python3 tools/test_level15_particles_reference.py
+
+.PHONY: test-area19-partner-reference
+test-area19-partner-reference:
+	python3 tools/test_area19_partner_reference.py
+
+# Explicit later-area asset checks; no change to default test targets.
+.PHONY: test-level-module-pack-reference
+test-level-module-pack-reference:
+	python3 tools/test_level_module_pack_reference.py
+
+.PHONY: test-level-shadow-receivers-reference
+test-level-shadow-receivers-reference:
+	python3 tools/test_level_shadow_receivers_reference.py
+
+.PHONY: test-area03-assets-reference
+test-area03-assets-reference:
+	python3 tools/test_area03_assets_reference.py
+
+.PHONY: test-level-world-textures-reference
+test-level-world-textures-reference:
+	python3 tools/test_level_texture_page_reference.py
+	python3 tools/test_level_world_textures_reference.py
+	python3 tools/test_level_texture_catalogs.py
+
+.PHONY: test-level-texture-registry
+test-level-texture-registry:
+	@mkdir -p build/levels/texture-registry
+	clang -O2 -Wall -Wextra -Werror -Isrc -Wl,-dead_strip tests/level_texture_registry_test.m -framework Cocoa -framework Metal -framework QuartzCore -o build/levels/texture-registry/test
+	EM_HEADLESS=1 build/levels/texture-registry/test

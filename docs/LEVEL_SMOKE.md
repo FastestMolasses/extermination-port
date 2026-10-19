@@ -1919,7 +1919,7 @@ stated):
 
 ### AREA00: arrival, progression and side return (2026-10-13)
 
-**Harness verified; native arrival blocked by graphics capacity.**
+**Harness verified; native arrival blocked by the 32-view owner table.**
 `tools/test_level_smoke_area00.py` adds thirteen C phases and independent
 checks in `tools/level_smoke_area00.py`. The completed-load scene path now
 selects AREA00 sub 0/1 and emits canonical `a00` tick observations, including
@@ -1929,12 +1929,20 @@ camera, interaction, drawing or return pass is claimed.
 binding/resource gaps. The earlier AREA01 `a01_03` voice-timing difference
 also remains a strict prerequisite failure; this runner does not waive it.
 
-The continuation now delivers AREA00 and reaches its state-0 boundary at
-native counter 26922. Arrival frame 0 then faults at `001CB800`: the page
-renderer requests the complete 579-key catalog, which the protected
-512-slot registry refuses. `build/level3/live-arrival-1/receipt.json`
-records the 277.709-second run, its executable hash and
-`native_parity=false`. No AREA00 alignment or row pass is reached.
+Current state (2026-10-18, `levels` branch): with the 580-key catalogs,
+the 1024-slot registry and the stage-5 surface, crate and retained-model
+delivery, the continuation aligns `a00_arrival` at counter 26925 with the
+drive-timing switch (26634 at host speed), then fault-stops at arrival
+frame 0 in drum callback `00156620`, where the 32 shared owner views are
+exhausted. See [LEVEL3_BINDING.md](LEVEL3_BINDING.md) for the receipts and
+the request for main. No AREA00 row pass is reached.
+
+Historical (2026-10-13 `level3` branch): the continuation reached its
+state-0 boundary at native counter 26922 and arrival frame 0 faulted at
+`001CB800`, because the page renderer requested the then 579-key catalog
+and the then 512-slot registry refused it.
+`build/level3/live-arrival-1/receipt.json` records that 277.709-second
+run, its executable hash and `native_parity=false`.
 
 | Phase | Original scope | Fork rows |
 |---|---|---:|

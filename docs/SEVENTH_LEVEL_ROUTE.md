@@ -836,3 +836,21 @@ and 0x825E20 (the sub-1 owner; sub 1 was not loaded).
 .venv/bin/python tools/route_census.py run --segments a06 --pass A06
 .venv/bin/python tools/route_census.py a06-delta --passes A06
 ```
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+7 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a01u_00_gap_jump` | `a22_02_progression_exit` | 235 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a01u/a01u_00_gap_jump` |
+| `a01u_01_catwalk_event` | `a01u_00_gap_jump` | 1446 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a01u/a01u_01_catwalk_event` |
+| `a01u_02_progression_exit` | `a01u_01_catwalk_event` | 1064 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a01u/a01u_02_progression_exit` |
+| `a06_00_beam` | `a01u_02_progression_exit` | 357 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_00_beam` |
+| `a06_01_crate_door2` | `a06_00_beam` | 679 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_01_crate_door2` |
+| `a06_02_keypad` | `a06_01_crate_door2` | 1617 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_02_keypad` |
+| `a06_03_room_out` | `a06_02_keypad` | 314 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_03_room_out` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 3 indexed boundary receipts capture 4 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

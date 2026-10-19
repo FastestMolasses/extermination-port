@@ -450,3 +450,21 @@ Scratch snapshots and tools under `../Extermination/build/nextcap/`
    0x824160 ([44] step 0; counter 0x1C was already 1 at the ninth level's
    first AREA13 load, decomp WORLD_GRAPH.md section 8b) was hit by no
    census replay.
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+7 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a13c_00_recharger` | `a13b_01_door17` | 995 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_00_recharger` |
+| `a13c_01_to_machine` | `a13c_00_recharger` | 1460 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_01_to_machine` |
+| `a13c_02_battery` | `a13c_01_to_machine` | 1178 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_02_battery` |
+| `a13c_03_blast` | `a13c_02_battery` | 2190 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_03_blast` |
+| `a13c_04_cure` | `a13c_03_blast` | 2277 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_04_cure` |
+| `a13c_05_boom` | `a13c_04_cure` | 1837 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_05_boom` |
+| `a13c_06_south` | `a13c_05_boom` | 336 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_06_south` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 2 indexed boundary receipts capture 8 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

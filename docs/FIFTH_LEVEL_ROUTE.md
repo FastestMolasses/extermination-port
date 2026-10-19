@@ -513,3 +513,20 @@ including the roughly 13 s of arming per beat):
 .venv/bin/python tools/route_census.py a04-delta --passes A04 --a02-passes A02 \
     --a01r-passes A01R --a00-passes A00 --a01-passes A01
 ```
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+6 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a04_00_door45_event` | `a02_05_progression_exit` | 3615 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_00_door45_event` |
+| `a04_01_door40` | `a04_00_door45_event` | 1818 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_01_door40` |
+| `a04_02_console` | `a04_01_door40` | 942 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_02_console` |
+| `a04_03_back_to_hall` | `a04_02_console` | 1015 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_03_back_to_hall` |
+| `a04_04_conveyor` | `a04_03_back_to_hall` | 553 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_04_conveyor` |
+| `a04_05_progression_exit` | `a04_04_conveyor` | 829 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_05_progression_exit` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 1 indexed boundary receipts capture 1 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

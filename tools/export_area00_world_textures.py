@@ -67,12 +67,16 @@ def collect(image, caps, elf, overlay):
         out.setdefault(key, set()).add(f'AREA00 packet {address:08X}')
     # 00823820's 8287E0/828870 packets select 001CFBE0 kind 2, whose
     # untextured VU program emits RGBAQ/XYZF2. They have no TEX0 input.
+    # Original page replay also draws 001E9E60's first surface material in
+    # both AREA00 subs (D_002345E0). It is independent of the bank census.
+    key = E.FLOOR_TEX0[0] & E.O.CLD_MASK
+    out.setdefault(key, set()).add('001E9E60 surface')
     key = E.FLOOR_TEX0[2] & E.O.CLD_MASK
     out.setdefault(key, set()).add('001E7D20 ripple surface')
     for key in out:
         fields = E.O.tex0_fields(key)
-        ripple = key == (E.FLOOR_TEX0[2] & E.O.CLD_MASK)
-        if ripple:
+        surface = key in {E.FLOOR_TEX0[i] & E.O.CLD_MASK for i in (0, 2)}
+        if surface:
             valid = E.P.drawable(key | (1 << 34)) and fields['tcc'] == 0 and fields['tfx'] == 0
         else:
             valid = E.P.drawable(key) and fields['tfx'] in (0, 2)

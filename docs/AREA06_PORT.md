@@ -1,5 +1,36 @@
 # AREA01 upper floor and AREA06: the level-7 new functions (lane A06T)
 
+## Full-route audit extension (2026-10-18)
+
+The full census adds three previously omitted AREA06 arrival routines:
+`00823B50` (the three-phase spawner), `008240E0` (the timed effect variants),
+and `00824340` (the examine-switch owner). The standalone module now has
+30 entries and 76 external hooks plus the callback. All remain **UNWIRED**.
+The spawner's three 12-byte period tables use the original entry stack at
+SP minus `0x30`, `0x20` and `0x10`. Their copies preserve the original
+8-byte load, 4-byte load, 8-byte store, 4-byte store sequence. The decomp C
+is NEARMISS only in the register choice for those copies; the native test
+checks the original accesses, values and downstream behavior.
+
+The timed effect uses the just-computed timer for its threshold test; the
+spawner similarly retains its loaded active timer for the decrement. The
+initial C attempts performed extra rereads, which the ordered-access oracle
+rejected. The C was corrected without changing the comparison. The existing
+`001BA1F0` hook now exposes its original result for the switch owner; its older
+callers still deliberately ignore that result. All older entries continue
+through the same oracle and fail-stop assertions.
+
+New cases include captured owners; every owner state and variant; phase/countdown
+boundaries; refused and successful spawns; signed random return lanes; timer
+float bit boundaries; a worker modifying the global period table after the
+local copy; and workers modifying fields the original subsequently rereads.
+The added entries cover 292, 84 and 96 reachable non-branch words, with no new
+dead-word exclusions. The full sweep passes 3,649 cases and all 5,091 reachable words across the
+30-entry module, plus 2,958 native failure runs and the existing reuse checks.
+Its receipt is `build/levels/oracle-area06-full-1/`. Current passing modes and source fingerprints are in
+[LEVEL_ORACLE_EVIDENCE.json](LEVEL_ORACLE_EVIDENCE.json). The earlier delivery's
+27-entry measurements below remain historical.
+
 Lane A06T, 2026-09-28 (level side track). It covers the 39 functions the
 level-7 route census found new (decomp `build/s87/census/a01u_delta.json`
 and `a06_delta.json`, `new_functions`: 7 on the AREA01 upper floor, 32 in

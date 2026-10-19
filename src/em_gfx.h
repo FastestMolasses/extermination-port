@@ -954,7 +954,7 @@ int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t heig
  * reason. There is no stand-in: a caller turns -1 into its fault. */
 #define EM_GFX_OBJECT_KERNEL 0x0023C750u   /* the object kernel CALL target */
 #define EM_GFX_OBJECT_FACE   0x0023C480u   /* the face morph program CALL target */
-#define EM_GFX_OBJECT_TEX_MAX 512u         /* registered object textures */
+#define EM_GFX_OBJECT_TEX_MAX 1024u        /* complete per-area texture catalogs */
 typedef struct {
     uint32_t program;                /* EM_GFX_OBJECT_KERNEL or EM_GFX_OBJECT_FACE */
     const uint32_t *color;           /* 16 words: dmem 1013..1016 (the colour CNT) */

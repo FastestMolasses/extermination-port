@@ -498,3 +498,172 @@ Scratch snapshots under `../Extermination/build/fifteenthcap/probe/`
    SHA-256 757d6f77... / 47ebe237..., equal to the pre-copies recorded in
    decomp docs/GS_CONFORMANCE.md, and SHA-1 equal to
    `build/s87/c7cap/fb2/pre/portable-data_memcards_Mcd00{1,2}.ps2`.
+
+## Native preparation audit (2026-10-18; branch `levels`)
+
+The original route above remains the ground truth. The native preparation
+now has separate unwired original-instruction proof for all six AREA15 event
+continuation routines (`em_area15_route`, 562 cases / 326 reachable words),
+and eight AREA03 routines (`em_area03_route`, 878 cases / 1,249 reachable words):
+init `00823580` (inside census pad `00823540`), turret `00823930`, partner
+`00825290`, lift callback `00826270`, parameter callback `00826330`, toggle
+`00826860`, and sound callbacks `00826880` / `008268B0`.
+
+Full receipts are `build/levels/oracle-area15-full-1/` and
+`build/levels/oracle-area03-full-1/` in the native worktree; source fingerprints
+are retained in `docs/LEVEL_ORACLE_EVIDENCE.json`. AREA03 input snapshots remain
+explicitly selected original v2.6.3 recordings. Reused AREA01 adversarial data
+with AREA03 original text is labeled as designed test input, not a new capture.
+No live binding, new recording or asset export is claimed by these passes.
+The remaining seven AREA03 functions and 28 missing boot entries stay on the
+step-2 backlog in `LEVEL_READINESS.md` / `LEVEL_ORACLE_AUDIT.md`.
+
+## Native audit: remaining AREA03 arrival entries (2026-10-18)
+
+The separate unwired `em_area03_arrival` module verifies the turret probe
+`00824D30`, gates `00825430` / `008256E0`, and lift controls `00825980`,
+`00825DF0`, `00826340` / `008265D0`. The original-instruction suite passes
+965 cases and all 1,279 reachable words, including the full failure sweep,
+actual retained arrival actors, bone/phase aliasing and worker-written fields.
+The prior turret suite keeps its existing probe boundary unchanged.
+
+All fifteen AREA03 entries observed by this route now have current standalone
+oracle evidence. This establishes neither live binding nor fork capture
+coverage. The remaining missing boot entries are separately tracked in
+[LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md), which records the exact gate
+ordering fixes and private test receipts. `make test-area03-arrival-reference`
+runs the new opt-in suite; `EM_TEST_FULL=1` enables exhaustive fail-stop checks.
+
+## Native audit: thirteen boot support entries (2026-10-18)
+
+`em_level15_support` adds standalone translations for the creature timer,
+release/search/duration/spawn/notifier/collision helpers and five connected
+render-command builders, plus `0020F170`. Its full original-instruction test
+passes 739 designed cases and all 575 reachable words, including internal
+calls through the entire five-function render chain, worker writes, aliases
+and fail-stop checks. The exact addresses, C corrections and receipts are in
+[LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
+`make test-level15-support-reference`; full mode is `EM_TEST_FULL=1`.
+
+Fifteen boot entries remain missing: eleven readable C definitions and four
+assembly-only definitions (`0013D2D0`, `0013D850`, `00141C90`, `0020F2A0`).
+No recording or live-binding claim changes with this standalone checkpoint.
+
+## Native audit: four creature entries (2026-10-18)
+
+The standalone `em_level15_creatures` adds `0012F6C0`, `0013D490`,
+`00141A30` and `00153B50`. Their full oracle sweep passes 847 designed
+cases and all 509 reachable words, including worker writes, overlapping
+initialization records and every selected fail-stop site. The exact
+knock-back access-order corrections and private receipts are described in
+[LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in target is
+`make test-level15-creatures-reference`, with `EM_TEST_FULL=1` for full mode.
+
+Eleven boot entries remain missing: seven readable C definitions and the
+same four assembly-only source blockers. None of the new routines is wired.
+
+## Native audit: rising hazard and children (2026-10-18)
+
+The unwired `em_level15_fountain` adds `001BECC0` and `001BF3C0`. Its full
+original-instruction suite passes 1,046 cases and all 439 reachable words,
+including eight captured AREA03 actors, worker-written fields and parent
+pointer retention. Three incorrect near-match call declarations and several
+memory-access ordering differences were corrected in the native C; details
+and receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in
+target is `make test-level15-fountain-reference`, with `EM_TEST_FULL=1` for
+full mode. Five readable-C boot routines and four assembly-only definitions
+remain missing; the live route remains unbound.
+
+## Native audit: movement dispatcher and motion (2026-10-18)
+
+The unwired `em_level15_motion` adds `0013D600`, `00140C30` and `00140F80`.
+The full suite passes 237 cases and all 670 reachable words, including nested
+native calls, all movement states, animation-table boundaries, worker writes
+and exhaustive fail-stop checks. Original execution resolved stack-local float
+addresses and two access-order/value-retention differences; details and private
+receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). The opt-in target
+is `make test-level15-motion-reference`; `EM_TEST_FULL=1` enables full mode.
+Two readable-C boot routines and four assembly-only definitions remain missing.
+No live binding or recording coverage is claimed by this checkpoint.
+
+## Native audit: perception predicate (2026-10-18)
+
+The unwired `em_level15_perception` adds `00184D20`. Its full suite passes
+1,058 cases and all 323 reachable words, explicitly accounting for five
+unreachable words behind the retained-class gate. Tests cover every class
+byte, event/subtype gates, all shapes, boundary math and worker-written fields.
+The parameter-pointer and access-order corrections, mutation checks and private
+receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
+`make test-level15-perception-reference`, with `EM_TEST_FULL=1` for full mode.
+One readable-C boot routine and four assembly-only definitions remain missing;
+this checkpoint changes no live route or capture-coverage claim.
+
+## Native audit: particle emitter (2026-10-18)
+
+The unwired `em_level15_particles` adds `0015A750`. Its full suite passes
+258 cases and all 214 reachable words, including fourteen captured actor
+records and an explicit incoming-count contract for out-of-range kinds.
+Original execution confirms the descriptor's stack address, submission copy
+mode, read order and phase reload. Details, mutation checks and private
+receipts are in [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md). Use the opt-in
+`make test-level15-particles-reference`, with `EM_TEST_FULL=1` for full mode.
+All formerly missing route entries with usable C now have standalone proof.
+The four assembly-only source blockers remain missing; the route stays unbound.
+
+## Native audit: AREA19 partner reuse (2026-10-18)
+
+`test_area19_partner_reference.py` verifies AREA19 runtime `008298D0` against
+the unchanged shared AREA01 implementation. The full original-instruction
+sweep passes 378 cases and all 72 reachable words, including state/timer/ID
+boundaries, aliases, worker writes and fail-stop checks. The AREA19 overlay
+identity is checked independently; reuse is no longer inferred from a label.
+See [LEVEL_ORACLE_AUDIT.md](LEVEL_ORACLE_AUDIT.md) for receipts and mutation
+checks. The opt-in target is `make test-area19-partner-reference`.
+
+
+## Fork treatment prerequisite (2026-10-18)
+
+The recovered branch passed the AREA15 event and both script sequences
+in `../Extermination/build/fork_refs/levels-recordings-20261018-19/`.
+Its bed attempt correctly failed the treatment-prompt check: the AREA02
+recovery had consumed item 0x20, which the legacy route retained until
+this bed. The assertion requiring full health and zero infection is
+unchanged. The input-only detour in `levels-recordings-20261018-25/`
+collects the live AREA15 replacement. Its private approach was planned
+against the verified collision export. The recorder resolves the pickup
+and Use radius from live RAM, requires the inventory increase, closes the
+original pickup page, and retraces the approach before continuing the
+existing bed sequence. The 5,852-row bed trace proves item collection and
+consumption, full health and zero infection. Both bed and door 14 passed
+separate saved-state resume checks. No inventory or health field is
+written by the recorder. The route file and capture driver hashes are
+retained with the trace. At door 14, all three A19E sampler owners match
+the reference identities and addresses (`levels-recordings-20261018-25/`
+`a19e-owner-audit.json`).
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+16 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a03_00_elevator` | `a19e_07_door25` | 2558 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a03/a03_00_elevator` |
+| `a15b_00_event` | `a15_01_door51` | 2119 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_00_event` |
+| `a15b_01_return` | `a15b_00_event` | 3778 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_01_return` |
+| `a15b_02_scripts` | `a15b_01_return` | 11364 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_02_scripts` |
+| `a15b_03_bed` | `a15b_02_scripts` | 5852 | `build/fork_refs/levels-recordings-20261018-25/s87/route_a15b/a15b_03_bed` |
+| `a15b_04_door14` | `a15b_03_bed` | 1277 | `build/fork_refs/levels-recordings-20261018-25/s87/route_a15b/a15b_04_door14` |
+| `a19e_00_hall` | `a15b_04_door14` | 1095 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_00_hall` |
+| `a19e_01_ceiling` | `a19e_00_hall` | 2102 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_01_ceiling` |
+| `a19e_02_truck` | `a19e_01_ceiling` | 1344 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_02_truck` |
+| `a19e_03_battery` | `a19e_02_truck` | 502 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_03_battery` |
+| `a19e_04_tower` | `a19e_03_battery` | 1541 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_04_tower` |
+| `a19e_05_down` | `a19e_04_tower` | 1094 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_05_down` |
+| `a19e_06_panel24` | `a19e_05_down` | 1716 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_06_panel24` |
+| `a19e_07_door25` | `a19e_06_panel24` | 710 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_07_door25` |
+| `a19e_s0_down694` | `a15b_04_door14` | 1757 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_s0_down694` |
+| `a19e_s1_panel` | `a19e_s0_down694` | 1364 | `build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_s1_panel` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 9 indexed boundary receipts capture 28 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

@@ -419,3 +419,22 @@ Nothing calls these entries. To run them live a host must:
 - **Float proofs rest on the EE model** (`em_ee_float.h`).
 - **Mutation sweep** is a bounded sample, not exhaustive.
 - **Reuse check** uses the AREA01 harness's own model.
+
+## Full-census AREA19 owners (2026-10-18)
+
+The full route additionally runs `00824690` (flame) and `00827DD0` (turret),
+which the old delta delivery omitted. They now live in the standalone
+`em_area19_route_flame.c` / `em_area19_route_turret.c` modules. They are
+unwired; all workers remain explicit. AREA19's turret removes AREA01's flag-6
+startup/wind-down gates and wait state, and retains the old hit kind across a
+failed collision probe to choose effect `80000026`, `80000067` or `80000003`.
+These changes come from the matching AREA19 C and have independent instruction
+proof, rather than assuming the AREA01 behavior is reusable unchanged.
+
+`make test-area19-route-reference` passes 714 cases and all 1,395 reachable
+words. The full fail-stop receipt is `build/levels/oracle-area19-full-1/`.
+Real AREA19 actors use the explicitly selected retained v2.6.3 route; reused
+AREA01 adversarial fixtures are clearly marked as designed inputs with original
+AREA19 text. The flame's packet/vector stack slots were corrected after an
+oracle mismatch. Three deliberate mutations were detected. See
+`LEVEL_ORACLE_AUDIT.md` for the checks, provenance and remaining route backlog.

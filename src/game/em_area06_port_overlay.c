@@ -1,6 +1,7 @@
 /* AREA06 and AREA01 overlay functions of level 7 (see em_area06_port.h,
  * docs/AREA06_PORT.md). Runtime addresses; the decomp's C for each is
- * byte-identical (lane A06C for AREA06, overlay_AREA06_func_00823540.c,
+ * byte-identical except the 00823B50 table-copy register choice (checked
+ * against original instructions); the earlier group is lane A06C for AREA06, overlay_AREA06_func_00823540.c,
  * func_overlay_AREA06_00824280.c / _00824520.c; AREA01's
  * func_overlay_AREA01_00826910.c). The conventions are those of
  * em_area06_port.c: calls, arguments and the memory accesses between calls
@@ -59,6 +60,187 @@
  *  2, 3  001AFC10(self).
  * ---------------------------------------------------------------------- */
 static int a6_rand(A6 *o, int32_t *r) { return a6_c_00122BB8(o, r); }
+
+/* Full-route arrival owner: three phases with local copies of the period
+ * tables. The NEARMISS C's table-copy register choice is immaterial here;
+ * the oracle compares the original's eight-byte then four-byte accesses. */
+int em_area06_port_00823B50(const EmArea06PortHooks *h, uint32_t self, uint32_t sp, EmArea06PortFault *fault)
+{
+    A6 state, *o = &state;
+    uint32_t w = self + 0x1F0, phase, index, count, point, p = 0;
+    int32_t r = 0;
+    int fired = 0;
+    if (a6_begin(o, h, fault)) return -1;
+    for (uint32_t i = 0; i < 3; ++i) {
+        uint64_t pair = a6_u64(o, 0x826AC8 + i * 16);
+        uint32_t last = a6_u32(o, 0x826AD0 + i * 16);
+        memcpy(a6_at(o, sp - 0x30 + i * 16, 8), &pair, 8);
+        a6_w32(o, sp - 0x28 + i * 16, last);
+    }
+    switch (a6_u8(o, self + 4)) {
+    case 0:
+        a6_w32(o, self + 0x30, 0x826AB0); a6_w32(o, self + 0x34, 0x823B10);
+        a6_w32(o, w, 0);
+        if (a6_rand(o, &r)) return -1;
+        a6_w32(o, w + 8, (uint32_t)(r % 3));
+        index = a6_u32(o, w + 8);
+        a6_w32(o, w + 4, a6_u32(o, sp - 0x30 + index * 4));
+        a6_w32(o, w + 16, 0);
+        if (a6_rand(o, &r)) return -1;
+        a6_w32(o, w + 12, A6_DIV(A6_CVT(r), F_2_31));
+        a6_w8(o, self + 4, 1); a6_w8(o, self + 5, 0);
+        /* fall through */
+    case 1:
+        if (a6_u8(o, 0x810702) == 1) break;
+        phase = a6_u8(o, self + 5);
+        if (phase <= 2) {
+            a6_w8(o, self, phase == 2 ? 1 : 2);
+            a6_w32(o, w + 4, a6_u32(o, w + 4) - 1);
+            count = a6_u32(o, w + 4);
+            if ((int32_t)count < 0) {
+                if (phase == 2) {
+                    if (a6_rand(o, &r)) return -1;
+                    a6_w32(o, w + 8, (uint32_t)(r % 3));
+                }
+                index = a6_u32(o, w + 8);
+                a6_w32(o, w + 4, a6_u32(o, sp - 0x30 + ((phase + 1) % 3) * 16 + index * 4));
+                a6_w8(o, self + 5, (phase + 1) % 3);
+            }
+            count = a6_u32(o, w + 4);
+            if ((int32_t)count % (phase == 0 ? 48 : phase == 1 ? 40 : 12) == 0) {
+                if (a6_c_001029C0(o, 0x700036A0)) return -1;
+                if (a6_c_00102B08(o, 0x700036A0, 0x700036A0, fl(0x3FC90FDB))) return -1;
+                if (a6_rand(o, &r)) return -1;
+                point = 0x826A80 + (uint32_t)(r % 3) * 16;
+                if (a6_c_00102918(o, 0x700036A0, 0x700036A0, point)) return -1;
+                if (a6_c_001EFEB0(o, (int32_t)(phase + 2), 0x700036A0, &p)) return -1;
+                if (phase == 2) {
+                    if (a6_c_001EFEB0(o, (int32_t)0x8000003B, 0x700036A0, &p)) return -1;
+                    if (p) {
+                        a6_w8(o, p + 5, 1); a6_w32(o, p + 0x1F0, 6);
+                        a6_w32(o, p + 0x1F4, a6_bits(14.0f)); a6_w32(o, p + 0x1F8, a6_bits(0.5f));
+                    }
+                }
+                fired = 1;
+            }
+            if (phase == 2) {
+                count = a6_u32(o, w);
+                if (!count) a6_w8(o, self, 1);
+                else { a6_w32(o, w, count - 1); a6_w8(o, self, 2); }
+            }
+        }
+        if (fired) {
+            if (a6_rand(o, &r)) return -1;
+            if (r % 6 == 0) {
+                if (a6_rand(o, &r)) return -1;
+                switch (r % 4) {
+                case 0: case 1: case 2:
+                    phase = (uint32_t)r % 4;
+                    if (a6_rand(o, &r)) return -1;
+                    point = 0x826A80 + (uint32_t)(r % 3) * 16;
+                    if (a6_c_001F02C0(o, point, (int32_t)(0x41D + phase), 100.0f)) return -1;
+                    break;
+                default: break;
+                }
+            }
+        }
+        a6_c_001B17A0(o, self, &r);
+        break;
+    case 2: case 3: a6_c_001AFC10(o, self); break;
+    default: break;
+    }
+    return a6_end(o);
+}
+
+/* Three variants of a timed effect; variant two emits both table passes. */
+int em_area06_port_008240E0(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault)
+{
+    A6 state, *o = &state;
+    uint32_t w = self + 0x1F0, variant, time, phase;
+    int32_t r = 0;
+    if (a6_begin(o, h, fault)) return -1;
+    switch (a6_u8(o, self + 4)) {
+    case 0:
+        a6_w32(o, w, 0);
+        if (a6_rand(o, &r)) return -1;
+        a6_w32(o, w + 4, A6_DIV(A6_CVT(r), F_2_31));
+        if (a6_rand(o, &r)) return -1;
+        a6_w32(o, w + 8, A6_DIV(A6_CVT(r), F_2_31));
+        a6_w8(o, self + 4, 1);
+        /* fall through */
+    case 1:
+        variant = a6_u8(o, self + 0xD);
+        if (variant <= 2) {
+            time = a6_u32(o, w); phase = a6_u32(o, w + 4);
+            if (a6_c_001D04B0(o, self + 0xD0, 2, 0x826B00 + variant * 0x90, fl(time), fl(phase))) return -1;
+            if (variant == 2) {
+                time = a6_u32(o, w); phase = a6_u32(o, w + 8);
+                if (a6_c_001D04B0(o, self + 0xD0, 1, 0x826CB0, fl(time), fl(phase))) return -1;
+            }
+        }
+        time = A6_ADD(a6_u32(o, w), a6_bits(0.015f));
+        a6_w32(o, w, time);
+        if (!A6_LT(time, a6_bits(1.1f))) a6_w8(o, self + 4, 3);
+        break;
+    case 2: case 3: a6_c_001AFC10(o, self); break;
+    default: break;
+    }
+    return a6_end(o);
+}
+
+/* Examine-switch owner. All progress and weapon bytes remain borrowed. */
+int em_area06_port_00824340(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault)
+{
+    A6 state, *o = &state;
+    uint32_t block = self + 0x1F0;
+    int32_t r = 0;
+    if (a6_begin(o, h, fault)) return -1;
+    switch (a6_u8(o, self + 4)) {
+    case 0:
+        if (a6_c_001B0FD0(o, self, &r)) return -1;
+        if (a6_c_001C6380(o, self)) return -1;
+        if (a6_u8(o, D_00810845) & 0x20) {
+            if (a6_u8(o, 0x810C87)) a6_w8(o, self + 5, 2);
+            else {
+                a6_w8(o, self, 1);
+                if (a6_c_001BA1A0(o, block, 0x827040)) return -1;
+            }
+        } else {
+            a6_w8(o, self, 1);
+            if (a6_c_001BA1A0(o, block, 0x826D40)) return -1;
+        }
+        a6_w32(o, self + 0x30, 0x275940);
+        break;
+    case 1:
+        switch (a6_u8(o, self + 5)) {
+        case 0:
+            if (a6_u8(o, self + 0xB) & 4) {
+                a6_w32(o, 0x700038A0, 0); a6_w32(o, 0x700038A4, 0);
+                a6_w32(o, 0x700038A8, a6_bits(9.5f)); a6_w32(o, 0x700038AC, a6_bits(1.0f));
+                if (a6_c_001B6F00(o, self, 0x700038A0, fl(F_PI))) return -1;
+                a6_w8(o, self + 5, a6_u8(o, self + 5) + 1);
+            }
+            break;
+        case 1:
+            if (a6_c_001BA1F0_result(o, self, &r)) return -1;
+            if (r) {
+                if (a6_u8(o, D_00810845) & 0x20) {
+                    if (!a6_u8(o, 0x810CCA) && a6_c_001C4760(o, 7, 1)) return -1;
+                    if (a6_c_001BA1A0(o, block, 0x827040)) return -1;
+                } else if (a6_c_001BA1A0(o, block, 0x826D40)) return -1;
+                a6_w8(o, self + 5, 0); a6_w8(o, self + 0xB, 0); a6_w8(o, self, 1);
+            }
+            break;
+        default: break;
+        }
+        if (a6_c_001B17A0(o, self, &r)) return -1;
+        if (r) a6_callback(o, a6_u32(o, self + 0x4C), self);
+        break;
+    case 2: case 3: a6_c_001AFC10(o, self); break;
+    default: break;
+    }
+    return a6_end(o);
+}
 
 /* --w[k] (the word is stored, then read again); nonzero when below 0. */
 static int a6_count_down(A6 *o, uint32_t at)

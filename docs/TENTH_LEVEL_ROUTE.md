@@ -432,3 +432,24 @@ the session's end); leads, not ground truth.
    but the lift back up; group `a13c` branches from a13b_01 and plays
    AREA13's battery machine [44], its event (flag 0x1C), the cure item
    0x22 and the boom to [7]; door [20]'s side is still not reached.)
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+10 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a13b_00_ladder_up` | `a19_02_duct_back` | 904 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13b/a13b_00_ladder_up` |
+| `a13b_01_door17` | `a13b_00_ladder_up` | 550 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_01_door17` |
+| `a13b_02_button15` | `a13b_01_door17` | 762 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_02_button15` |
+| `a13b_03_door8` | `a13b_02_button15` | 309 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_03_door8` |
+| `a13b_04_lift_call` | `a13b_03_door8` | 547 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_04_lift_call` |
+| `a13b_05_lift_ride` | `a13b_04_lift_call` | 1794 | `build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_05_lift_ride` |
+| `a13b_s0_roof_ladder` | `a13b_01_door17` | 890 | `build/fork_refs/levels-recordings-20261018-18/s87/route_a13b/a13b_s0_roof_ladder` |
+| `a19_00_duct` | `a13_05_shaft` | 1591 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a19/a19_00_duct` |
+| `a19_01_pickup_g2` | `a19_00_duct` | 338 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a19/a19_01_pickup_g2` |
+| `a19_02_duct_back` | `a19_01_pickup_g2` | 1651 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a19/a19_02_duct_back` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 3 indexed boundary receipts capture 22 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

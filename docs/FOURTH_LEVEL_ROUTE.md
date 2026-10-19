@@ -628,3 +628,20 @@ a01r and 20 for a02):
 .venv/bin/python tools/route_census.py a02-delta --passes A02 --a01r-passes A01R \
     --a00-passes A00 --a01-passes A01
 ```
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+6 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a02_00_duct` | `a02_s0_mts_bed` | 1448 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_00_duct` |
+| `a02_01_switch` | `a02_00_duct` | 630 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_01_switch` |
+| `a02_02_ladder_escape` | `a02_01_switch` | 1016 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_02_ladder_escape` |
+| `a02_03_over_wreck` | `a02_02_ladder_escape` | 831 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_03_over_wreck` |
+| `a02_04_panel` | `a02_03_over_wreck` | 1114 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_04_panel` |
+| `a02_05_progression_exit` | `a02_04_panel` | 1726 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_05_progression_exit` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 1 indexed boundary receipts capture 6 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

@@ -1,0 +1,951 @@
+{
+  "beats": {
+    "a01u_00_gap_jump": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a01u/a01u_00_gap_jump/trace.json",
+      "trace_sha256": "d34dc35e850412057ea6275ecfd32f9baf6bc8a5a52b4f27c37e534008283102"
+    },
+    "a01u_01_catwalk_event": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a01u/a01u_01_catwalk_event/trace.json",
+      "trace_sha256": "0c31ebc5f397780c546c3120e4bbadd873c3e34e8053e402c924edd3122cfc8e"
+    },
+    "a01u_02_progression_exit": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a01u/a01u_02_progression_exit/trace.json",
+      "trace_sha256": "21d77bb4b2c8fb2b746d6439a9809b81725481c00294883b7ee609d5bb6ea4cb"
+    },
+    "a01v_00_catwalk_east": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a01v/a01v_00_catwalk_east/trace.json",
+      "trace_sha256": "372b1d480ccc28868efd5edba7e81a036815a0471cab1dea1f5b3fdc6faafa39"
+    },
+    "a01v_01_gap_jump": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a01v/a01v_01_gap_jump/trace.json",
+      "trace_sha256": "839fe8fea9fc18ccd627479f9d81cb336540691437daa0f68532144d8a2c6fc1"
+    },
+    "a01v_02_door18": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a01v/a01v_02_door18/trace.json",
+      "trace_sha256": "0cca5abf90ea4ff414b34edcbf3e3a130b19111ed4324883c2556eb8ca31fb41"
+    },
+    "a02_00_duct": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_00_duct/trace.json",
+      "trace_sha256": "5e1c990ab93d8564fcdb1ada3eaa724ec4de888eba0365ee32e5299ab43a4c2c"
+    },
+    "a02_01_switch": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_01_switch/trace.json",
+      "trace_sha256": "5c16dcb6b9b16cce9387c8c4ce5cfb69e289209b6a9b43f6ad4b7b27fcfb3b89"
+    },
+    "a02_02_ladder_escape": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_02_ladder_escape/trace.json",
+      "trace_sha256": "758d4c3c51a3e779bf11ccef58b07c566290e88bcbc11b2de9349fd2ed0004a0"
+    },
+    "a02_03_over_wreck": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_03_over_wreck/trace.json",
+      "trace_sha256": "082d5221c3bc83a57d205aaf106d2b7b076161cda7d7d2dc0b4b3383f6eb09d3"
+    },
+    "a02_04_panel": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_04_panel/trace.json",
+      "trace_sha256": "efd70cc083c4810b9376b44cff9f7019210e0ee1e1669f2107ebef08b7230614"
+    },
+    "a02_05_progression_exit": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-1/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-1/a02_05_progression_exit/trace.json",
+        "trace_sha256": "4c1f2c445d0e049a38ab0fbcf1ce33224293b0a2c5d3579881f42812e07a3bc8"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a02/a02_05_progression_exit/trace.json",
+      "trace_sha256": "b4c773895c3944892dfb9e997378d4bf730efdf2b53cab570afc10fb5eedd0b4"
+    },
+    "a03_00_elevator": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a03/a03_00_elevator/trace.json",
+      "trace_sha256": "16ea13185cc361be4b0d32338bc622a036f7d72ec26f91810eb38cf0f21ce795"
+    },
+    "a04_00_door45_event": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_00_door45_event/trace.json",
+      "trace_sha256": "05b84ca828df35c803ca014104d85aec9acbdd5283a22f63a8831992aead0791"
+    },
+    "a04_01_door40": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_01_door40/trace.json",
+      "trace_sha256": "7bd13434b6547c4017e4ee73575eba0ea6dc40d051cc0ca5b2f9411f22a6de4d"
+    },
+    "a04_02_console": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_02_console/trace.json",
+      "trace_sha256": "3c1f4bb971863b692a8e808b72106c40aa22d34cd36a9344d865ecc8ac382786"
+    },
+    "a04_03_back_to_hall": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-2/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-2/a04_03_back_to_hall/trace.json",
+        "trace_sha256": "e71caa9487d0f2ae9c59d2020867e10e799ec9c9fa3c5d2fcd4ceb6ebc251e89"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_03_back_to_hall/trace.json",
+      "trace_sha256": "84644baf5714b7d5fdb3d3b7c436c7d59896ef206602834b25c0b99d5ef7f0b1"
+    },
+    "a04_04_conveyor": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_04_conveyor/trace.json",
+      "trace_sha256": "58eaa589c66508c467c338c990a19e8da87a221d59ec982653d01e2894fa6c98"
+    },
+    "a04_05_progression_exit": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04/a04_05_progression_exit/trace.json",
+      "trace_sha256": "b6fc9dcbd084a68aaaa8da2c6bb04c23a327fea5c4ec60bcff96d497dad6cda6"
+    },
+    "a04b_00_door45": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_00_door45/trace.json",
+      "trace_sha256": "c084f744e4a3c80ddb74026ad981f0fde25d01f402e2a421e0735c35a80c2d7f"
+    },
+    "a04b_01_npc": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_01_npc/trace.json",
+      "trace_sha256": "de8855b29dd8ea7d938034e1965aab58d141813d4e4cabb357c90df6d02d9a39"
+    },
+    "a04b_02_door45_out": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_02_door45_out/trace.json",
+      "trace_sha256": "10c313cefcf376410222e3f26ff12203b714be5889439686eaa42d66ce93b711"
+    },
+    "a04b_03_reader": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_03_reader/trace.json",
+      "trace_sha256": "bfd81f0091f048ec1b01141ca0d04b3e8733e13bc0afe8bc12a2bc72dd76ccca"
+    },
+    "a04b_04_lift": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a04b/a04b_04_lift/trace.json",
+      "trace_sha256": "973076a85fed1db3ff7b4e8330eeb34d536ba6c9390cd69d6b145fb2dcba838f"
+    },
+    "a06_00_beam": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-2/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-2/a06_00_beam/trace.json",
+        "trace_sha256": "ec60a64b23fac681fa3e7d6e4f6ff5a64b268c31ec5b932a8c8a9eb222a5578d"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_00_beam/trace.json",
+      "trace_sha256": "c8a91ab575e30d2402188771f4b0cc0ac068f46e37c81cbd774c5f6aebe39555"
+    },
+    "a06_01_crate_door2": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-2/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-2/a06_01_crate_door2/trace.json",
+        "trace_sha256": "17e308d7dc39909f3b99ee19341e5224c6ce3831d33477c2c9f63cfe58372418"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_01_crate_door2/trace.json",
+      "trace_sha256": "12274d30984b6f07c195604f8ce697c8cf56a5af2b4152ff585ec9f60426c8ab"
+    },
+    "a06_02_keypad": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-3/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-3/a06_02_keypad/trace.json",
+        "trace_sha256": "f41e9c1b5744572672de9ea67611e4e68af7ac8dbec59ec479b9fea292bfd525"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_02_keypad/trace.json",
+      "trace_sha256": "854bf77efd836ebc5e8890797b27c2aac92cad3935189ae44798078d6f239463"
+    },
+    "a06_03_room_out": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a06/a06_03_room_out/trace.json",
+      "trace_sha256": "9b23e509f12ebc47e758238d338bd29133e1e8d62e64b2640f033557ebd372dc"
+    },
+    "a06b_00_trigger_jump": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a06b/a06b_00_trigger_jump/trace.json",
+      "trace_sha256": "e05430671577eac44e13933267e829601e269eab335b9a8dae87682439d7ba8e"
+    },
+    "a06b_01_door1": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a06b/a06b_01_door1/trace.json",
+      "trace_sha256": "fdee1c9b2b3c25bddaecca6291254aad143d782561c1811fd3a7acfb72b77aaa"
+    },
+    "a13_00_door8": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_00_door8/trace.json",
+      "trace_sha256": "f7881c25cfdac6ce2fd9dd9030020bca78ad670bc8b12fb8ed406319683bdf1d"
+    },
+    "a13_01_door14": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_01_door14/trace.json",
+      "trace_sha256": "e46826b2c1a6dec662f8f24cca24433d1e76d0292615abb5cada1fc48ddc63d7"
+    },
+    "a13_02_door17": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_02_door17/trace.json",
+      "trace_sha256": "5cdf203a009c37efc5d47d807afe7a1613a03477b4994594dca36abe3e708c94"
+    },
+    "a13_03_item27": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_03_item27/trace.json",
+      "trace_sha256": "2e34f17e16c8b4ccd0c5587b93e24ad4d5eac39047b9e0cdc6d2bcb5402ccc26"
+    },
+    "a13_04_hatch": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_04_hatch/trace.json",
+      "trace_sha256": "7388320adf5adfc6563df5b6280cbf5c4bb240cc416b963684231e1a3e49badf"
+    },
+    "a13_05_shaft": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_05_shaft/trace.json",
+      "trace_sha256": "fd85e274518764fb4645aa60993569a63601a88e9bd1911113fb7b95b0b3f5ab"
+    },
+    "a13b_00_ladder_up": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a13b/a13b_00_ladder_up/trace.json",
+      "trace_sha256": "3577a6abf43d759af2bd5e4823be44f9b3a6674e9ebb2e04ee25e46384b97e49"
+    },
+    "a13b_01_door17": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-3/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-3/a13b_01_door17/trace.json",
+        "trace_sha256": "b414a02ebd698c63ec741c5973b7b693d1a450cd340e123fe8392816168a95b5"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_01_door17/trace.json",
+      "trace_sha256": "0fad37c1389507e3c01c2d874c5633cd59de5830f9d66935d1f507666f7346bf"
+    },
+    "a13b_02_button15": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_02_button15/trace.json",
+      "trace_sha256": "85cd51cc2d2b6b5e4f0a50ad85bdb5772e4cd414f0cccf4728dd2a656f9acb93"
+    },
+    "a13b_03_door8": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_03_door8/trace.json",
+      "trace_sha256": "24c75925ef6eb546424710c730014098c1107c1bb252f7e96098914c18b7b0b6"
+    },
+    "a13b_04_lift_call": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_04_lift_call/trace.json",
+      "trace_sha256": "687f706daa366f45cc1c4fb4352d885692b30cf96d348a3c62f7ba1a61a8d9b8"
+    },
+    "a13b_05_lift_ride": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-3/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-3/a13b_05_lift_ride/trace.json",
+        "trace_sha256": "843df03681d9f04de5ba759a7ae0cc2ea67a2a40ad50e62ccc7dfc0a2f4b4006"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13b/a13b_05_lift_ride/trace.json",
+      "trace_sha256": "657e3c0bcbf181b562959102e3b857b312ea0ad91956bdb0f79b838a0d985c83"
+    },
+    "a13b_s0_roof_ladder": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-5/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-5/a13b_s0_roof_ladder/trace.json",
+        "trace_sha256": "6bd21f8b0f1d16c44115e5b03ffd0bcd51b220483032fb2947ee098626da341d"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-18/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-18/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-18/s87/route_a13b/a13b_s0_roof_ladder/trace.json",
+      "trace_sha256": "3830fc307cac27dcf7d73d09250035972d66ea2ac7c6476cac68264964ba6bae"
+    },
+    "a13c_00_recharger": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-3/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-3/a13c_00_recharger/trace.json",
+        "trace_sha256": "8c27b8799ba1b51c457496914813ef7644f9539d6d54fb5d872f87372109c682"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_00_recharger/trace.json",
+      "trace_sha256": "623ea6ddbec40db2c91370a20621c51f9178c6043333ee528c09a0b3312cd894"
+    },
+    "a13c_01_to_machine": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_01_to_machine/trace.json",
+      "trace_sha256": "4a6306e4450251fa91a48875779149ca68e099a0d6a9218ec8223fde1cef77f6"
+    },
+    "a13c_02_battery": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_02_battery/trace.json",
+      "trace_sha256": "745c373470562c4a116c9b46a32945bae25ebf3e80c66005b29ff7ff2e7cd735"
+    },
+    "a13c_03_blast": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_03_blast/trace.json",
+      "trace_sha256": "6363b7f51158b43aa13f12b187f7df0c2be391e35f9168c211e6618aa13f8eeb"
+    },
+    "a13c_04_cure": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_04_cure/trace.json",
+      "trace_sha256": "0f0735eff7d22f8399a981293c0753e9f54788829e308919b9b5230ddd00d626"
+    },
+    "a13c_05_boom": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-4/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-4/a13c_05_boom/trace.json",
+        "trace_sha256": "6886e0ba8eb43f12319242a204a48d5ccee46b6c39c2a0fb9947890a182d42d4"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_05_boom/trace.json",
+      "trace_sha256": "9bf46c49e55ffa18bc37ce0aba50f7d7f01cbda02e13117c9ce30b7e59425d7a"
+    },
+    "a13c_06_south": {
+      "driver": "build/fork_refs/levels-recordings-20261018-11/run.py",
+      "driver_sha256": "5c970d9d1be3f2f3c4f3858254566b788bfd014575fd78baf713f372d9a462ad",
+      "run_status": "build/fork_refs/levels-recordings-20261018-11/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-11/s87/route_a13c/a13c_06_south/trace.json",
+      "trace_sha256": "5b327deec5d8264296e3e2b37ac713a93e3e22e0c5130f07794b4b8523e441a8"
+    },
+    "a13d_00_stair": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_00_stair/trace.json",
+      "trace_sha256": "146b778e53b96f74f04d74f88fce40fd88652c258aae1cf4e4d279bed6164374"
+    },
+    "a13d_01_ladder405": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_01_ladder405/trace.json",
+      "trace_sha256": "64bb1f10e9becc939d4b2e397cf7f441e301261a78284666d8d322b216a6c57d"
+    },
+    "a13d_02_block890": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_02_block890/trace.json",
+      "trace_sha256": "d248eb29828e31a1bcec09994584cafe6c1fd3e03e0621092a708bd67cc86cf4"
+    },
+    "a13d_03_jump": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_03_jump/trace.json",
+      "trace_sha256": "7cd728aeb8e27ba57e25f09da98b6045ebba0d487af4839ba0c3b582009c96cd"
+    },
+    "a13d_04_ladder426": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-4/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-4/a13d_04_ladder426/trace.json",
+        "trace_sha256": "7a6666b1386b9e6c45a016059bb452bbf4429133cc7c84efd9fa116ff910a44f"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_04_ladder426/trace.json",
+      "trace_sha256": "51202fb97618b496d3ebb7dbd147984c269e6f77eedab1790b7bf17a90399631"
+    },
+    "a13d_05_ladder432": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_05_ladder432/trace.json",
+      "trace_sha256": "7ad31dd59556fa171bc291fcf24a840184f2bc5adf18b652838bcb5eb9a2c9fd"
+    },
+    "a13d_06_door20": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_06_door20/trace.json",
+      "trace_sha256": "c416b1ea68bd7f4cbaea729629582e1ea02d6237110213e7c411f20f0d8fea02"
+    },
+    "a13d_07_hatch63": {
+      "driver": "build/fork_refs/levels-recordings-20261018-12/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-12/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_07_hatch63/trace.json",
+      "trace_sha256": "cc8d70769258f3fed31363dd0feb08555bd84f797ed4d71cd591721b960df169"
+    },
+    "a15_00_door14": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a15/a15_00_door14/trace.json",
+      "trace_sha256": "e67fbf47e201021e18f47ee2a499f142e6f998ae886e616d316e20f3a0d81d2e"
+    },
+    "a15_01_door51": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a15/a15_01_door51/trace.json",
+      "trace_sha256": "79c7dcdbc49e5fccb7ba7aa81515719c445c842aa2acfb4efe25abe54ac14aeb"
+    },
+    "a15b_00_event": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-7/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-7/a15b_00_event/trace.json",
+        "trace_sha256": "f2a745596e2889228bb537f73cffff6bbbb16abaab5400440377452615fa8d93"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_00_event/trace.json",
+      "trace_sha256": "c712523607dd828772ff7eddc37e0c72d50b9e75aec9a0234ecdc5c33b8131c0"
+    },
+    "a15b_01_return": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-7/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-7/a15b_01_return/trace.json",
+        "trace_sha256": "9cb5d13c131675066730b7c08aab5e8e2065da7e1e29c060983fc42cf6af21b9"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_01_return/trace.json",
+      "trace_sha256": "dedf807f56180a22a2e4fb36342aaf1c96d452bed33e191ef7cba108635d24cb"
+    },
+    "a15b_02_scripts": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a15b_02_scripts/trace.json",
+        "trace_sha256": "b0f5f6eb4f31c2124b862cead095dec7f931c032d320b89aede00dcdc8c2046d"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a15b/a15b_02_scripts/trace.json",
+      "trace_sha256": "2368828890f4b3b2fc7d0885cdd0be3c66f404eaceb954e6aac700201be0afda"
+    },
+    "a15b_03_bed": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a15b_03_bed/trace.json",
+        "trace_sha256": "c05d0d1ca2f0b1672132cbd06a074e94cb30c15bbc616924b9048cf527106888"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-25/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-25/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-25/s87/route_a15b/a15b_03_bed/trace.json",
+      "trace_sha256": "57fe3bd899970644bd17aaf17e7d0f15e279835af654e350641b50e84dd1bfed"
+    },
+    "a15b_04_door14": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a15b_04_door14/trace.json",
+        "trace_sha256": "9476e77617bd1156316c1bed4803e0cc960ec0c56027a25d187970a80c2eb742"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-25/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-25/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-25/s87/route_a15b/a15b_04_door14/trace.json",
+      "trace_sha256": "5fa322771393705f366332a9150ff467bcd6218cf8937d27fc6d3da84992bc7b"
+    },
+    "a19_00_duct": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a19/a19_00_duct/trace.json",
+      "trace_sha256": "0db75b174e8270b6e3687c520cf48d537c4e493f201bf70fca25377a8deec64b"
+    },
+    "a19_01_pickup_g2": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a19/a19_01_pickup_g2/trace.json",
+      "trace_sha256": "82e401119d5e4968fd7f1004a2b29ddbc896a935e357035ba2e9a94891809e57"
+    },
+    "a19_02_duct_back": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a19/a19_02_duct_back/trace.json",
+      "trace_sha256": "6cd4397d236afbe1e391e37ddc5a1ddef68d2ba27a9263676e3c258784b3e67d"
+    },
+    "a19b_00_arrival": {
+      "driver": "build/fork_refs/levels-recordings-20261018-13/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-13/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-13/s87/route_a19b/a19b_00_arrival/trace.json",
+      "trace_sha256": "e64959e26b212e6a9ee201ad70c619310072f5267e831d5e1e39898e663291b1"
+    },
+    "a19b_01_ledge": {
+      "driver": "build/fork_refs/levels-recordings-20261018-13/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-13/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-13/s87/route_a19b/a19b_01_ledge/trace.json",
+      "trace_sha256": "dc9dd970f50142d32b6d99a0298733eb3bbebdea1930bc24d2740df6a8624b3f"
+    },
+    "a19b_02_ladder1023": {
+      "driver": "build/fork_refs/levels-recordings-20261018-13/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-13/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-13/s87/route_a19b/a19b_02_ladder1023/trace.json",
+      "trace_sha256": "6cd283c6670558423bd940896496eecc518ad74d05b32824be8f28c2bb899420"
+    },
+    "a19c_00_bar840": {
+      "driver": "build/fork_refs/levels-recordings-20261018-14/run.py",
+      "driver_sha256": "2cc903f27ab19d980b4a38dd729a13565c1dcebcad53e59988a99c0aa66a6272",
+      "run_status": "build/fork_refs/levels-recordings-20261018-14/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-14/s87/route_a19c/a19c_00_bar840/trace.json",
+      "trace_sha256": "71d0c6044062313e641c7f06312ad014df4506efe4c07e0c7329ef27b655b0ee"
+    },
+    "a19c_01_bar841": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_01_bar841/trace.json",
+      "trace_sha256": "2f720bd5c9556ad9db8319b971cfa3a8d7862bf86030e328c30442e253c4cea2"
+    },
+    "a19c_02_use7": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_02_use7/trace.json",
+      "trace_sha256": "96e5e5a9669ddb2563ac6b5a2518703085377517801e4621f2bb66ec481bc7bb"
+    },
+    "a19c_03_slide": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_03_slide/trace.json",
+      "trace_sha256": "b2031b1c9b0ca2816f90a8a672d4c952a809d6741712f93ff30a239705139c24"
+    },
+    "a19c_04_walkway": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_04_walkway/trace.json",
+      "trace_sha256": "e9f0ca41ac3659addad72d83e948f522e93948fe04cf3962edcb8dee7c61f8e0"
+    },
+    "a19c_05_door27": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_05_door27/trace.json",
+      "trace_sha256": "1d01665c228dadc9529b70c1f66c5f82b27f630d04f9c03b13aa7a86856d5faf"
+    },
+    "a19c_06_ladder959": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_06_ladder959/trace.json",
+      "trace_sha256": "9fc72fb3e6ce5d704a84beafeb65263e715f722833bc58392909f999a585e3ef"
+    },
+    "a19c_07_door52": {
+      "driver": "build/fork_refs/levels-recordings-20261018-17/run.py",
+      "driver_sha256": "060b7b4fc3f957bf2dde52cd43e213be75f9b31364e4422b8f7848409a9b915e",
+      "run_status": "build/fork_refs/levels-recordings-20261018-17/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-17/s87/route_a19c/a19c_07_door52/trace.json",
+      "trace_sha256": "07e28819936109d1567dc93cd2f1655848911f0ffcc884c01b65c544adba198d"
+    },
+    "a19d_00_beastA": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_00_beastA/trace.json",
+      "trace_sha256": "9c77c764367bfc024e997269dd26d1405d55273879759660d459acac22185193"
+    },
+    "a19d_01_ceiling": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-6/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-6/a19d_01_ceiling/trace.json",
+        "trace_sha256": "8e8356d8f53688b3fd316ce44252ea797a5005db03a34f68c0ad1251236347c2"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_01_ceiling/trace.json",
+      "trace_sha256": "057825d19de4b41b7e7ce43d6de753e4858197f4856564a4df782dc5b7bdc448"
+    },
+    "a19d_02_lockB": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_02_lockB/trace.json",
+      "trace_sha256": "bff4c3449a528c7ddb20a9062352f5f821c9994eabe281e0a5eaef811ec14a13"
+    },
+    "a19d_03_beastB": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_03_beastB/trace.json",
+      "trace_sha256": "9442ef99b7687e99026fdddf7a55cac420222e4088bfb1e9842e7e39ebb35114"
+    },
+    "a19d_04_alcove": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_04_alcove/trace.json",
+      "trace_sha256": "1ff6b33a1b61ac9a0a329e6f14b63b311ee91939aacb661196462c4394500b74"
+    },
+    "a19d_05_valve37": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_05_valve37/trace.json",
+      "trace_sha256": "f6d182b6c829d4b2be4534f28370cf5b6c4f97771206c93d152d80b96e17a31e"
+    },
+    "a19d_06_g3": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-6/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-6/a19d_06_g3/trace.json",
+        "trace_sha256": "4a857c6417cd389fc3717aafba62248f44bad406e112f597b227041c47f8487c"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_06_g3/trace.json",
+      "trace_sha256": "a45e15262fa6c79bf79f308e28cb3d0714719e34cffeaedee6cd4473dc413241"
+    },
+    "a19d_07_cage": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-6/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-6/a19d_07_cage/trace.json",
+        "trace_sha256": "c6b7e8b04c6cdd9fc7dabd6af860525a04081b0f6db83519f1008adfdd3ee3a2"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_07_cage/trace.json",
+      "trace_sha256": "595738fb5567b76c2138b0b25e425cb78c2dd0830d4e4cdf35e66d106f32c29a"
+    },
+    "a19d_08_west": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_08_west/trace.json",
+      "trace_sha256": "887469c0a9621bc1154ba922707edd61ff516b8eb24ee483af887656f103714c"
+    },
+    "a19d_09_westdeck": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_09_westdeck/trace.json",
+      "trace_sha256": "bd66865c3123c53388da6e9d9de93a2527082a7e453d8989b3ea29852bad1002"
+    },
+    "a19d_10_area82E050": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_10_area82E050/trace.json",
+      "trace_sha256": "b8f67d30cc1d511541019cecb74a716f828d36a6fb083d1deef283aa37954301"
+    },
+    "a19d_11_bar858": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_11_bar858/trace.json",
+      "trace_sha256": "ea68f8ce9ec4138e99884764217ed867726c0ba6d9c6d0a97fca6afeb59c93aa"
+    },
+    "a19d_12_post": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_12_post/trace.json",
+      "trace_sha256": "7f8323f0c585a904353f1f1d470f7f320d09bc438ce07c33a7ed5f07884757f6"
+    },
+    "a19d_13_bar1195": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_13_bar1195/trace.json",
+      "trace_sha256": "35c2597cb49753c8d76a0ac1748e419264f2d5c37d0059765990e0fa5042a065"
+    },
+    "a19d_14_roof": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_14_roof/trace.json",
+      "trace_sha256": "9f5587361187cea12c9cf58c96d703855dfce5b88dad75c992c46d22174da7f5"
+    },
+    "a19d_15_deckB": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_15_deckB/trace.json",
+      "trace_sha256": "bdbad2302a2dc7e1d39721d91151e9ed67c3102a7f8453474b79ea986238767f"
+    },
+    "a19d_16_ladder694": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_16_ladder694/trace.json",
+      "trace_sha256": "e548d8654c793b5d5856a15c87e8b78a1d9a39a9785fd594bbe29b4e740ad9f6"
+    },
+    "a19d_17_seal_far": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-7/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-7/a19d_17_seal_far/trace.json",
+        "trace_sha256": "9e0997c523aa52df5d9d63d4700949740b5db5f3c93ca00088bd2bdc2187c1b3"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_17_seal_far/trace.json",
+      "trace_sha256": "1f8837298641d8001790b5d6d2d8e8bf18a24af740ed4fedcd0d93757b63699c"
+    },
+    "a19d_18_seal": {
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_18_seal/trace.json",
+      "trace_sha256": "27e9ef6d79892b2e2c94603d2053e9aae0385d631bb2f144925736120e84a541"
+    },
+    "a19d_19_flights": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-7/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-7/a19d_19_flights/trace.json",
+        "trace_sha256": "c6083d8ce9e574b818e4f22eebe72e07496643d8763e93ace2ee9834edefa9da"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_19_flights/trace.json",
+      "trace_sha256": "8bb412df2df95ba6e4da6944c3e0a04cca993f3e0ec616ee03ec62d272027553"
+    },
+    "a19d_20_door50": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-7/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-7/a19d_20_door50/trace.json",
+        "trace_sha256": "72859ba18807d0cfa6cff8c93c051d71a97fc22fed48616f841d56ca2f50505f"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-19/run.py",
+      "driver_sha256": "950a0b16c1a95f0fdc59b68498f35a7b0d7854b832d2c83f38739ed18c759cb1",
+      "run_status": "build/fork_refs/levels-recordings-20261018-19/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_20_door50/trace.json",
+      "trace_sha256": "5eef2ad1c4ef95370290e22d3dc2b00a59ff44280a1f7c909e85349c0db04db6"
+    },
+    "a19e_00_hall": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a19e_00_hall/trace.json",
+        "trace_sha256": "5824ffd0689f8e6b4e75769819e9bb89005e02571f3c05247fd2318ab4a27d21"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_00_hall/trace.json",
+      "trace_sha256": "8e2f382f254311a0b0f2ea3921b173cf2b6edda07cda536b4f6524403167723d"
+    },
+    "a19e_01_ceiling": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_01_ceiling/trace.json",
+      "trace_sha256": "b2688982be1875ab4c455dcde81efb5553f13a79e5fbe28881574cec1a6c77b0"
+    },
+    "a19e_02_truck": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_02_truck/trace.json",
+      "trace_sha256": "3b1a91204373f2f875250f438f7c98b2bc8d80ca32666bbfb61bbb254a99ea61"
+    },
+    "a19e_03_battery": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a19e_03_battery/trace.json",
+        "trace_sha256": "f4b7d6a94da563fc038ca9f85c4c19c555fdcd0ec190eaa8c363f764b2b450bf"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_03_battery/trace.json",
+      "trace_sha256": "fdcb02ddbf53f5fbbe87102c1e243f049a0df03dcd0c8bd2522bf8fbf304e8ea"
+    },
+    "a19e_04_tower": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_04_tower/trace.json",
+      "trace_sha256": "acf27a7a840cbf14bff3cc88260e182a3146cfc5e8d0f2cc8dd5d4bc306afe63"
+    },
+    "a19e_05_down": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a19e_05_down/trace.json",
+        "trace_sha256": "b6534d379026c850480aa0974b897bbf27aae74621f79967ee114c7b31cde2b3"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_05_down/trace.json",
+      "trace_sha256": "a612da751547a8b443a1e9eab5f9c77d756822b88f5be76108f271c7a2d409b6"
+    },
+    "a19e_06_panel24": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_06_panel24/trace.json",
+      "trace_sha256": "947715b2e2fb32cfc285a4cf633f3ecfa57c79ef3cb5f5a407d6e1ccbaf5c73d"
+    },
+    "a19e_07_door25": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_07_door25/trace.json",
+      "trace_sha256": "827506a64787f3ede8396b345fc477d210d043f821eb5b32215a16c7ae19e7a8"
+    },
+    "a19e_s0_down694": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-8/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-8/a19e_s0_down694/trace.json",
+        "trace_sha256": "be2ae821f3f63cc549a8189412acf560d769e888c890f828b5cc66f4ed9f7f2c"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_s0_down694/trace.json",
+      "trace_sha256": "3db8e2e136792de0466a88e3075f9dbc345ce9f2cb303bf4bd48edd363567613"
+    },
+    "a19e_s1_panel": {
+      "driver": "build/fork_refs/levels-recordings-20261018-26/run.py",
+      "driver_sha256": "6999b7a353074214f6329177d46371dd74956a7dee7b0ab556be87940cab2cdd",
+      "run_status": "build/fork_refs/levels-recordings-20261018-26/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-26/s87/route_a19e/a19e_s1_panel/trace.json",
+      "trace_sha256": "a75c92af3a58e6ac9e9c0e6ea877615cd64cef52c4e136ca115764917354fd1e"
+    },
+    "a22_00_door7": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a22/a22_00_door7/trace.json",
+      "trace_sha256": "7798c6049b703240bcec79b6c730cf790086da9317516f1f580d3e0a782345cc"
+    },
+    "a22_01_corridor": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-2/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-2/a22_01_corridor/trace.json",
+        "trace_sha256": "9aab19ca1a4a7cc693458b6d08d22d65b1eb6e27f4a0b1c402758aefa0edb497"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a22/a22_01_corridor/trace.json",
+      "trace_sha256": "9867ebe35fbaa0f9145263221856e71f4d6a82748752a083c6b03569ab71d727"
+    },
+    "a22_02_progression_exit": {
+      "boundary": {
+        "run_status": "build/fork_refs/levels-boundaries-20261018-2/results.json",
+        "trace": "build/fork_refs/levels-boundaries-20261018-2/a22_02_progression_exit/trace.json",
+        "trace_sha256": "8e622a78b4701e8f7862f44181da6ad06649ca714a4852d5738ca612ff0230bb"
+      },
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a22/a22_02_progression_exit/trace.json",
+      "trace_sha256": "fad769f76c9824bca00e4c8c4cdcc3e5235e84aa671cade074d8eee21bfac612"
+    },
+    "a22b_00_to_door7": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a22b/a22b_00_to_door7/trace.json",
+      "trace_sha256": "796ed774d42243d60cb2264e6a38ba03521a0fa83b122e3c1092f88f8890a562"
+    },
+    "a22b_01_door6": {
+      "driver": "build/fork_refs/levels-recordings-20261018-10/run.py",
+      "driver_sha256": "2d743d95be0bcbb9853166acaf61790d06b318486cc2ea91740dc59a45e65f78",
+      "run_status": "build/fork_refs/levels-recordings-20261018-10/progress.json",
+      "trace": "build/fork_refs/levels-recordings-20261018-10/s87/route_a22b/a22b_01_door6/trace.json",
+      "trace_sha256": "772f5af4331d4944fac8c9237ba24e7fb9d21c2d4c7225b7dc7dd83d0809ed20"
+    }
+  },
+  "schema": 1,
+  "scope": "Supplemental original fork playthrough; no legacy-parity or native-gameplay certification. Every accepted beat passed route_capture.run_beat and its saved-state resume check."
+}

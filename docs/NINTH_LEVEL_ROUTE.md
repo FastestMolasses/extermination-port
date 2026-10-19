@@ -318,3 +318,20 @@ at the session's end); leads, not ground truth.
 3. Whether item 0x1A stops the outdoor health loss. (Answered in
    `TENTH_LEVEL_ROUTE.md` section 4: it does.)
 4. The use of item 0x20 from the HEALING page (the prompt) is not played.
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+6 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a13_00_door8` | `a04b_04_lift` | 7063 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_00_door8` |
+| `a13_01_door14` | `a13_00_door8` | 572 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_01_door14` |
+| `a13_02_door17` | `a13_01_door14` | 1098 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_02_door17` |
+| `a13_03_item27` | `a13_02_door17` | 562 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_03_item27` |
+| `a13_04_hatch` | `a13_03_item27` | 812 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_04_hatch` |
+| `a13_05_shaft` | `a13_04_hatch` | 925 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_05_shaft` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 0 indexed boundary receipts capture 0 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

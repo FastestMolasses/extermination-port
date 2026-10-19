@@ -497,3 +497,25 @@ into [7]'s room, [7]'s Use, door [27]; its section 5.1).
    the cards' content is unchanged is not proven; a tooling-level check
    (hash the cards before and after every session) is a shared-tooling
    item for all capture lanes, outside this lane.
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+11 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a13d_00_stair` | `a13c_06_south` | 906 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_00_stair` |
+| `a13d_01_ladder405` | `a13d_00_stair` | 410 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_01_ladder405` |
+| `a13d_02_block890` | `a13d_01_ladder405` | 588 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_02_block890` |
+| `a13d_03_jump` | `a13d_02_block890` | 286 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_03_jump` |
+| `a13d_04_ladder426` | `a13d_03_jump` | 391 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_04_ladder426` |
+| `a13d_05_ladder432` | `a13d_04_ladder426` | 761 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_05_ladder432` |
+| `a13d_06_door20` | `a13d_05_ladder432` | 544 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_06_door20` |
+| `a13d_07_hatch63` | `a13d_06_door20` | 544 | `build/fork_refs/levels-recordings-20261018-12/s87/route_a13d/a13d_07_hatch63` |
+| `a19b_00_arrival` | `a13d_07_hatch63` | 1806 | `build/fork_refs/levels-recordings-20261018-13/s87/route_a19b/a19b_00_arrival` |
+| `a19b_01_ledge` | `a19b_00_arrival` | 992 | `build/fork_refs/levels-recordings-20261018-13/s87/route_a19b/a19b_01_ledge` |
+| `a19b_02_ladder1023` | `a19b_01_ledge` | 1770 | `build/fork_refs/levels-recordings-20261018-13/s87/route_a19b/a19b_02_ladder1023` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 1 indexed boundary receipts capture 4 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.

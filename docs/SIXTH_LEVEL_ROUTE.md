@@ -585,3 +585,17 @@ init writes (D_00275C1C = 0x823E00, D_00275C28 = 0x20, D_00275C18 / 20 / 24
 .venv/bin/python tools/route_census.py a22-delta --passes A22 --a04-passes A04 --a02-passes A02 \
     --a01r-passes A01R --a00-passes A00 --a01-passes A01
 ```
+
+## Fork recording supplement (2026-10-18)
+
+These supplemental recordings use the original game on the project fork. They are separate from the legacy tables above. The recovered route starts from the already-recorded AREA02 medical-station branch, then replays the intervening route; each trace records its actual source state. No game-memory edits or teleports are used. The input wait changes and recovery decision are described in EIGHTH_LEVEL_ROUTE.md.
+
+3 beats in this level have passed a separate saved-state resume check. Trace hashes, capture-driver hashes and completed run-status receipts are indexed in LEVEL_ROUTE_EVIDENCE.json. All game data stays local under the paths below.
+
+| Beat | Source beat | Sampled rows | Private receipt folder in decomp |
+|---|---|---:|---|
+| `a22_00_door7` | `a04_05_progression_exit` | 626 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a22/a22_00_door7` |
+| `a22_01_corridor` | `a22_00_door7` | 663 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a22/a22_01_corridor` |
+| `a22_02_progression_exit` | `a22_01_corridor` | 683 | `build/fork_refs/levels-recordings-20261018-10/s87/route_a22/a22_02_progression_exit` |
+
+These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 2 indexed boundary receipts capture 2 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.
