@@ -596,7 +596,8 @@ def markdown(report):
         'Arrival aligns, then fails at frame 0 in `00156620`: the protected AREA11 owner table has 32 '
         'views, while the original AREA00 crates/drums alone require 39. Main must resolve that capacity '
         'before neutral frames, movement, camera, drawing, interactions and both returns. Preserve the strict AREA01 prerequisite '
-        'voice discrepancy and every first divergent row. See ' + link('docs/LEVEL3_BINDING.md') + '.', '',
+        'difference (a01_03 row 957, traced 2026-10-19 to the disc drive\'s per-read seek time; a user decision) and every first '
+        'divergent row. See ' + link('docs/LEVEL3_BINDING.md') + ' and ' + link('docs/LEVEL2_BINDING.md') + '.', '',
         '## Route coverage and function counts', '',
         'Counts are unique `(region, address)` per level; reused rows occur in several levels. '
         'The native-boundary column is a subset of M, not additional missing game logic.', '',
@@ -674,7 +675,8 @@ def markdown(report):
               'They remain outside the allowed texture-capacity exception. '
               'AREA00 now reaches the protected 32-view box/world owner limit, with a measured minimum of 39; '
               'LEVEL3_BINDING.md contains the proposed diff and validation required from main. '
-              'Other prerequisites: AREA01’s strict voice timing discrepancy and the measured SFX capacity/scope decision.', '',
+              'Other prerequisites: the user\'s decision on AREA01\'s a01_03 row-957 difference (the disc drive\'s per-read seek time, '
+              'LEVEL2_BINDING.md) and the measured SFX capacity/scope decision.', '',
               '## Readiness checkpoint (2026-10-18)', '',
               'Eighteen disc-free attribution/receipt tests pass, including overlay identity, hook exclusion, '
               'combined-report membership, missing evidence, snapshot completeness, and complete boundary provenance. The report '
@@ -688,6 +690,15 @@ def markdown(report):
               'private exports and remaining capacity work. Supplemental fork captures are indexed separately; '
               'AREA00 continuation is at the protected 32-view owner capacity; see LEVEL3_BINDING.md for the '
               'proposed main-owned change and exact evidence.', '',
+              '## Native play state (2026-10-19)', '',
+              'Measured on port main 789b4b4, headless. From New Game the port plays the whole first level '
+              '(newgame-control 9.599849; the full and drive-switch level smokes pass), then AREA01 row for row '
+              'through a01_02 (arrival, a01_00 781, a01_01 306, a01_02 591 rows) and a01_03 rows f0..f956 of 992 with '
+              'the drive-timing switch. Row 957 is the disc drive\'s per-read seek time (6 or 7 fields on the fork, the '
+              'model\'s 6); a private diagnostic build serving the fork\'s per-read values passes all 992 rows; the harness '
+              'path waits for a user decision (LEVEL2_BINDING.md). AREA00 fault-stops at arrival frame 0 (the 32-view '
+              'owner table, LEVEL3_BINDING.md); a00_00..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the '
+              'bugs\' attack on Roger and the bridge, AREA01_REVISIT.md) are not reached, and the revisit has no harness yet.', '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '
               'For exact beats, first-hit metadata, census hashes, owner definitions and test entry locations, '

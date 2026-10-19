@@ -24,6 +24,27 @@ runs, so each decomp/splat name is 0x40 lower (0x825950 is
 group and record address the translation names reaches a hook argument or a
 compared access, so the test confirms each one.
 
+## State (2026-10-19, port main 789b4b4)
+
+**The revisit does not play natively yet, and has no live harness.** The
+user's target is the revisit's event and the bridge: a01r_00 (back to the
+train room), a01r_01 (D_008107DF 1 .. 0xFF, Roger attacked by the bugs, the
+two messages, the camera cinematic, D_0081075F = 0xFF, item 0x20 and the
+status page) and a01r_02 (doors [41] / [42], script 0x82B0D0, the tilt to
+50 degrees, D_008107E0 / D_00810760 = 0xFF, control back); phases and fork
+rows in FOURTH_LEVEL_ROUTE.md, recordings in the decomp's
+`build/fork_refs/s87/route_a01r/`. A native run cannot get there: AREA00
+fault-stops at its arrival frame 0 (LEVEL3_BINDING.md "Current state"), so
+a00_10's return with D_0081075E = 0xFF is never reached. The 17 entries
+here stay unwired and verified only as section 3 states. 0x823CD0 (the
+caller of 0x824340 / 0x824770 / 0x824D50) and 0x826010 now have unwired,
+oracle-checked translations in `em_area00_return.c` (2026-10-18,
+LEVEL_ORACLE_AUDIT.md); none of them is bound, and the other hooks in
+"Binding" still need verified port translations. A revisit harness in the style of
+`tools/test_level_smoke_area00.py` / `test_level_smoke_area01.py`
+(a01r_00..a01r_02 row for row) is not written; it is only useful once the
+AREA00 return passes.
+
 ## Scope: what ran, and what these functions reach
 
 - The 17: 0x8237D0, 0x823900, 0x8239C0, 0x824340, 0x824770, 0x824D50,
@@ -304,7 +325,7 @@ Nothing calls these entries. To run them live a host must:
 - dispatch 0x825950 (records 0x828A00[5] and [7]) and 0x8237D0 / 0x823900 /
   0x8239C0 (the group 0x82A900 behaviours) from the pool loop by the +0x10
   behaviour word (after publishing D_00275B40 = node + 0x110), 0x824340 /
-  0x824770 / 0x824D50 from a translation of 0x823CD0 (not in the port yet),
+  0x824770 / 0x824D50 from a translation of 0x823CD0 (`em_area00_return.c`, unwired),
   0x8282F0 from em_area01_overlay's `w_008282F0` hook (which must add the
   frame), and 0x825910 from the script interpreter's op09;
 - bind each hook to a verified port translation or a fail-stop stand-in. The

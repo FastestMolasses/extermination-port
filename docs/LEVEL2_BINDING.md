@@ -14,6 +14,60 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
+## State (2026-10-19, toward the drawbridge; port main 789b4b4)
+
+The user's target (2026-10-19): play from New Game through AREA01, AREA00
+and back to AREA01 until the bridge is lowered, every phase tick-exact
+against the fork recordings. **Not reached.** What plays now, measured on
+port main after Codex's `levels` branch was merged (789b4b4, reviewed
+2026-10-19):
+
+- **The first level is unchanged:** newgame-control PASS 9.599849;
+  `make test-level-smoke-full` PASS (every side run); `make
+  test-level-smoke-ps2-drive` PASS (20 live phases through a01_arrival).
+  Receipts: ignored `build/merge-1019-post/`, `build/frontier_i1_ngc/`,
+  `build/frontier_i1_l1/`.
+- **AREA01 exact:** a01_arrival, a01_00 (781 rows), a01_01 (306), a01_02
+  (591), at host speed and with the drive-timing switch (23 live phases,
+  exit 0); a01_03 rows f0..f956 of 992 with the switch.
+- **a01_03 row 957 is the disc drive's seek time, not the game code**
+  (traced 2026-10-19; receipts in ignored
+  `build/frontier_i1_20261019_063524/`). The earlier reading "the voice
+  line ends a frame early" (the audio owner) is superseded: the line's key-on and
+  end follow its voice reads, and those reads complete later on the fork
+  than the switch's model serves them (native `msg` (2,2,64) against the
+  recording's (2,1,64) at row 957). In the fork recording of
+  a01_03 the lanes' far seeks to the AREA01 voice data (|d| about 102,000
+  sectors, beyond the C7-measured full-seek range) take 6 busy polls on 7
+  reads and 7 on 9 reads, with no pattern in distance, field parity or
+  idle time; the switch's model (IOP_STREAM.md "Drive model") serves every
+  full seek its documented majority, 6. Its rule held for the first
+  level's voiced lines (each first voice read took exactly 6); it does not
+  hold here. A private diagnostic build that serves each read the fork's
+  measured value (`diagnostic_seek_override_NOT_FOR_COMMIT.patch`, never
+  committed, not a checker) passes **all 992 rows of a01_03** (24 live
+  phases, exit 0; `build/frontier_i1_diag/run_ov/`). No port code changed.
+  a01_04..a01_07 and a01_s7 were not re-run; a01_05's row 3836 (its own
+  voice-line end) very likely has the same cause.
+- **Not exact yet:** a01_03 from row 957, a01_04..a01_07 and a01_s7 (they
+  inherit it); a01_s1, a01_s2, a01_s5 from their pickup page request
+  (AREA01's page reads have no recorded drive time; see the 2026-10-08
+  state below).
+- **Plays without a fault but uncompared** past row 957: the replay
+  reaches the shaft door, the conversations and the level exit; the AREA00
+  load completes and the AREA00 arrival fault-stops at frame 0
+  (LEVEL3_BINDING.md "Current state": the 32-view owner table).
+
+**Decision needed (user):** how the harnesses match the drive's per-read
+seek spread: (a) a comparison-only drive replay (a developer switch, off by
+default, never a player or launcher option, in the spirit of
+`EM_IOP_TICK_PHASE`) serving each read the seek fields the fork recording
+measured, from per-beat tables re-recorded on the fork from the user's
+disc into ignored `build/`; (b) keep the model and compare AREA01 by events
+from the first voiced line on (a change to the target only the user can
+make); (c) another rule (a fork measurement of the sub-field poll phase;
+not attempted, and the port has no EE cycle timing to reproduce it).
+
 ## State (2026-10-08, the level-2 check)
 
 **What a player can do in AREA01 now, without a fault** (every

@@ -197,6 +197,13 @@ What the capture shows, and the model:
   The one-field spreads follow the sub-field phase at which the EE polls. No capture records that phase, so the
   model takes each class's majority. The four reads the first level's timing rests on all took exactly 6: the
   opening's cue 0x3F prefill (d = 72124) and each voiced line's first voice read (d = 89272, 88363, 89372).
+
+  **AREA01 does not follow the majority (measured 2026-10-19).** In the fork recording of a01_03 the far seeks to
+  the AREA01 voice data (|d| about 102,000, beyond the measured full-seek range, so served as full seeks) take 6
+  busy polls on 7 reads and 7 on 9, with no pattern in distance, field parity or idle time; the model serves 6,
+  and a01_03 diverges at row 957. Served the fork's measured value per read (a private diagnostic build, never
+  committed), a01_03 passes all 992 rows. How the harnesses match this spread is a pending user decision
+  (LEVEL2_BINDING.md "State (2026-10-19)"; LAUNCHER_OPTIONS.md "Decisions for the user to review"). The model is unchanged.
 - **Unmeasured distances.** A distance outside every measured range takes the class of the nearest measured
   distance. `stats.unmeasured` counts these reads, and the level smoke reports them. On the route they are
   Roger's music cue 29 read and the cue 25 resume after it (d = +3026 and -4394, served as fast seeks): 2 of the

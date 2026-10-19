@@ -14,6 +14,24 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-19, port main 789b4b4 (the `levels` branch merged): AREA00 does
+not play yet.** The stop is unchanged: ordinary New Game reaches the AREA00
+arrival alignment (counter 26925 with the drive-timing switch, 26634 at
+host speed) and fault-stops at arrival frame 0 in drum callback `00156620`,
+because `em_area11_boxes.c` still holds `BOX_MAX = 32` owner views (the
+original arrival needs at least 39: 26 crates and 13 drums). That file is
+first-level code; the proposed change and its validation are in **Requests
+for main**. Zero AREA00 rows are certified: arrival, a00_00..a00_10 and the
+side return a00_s0 are all open, and so is the AREA01 revisit that follows
+a00_10 (AREA01_REVISIT.md). The harness itself passes its contract checks
+(`tools/test_level_smoke_area00.py --verify-harness`: 13 C branch paths,
+2,731 input commands, 16,504 capture-shaped rows, 179 rejected corruptions;
+`build/merge-1019-post/area00-harness.log`), which is no gameplay claim.
+The AREA01 prerequisite difference is now traced to the disc drive's
+per-read seek time, not the voice owner (LEVEL2_BINDING.md "State
+(2026-10-19)"); it waits for a user decision. The four unsampled AREA00
+ticks (below) still need fork boundary receipts.
+
 2026-10-18 asset follow-up: original page replay found an additional
 `001E9E60` surface texture. Both canonical AREA00 catalogs now hold 580 fixed
 keys, checked against every selected GS freeze and uploaded by the native
@@ -367,7 +385,9 @@ models and crate roots are now supplied exactly, with no native game-code
 changes. Arrival aligns, but still has zero certified rows. Movement,
 camera, interactions, drawing and both returns remain uncertified.
 Standalone tests do not establish live call order or eliminate later
-missing workers. The inherited AREA01 voice discrepancy also remains.
+missing workers. The inherited AREA01 a01_03 row-957 difference also
+remains; since 2026-10-19 it is traced to the disc drive's per-read seek
+time and waits for a user decision (LEVEL2_BINDING.md "State (2026-10-19)").
 
 After main resolves the owner-view capacity, rerun arrival before
 expanding downstream phases. Preserve the first fault and bind remaining

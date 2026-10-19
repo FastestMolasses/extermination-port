@@ -1835,6 +1835,29 @@ Since the level-2 check (2026-10-08) the exported pad applies that reading
 per beat ("a01_01..a01_07 and the side beats" below). Receipts (ignored):
 `build/level2/camera/`.
 
+### Levels 2-4 toward the drawbridge (2026-10-19, port main 789b4b4)
+
+What plays now, from New Game: the whole first level (every phase above
+unchanged; newgame-control 9.599849, `make test-level-smoke-full` and
+`make test-level-smoke-ps2-drive` PASS), then AREA01's arrival, a01_00,
+a01_01 and a01_02 row for row (exit 0 at host speed and with the switch),
+then a01_03 rows f0..f956 of 992 with the switch. The replay goes on
+without a fault through the conversations and the level exit, but is not
+compared past row 957; the AREA00 arrival fault-stops at frame 0 (the
+32-view owner table, LEVEL3_BINDING.md), so a00_00..a00_10, a00_s0 and the
+AREA01 revisit (a01r_00..a01r_02, the bugs' attack on Roger and the
+bridge, AREA01_REVISIT.md) are not reached. No revisit harness exists yet.
+
+a01_03 row 957 is traced to the disc drive's per-read seek time
+(LEVEL2_BINDING.md "State (2026-10-19)"): the fork's far seeks to the
+AREA01 voice data take 6 or 7 fields read by read, the switch's model
+serves 6. A private diagnostic build serving the fork's measured value per
+read passes all 992 rows (never committed; receipts in ignored
+`build/frontier_i1_20261019_063524/`, `build/frontier_i1_diag/`). The
+checks are unchanged; how to compare past this point waits for a user
+decision (a comparison-only drive replay, event alignment, or another
+rule).
+
 ### a01_01..a01_07 and the side beats (level-2 check, 2026-10-08)
 
 **The first command's latency is read from each recording.** Every beat
@@ -1886,7 +1909,9 @@ stated):
 - **a01_03: rows f0..f956 of 991 exact** with the drive-timing switch (the
   locked shaft door's Use, its door program and message, the conversation
   script 0x8298E0); at f957 the voice line ends one frame before the
-  recording's (seven frames at host speed). The later rows of that beat
+  recording's (seven frames at host speed). Cause traced 2026-10-19: the
+  drive's per-read seek time, not the voice owner ("Levels 2-4 toward the
+  drawbridge" above). The later rows of that beat
   and the next beats inherit the shift: a diagnostic that tolerates only
   the message words (private, not committed; not a checker) finds a01_04's
   camera and walk drifting from row 0, a01_05's 3,835 conversation rows
@@ -1918,6 +1943,12 @@ stated):
 - a01_s7 inherits a01_03's voice-line row and stops there.
 
 ### AREA00: arrival, progression and side return (2026-10-13)
+
+2026-10-19 (port main 789b4b4): unchanged. Arrival aligns, then the
+frame-0 fault in `00156620` (`em_area11_boxes.c` `BOX_MAX = 32`, at least
+39 needed); zero AREA00 rows pass; the contract checks pass
+(`build/merge-1019-post/area00-harness.log`).
+
 
 **Harness verified; native arrival blocked by the 32-view owner table.**
 `tools/test_level_smoke_area00.py` adds thirteen C phases and independent
