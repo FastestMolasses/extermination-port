@@ -278,6 +278,48 @@ void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out);
 enum { EM_IOP_SEEK_AFTER_LOADER_READ = 17 };
 void em_iop_stream_loader_read(EmIopStream *s, uint32_t lsn, uint32_t sectors, int measured);
 
+/* The drive replay (a comparison-only developer switch, EM_PS2_DRIVE_REPLAY:
+ * docs/STARTUP.md "Developer switches", IOP_STREAM.md "Drive replay"; never
+ * a launcher option; user decision 2026-10-19). The PS2 drive's seek time
+ * varies read by read in the fork recordings (a far seek takes 6 or 7
+ * fields with no pattern any capture records); the model above serves each
+ * class one value. With a replay table, a read issued while the main-loop
+ * counter (0x70003B64, em_iop_stream_set_drive_counter) is within
+ * EM_IOP_REPLAY_WINDOW of an entry's counter, at that entry's sector and
+ * count, takes the entry's seek fields (the nearest unserved entry; each
+ * entry serves one read):
+ * the fields the fork recording measured for that read (tools/
+ * record_drive_replay.py, kept in ignored build/). Every other read takes
+ * the model. The model's counters above classify every read as before.
+ * Only with the PS2 disc-drive timing switch on: -1 when it is off, when
+ * the table is not in counter order or an entry's fields exceed
+ * EM_IOP_REPLAY_FIELDS_MAX. The caller owns the table (`served` is set per
+ * entry); NULL / 0 clears it. */
+enum { EM_IOP_REPLAY_FIELDS_MAX = 64, EM_IOP_REPLAY_MISSES_KEPT = 8, EM_IOP_REPLAY_WINDOW = 2 };
+typedef struct {
+    uint32_t counter, sector, count, fields;
+    uint32_t served;                 /* set when a read took this entry */
+} EmIopDriveReplayRead;
+typedef struct {
+    uint32_t entries;                /* the table's entries                    */
+    uint32_t served;                 /* reads that took an entry's fields      */
+    uint32_t near;                   /* of them, at another counter in the window */
+    uint32_t differed;               /* of them, fields other than the model's */
+    uint32_t missed;                 /* reads with no entry (the model served) */
+    /* of them, reads issued inside the table's counter span (a recorded
+     * stretch the run did not follow read for read), and the last one */
+    uint32_t missed_in_span;
+    uint32_t last_missed_counter, last_missed_sector;
+    /* the first such reads (counter, sector, count), for the report */
+    uint32_t first_missed[EM_IOP_REPLAY_MISSES_KEPT][3];
+} EmIopDriveReplayStats;
+int em_iop_stream_set_drive_replay(EmIopStream *s, EmIopDriveReplayRead *reads, uint32_t n);
+/* The recording's main-loop counter the next reads are issued under (the
+ * binder sets it at each stream entry once the replay is anchored; before
+ * the first call every read takes the model). */
+void em_iop_stream_set_drive_counter(EmIopStream *s, uint32_t counter);
+void em_iop_stream_drive_replay_stats(const EmIopStream *s, EmIopDriveReplayStats *out);
+
 /* ---- EE side ------------------------------------------------------------ */
 uint32_t em_iop_stream_001FA6A0(EmIopStream *s, int32_t size);
 /* sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail: out = {D_00275B50, D_00275B28,

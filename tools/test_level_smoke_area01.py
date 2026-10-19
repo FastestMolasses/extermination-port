@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 
+import drive_replay
 from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, ROUTE_PHASES, SOURCES, command_rows,
                                phase_path, prepare_pads, route_capture)
 
@@ -55,6 +56,7 @@ static float lx,ly;
 static void pad_apply(unsigned b,float x,float y){buttons=b;lx=x;ly=y;}
 static void fail(const char *why){fprintf(stderr,"FAIL %s\n",why);failed=1;}
 static unsigned em_frame_counter(void){return counter;}
+static void em_stream_live_drive_replay_anchor(const char *phase,unsigned c){(void)phase;(void)c;}
 static const EmSceneState *em_scene_state(void){return &scene;}
 static unsigned task_byte(unsigned off){return exiting ? (off==8?3:off==9?1:0):0;}
 '''.replace('PHASE_ROWS', rows)
@@ -217,6 +219,21 @@ def verify_checker():
             try:a01.route_start(ticks,run,bad,phase,capture)
             except AssertionError:rejected+=1
             else:raise AssertionError((phase,'checker accepted wrong source counter',delta))
+    # a01_07's endpoint tail (check_exit_boundary): one tail at the arrival
+    # tick's counter + 1 is taken; at the same counter, none, two, or one
+    # without the loader's bytes fail.
+    arrival=26924
+    tail=dict(counter=arrival+1,msg=[0,0,0],fade8='00'*8,loader_pre=[1,2,3])
+    assert a01.exit_tail(dict(tails=[dict(tail,counter=arrival),tail]),arrival) is tail
+    for name,tails in (('same counter',[dict(tail,counter=arrival)]),('missing',[]),
+                       ('two',[tail,dict(tail)]),
+                       ('no loader bytes',[{k:v for k,v in tail.items() if k!='loader_pre'}])):
+        try:a01.exit_tail(dict(tails=tails),arrival)
+        except AssertionError:rejected+=1
+        else:raise AssertionError(('a01_07','checker accepted an endpoint tail: '+name))
+    try:a01.exit_tail({},arrival)
+    except AssertionError:rejected+=1
+    else:raise AssertionError(('a01_07','checker accepted a run with no tails'))
     print(f'AREA01 checker contract: PASS {total} capture-shaped rows and {rejected} rejected '
           'field/source corruptions (no native gameplay parity claim)')
 
@@ -271,6 +288,16 @@ def main():
                           help='ordinary New Game through this side\'s source, then its recorded pad route')
     parser.add_argument('--out', type=Path, default=ROOT / 'build/level2/smoke')
     parser.add_argument('--bin', type=Path, default=Path(os.environ.get('EM_LEVEL_SMOKE_BIN', ROOT / 'build/extermination')))
+    replay = parser.add_mutually_exclusive_group()
+    replay.add_argument('--drive-replay', type=Path, default=drive_replay.DEFAULT_DIR,
+                        help='the fork-recorded per-beat drive tables (tools/record_drive_replay.py; default '
+                             'build/drive_replay): every AREA01 phase runs with the PS2 disc-drive timing '
+                             'switch and the comparison-only drive replay (EM_PS2_DRIVE_REPLAY)')
+    replay.add_argument('--no-drive-replay', action='store_true',
+                        help='no replay: the drive as the environment selects (host speed by default)')
+    parser.add_argument('--strict-drive-replay', action='store_true',
+                        help='also fail when a read inside the recorded span found no recorded entry (the run '
+                             'issued it at another time than the recording; the compared rows can still be exact)')
     args = parser.parse_args()
     until = args.side or args.until or 'a01_arrival'
     out = args.out.resolve()
@@ -288,18 +315,32 @@ def main():
                EM_LEVEL_SMOKE_UNTIL=until, EM_LEVEL2_PAD_DIR=str(out / 'pads'),
                EM_AREA_CHANGE_LOG=str(out / 'ticks.jsonl'), EM_RAND_TRACE=str(out / 'rand.trace'),
                EM_LEVEL_SMOKE_BIN=str(binary))
+    replay_info = None
+    phases = [p for p in phase_path(until) if p != 'a01_arrival']
+    if not args.no_drive_replay and phases:
+        replay_info = drive_replay.write_table(
+            [(p, (MAIN_BEATS | SIDE_BEATS)[p], route_capture(p)['first_counter']) for p in phases],
+            args.drive_replay, out / 'drive_replay.txt')
+        env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
+        print(f"AREA01: drive replay of {replay_info['entries']} fork-recorded reads over "
+              f"{len(phases)} phases (comparison only)", flush=True)
     started = time.monotonic()
     receipt = dict(binary=str(binary), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                    until=until, side=args.side, area01_path=phase_path(until), pad_changes=count,
-                   pad_manifest=str(out/'pads/manifest.json'),side_input_files=side_count)
+                   pad_manifest=str(out/'pads/manifest.json'),side_input_files=side_count,
+                   drive_replay=replay_info)
     with (out / 'run.log').open('w') as log:
         result = subprocess.run([str(binary)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                                 timeout=1800)
     receipt.update(run_returncode=result.returncode, seconds=round(time.monotonic()-started, 3))
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n')
-    for line in (out / 'run.log').read_text(errors='replace').splitlines():
-        if line.startswith(('level smoke:', 'em_area01:', 'em_scene: FAULT')):
+    run_text = (out / 'run.log').read_text(errors='replace')
+    for line in run_text.splitlines():
+        if line.startswith(('level smoke:', 'em_area01:', 'em_scene: FAULT', 'stream drive: replay')):
             print(line, flush=True)
+    if replay_info is not None:
+        replay_info['run'] = drive_replay.report(run_text)
+        (out / 'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n')
     if result.returncode:
         prefix_report(out, run_path(out), until)
         return result.returncode
@@ -311,6 +352,22 @@ def main():
     receipt['check_returncode'] = check.returncode
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n')
     print((out / 'check.log').read_text())
+    if replay_info is not None:
+        # The replay's own account: reads served from the recording, and reads
+        # inside the recorded span the run issued at another time than the
+        # recording (outside EM_IOP_REPLAY_WINDOW), which took the model.
+        r = replay_info['run']
+        if r is None:
+            print('AREA01 drive replay: FAIL the run printed no replay line')
+            return 1
+        print(f"AREA01 drive replay: {r['served']} of {r['entries']} recorded reads served "
+              f"({r['differed']} other than the model, {r['near']} at a counter other than the recording's), "
+              f"{r['missed_in_span']} reads inside the recorded span with no recorded entry (the model), "
+              f"{r['not_reached']} entries not reached")
+        if args.strict_drive_replay and r['missed_in_span']:
+            print('AREA01 drive replay: FAIL (--strict-drive-replay: a read inside the recorded span had no '
+                  'recorded entry)')
+            return 1
     return check.returncode
 
 

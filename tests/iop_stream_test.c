@@ -557,6 +557,131 @@ static void test_reader_after_loader(const EmIopStreamDisc *music_only)
     em_iop_stream_destroy(s);
 }
 
+/* The comparison-only drive replay (EM_PS2_DRIVE_REPLAY; IOP_STREAM.md
+ * "Drive replay"): a read issued within EM_IOP_REPLAY_WINDOW of an entry's
+ * counter at its sector and count takes the entry's fields, every other read
+ * the model; the model's
+ * counters are unchanged; the table needs the timing switch and counter
+ * order; before the first counter every read takes the model. */
+static void test_reader_replay(const EmIopStreamDisc *music_only)
+{
+    const uint8_t mode[3] = {0, 0, 0};
+    int32_t r = 0;
+    EmIopStreamDisc disc = *music_only;
+    EmIopStreamExtent ext[2] = {music_only->extent[0], {MUSIC_LSN + 80000u, 8, CUE_SECTORS * 2048u, 1}};
+    EmIopDriveStats st;
+    EmIopDriveReplayStats rs;
+    disc.extent = ext;
+    disc.extents = 2;
+    EmIopDriveReplayRead table[] = {
+        {100, MUSIC_LSN + 2, 3, 6, 0},          /* the first read: as the model (no position) */
+        {110, MUSIC_LSN + 80000u, 8, 7, 0},     /* a full seek the recording measured at 7 */
+        {110, MUSIC_LSN + 1, 1, 9, 0},          /* same counter, another read: not taken */
+        {120, MUSIC_LSN + 1, 1, 7, 0},
+        {130, MUSIC_LSN + 2, 1, 0, 0},
+    };
+    EmIopDriveReplayRead unordered[] = {{5, 0, 1, 0, 0}, {4, 0, 1, 0, 0}};
+    EmIopDriveReplayRead too_long[] = {{5, 0, 1, EM_IOP_REPLAY_FIELDS_MAX + 1, 0}};
+
+    EmIopStream *s = em_iop_stream_create();
+    em_iop_stream_attach_disc(s, &disc);
+    CHECK(em_iop_stream_set_drive_replay(s, table, 5) == -1);   /* host speed: refused */
+    em_iop_stream_set_ps2_drive_timing(s, 1);
+    CHECK(em_iop_stream_set_drive_replay(s, unordered, 2) == -1);
+    CHECK(em_iop_stream_set_drive_replay(s, too_long, 1) == -1);
+    CHECK(em_iop_stream_set_drive_replay(s, table, 5) == 0);
+    /* not keyed yet: the model */
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 3, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 6 && !table[0].served);
+    em_iop_stream_set_drive_counter(s, 110);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 80000u, 8, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 7 && table[1].served && !table[2].served);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xCDE00, disc_data + CUE_SECTORS * 2048, 8 * 2048));
+    em_iop_stream_set_drive_counter(s, 120);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 1, 1, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 7 && table[3].served && !table[2].served);
+    /* an entry is taken once; a read at a counter with no entry: the model */
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 1, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 0 && !table[4].served);
+    em_iop_stream_set_drive_counter(s, 125);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 0, 1, 0xCDE00, mode, &r) == 0);   /* d = -3: the model */
+    CHECK(busy_polls(s) == 0);
+    /* one counter after the recording's (inside the window): entry 4 */
+    em_iop_stream_set_drive_counter(s, 131);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 1, 0xCDE00, mode, &r) == 0);   /* d = +1 */
+    CHECK(busy_polls(s) == 0 && table[4].served);
+    em_iop_stream_drive_replay_stats(s, &rs);
+    CHECK(rs.entries == 5 && rs.served == 3 && rs.near == 1 && rs.differed == 2 && rs.missed == 3 &&
+          rs.missed_in_span == 2);
+    CHECK(rs.last_missed_counter == 125 && rs.last_missed_sector == MUSIC_LSN + 0);
+    /* the model's classes count every read as without the replay */
+    em_iop_stream_drive_stats(s, &st);
+    CHECK(st.reads == 6 && st.no_position == 1 && st.by_fields[6] == 3 && st.by_fields[0] == 3);
+    CHECK(em_iop_stream_set_drive_replay(s, NULL, 0) == 0);
+    em_iop_stream_set_drive_counter(s, 110);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 80000u, 8, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 6);   /* cleared: the model */
+    em_iop_stream_destroy(s);
+}
+
+/* The replay matcher's bounds (IOP_STREAM.md "Drive replay"): an entry is
+ * taken only by a read at its own sector AND count, at a counter within
+ * EM_IOP_REPLAY_WINDOW (2) of the entry's on either side; a read 3 counters
+ * before or after it, or with another count, takes the model. Every entry
+ * here records 9 fields, a value the model never serves for these reads,
+ * so a taken entry shows as 9 busy polls. */
+static void test_reader_replay_bounds(const EmIopStreamDisc *music_only)
+{
+    const uint8_t mode[3] = {0, 0, 0};
+    const uint32_t far = MUSIC_LSN + 80000u;
+    int32_t r = 0;
+    EmIopStreamDisc disc = *music_only;
+    EmIopStreamExtent ext[2] = {music_only->extent[0], {far, 8, CUE_SECTORS * 2048u, 1}};
+    EmIopDriveReplayStats rs;
+    int n;
+    disc.extent = ext;
+    disc.extents = 2;
+    EmIopDriveReplayRead table[] = {
+        {200, far, 8, 9, 0},        /* read at 197 and 203 (outside): the model    */
+        {300, far, 8, 9, 0},        /* read at 300 with count 4: the model; then 8 */
+        {400, far, 8, 9, 0},        /* read at 402 (the window's last counter)     */
+        {500, far, 8, 9, 0},        /* read at 498 (the window's first counter)    */
+    };
+    EmIopStream *s = em_iop_stream_create();
+    em_iop_stream_attach_disc(s, &disc);
+    em_iop_stream_set_ps2_drive_timing(s, 1);
+    CHECK(em_iop_stream_set_drive_replay(s, table, 4) == 0);
+    /* three counters before the entry: not taken (the upper bound) */
+    em_iop_stream_set_drive_counter(s, 197);
+    CHECK(em_iop_stream_00112610(s, far, 8, 0xCDE00, mode, &r) == 0);
+    n = busy_polls(s);
+    CHECK(n != 9 && n == 6 && !table[0].served);
+    /* three counters after it: not taken (the lower bound) */
+    em_iop_stream_set_drive_counter(s, 203);
+    CHECK(em_iop_stream_00112610(s, far, 8, 0xCDE00, mode, &r) == 0);
+    n = busy_polls(s);
+    CHECK(n != 9 && !table[0].served);
+    /* the same sector and counter, another count: not taken */
+    em_iop_stream_set_drive_counter(s, 300);
+    CHECK(em_iop_stream_00112610(s, far, 4, 0xCDE00, mode, &r) == 0);
+    n = busy_polls(s);
+    CHECK(n != 9 && !table[1].served);
+    /* the entry was there: the read with its count takes it */
+    CHECK(em_iop_stream_00112610(s, far, 8, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 9 && table[1].served);
+    /* the window's two edges: taken */
+    em_iop_stream_set_drive_counter(s, 402);
+    CHECK(em_iop_stream_00112610(s, far, 8, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 9 && table[2].served);
+    em_iop_stream_set_drive_counter(s, 498);
+    CHECK(em_iop_stream_00112610(s, far, 8, 0xCDE00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 9 && table[3].served && !table[0].served);
+    em_iop_stream_drive_replay_stats(s, &rs);
+    /* the read at 197 lies before the table's first counter: outside the span */
+    CHECK(rs.entries == 4 && rs.served == 3 && rs.near == 2 && rs.missed == 3 && rs.missed_in_span == 2);
+    em_iop_stream_destroy(s);
+}
+
 /* The sound-bank transfer (docs/IOP_STREAM.md "The sound-bank transfer"):
  * the heap's first fit with the driver's start-up block, 0010F968, the SIF
  * DMA at host speed, command 0x20 on the SPU2 model and its callback 0x544
@@ -664,6 +789,8 @@ int main(void)
     test_reader(&disc);
     test_reader_host(&disc);
     test_reader_after_loader(&disc);
+    test_reader_replay(&disc);
+    test_reader_replay_bounds(&disc);
     (void)test_stream(&disc, 0, -1);
     (void)test_stream(&disc, 1, -1);
     test_tick_phase(&disc);

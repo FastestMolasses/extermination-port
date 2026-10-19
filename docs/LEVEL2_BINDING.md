@@ -14,6 +14,57 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
+## State (2026-10-19, the drive replay; port main 4f7a564 + the replay change)
+
+The user's decision of 2026-10-19 ("Comparison-only replay") is built: the
+developer switch `EM_PS2_DRIVE_REPLAY` serves each recorded read the seek
+fields the fork recording measured for it (IOP_STREAM.md "Drive replay";
+STARTUP.md "Developer switches"; LAUNCHER_OPTIONS.md "Not launcher
+options"). The tables of the eight main beats a01_00..a01_07 (597 reads)
+are recorded on the fork into ignored `build/drive_replay/`
+(`tools/record_drive_replay.py`, replay differences 0), and
+`tools/test_level_smoke_area01.py` runs with the replay by default.
+
+- **AREA01 main route exact:** `tools/test_level_smoke_area01.py --until
+  a01_07` passes all 28 live phases row for row: the first level, the
+  arrival, a01_00 (781 rows), a01_01 (306), a01_02 (591), a01_03 (992; row
+  957 now exact), a01_04 (1,960), a01_05 (3,960; row 3836 exact),
+  a01_06 (2,647) and a01_07 (its 234 gameplay rows, the 19 loader states
+  and the AREA00 arrival state 0 with the original chain and veil
+  replays). Receipt (the passing run): ignored
+  `build/frontier2_i2_20261019_092911/final_a01_07/` and
+  `final_a01_07.out`.
+- **The a01_07 checker's tail counter** was wrong and is corrected
+  (`tools/level_smoke_area01.py` check_exit_boundary): the endpoint's tail
+  line is written after the main loop ended (src/main.c, after
+  em_frame_run), past the last frame's counter increment, so it carries
+  the arrival tick's counter + 1. The check was never reached live before
+  (a01_03 stopped every run, and the checker contract skips a01_07).
+- **Open (replay):** in a01_05 ten stream reads (recording counters
+  21794..22099; the voice lane's 18 fields later, the music lane's 3 or 4
+  either way) are issued off the recording's time and take the model while
+  every compared row is exact; `--strict-drive-replay` fails on them. On
+  a01_00..a01_03, 11 contiguous music refills come one field late and are
+  matched inside the replay's window of 2 (48 of the 403 served reads
+  through a01_07). Neither is explained (IOP_STREAM.md "Drive replay"), so
+  a01_05's stream and audio timing is not counted as original, only its
+  compared rows; next is a fork sample of the lanes' request bytes over
+  recording counters 21790..22100, then `--strict-drive-replay` as the
+  gate.
+- **Checks added in the fix round:** `make test-iop-stream`'s
+  `test_reader_replay_bounds` (the matcher's window edges and count match)
+  and the a01_07 endpoint-tail cases of `--verify-harness`'s checker
+  contract (`level_smoke_area01.exit_tail`: one tail at counter + 1 taken;
+  the same counter, none, two, or one without the loader's bytes
+  rejected; 155 rejected corruptions, was 150).
+- **Side beats with the replay** (fix round 2026-10-19; receipts ignored
+  `build/frontier2_i2_20261019_092911/fix_side_a01_s*/`): a01_s0 (1,435
+  rows), a01_s3 (262), a01_s4 (1,225), a01_s6 (229) and a01_s7 (982; 27
+  live phases, no longer stopped by a01_03's row 957) PASS, exit 0.
+  a01_s1 (row 314), a01_s2 (row 258) and a01_s5 (row 1623) stop at the
+  same rows as before: the pickup's page request, whose page module
+  answers at host speed (no recorded time for AREA01's page reads).
+
 ## State (2026-10-19, toward the drawbridge; port main 789b4b4)
 
 The user's target (2026-10-19): play from New Game through AREA01, AREA00

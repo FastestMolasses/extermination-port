@@ -376,6 +376,21 @@ def compare_route_row(smoke,ticks,i,row,phase):
     assert not different, (phase, f'row {row["f"]}', f'tick {tick["tick"]}', different)
 
 
+def exit_tail(state,arrival_counter):
+    """The endpoint-only run's one post-frame tail for the AREA00 arrival.
+
+    The tail is written after the main loop ended (src/main.c, after
+    em_frame_run), past the last frame's own counter increment: the arrival
+    tick's post-frame values carry its counter + 1. Exactly one tail at that
+    counter, with the loader's bytes, is accepted; none, two, or one only at
+    the arrival's own counter fail (test_level_smoke_area01.py
+    --verify-harness checks this contract).
+    """
+    tails=[t for t in state.get('tails',[]) if t['counter']==arrival_counter+1]
+    assert len(tails)==1 and 'loader_pre' in tails[0],'AREA00 arrival lacks one actual post-frame loader tail'
+    return tails[0]
+
+
 def check_exit_boundary(smoke,ticks,run,state):
     """Same asynchronous load alignment as the established first-level exit.
 
@@ -402,9 +417,7 @@ def check_exit_boundary(smoke,ticks,run,state):
         # which the endpoint-only run records in its explicit tail.
         observed=ticks
     else:
-        tails=[t for t in state.get('tails',[]) if t['counter']==ticks[end]['counter']]
-        assert len(tails)==1 and 'loader_pre' in tails[0],'AREA00 arrival lacks one actual post-frame loader tail'
-        tail=tails[0]
+        tail=exit_tail(state,ticks[end]['counter'])
         observed=ticks+[dict(msg_pre=tail['msg'],fade8=tail['fade8'],loader_pre=tail['loader_pre'])]
     load=next(r['f'] for r in rows if r['bd8']==1)
     assert load==234 and start+load<=end,'AREA01 exit load boundary moved'

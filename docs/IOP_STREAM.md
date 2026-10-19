@@ -332,6 +332,81 @@ What the capture shows, and the model:
   - The opening's rand() calls equal the original's in caller, frame and state from the area entry through first
     control (RAND_ORDER.md).
 
+## Drive replay (comparison only, 2026-10-19)
+
+The user's decision of 2026-10-19, "Comparison-only replay": the developer
+switch `EM_PS2_DRIVE_REPLAY=<file>` (STARTUP.md "Developer switches";
+LAUNCHER_OPTIONS.md "Not launcher options"), with the PS2 disc-drive timing
+switch on, serves each recorded read the seek fields the fork recording
+measured for it (`em_iop_stream_set_drive_replay`,
+`em_iop_stream_set_drive_counter`). Why: in the fork recording of a01_03 the
+lanes' far seeks to the AREA01 voice data (|d| about 102,000 sectors) take 6
+busy polls on 7 reads and 7 on 9, with no pattern in distance, field parity
+or idle time; the model serves the class one value (6), and a01_03 diverged
+at row 957 (LEVEL2_BINDING.md).
+
+- **Recording** (`tools/record_drive_replay.py`): each route beat is
+  re-driven on the fork from its source state with its recorded inputs
+  (replay differences: 0 on every AREA01 main beat) and, every field, the
+  main-loop counter 0x70003B64 and the read sequencer 001FA0D0's bytes are
+  sampled (decomp `src/func_001FA0D0.c`, NEARMISS C: phase D_00282157, lane
+  D_00282158; the lane records at D_00281FD0, sector +0x30, count +0x34,
+  state byte +3). A read is issued in the field whose sample first shows
+  phase 2; its seek fields are the following fields still in phase 2
+  (001FA0D0 polls 00112D18 once per field, as the model's "a read with s
+  seek fields completes at poll s + 1"), ending when 001FA0D0 marks the
+  lane's byte 2. A phase-2 exit without the mark (a break, 00113478) is left
+  out, as is a read still in flight 40 fields past the beat's end (one in
+  a01_07, at its end). The AREA01 main beats' 597 reads take 0, 1, 2, 6, 7
+  or 17 fields.
+- **Keying**: the recording's counter. The run's counter differs from it
+  by the alignment of the first level (427 on port main: a01_00 row 0 is
+  the run's 15360, the recording's 15787), so each table carries an anchor
+  per phase and the level smoke reports each phase's row 0
+  (`em_stream_live_drive_replay_anchor`). A read takes the entry with its
+  sector and count whose counter is nearest within 2 fields: on a01_00..a01_03
+  11 of 87 reads (all contiguous music refills) are issued one field later
+  than in the recording while every compared row is exact; through a01_07,
+  48 of the 403 served reads match only inside the window. **Not
+  explained:** the IOP's sub-field timing of the refill request ("Stated
+  models", the driver tick) is a candidate, not a proven cause; no fork
+  sample of the lanes' request bytes against the native run has been
+  taken. Until it is, the lanes' read timing is not counted as original,
+  only the compared rows are.
+- **Scope**: reads before the first anchor (the first level, the AREA01
+  arrival) and reads no entry covers take the model; the model's counters
+  (`EmIopDriveStats`) classify every read as before. Unset, nothing
+  changes: newgame-control 9.599849 and the first-level smokes' tick logs
+  are byte-identical to the build without the switch (2026-10-19).
+- **Result** (port main + this change, 2026-10-19): AREA01 a01_00..a01_07
+  pass row for row through the AREA00 arrival (28 live phases) with the
+  replay; 403 of the 597 recorded reads up to the AREA00 arrival boundary
+  served (48 off the recording's counter, 14 with fields other than the
+  model's). **Open:** in a01_05 (recording counters 21794..22099) ten reads
+  of the voice and music lanes are issued 3 to 19 fields off the
+  recording's (the voice lane's 18 later) and take the model, while every
+  compared row stays exact; the lanes' request timing there is not yet
+  explained and a01_05's stream and audio timing is not counted as original
+  (`--strict-drive-replay` fails on it). Next: sample the lanes' request
+  bytes (001FA0D0's lane records) on the fork against the native run over
+  recording counters 21790..22100; once explained, make
+  `--strict-drive-replay` the AREA01 harness's gate.
+- **Unit test** (`make test-iop-stream`, `test_reader_replay` and
+  `test_reader_replay_bounds`): an entry is taken once, only by a read at
+  its own sector and count within 2 counters on either side (both edges
+  taken; 3 before or after, or another count, take the model); refused at
+  host speed, out of order, or over 64 fields. Mutations of the window's
+  bounds, the count match and the served flag each fail it.
+- **Tables recorded** (2026-10-19, ignored `build/drive_replay/`): the
+  AREA01 main beats (597 reads) and side beats a01_s0..a01_s7, the AREA00
+  beats a00_00..a00_10 and a00_s0, and the revisit a01r_00..a01r_02, each
+  re-drive with 0 replay differences. A harness refuses a table whose
+  recording receipt shows replay differences (the first re-drive of a00_00
+  and a00_01 did not reproduce the recording; its tables are kept as
+  `.reads.diverged`, the re-recording reproduced it and gave identical
+  reads). `tools/test_level_smoke_area00.py --run` runs with the replay too
+  (the AREA01 main beats, then the AREA00 phases on its path).
+
 ## The sound-bank transfer (chain step H7, 2026-09-29)
 
 The area load's first bank step, 001FF590(0xAB, 0), hands the area's sound bank to 001FB370 (MODULE_LOADER.md

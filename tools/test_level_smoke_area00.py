@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 
+import drive_replay
 import level_smoke_area00 as a00
 import level_smoke_area01 as a01
 import reference_root as refs
@@ -50,6 +51,7 @@ static float lx,ly;
 static void pad_apply(unsigned b,float x,float y){buttons=b;lx=x;ly=y;}
 static void fail(const char *why){fprintf(stderr,"FAIL %s\n",why);failed=1;}
 static unsigned em_frame_counter(void){return counter;}
+static void em_stream_live_drive_replay_anchor(const char *phase,unsigned c){(void)phase;(void)c;}
 static const EmSceneState *em_scene_state(void){return &scene;}
 static unsigned task_byte(unsigned off){return arrived ? (off==8?3:off==9?1:0):0;}
 '''.replace('PHASE_ROWS', ',\n'.join('{"%s",%s,%s}' % row for row in phases))
@@ -306,6 +308,13 @@ def main():
     endpoint.add_argument('--side', choices=a00.SIDE_BEATS)
     parser.add_argument('--out', type=Path, default=ROOT / 'build/level3/smoke')
     parser.add_argument('--bin', type=Path, default=Path(os.environ.get('EM_LEVEL_SMOKE_BIN', ROOT / 'build/extermination')))
+    replay = parser.add_mutually_exclusive_group()
+    replay.add_argument('--drive-replay', type=Path, default=drive_replay.DEFAULT_DIR,
+                        help='the fork-recorded per-beat drive tables (tools/record_drive_replay.py; default '
+                             'build/drive_replay): the run uses the PS2 disc-drive timing switch and the '
+                             'comparison-only drive replay (EM_PS2_DRIVE_REPLAY)')
+    replay.add_argument('--no-drive-replay', action='store_true',
+                        help='no replay: the drive as the environment selects (host speed by default)')
     args = parser.parse_args()
     until, out = args.side or args.until or 'a00_arrival', args.out.resolve()
     if (args.until or args.side) and not (args.run or args.prepare):
@@ -324,17 +333,33 @@ def main():
                EM_LEVEL_SMOKE_UNTIL=until, EM_LEVEL2_PAD_DIR=str(out / 'pads/area01'),
                EM_LEVEL3_PAD_DIR=str(out / 'pads/area00'), EM_AREA_CHANGE_LOG=str(out / 'ticks.jsonl'),
                EM_RAND_TRACE=str(out / 'rand.trace'), EM_LEVEL_SMOKE_BIN=str(binary))
+    replay_info = None
+    if not args.no_drive_replay:
+        # AREA01's main beats (the route to the AREA00 arrival), then the
+        # AREA00 phases on this path, each anchored at its recorded row 0.
+        phases = [(p, a01.MAIN_BEATS[p], a01.route_capture(p)['first_counter']) for p in a01.MAIN_BEATS]
+        phases += [(p, (a00.MAIN_BEATS | a00.SIDE_BEATS)[p], a00.route_capture(p)['first_counter'])
+                   for p in a00.phase_path(until) if p != 'a00_arrival']
+        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt')
+        env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
+        print(f"AREA00: drive replay of {replay_info['entries']} fork-recorded reads over "
+              f"{len(phases)} phases (comparison only)", flush=True)
     started = time.monotonic()
     receipt = dict(binary=str(binary), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                    reference=refs.label(), until=until, area00_path=a00.phase_path(until), pad_changes=count,
-                   pad_manifest=str(out / 'pads/area00/manifest.json'), native_parity=False)
+                   pad_manifest=str(out / 'pads/area00/manifest.json'), native_parity=False,
+                   drive_replay=replay_info)
     with (out / 'run.log').open('w') as log:
         result = subprocess.run([str(binary)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
     receipt.update(run_returncode=result.returncode, seconds=round(time.monotonic() - started, 3))
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
-    for line in (out / 'run.log').read_text(errors='replace').splitlines():
-        if line.startswith(('level smoke:', 'em_area00:', 'em_scene: FAULT')):
+    run_text = (out / 'run.log').read_text(errors='replace')
+    for line in run_text.splitlines():
+        if line.startswith(('level smoke:', 'em_area00:', 'em_scene: FAULT', 'stream drive: replay')):
             print(line, flush=True)
+    if replay_info is not None:
+        replay_info['run'] = drive_replay.report(run_text)
+        (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     if result.returncode:
         prefix_report(out, until)
         return result.returncode

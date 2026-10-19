@@ -9,6 +9,7 @@
 
 #include "em_settings.h"
 #include "game/em_bgm.h"
+#include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_iop_stream.h"
 #include "game/em_message_service.h"
@@ -55,6 +56,15 @@ static struct {
     int device;              /* em_bgm's device ensured for the first stream */
     const char *fault;
     int reported;
+    /* The comparison-only drive replay (EM_PS2_DRIVE_REPLAY): its table. */
+    EmIopDriveReplayRead *replay;
+    uint32_t replay_n;
+    /* its anchors: a compared phase and the recording's counter at its row 0;
+     * the recording's counter minus the run's, from the last anchor reached */
+    struct { char phase[24]; uint32_t counter; } anchor[64];
+    uint32_t anchor_n;
+    int anchored;
+    uint32_t offset;
 } S;
 
 static _Atomic(EmIopStream *) s_mixer;
@@ -139,6 +149,9 @@ static int enter(void)
 {
     if (S.fault) return -1;
     if (!S.booted) return fail("a stream entry before the boot (001F9820)");
+    /* The drive replay keys each read by the main-loop counter it is
+     * issued under (comparison only; nothing changes without a table). */
+    if (S.depth == 0 && S.anchored) em_iop_stream_set_drive_counter(S.ctx.iop, em_frame_counter() + S.offset);
     if (S.depth++ == 0 && sync_in() < 0) {
         S.depth--;
         return -1;
@@ -180,6 +193,106 @@ static int tick_phase_from_env(EmIopStream *iop)
     return 0;
 }
 
+/* EM_PS2_DRIVE_REPLAY=<path>: the comparison-only drive replay (STARTUP.md
+ * "Developer switches", IOP_STREAM.md "Drive replay"; user decision
+ * 2026-10-19, never a launcher option). The file holds lines "counter
+ * sector count fields" in counter order ('#' starts a comment), recorded on
+ * the fork by tools/record_drive_replay.py into ignored build/; it needs the
+ * PS2 disc-drive timing switch (EM_PS2_DISC_DRIVE_TIMING=1). Unset: nothing
+ * changes. 0 with a line on stderr when set, -1 for a missing or malformed
+ * file or with the timing switch off. Lines "@ <phase> <counter>" anchor
+ * the recording's counters: when the level smoke aligns <phase> at its
+ * recorded row 0 (em_stream_live_drive_replay_anchor), the run's counter
+ * there is mapped onto <counter>, the recording's. */
+static int drive_replay_from_env(EmIopStream *iop)
+{
+    const char *path = getenv("EM_PS2_DRIVE_REPLAY");
+    char line[256];
+    uint32_t cap = 0, n = 0, lineno = 0;
+    EmIopDriveReplayRead *reads = NULL;
+    FILE *f;
+    if (!path)
+        return 0;
+    if (!em_iop_stream_ps2_drive_timing(iop)) {
+        fprintf(stderr, "stream lanes: EM_PS2_DRIVE_REPLAY needs the PS2 disc-drive timing switch "
+                        "(EM_PS2_DISC_DRIVE_TIMING=1)\n");
+        return -1;
+    }
+    f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "stream lanes: EM_PS2_DRIVE_REPLAY=%s cannot be opened\n", path);
+        return -1;
+    }
+    while (fgets(line, sizeof line, f)) {
+        unsigned long v[4];
+        char extra;
+        lineno++;
+        if (line[0] == '#' || line[0] == '\n')
+            continue;
+        if (line[0] == '@') {
+            char name[sizeof S.anchor[0].phase];
+            unsigned long c;
+            if (S.anchor_n == sizeof S.anchor / sizeof S.anchor[0] ||
+                sscanf(line, "@ %23s %lu %c", name, &c, &extra) != 2 || c > UINT32_MAX) {
+                fprintf(stderr, "stream lanes: EM_PS2_DRIVE_REPLAY %s:%u is not \"@ phase counter\" "
+                                "(or more than %u anchors)\n", path, lineno,
+                        (unsigned)(sizeof S.anchor / sizeof S.anchor[0]));
+                fclose(f);
+                free(reads);
+                return -1;
+            }
+            memcpy(S.anchor[S.anchor_n].phase, name, sizeof name);
+            S.anchor[S.anchor_n++].counter = (uint32_t)c;
+            continue;
+        }
+        if (sscanf(line, "%lu %lu %lu %lu %c", &v[0], &v[1], &v[2], &v[3], &extra) != 4 ||
+            v[0] > UINT32_MAX || v[1] > UINT32_MAX || v[2] > UINT32_MAX || v[3] > UINT32_MAX) {
+            fprintf(stderr, "stream lanes: EM_PS2_DRIVE_REPLAY %s:%u is not \"counter sector count fields\"\n",
+                    path, lineno);
+            fclose(f);
+            free(reads);
+            return -1;
+        }
+        if (n == cap) {
+            EmIopDriveReplayRead *more = realloc(reads, (cap = cap ? cap * 2 : 256) * sizeof *reads);
+            if (!more) {
+                fclose(f);
+                free(reads);
+                return -1;
+            }
+            reads = more;
+        }
+        reads[n++] = (EmIopDriveReplayRead){(uint32_t)v[0], (uint32_t)v[1], (uint32_t)v[2], (uint32_t)v[3], 0};
+    }
+    fclose(f);
+    if (!n || em_iop_stream_set_drive_replay(iop, reads, n) != 0) {
+        fprintf(stderr, "stream lanes: EM_PS2_DRIVE_REPLAY=%s is empty, out of counter order or has a "
+                        "seek over %d fields\n", path, (int)EM_IOP_REPLAY_FIELDS_MAX);
+        free(reads);
+        return -1;
+    }
+    S.replay = reads;
+    S.replay_n = n;
+    fprintf(stderr, "stream lanes: drive replay of %u recorded reads, %u anchors from %s "
+                    "(EM_PS2_DRIVE_REPLAY, comparison only)\n", (unsigned)n, (unsigned)S.anchor_n, path);
+    return 0;
+}
+
+void em_stream_live_drive_replay_anchor(const char *phase, uint32_t counter)
+{
+    if (!S.replay_n || !phase)
+        return;
+    for (uint32_t i = 0; i < S.anchor_n; ++i) {
+        if (strcmp(S.anchor[i].phase, phase))
+            continue;
+        S.offset = S.anchor[i].counter - counter;
+        S.anchored = 1;
+        fprintf(stderr, "stream drive: replay anchor %s: the recording's counter %u at the run's %u\n", phase,
+                (unsigned)S.anchor[i].counter, (unsigned)counter);
+        return;
+    }
+}
+
 int em_stream_live_boot(const char *path)
 {
     em_stream_live_shutdown();
@@ -198,6 +311,9 @@ int em_stream_live_boot(const char *path)
      * "Developer switches"; not a launcher option): unset leaves the driver
      * tick grid's phase at 0. */
     if (tick_phase_from_env(S.ctx.iop) < 0) return fail("EM_IOP_TICK_PHASE");
+    /* The comparison-only developer switch EM_PS2_DRIVE_REPLAY (STARTUP.md
+     * "Developer switches"; not a launcher option): unset, no table. */
+    if (drive_replay_from_env(S.ctx.iop) < 0) return fail("EM_PS2_DRIVE_REPLAY");
     EmIopVoiceTable table = {S.voice_table, &S.voice_scan};
     em_iop_stream_set_voice_table(S.ctx.iop, &table);
     /* sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail: the five IOP heap blocks. */
@@ -261,6 +377,7 @@ void em_stream_live_shutdown(void)
     atomic_store_explicit(&s_mixer, NULL, memory_order_release);
     if (S.ctx.iop) em_iop_stream_destroy(S.ctx.iop);
     if (S.disc.blob) em_iop_stream_disc_free(&S.disc);
+    free(S.replay);
     memset(&S, 0, sizeof S);
 }
 
@@ -564,6 +681,31 @@ void em_stream_live_drive_report(FILE *out)
         fprintf(out, "stream drive: %u SIF DMA transfers of the measured 0x%X bytes pending at their first status "
                      "query, %u of another size done at their first query (unmeasured)\n",
                 d.sif_dma, (unsigned)EM_IOP_SIF_DMA_MEASURED_SIZE, d.sif_dma_unmeasured);
+    /* The comparison-only drive replay (EM_PS2_DRIVE_REPLAY), set only. */
+    if (S.replay_n) {
+        EmIopDriveReplayStats r;
+        uint32_t unused = 0;
+        em_iop_stream_drive_replay_stats(S.ctx.iop, &r);
+        for (uint32_t i = 0; i < S.replay_n; ++i)
+            unused += !S.replay[i].served;
+        fprintf(out, "stream drive: replay: %u of %u recorded reads served (%u of them other than the model, "
+                     "%u at a counter other than the recording's), "
+                     "%u reads with no recorded entry (the model), %u of them inside the recorded span (last counter %u "
+                     "sector %u), %u entries not reached\n",
+                r.served, r.entries, r.differed, r.near, r.missed, r.missed_in_span, r.last_missed_counter,
+                r.last_missed_sector, unused);
+        for (uint32_t i = 0; i < r.missed_in_span && i < EM_IOP_REPLAY_MISSES_KEPT; ++i)
+            fprintf(out, "stream drive: replay: no recorded entry for the read at the recording's counter %u, "
+                         "sector %u, count %u\n",
+                    r.first_missed[i][0], r.first_missed[i][1], r.first_missed[i][2]);
+        for (uint32_t i = 0, k = 0; i < S.replay_n && k < EM_IOP_REPLAY_MISSES_KEPT; ++i)
+            if (!S.replay[i].served && S.replay[i].counter <= r.last_missed_counter) {
+                fprintf(out, "stream drive: replay: recorded entry not taken: counter %u, sector %u, count %u, "
+                             "%u fields\n",
+                        S.replay[i].counter, S.replay[i].sector, S.replay[i].count, S.replay[i].fields);
+                ++k;
+            }
+    }
 }
 
 int32_t em_stream_live_cue(int lane)

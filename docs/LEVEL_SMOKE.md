@@ -1835,6 +1835,65 @@ Since the level-2 check (2026-10-08) the exported pad applies that reading
 per beat ("a01_01..a01_07 and the side beats" below). Receipts (ignored):
 `build/level2/camera/`.
 
+### The drive replay: AREA01 a01_00..a01_07 exact (2026-10-19, port main 4f7a564 + the replay change)
+
+The user's decision of 2026-10-19 ("Comparison-only replay") is built:
+`tools/test_level_smoke_area01.py` (and `tools/test_level_smoke_area00.py
+--run`) now run every AREA01 phase with `EM_PS2_DISC_DRIVE_TIMING=1` and
+the comparison-only developer switch `EM_PS2_DRIVE_REPLAY` by default
+(the per-beat tables recorded on the fork into ignored
+`build/drive_replay/`; IOP_STREAM.md "Drive replay", STARTUP.md
+"Developer switches"). `--no-drive-replay` runs without it (the drive as
+the environment selects); `--strict-drive-replay` also fails a run in
+which a read inside the recorded span found no recorded entry. The
+first-level runs (`make test-level-smoke-full`, `make
+test-level-smoke-ps2-drive`, newgame-control) never set it; their tick
+and present logs are byte-identical to the build without the change.
+
+- **`--until a01_07` PASS (exit 0), 28 live phases**: the first level,
+  a01_arrival, a01_00 (781 rows), a01_01 (306), a01_02 (591), a01_03 (992;
+  row 957 now exact), a01_04 (1,960), a01_05 (3,960; row 3836 exact),
+  a01_06 (2,647) and a01_07 (234 gameplay rows, 19 loader states, the
+  AREA00 arrival state 0, the original chain and veil replays). The old
+  a01_03 row-957 stop ("Levels 2-4 toward the drawbridge" below) does not
+  apply with the replay. Receipt (ignored): `build/frontier2_i2_20261019_092911/final_a01_07/` and
+  `final_a01_07.out`. (`rp_a01_07` in the same folder is the run before
+  the tail fix below; it failed in the checker, not in the game.)
+- **Side beats with the replay** (fix round, same build; receipts
+  `build/frontier2_i2_20261019_092911/fix_side_a01_s*/` and `.out`): exit 0 for `--side a01_s0` (1,435
+  rows), `a01_s3` (262), `a01_s4` (1,225), `a01_s6` (229) and `a01_s7`
+  (982 rows, 27 live phases; it no longer inherits a01_03's row 957).
+  Exit 1 for `a01_s1` (row 314), `a01_s2` (row 258) and `a01_s5` (row
+  1623), at the same rows as before the replay: the pickup's page request
+  (`req` and `msg`), whose page module still answers at host speed (no
+  recorded time for AREA01's page reads). Not a drive-replay matter.
+- **The a01_07 checker's tail counter** was corrected
+  (`tools/level_smoke_area01.py` `exit_tail`): the endpoint run's tail line
+  is written after the main loop ended (src/main.c, after em_frame_run),
+  past the last frame's counter increment, so it carries the arrival
+  tick's counter + 1 (26925 against the last tick's 26924). The check had
+  never run live before. `--verify-harness`'s checker contract now covers
+  it: one tail at counter + 1 is taken; a tail at the same counter, none,
+  two, or one without the loader's bytes are rejected (155 rejected
+  corruptions, was 150). After that refactor `--until a01_07` was re-run
+  live: PASS, 28 live phases, the same replay counts (receipt
+  `build/frontier2_i2_20261019_092911/fix_a01_07/` and `.out`).
+- **Open: the a01_05 off-time reads.** Ten stream reads in a01_05
+  (recording counters 21794..22099) are issued off the recording's time and
+  take the model: the voice lane about 18 fields late (recorded 21794, run
+  21812), the music refills 3 or 4 fields early or late. Every compared row
+  is still exact, but a01_05's stream and audio timing is not counted as
+  original until it is explained (next: sample the lanes' request bytes
+  on the fork against the native run over recording counters
+  21790..22100). Also 48 of the 403 served reads match only inside the
+  replay's window of 2 fields (on a01_00..a01_03, 11 contiguous music
+  refills one field late); the cause is not proven. `--strict-drive-replay`
+  fails on the ten reads; once they are explained it should become this
+  harness's gate.
+- **Not reached yet:** AREA00 (the arrival stops at frame 0 in `0022DCD0`'s
+  read `00269400`, LEVEL3_BINDING.md) and the AREA01 revisit (no harness
+  yet, AREA01_REVISIT.md).
+
 ### Levels 2-4 toward the drawbridge (2026-10-19, port main 789b4b4)
 
 What plays now, from New Game: the whole first level (every phase above
@@ -1856,9 +1915,9 @@ AREA01 voice data take 6 or 7 fields read by read, the switch's model
 serves 6. A private diagnostic build serving the fork's measured value per
 read passes all 992 rows (never committed; receipts in ignored
 `build/frontier_i1_20261019_063524/`, `build/frontier_i1_diag/`). The
-checks are unchanged; how to compare past this point waits for a user
-decision (a comparison-only drive replay, event alignment, or another
-rule).
+checks are unchanged. The user decided the same day ("Comparison-only
+replay"); with the drive replay the row-957 stop no longer applies (the
+section above). What follows in this section is the state before it.
 
 ### a01_01..a01_07 and the side beats (level-2 check, 2026-10-08)
 
@@ -1887,22 +1946,29 @@ command exited 0, its post-checks included (the RNG symbolication
 `check_rand_order`, the drawn world). Since the fix round of 2026-10-08
 (`tools/rand_order.py` names `em_player_footstep_tick`, 00187350's wading
 ripple draw, first reached at a01_02 f39):
+- Current (2026-10-19, with the drive replay, the harness's default):
+  exit 0 for `--until` every main endpoint through `a01_07` (28 live
+  phases) and `--side a01_s0`, `a01_s3`, `a01_s4`, `a01_s6`, `a01_s7`;
+  exit 1 for `--side a01_s1`, `a01_s2`, `a01_s5` at their pickup page
+  rows (the section "The drive replay" above).
+- Before the replay (2026-10-08 .. 2026-10-19, now `--no-drive-replay`):
 - exit 0: `--until a01_00`, `--until a01_01` and `--until a01_02` (23 live
   phases, at host speed); `--side a01_s3` and `--side a01_s6` at host
   speed; `--side a01_s0` and `--side a01_s4` with
   `EM_PS2_DISC_DRIVE_TIMING=1`.
 - exit 1, at the row compare: `--until a01_03` and every later endpoint
-  (`a01_04`..`a01_07`, with or without the switch) stop at a01_03 row 957,
-  the voice line's end (`msg` (2,2,64) native against the recording's
-  (2,1,64)); `--side a01_s1`, `a01_s2`, `a01_s5` and `a01_s7` stop at the
-  rows listed below.
+  (`a01_04`..`a01_07`, with or without the switch, without the replay)
+  stop at a01_03 row 957, the voice line's end (`msg` (2,2,64) native
+  against the recording's (2,1,64)); `--side a01_s1`, `a01_s2`, `a01_s5`
+  and `a01_s7` stop at the rows listed below.
 Before that fix every run past a01_02's f39 failed in `check_rand_order`
 after its rows had matched (the review of the level-2 check), so the
 earlier "a01_02 PASS" meant the rows only.
 
-Measured (receipts in ignored `build/l2check/smoke2`, `smoke3`, `smoke4`,
-and the fix round's `build/l2fix/`; `EM_PS2_DISC_DRIVE_TIMING=1` where
-stated):
+Measured before the drive replay (receipts in ignored `build/l2check/smoke2`,
+`smoke3`, `smoke4`, and the fix round's `build/l2fix/`;
+`EM_PS2_DISC_DRIVE_TIMING=1` where stated; with the replay a01_03..a01_07
+and a01_s7 pass, "The drive replay" above):
 - **a01_00 PASS (781 rows), a01_01 PASS (306 rows), a01_02 PASS (591
   rows)**, each with its ending camera block: the tunnel, the water at
   the shaft (00187DE0's first contact, its ripple and splash), the lower
@@ -1942,7 +2008,8 @@ stated):
   f0..f257 of the control-room pickups (the same); a01_s5 rows f0..f1622
   of the duct (the crawl, then the pickup's page request, the same); each
   after a01_s0's full pass.
-- a01_s7 inherits a01_03's voice-line row and stops there.
+- a01_s7 inherits a01_03's voice-line row and stops there (without the
+  replay; with it a01_s7 passes, 982 rows).
 
 ### AREA00: arrival, progression and side return (2026-10-13)
 
@@ -1963,7 +2030,13 @@ the weapon owner's fire-mode and magazine bytes. No arrival, movement,
 camera, interaction, drawing or return pass is claimed.
 [LEVEL3_BINDING.md](LEVEL3_BINDING.md) records the exact
 binding/resource gaps. The earlier AREA01 `a01_03` voice-timing difference
-also remains a strict prerequisite failure; this runner does not waive it.
+was a strict prerequisite failure; this runner does not waive it. Since
+2026-10-19 it runs with the drive replay by default: `--run --until
+a00_00` plays every AREA01 phase to its recorded alignment (the same
+counters as the passing `--until a01_07` run, whose capture checks cover
+those rows), then stops at the AREA00 arrival's frame 0 at `00269400`, so
+the run itself ends before its capture checks (receipt
+`build/frontier2_i2_20261019_092911/a00_00_replay.out`).
 
 Current state (2026-10-18, `levels` branch): with the 580-key catalogs,
 the 1024-slot registry and the stage-5 surface, crate and retained-model

@@ -141,6 +141,11 @@ typedef struct {
 } EmSoundSample;
 /* The last field's sample (valid 0 before the first). */
 const EmSoundSample *em_stream_live_sound_sample(void);
+/* The comparison-only drive replay (EM_PS2_DRIVE_REPLAY, em_stream_live.c):
+ * the level smoke reports a compared phase's row 0 at the run's main-loop
+ * counter; a phase the table anchors maps the run's counter onto the
+ * recording's from there. Nothing happens without a table. */
+void em_stream_live_drive_replay_anchor(const char *phase, uint32_t counter);
 /* The drive's counters (em_iop_stream_drive_stats) and whether the PS2
  * disc-drive timing switch was on at the boot (*ps2_timing; em_settings);
  * 0 before the boot. */

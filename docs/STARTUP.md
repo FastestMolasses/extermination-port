@@ -532,6 +532,44 @@ which moves it by 13 x 204 mod 128 = 92 half-lines). A value fitted to one
 fork run is that run's: on a PS2 the phase follows the time since the
 driver armed its timer.
 
+### EM_PS2_DRIVE_REPLAY=<file>: the recorded seek time per read (comparison only)
+
+Added 2026-10-19 (user decision of 2026-10-19, "Comparison-only replay";
+LAUNCHER_OPTIONS.md "Not launcher options"). Under the PS2 disc-drive timing
+switch the drive model serves one seek time per distance class
+(IOP_STREAM.md "Drive model"); in the fork recordings the PS2 drive's far
+seeks take 6 or 7 fields read by read, with no pattern a capture records,
+so a level-2 comparison against a recording can only follow it read for
+read with the recording's own values. `EM_PS2_DRIVE_REPLAY=<file>` names a
+table of lines `counter sector count fields` (the recording's main-loop
+counter 0x70003B64 in the field the read was issued, its sector and count,
+and the fields its seek took), in counter order, and anchor lines
+`@ <phase> <counter>` (the recording's counter at that phase's row 0).
+When the level smoke aligns an anchored phase at its recorded row 0
+(`em_stream_live_drive_replay_anchor`), the run's counter is mapped onto
+the recording's from there; a read then takes the fields of the entry with
+its sector and count whose counter is nearest within 2
+(`EM_IOP_REPLAY_WINDOW`; each entry serves one read), and every other read
+takes the model. It needs `EM_PS2_DISC_DRIVE_TIMING=1`; a missing or
+malformed file, or the timing switch off, stops the boot. The file is read
+once in `em_stream_live_boot` (a `stream lanes: drive replay of N recorded
+reads, M anchors` line on stderr), and the run's `stream drive: replay:`
+line counts the reads served, those served off the recording's counter,
+and the reads inside the recorded span that found no entry (the first
+eight listed with the entries not taken).
+
+The tables are recorded on the fork from the user's own disc by
+`tools/record_drive_replay.py` (hidden, under the run lock, through the
+decomp's `tools/route_capture.py`) into ignored `build/drive_replay/`;
+they are disc-derived timing data and never committed.
+`tools/test_level_smoke_area01.py` merges the tables of the phases it runs
+(`tools/drive_replay.py`) and runs with the replay by default
+(`--no-drive-replay` without; `--strict-drive-replay` also fails on a read
+inside the recorded span with no entry). Unset (the default) changes
+nothing: the first-level smokes' tick logs are byte-identical to the build
+without the switch, and newgame-control gives 9.599849. It is not a player
+or launcher option, and the Original profile never sets it.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

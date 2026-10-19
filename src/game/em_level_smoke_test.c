@@ -5171,9 +5171,12 @@ static int a01_route_frame(void)
 #endif
     ++t.frames;
     if(t.frames<0)return 0;
-    if(!t.frames)
+    if(!t.frames) {
         fprintf(stderr,"level smoke: %s: aligned counter=%u (recorded row 0)\n",
                 k_phases[t.current].name,em_frame_counter());
+        /* the comparison-only drive replay's anchor (EM_PS2_DRIVE_REPLAY) */
+        em_stream_live_drive_replay_anchor(k_phases[t.current].name,em_frame_counter());
+    }
     if(!strcmp(k_phases[t.current].name,"a01_07")) {
         const EmSceneState *s=em_scene_state();
         if(s->d810700==0 && s->d810701==0 && s->d810702==0 &&

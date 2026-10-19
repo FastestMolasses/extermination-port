@@ -31,10 +31,18 @@ a00_10 (AREA01_REVISIT.md). The harness itself passes its contract checks
 (`tools/test_level_smoke_area00.py --verify-harness`: 13 C branch paths,
 2,731 input commands, 16,504 capture-shaped rows, 179 rejected corruptions;
 `build/merge-1019-post/area00-harness.log`), which is no gameplay claim.
-The AREA01 prerequisite difference is now traced to the disc drive's
-per-read seek time, not the voice owner (LEVEL2_BINDING.md "State
-(2026-10-19)"); it waits for a user decision. The four unsampled AREA00
-ticks (below) still need fork boundary receipts.
+The AREA01 prerequisite passes since the user's decision of 2026-10-19
+("Comparison-only replay"): with the drive replay `EM_PS2_DRIVE_REPLAY`
+a01_00..a01_07 pass row for row through the AREA00 arrival state 0
+(LEVEL2_BINDING.md "State (2026-10-19, the drive replay)").
+`tools/test_level_smoke_area00.py --run` now runs with the replay by
+default (tables for a00_00..a00_10 and a00_s0 recorded; IOP_STREAM.md
+"Drive replay"); its run to a00_00 passes every AREA01 phase and stops, as
+before, at the arrival frame 0 in 0022DCD0 at 00269400 (aligned counter
+26925; ignored `build/frontier2_i2_20261019_092911/a00_00_replay.out`).
+The four unsampled AREA00 ticks (below) are lead-in frames of the fork
+re-drives; the drive tables sample them, but their route rows still need
+fork boundary receipts.
 
 2026-10-18 asset follow-up: original page replay found an additional
 `001E9E60` surface texture. Both canonical AREA00 catalogs now hold 580 fixed

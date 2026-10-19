@@ -96,6 +96,8 @@ struct EmIopStream {
      * and whether its case was measured. */
     uint8_t after_loader, after_loader_measured;
     EmIopDriveStats drive;
+    /* The drive replay (comparison only; em_iop_stream_set_drive_replay). */
+    struct { EmIopDriveReplayRead *reads; uint32_t n, counter; uint8_t keyed; EmIopDriveReplayStats stats; } replay;
     /* mixer ring */
     float pcm[EM_IOP_PCM_FRAMES * 2];
     _Atomic uint64_t pcm_write, pcm_read;
@@ -1032,6 +1034,87 @@ int em_iop_stream_00113280(EmIopStream *s, int32_t mode, int32_t *result)
     return 0;
 }
 
+/* The drive replay (comparison only; the header's comment and IOP_STREAM.md
+ * "Drive replay"): the fields the fork recording measured for this read
+ * (its sector and count, its counter within EM_IOP_REPLAY_WINDOW, the
+ * nearest unserved entry), else the model's `model` fields. */
+static uint32_t replay_seek(EmIopStream *s, uint32_t sector, uint32_t count, uint32_t model)
+{
+    const uint32_t c = s->replay.counter;
+    const uint32_t from = c > EM_IOP_REPLAY_WINDOW ? c - EM_IOP_REPLAY_WINDOW : 0;
+    uint32_t lo = 0, hi = s->replay.n, i, best_gap = UINT32_MAX;
+    EmIopDriveReplayRead *best = NULL;
+    if (!s->replay.keyed) {                 /* no counter yet: the model */
+        s->replay.stats.missed += 1;
+        return model;
+    }
+    while (lo < hi) {                       /* the first entry at the window's start */
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (s->replay.reads[mid].counter < from)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    for (i = lo; i < s->replay.n && s->replay.reads[i].counter <= c + EM_IOP_REPLAY_WINDOW; i++) {
+        EmIopDriveReplayRead *r = &s->replay.reads[i];
+        uint32_t gap = r->counter > c ? r->counter - c : c - r->counter;
+        if (r->served || r->sector != sector || r->count != count || gap >= best_gap)
+            continue;
+        best = r;
+        best_gap = gap;
+    }
+    if (best) {
+        best->served = 1;
+        s->replay.stats.served += 1;
+        if (best_gap)
+            s->replay.stats.near += 1;
+        if (best->fields != model)
+            s->replay.stats.differed += 1;
+        return best->fields;
+    }
+    s->replay.stats.missed += 1;
+    if (s->replay.counter >= s->replay.reads[0].counter &&
+        s->replay.counter <= s->replay.reads[s->replay.n - 1].counter) {
+        if (s->replay.stats.missed_in_span < EM_IOP_REPLAY_MISSES_KEPT) {
+            uint32_t *m = s->replay.stats.first_missed[s->replay.stats.missed_in_span];
+            m[0] = s->replay.counter;
+            m[1] = sector;
+            m[2] = count;
+        }
+        s->replay.stats.missed_in_span += 1;
+        s->replay.stats.last_missed_counter = s->replay.counter;
+        s->replay.stats.last_missed_sector = sector;
+    }
+    return model;
+}
+
+int em_iop_stream_set_drive_replay(EmIopStream *s, EmIopDriveReplayRead *reads, uint32_t n)
+{
+    uint32_t i;
+    if (!reads || !n) {
+        memset(&s->replay, 0, sizeof s->replay);
+        return 0;
+    }
+    if (!s->ps2_drive_timing)
+        return -1;
+    for (i = 0; i < n; i++)
+        if (reads[i].fields > EM_IOP_REPLAY_FIELDS_MAX || (i && reads[i].counter < reads[i - 1].counter))
+            return -1;
+    memset(&s->replay, 0, sizeof s->replay);
+    s->replay.reads = reads;
+    s->replay.n = n;
+    s->replay.stats.entries = n;
+    return 0;
+}
+
+void em_iop_stream_set_drive_counter(EmIopStream *s, uint32_t counter)
+{
+    s->replay.counter = counter;
+    s->replay.keyed = 1;
+}
+
+void em_iop_stream_drive_replay_stats(const EmIopStream *s, EmIopDriveReplayStats *out) { *out = s->replay.stats; }
+
 /* 00112610(sector, count, IOP address, mode): accept a read of whole sectors
  * into IOP RAM (the lane buffers are IOP heap blocks). Every sector must be
  * exported; the data land when the drive completes (00112D18 / 00113280). */
@@ -1073,6 +1156,8 @@ int em_iop_stream_00112610(EmIopStream *s, uint32_t sector, uint32_t count, uint
     s->drive.reads += 1;
     if (seek < 7u)
         s->drive.by_fields[seek] += 1;
+    if (s->replay.n)
+        seek = replay_seek(s, sector, count, seek);
     s->read.busy = 1;
     if (s->ps2_drive_timing) {
         s->read.done_field = drive_field(s) + 1u + seek;
