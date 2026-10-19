@@ -4895,8 +4895,8 @@
       "test": "tools/test_area06_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:26.392938+00:00",
-      "seconds": 8.613,
+      "finished_utc": "2026-10-19T11:40:03.718808+00:00",
+      "seconds": 8.417,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -5358,8 +5358,8 @@
         "tools/test_truck_original_reference.py",
         "tools/vu1_vm.py"
       ],
-      "source_sha256": "87835429afb245de8a18daf1c3b0e78f6f04c5987f0d13d47c20db2a710f2a72",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area06_port.log"
+      "source_sha256": "100304d8a6e30d677631b395f98c69fe9b53fa4189bcf3cd6062418bf0ebac22",
+      "private_log": "build/levels/oracle-review-fixes-1/area06_port.log"
     },
     {
       "test": "tools/test_area13_route_reference.py",

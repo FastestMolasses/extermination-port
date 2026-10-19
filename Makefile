@@ -1998,7 +1998,7 @@ test-area01-target-hit-reference:
 	python3 tools/test_area01_target_hit_reference.py
 	python3 tools/test_area01_target_hit_live_reference.py
 
-# The AREA01 crash sweep's remaining original-instruction suites (LEVEL2_CRASHES.md).
+# Level route continuation references (LEVEL_ORACLE_AUDIT.md).
 .PHONY: test-area13-route-reference test-area15-route-reference test-area19-route-reference test-area03-route-reference
 test-area13-route-reference:
 	python3 tools/test_area13_route_reference.py
@@ -2009,6 +2009,7 @@ test-area19-route-reference:
 test-area03-route-reference:
 	python3 tools/test_area03_route_reference.py
 
+# The AREA01 crash sweep's remaining original-instruction suites (LEVEL2_CRASHES.md).
 .PHONY: test-aim-fire-target-pool-reference test-area01-aim-model-reference test-area01-crawl-clip-reference test-area01-hull-live-reference test-area01-stream-export test-area01-terminal-progress-reference test-player-spawn-contact-reference test-player-spawn-rotation-reference test-player-stage-position-reference
 test-aim-fire-target-pool-reference:
 	python3 tools/test_aim_fire_target_pool_reference.py
