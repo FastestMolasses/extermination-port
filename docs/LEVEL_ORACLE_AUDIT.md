@@ -238,6 +238,30 @@ rejected (`build/levels/area03-arrival-mutations-1/results.json`). The staged
 index application build passes without warnings
 (`build/levels/area03-arrival-index-build.log`); leak/provenance checks pass.
 
+## Ownership of 00185420 and 00184D20 (review 2026-10-19)
+
+Main's live `em_item_device_find` (`src/game/em_item_device.c`,
+[ITEM_DEVICE_LOOKUP.md](ITEM_DEVICE_LOOKUP.md), `make test-item-device-reference`)
+already implements the battery-item branch of both originals over a frozen
+published list. `tools/level_readiness.py` records it in `ALIASES` as a
+partial owner of `boot:00185420` and `boot:00184D20`, so the readiness map now
+lists it beside the level-15 translations. Rule for wiring level 15: the
+full-scope translations `em_level15_support_00185420` and
+`em_level15_perception_00184D20` become the single owner of both originals;
+`em_item_device_find` then delegates to them instead of keeping a second
+implementation (a main-owned change that must keep the first-level smoke and
+`test-item-device-reference` identical). Until then neither level-15 module
+is wired, so the live path has one owner.
+
+The same review scanned every unverified/missing row for a definition whose
+directly preceding comment names that original while the function name has
+no address suffix. Besides `em_item_device_find`, every hit is either an
+already-listed owner's file, a documented native boundary whose substitute
+module the row already names (EE sound library, C runtime string/memset,
+2D GS layer, movie glue, module loader), or a caller/hook wrapper.
+`0020F2A0` stays missing (assembly-only definition; the live ITEM root uses
+exported artwork, not a translation).
+
 ## Level-15 boot support
 
 The new unwired `em_level15_support` implements thirteen missing entries:

@@ -53,6 +53,11 @@ ALIASES = {
     'boot:0017AF70': ('src/game/em_aim_fire_control.c', 'track_target'),
     'boot:001A56A0': ('src/game/em_actor_collision.c', 'column_round'),
     'overlay:AREA19:008298D0': ('src/game/em_area01_overlay.c', 'em_area01_ovl_00828850'),
+    # Partial owner: main's live battery-item device lookup (ITEM_DEVICE_LOOKUP.md)
+    # translates 00185420 with 00184D20's battery branch inlined. The level-15
+    # translations remain the full-scope candidates (LEVEL_ORACLE_AUDIT.md).
+    'boot:00185420': ('src/game/em_item_device.c', 'em_item_device_find'),
+    'boot:00184D20': ('src/game/em_item_device.c', 'em_item_device_find'),
 }
 
 

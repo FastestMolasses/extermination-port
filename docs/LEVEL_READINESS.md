@@ -1593,8 +1593,8 @@ Every retained function has one row below; the level column is its membership se
 | `boot:00183C40` | 4,7,13,14,15 | V | [f_183C40](../src/game/em_area02_math.c) | [test_area02_math_reference.py](../tools/test_area02_math_reference.py) (current quick pass) |
 | `boot:00183EF0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3391](../docs/FIRST_LEVEL_CENSUS.md) | — |
 | `boot:00184BA0` | 2,3,4,5,6,7,8,9,10,11,12,13,14,15 | L | [L1 census:3392](../docs/FIRST_LEVEL_CENSUS.md) | — |
-| `boot:00184D20` | 15 | V | [em_level15_perception_00184D20](../src/game/em_level15_perception.c) | [test_level15_perception_reference.py](../tools/test_level15_perception_reference.py) (current quick pass) |
-| `boot:00185420` | 15 | V | [e00185420](../src/game/em_level15_support.c), [em_level15_support_00185420](../src/game/em_level15_support.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current quick pass) |
+| `boot:00184D20` | 15 | V | [em_level15_perception_00184D20](../src/game/em_level15_perception.c), [em_item_device_find](../src/game/em_item_device.c) | [test_level15_perception_reference.py](../tools/test_level15_perception_reference.py) (current quick pass) |
+| `boot:00185420` | 15 | V | [e00185420](../src/game/em_level15_support.c), [em_level15_support_00185420](../src/game/em_level15_support.c), [em_item_device_find](../src/game/em_item_device.c) | [test_level15_support_reference.py](../tools/test_level15_support_reference.py) (current quick pass) |
 | `boot:001854E0` | 14 | L | [L1 census:3393](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
 | `boot:00185760` | 14 | L | [L1 census:3394](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
 | `boot:00185A10` | 14 | L | [L1 census:3395](../docs/FIRST_LEVEL_CENSUS.md) | [test_aim_fire_target_reference.py](../tools/test_aim_fire_target_reference.py) (current quick pass) |
