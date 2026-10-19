@@ -25,9 +25,11 @@ retained render-colour words. It adds 1,000 SFX entries and 78 samples.
 
 The canonical AREA00/AREA01 world-texture and receiver exports also passed,
 followed by full AREA00 resource and delivery checks. Receipt:
-`build/levels/resources-existing-1/results.json`. AREA00 has 579 texture
-keys in each sub; the unchanged registry holds 512 and correctly refuses
-the complete catalog. No catalog was truncated.
+`build/levels/resources-existing-1/results.json`. Historical (that
+receipt only): AREA00 then had 579 texture keys in each sub and the
+unchanged 512-slot registry correctly refused the complete catalog; no
+catalog was truncated. The current result is 580 keys per sub, uploaded at
+capacity 1024 (see "Texture catalogs and measured capacities" below).
 
 ## Complete module delivery
 
@@ -193,8 +195,45 @@ All four before/after runs pass their strict and present-again checks:
 first-level exit/AREA01 arrival and AREA01 through `a01_02`, each with default
 and GPU rendering. All twelve before/after comparisons are byte-identical:
 ticks, RNG counter/state trace, and presented-pixel hash log for each run.
+What the presented-pixel log proves differs by frame kind: software-drawn
+frames carry a pixel hash, but Metal-drawn (`gpu`) lines carry none (all
+of them under `EM_GPU_RENDERER=1`, and 2,125 frames of the default a01_02
+run). GPU-drawn frames are therefore compared by tick, RNG and frame kind
+and order only, not by object-texture pixels. The registry's own pixel
+behaviour is proven by the real Metal fixture
+(`tests/level_texture_registry_test.m`: all 1024 slots, 220 hash collisions,
+replacement and reset). A readback hash for `gpu` frames is future work for
+a change owned by main.
 Receipts and hashes are under `build/levels/capacity-before-smokes-2/` and
-`build/levels/capacity-after-smokes-1/`. The isolated staged-index native build
+`build/levels/capacity-after-smokes-1/`. The "before" binary is
+`build/levels/capacity-baseline-build/extermination`, built from the
+registry change's parent `b2c1026` (same `src/` tree as `d6f50b1`; recorded
+after the fact in `results.json`, with the rebuild check in
+`capacity-baseline-build/rebuild-check.json`). The direct comparison of port
+main `2f9cf6c` against the levels tip `61cd21c` on `a01_02`, default and GPU,
+is `build/levels/registry-main-vs-tip-review-1/results.json`: identical
+ticks, presented-frame logs and checker output (including the rand-order
+verdicts) in both modes.
+
+SHA-256 of each run's traces. The before run, the after run
+(`capacity-after-smokes-1/`) and the stage-5 final regressions
+(`area00-final-defaults-2/`, `area00-final-regressions-1/`, receipt
+`area00-readview-preflight-1/final-regressions.json`) all produced these
+same bytes:
+
+| Run | `ticks.jsonl` | `rand.trace` | `present-pixels.log` |
+|---|---|---|---|
+| GPU 0 `a01_arrival` SHA-256 | `2866e0def000ebe612b999c15535688f05f93a299663a148f6ad2001f6ce9425` | `65f7d6753717b2322528ff153ebaa3e3c137b5dbb4904d988a8d23c7857e37f6` | `d026afefc66168659e3c3f9c8748cf42bdc5f094d1c23281013dfd6cee5c3c12` |
+| GPU 0 `a01_02` SHA-256 | `4f2dfca62fc141df16917562f9c0630da0f37660738f2a354a8cddf8abd085dc` | `806f13fcd18be1d4d48f7512dbcfbec333e3dd6cfe9470d600c15eec76c2ebdd` | `aeffbf0a8efa6241fab37192048649d33075a78d8729561afe445fdd18b61d47` |
+| GPU 1 `a01_arrival` SHA-256 | `081bdf74b28e9e777f2970db48533086fcc1993903cfcfa5232273fa33a4400d` | `65f7d6753717b2322528ff153ebaa3e3c137b5dbb4904d988a8d23c7857e37f6` | `5fe82ab85f775a9e5e03461b432fdb2e6e2e637556ffccf49f88fd89eadc831c` |
+| GPU 1 `a01_02` SHA-256 | `ff396a631e371f1f85befa00a1c7211ba144ce8605086869c5085bdd1bdcb713` | `806f13fcd18be1d4d48f7512dbcfbec333e3dd6cfe9470d600c15eec76c2ebdd` | `02973efa0398921f02c784a98291cb282ddb301d24b43fe2efeb368eb892f575` |
+
+Only the before run's `ticks.jsonl` copies are retained; the byte-identical
+after-run and stage-5 copies were deleted by name once these hashes were
+recorded (each receipt's `results.json` keeps them). The receipts live in
+the port checkout's ignored `build/levels/`.
+
+The isolated staged-index native build
 also passes with zero warnings (`build/levels/texture-capacity-index-build-1.log`);
 its temporary checkout was removed by enumerated absolute paths.
 The capacity/index exception meets its required regression proof.
@@ -202,7 +241,7 @@ The capacity/index exception meets its required regression proof.
 Stage 3 now has recorded-area data exports and measured capacities; full
 native later-area drawing, unsampled runtime peaks, additional events/reloads
 and unrecorded branches remain separate proof. Stage 4 subsequently completed
-the retained fork route gaps (LEVEL_ROUTE_EVIDENCE.md). Stage 5 supplies the
+the retained fork route gaps (LEVEL_ROUTE_EVIDENCE.json). Stage 5 supplies the
 AREA00 surface/crate roots and retained pickup models, then reaches a
 protected 32-view owner limit; see LEVEL3_BINDING.md.
 

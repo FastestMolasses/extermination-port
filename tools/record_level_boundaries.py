@@ -5,6 +5,9 @@ Uses the decomp's hidden owned-session API. A boundary passes only if its
 last sampled row equals every field of the next beat's first row. Captures,
 failure details and logs remain private under build/fork_refs. This records
 the indexed fork playthrough; it does not reconstruct missing legacy ticks.
+--route-set selects main-line beats of a fork re-recording set (its
+manifest.json, e.g. build/fork_refs/s87/route_a00) that the supplemental
+index does not list; the same replay and endpoint check apply.
 """
 from __future__ import annotations
 
@@ -55,12 +58,28 @@ def main():
     ap.add_argument('--decomp', type=Path, default=ROOT.parent / 'Extermination')
     ap.add_argument('--out-root', type=Path, required=True)
     ap.add_argument('--beats', help='optional comma-separated indexed beat names')
+    ap.add_argument('--route-set', type=Path,
+                    help='decomp-relative fork set with manifest.json (main-line beats; requires --beats)')
     args = ap.parse_args()
     decomp = args.decomp.resolve()
-    indexed = supplemental_captures(ROOT, decomp)
+    if args.route_set:
+        if not args.beats or args.route_set.is_absolute():
+            ap.error('--route-set takes a decomp-relative path and requires --beats')
+        route_set = private_root(decomp, decomp / args.route_set)
+        manifest = json.loads((route_set / 'manifest.json').read_text())
+        indexed = {}
+        for name, entry in manifest['beats'].items():
+            folder = (decomp / entry['folder']).resolve()
+            if folder != route_set / name:
+                raise ValueError('Route-set manifest folder mismatch: ' + name)
+            indexed[name] = folder / 'trace.json'
+        source_label = str(args.route_set) + '/manifest.json'
+    else:
+        indexed = supplemental_captures(ROOT, decomp)
+        source_label = 'LEVEL_ROUTE_EVIDENCE.json'
     names = args.beats.split(',') if args.beats else list(indexed)
     if any(name not in indexed for name in names):
-        ap.error('every requested beat must be in LEVEL_ROUTE_EVIDENCE.json')
+        ap.error('every requested beat must be in ' + source_label)
     out = private_root(decomp, args.out_root)
     out.mkdir(parents=True, exist_ok=False)
     sys.path.insert(0, str(decomp / 'tools'))

@@ -5,9 +5,12 @@ the `../extermination-port-level3` worktree, merged into main 2026-10-14). AREA0
 but **arrival and first world frames do not pass**. That checkpoint stopped at
 arrival frame 0 because its 579-key texture catalog exceeded the
 then-protected 512-slot graphics registry. The 2026-10-18 capacity follow-up
-is below; historical smoke rows have not been relabelled as passing. No protected file, decomp source,
-README or user test runner was edited. Nothing was merged or pushed, and
-no emulator was launched.
+is below; historical smoke rows have not been relabelled as passing. On the
+2026-10-13 `level3` branch no protected file, decomp source, README or user
+test runner was edited, nothing was merged or pushed, and no emulator was
+launched. On the 2026-10-18 `levels` branch, protected-file edits stayed
+within the authorized object-texture registry exception, and fork
+recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
@@ -16,7 +19,10 @@ no emulator was launched.
 keys, checked against every selected GS freeze and uploaded by the native
 resource-loader fixture. The explicitly authorized graphics change raises
 the registry to 1024 with a hash index. All four default/GPU smokes pass
-with byte-identical ticks, RNG and presented-pixel logs; control is 9.599849. This does not certify an AREA00 frame. The subsequent
+with byte-identical ticks, RNG and presented-frame logs; control is 9.599849.
+Metal-drawn (`gpu`) frames carry no pixel hash, so they are compared by
+tick, RNG and frame order; the registry's pixel behaviour is proven by the
+Metal fixture `tests/level_texture_registry_test.m` (LEVEL_ASSET_DELIVERY.md). This does not certify an AREA00 frame. The subsequent
 surface and retained-library delivery work is described below. Full asset receipts and retained runtime-material limits are in
 [LEVEL_ASSET_DELIVERY.md](LEVEL_ASSET_DELIVERY.md).
 
@@ -44,7 +50,9 @@ sticky missing-root faults checked. These additions still change no
 native game source and do not promote an AREA00 phase by themselves.
 
 With all three additions, ordinary New Game reaches arrival alignment at
-counter 26925, then fails at arrival frame 0 in drum callback `00156620`:
+counter 26925 with the drive-timing switch (`EM_PS2_DISC_DRIVE_TIMING=1`,
+the documented command) or 26634 at host speed
+(`build/levels/area00-arrival-hostspeed-review-1/`), then fails at arrival frame 0 in drum callback `00156620`:
 the protected `em_area11_boxes.c` owner table has 32 slots. The original
 arrival has 26 crates and 13 drums, so those callbacks alone require 39
 views. This is the current stop; the 512-texture refusal below is historical.
@@ -117,7 +125,7 @@ a refused write cannot fall back to a mutable legacy byte view.
 
 | Requested phase | New smoke scope | Native comparison result |
 |---|---|---|
-| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: alignment at counter 26925, then frame-0 `00156620` fault when the 32 shared owner views are exhausted |
+| 1. Arrival / load / bindings | AREA01 exit boundary, then `a00_arrival` | Not passed: alignment at counter 26925 (drive timing) / 26634 (host speed), then frame-0 `00156620` fault when the 32 shared owner views are exhausted |
 | 2. First world and neutral frames | Fork a01_07 f539..4555, including final 60 neutral rows | 0/4,017 rows certified; alignment reached, but the first owner walk still fails |
 | 3. Movement / collision | `a00_00..a00_10` | Not reached |
 | 4. Camera | Per-row eye/target/forward/flags plus whole endpoint camera RAM | Checker contract passes; native AREA00 camera not reached |
@@ -292,7 +300,7 @@ nice -n 15 python3 tools/test_area01_sfx_registry.py
 nice -n 15 python3 tools/test_world_textures_reference.py
 nice -n 15 python3 tools/test_scene_no_shadow.py
 nice -n 15 env EM_HEADLESS=1 EM_STARTUP_TEST=newgame-control build/extermination
-# Long diagnostic: expected capacity failure until the protected main change.
+# Long diagnostic: currently expected to fail at 00156620 (the 32-view owner table).
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/live-arrival-1
 # Later full-route and independent side-return checks:
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
@@ -303,7 +311,7 @@ git checkout-index -a --prefix="$PWD/build/level3/index/"
 (cd build/level3/index && nice -n 15 make -j4)
 ```
 
-Continuation results (ignored receipts under `build/level3/`):
+Continuation results of the 2026-10-13 `level3` branch (historical; ignored receipts under `build/level3/`):
 
 | Check | Result | Receipt |
 |---|---|---|
@@ -369,6 +377,31 @@ route phase and the independent side return. Drawing still requires
 original packet and displayed-field comparisons. Promote census rows
 only after their native AREA00 behavior is exercised and compared.
 
+Unsampled main-line ticks (review 2026-10-19). Four ticks of the fork
+AREA00 main line have no row: counters 35978-35980 (a00_04 ends at 35977,
+a00_05's four-frame lead-in starts its rows at 35981) and 38516 (a00_06
+ends at 38515, a00_07's two-frame lead-in starts at 38517). Before a00_05
+and a00_07 are certified, record them on the fork, hidden and under the
+run lock:
+
+```sh
+# native arm64 macOS; the decomp's .venv supplies zstandard
+nice -n 10 ../Extermination/.venv/bin/python tools/record_level_boundaries.py \
+  --route-set build/fork_refs/s87/route_a00 --beats a00_05_ferry_deck,a00_07_duct_to_ne_room \
+  --out-root ../Extermination/build/fork_refs/levels-boundaries-<new>
+```
+
+`--route-set` reads the set's `manifest.json` instead of the supplemental
+index and applies the same replay and full endpoint check. Status:
+**blocked**. The 2026-10-19 attempt
+(`Extermination/build/fork_refs/levels-boundaries-20261019-2/`) resolved
+a00_05's gap (4, three missing counters) and its source/target hashes, then
+waited in the run lock: `build/.pcsx2.lock` is a 0-byte regular file dated
+2026-10-18 13:33 with no `owner.json` and no open handle, not the lock
+directory the session takes. The waiting run (no emulator started) was
+stopped by its own process id. Only the lock's holder or the user may
+remove that file.
+
 Stage-5 native evidence, all on the unchanged executable built from
 `11d2f10` (same native source as `ab1cd94`), with input-only replays:
 
@@ -378,7 +411,7 @@ Stage-5 native evidence, all on the unchanged executable built from
 | `area00-arrival-surface-1/run.log`, `receipt.json` | Surface read passes; `001B1020` reports missing retained model |
 | `area00-arrival-model-diagnostic-1/run.log`, `area00-readview-preflight-1/diagnostic-parity.json` | Private logging build identifies caller `0015AFA0`, missing model address `00C7CBC0`; ticks and RNG counter/state match the preceding run |
 | `area00-arrival-library-1/run.log`, `receipt.json` | Model construction passes; crate selector `0024A850` is missing |
-| `area00-arrival-crate-1/` | Arrival aligns at 26925; 32-view capacity fails at `00156620`, frame 0; 254.403 seconds, native parity false |
+| `area00-arrival-crate-1/` | Arrival aligns at 26925 (drive timing; 26634 at host speed in `area00-arrival-hostspeed-review-1/`, the same 291-tick offset as `a01_arrival`'s 15299 / 15008); 32-view capacity fails at `00156620`, frame 0; 254.403 seconds, native parity false |
 
 The final resource pack has 53 effect windows and 16 retained model
 regions. Generated assets are private regular files in this worktree.
@@ -389,12 +422,18 @@ preflight receipts. Original captures and the before/final native pair remain.
 
 Final stage-5 regressions pass with the final private assets installed:
 AREA11 through `a01_arrival` and AREA01 through `a01_02`, each with default
-and GPU rendering. All twelve tick, RNG and presented-pixel files are
-byte-identical to the stage-3 after-capacity baseline. Asset hashes stayed
+and GPU rendering. All twelve tick, RNG and presented-frame files are
+byte-identical to the stage-3 after-capacity baseline (`gpu` frames compared
+by tick, RNG and frame order, as above). Asset hashes stayed
 unchanged throughout all four final runs. New Game control is 9.599849.
 Combined receipt: `build/levels/area00-readview-preflight-1/final-regressions.json`;
 default traces: `build/levels/area00-final-defaults-2/`; GPU traces:
 `build/levels/area00-final-regressions-1/gpu1-a01_arrival/` and `gpu1-a01_02/`.
+Those runs' `ticks.jsonl` files were byte-identical to
+`capacity-before-smokes-2/`'s and were deleted by name; their hashes stay in
+the combined receipt and in LEVEL_ASSET_DELIVERY.md. Since the 2026-10-19
+review, every `build/levels/` receipt lives in the port checkout's ignored
+`build/levels/` (moved out of the `levels` worktree).
 The isolated staged-index native build has zero warnings
 (`build/levels/area00-index-build-1.log`). Eighteen readiness tests and the
 unchanged AREA00 harness contract also pass. These regressions do not
