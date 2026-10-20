@@ -2051,8 +2051,11 @@ pool's free list (item 5): those are port work that needs no new recording
      draws the original's own BATTERY page lists bit-exact (five fork
      captures, all of local memory; the UV sprite column rule measured,
      GS_EXACT.md 3.4), but strict mode still refuses part of them (the
-     column rule's open class, 8.8) and the port does not yet build or
-     present a page's GS list;
+     column rule's open class, 8.8); the page packets' builders are
+     translated byte for byte (em_ui_packet_original, STATUS_FIELD.md 3a:
+     the five captured slot-1 chains rebuilt and drawn to the displayed
+     field) but not yet bound, so the port does not yet build or present a
+     page's GS list;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make

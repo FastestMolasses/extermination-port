@@ -75,6 +75,62 @@ the glyph strips' shape (u_end = width + 1 texels over width pixels from a
 whole pixel, nearest) both rules read the same texel at every column of
 every width 1..512 (checked), so it stays matching.
 
+## 3a. Step 2: the page packets built natively, byte for byte (2026-10-20)
+
+`src/game/em_ui_packet_original.{h,c}` (prefix `em_uip_`) translates the
+leaf builders a status frame's slot-1 chain is made of: 00207D00 (the blend
+preset REF of GS block bank F), 00207D90 (SCISSOR_1), 00207E40 (the UV
+sprite), 00207F80 (the flat rectangle), 00208040 (the flat triangle, its
+conversions through a 001281C0 worker), 001CC8A0 with 001CCE80 (the small
+and tall glyph uploads to GS block 0x1B00), 001CBC20 (the small-font strip
+flush) and 001CC3B0 (the tall-font flush; its register values are
+em_message_glyph_cc3b0's). Each appends the original's packet at the slot
+cursor (render context + 0x10 + 4 * slot) through a memory callback by
+original address, writing exactly the bytes the original writes: a byte the
+original leaves alone keeps what the buffer held. Its REF targets are the
+original addresses (the GS blocks, the ELF's glyph packets D_002511C0 /
+D_002510C0 / D_00251140 / D_00250FC0). Not bound yet: the page code's leaf
+workers still record calls for the GPU renderer (step 3 binds them).
+
+Proof, `make test-ui-packet-reference` (tools/test_ui_packet_reference.py,
+quick about 1 s, `EM_TEST_FULL=1` about 1.5 s):
+
+- **The original instructions** (the shared EE interpreter over the 01
+  f300 image, its routines checked equal to the pinned ELF): 1,703 argument
+  sets in full mode (quick: every edge case and a sample, 600), every byte
+  of a filled scratch area and the cursor equal, the original storing
+  nothing else. Fail-stop: 28 native refusals (no cursor word, a packet past
+  memory or over its cursor, a glyph outside the font, no font or nibble
+  table, a failing worker, the latch), each writing nothing. Mutations
+  killed: 15 of 16 (zero / sign extension of three colour words, the lane
+  order of SCISSOR_1, the blend mode map, the tall upload's texel offsets,
+  the transfer's RRH and the small upload's QWC, the alpha clamp's bound, a
+  written tag byte +2, the triangle's trailing zero, the flush's VIF code and
+  strip size, the sprite's UV height shift, the small flush's V shift and
+  its half height's arithmetic shift); the
+  survivor is equivalent (00208040's two conversions in the other order:
+  the worker is pure).
+- **The captured chains.** Each of the five frames' slot-1 chain (01 f230 /
+  f300 / f400: 599 calls; 03 f440: 627; 03 f500: 551; the background, the
+  page sprites, the small and tall uploads and flushes, the marker
+  rectangle) decodes completely into these builders, and the native
+  builders, run twice over two fills from the captured cursor, write the
+  captured bytes at every byte they write (65,337 to 82,933 a frame), each
+  cursor landing on the next captured packet. The bytes neither run writes
+  are exactly three classes the original leaves alone too: the DMA tags'
+  unsent words (+2 and +8..+F), the REGLIST pads of 001CC3B0's passes and
+  the tall uploads' unfilled texels (001CC8A0 fills 12 x 20 of the 32 x 32
+  it sends). The chain's open and close (001D1AE0's three REFs, step V's
+  REF of GS block +0 and 001D1F80(1, 0, 7); em_load_veil_particles and
+  em_frame_kick, tested by their own oracles) match their formulas.
+- **Drawn.** The captured list with the rebuilt chain in place, its
+  unwritten bytes left as the fill, through the CPU GS model (as section
+  3): every frame's drawn field equals the displayed field, and local
+  memory differs from the original's only inside the glyph strip's pages
+  (GS block 0x1B00: 656 / 656 / 656 / 496 / 0 words), the unfilled texels
+  the nearest-sampled passes never read. So the port need not reproduce
+  the stale slot memory to draw the field exactly.
+
 ## 4. The captures (decomp, ignored)
 
 - `build/status_field_capture/capture.py <beat> <T> ...` (and
@@ -102,19 +158,20 @@ not commit to the decomp).
 
 1. Settle the column rule's open class (GS_EXACT.md 8.8) with a probe aimed
    at it, so strict mode draws the captured pages.
-2. Build the pages' GS list in the port from the recorded leaf calls, as
-   the original's packet builders do (00207D00's blend block REFs,
-   00207E40's sprite packet, 00207F80, 0020A7A0's background sprites, the
-   001CC8A0 / 001CC3B0 glyph uploads and passes and 001CCB10's CLUT,
-   00209280's number cells), and compare it byte for byte with the
-   captured lists (STATUS_UI_LEFTOVERS.md 1.1 does this for the panel
-   capture's packets).
-3. Draw a status frame in the Original profile as a GS frame through
-   em_gs_world (a list frame with the frame's own head), with the page
-   textures in the model's local memory (the uploads the page modules send:
-   em_gs_texture's steps), presented like a world field; then compare the
-   presented frames with the fork's fields and the video comparison's
-   segments 8 and 14.
+2. (done, section 3a) Build the pages' packets natively, byte for byte.
+   001CCB10's CLUT is not a slot packet (a boot-time kick on its own DMA
+   channel); its 64 entries are the grey ramp em_hud's GLYPH_INK reads.
+3. Bind the page code's leaf workers (em_status_pages_live,
+   em_battery_page_live, em_status_ui_leftovers' workers, em_message_glyph's
+   upload and flush) to these builders over em_render_context_live's arena
+   (the slot-1 buffers 0x358700 / 0x3EDE60 are already its storage:
+   em_rcl_bytes_mut), and draw a status frame in the Original profile as a
+   GS frame through em_gs_world from the chain step V builds, the REF
+   targets resolved to em_gs_blocks_original's blocks and the ELF's glyph
+   packets, with the page textures in the model's local memory (the uploads
+   the page modules send: em_gs_texture's steps), presented like a world
+   field; then compare the presented frames with the fork's fields and the
+   video comparison's segments 8 and 14.
 4. The hub and the pages with models (001B0000's units through the object
    kernel's GS output, as the world frames draw them), with GS-dump
    captures; segment 5.

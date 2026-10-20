@@ -1221,6 +1221,15 @@ test-dof-pass-reference:
 test-status-field-reference:
 	python3 tools/test_status_field_reference.py
 
+# The status pages' GS packet builders (src/game/em_ui_packet_original.c,
+# STATUS_FIELD.md section 3a) against the original instructions, every byte
+# and the cursor, and the five captured slot-1 chains rebuilt byte for byte
+# and drawn to the displayed field. Default: a sample and one frame drawn;
+# EM_TEST_FULL=1: every case and five frames.
+.PHONY: test-ui-packet-reference
+test-ui-packet-reference:
+	python3 tools/test_ui_packet_reference.py
+
 # The Original profile's GS frame (src/gs/em_gs_world.h, GS_EXACT.md section
 # 9): 1, 2, 3 and 8 workers draw the same fields and memory over designed
 # frames, under the thread sanitizer (a missing barrier is a reported race).
