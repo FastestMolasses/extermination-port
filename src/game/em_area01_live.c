@@ -1,4 +1,5 @@
 #include "game/em_area01_live.h"
+#include "game/em_pose_host_workers.h"
 #include "game/em_message_live.h"
 #include "game/em_area01_scene_view.h"
 #include "game/em_area01_script_workers.h"
@@ -558,10 +559,26 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,fault);
     }
     if(c->function==0x001C6120u) {
+        /* 001C6120(bank, id) (byte-matched src/func_001C6120.c). Roger's
+         * library keeps its exported table; any other bank (AREA00's
+         * arrival owner through 001C6160) is em_pose_host_001C6120 (the
+         * oracle-checked translation, test-pose-host-workers-reference)
+         * over the one directory word, read from the composition's views. */
         const uint32_t *library=em_area11_roger_library_word();uint32_t result=0;
-        if(c->na!=2 || c->nf || !library || (uint32_t)c->a[0]!=*library)
-            return worker_result(l,-1,c->function);
-        int rc=em_area11_roger_001C6120((uint32_t)c->a[0],(int32_t)c->a[1],&result);
+        if(c->na!=2 || c->nf)return worker_result(l,-1,c->function);
+        const uint32_t bank=(uint32_t)c->a[0];
+        if(!library || bank!=*library) {
+            const uint32_t at=bank+4u+4u*((uint32_t)c->a[1]&0x7FFFu);
+            uint8_t *entry=bytes(l,at,4,0);
+            if(!entry)return worker_result(l,-1,at);
+            EmPoseHost directory;memset(&directory,0,sizeof directory);
+            directory.region[directory.region_count++]=(EmPoseRegion){at,4,entry,0};
+            if(em_pose_host_001C6120(&directory,bank,(int)(int32_t)c->a[1],&result)<0)
+                return worker_result(l,-1,c->function);
+            c->v0=(uint64_t)(int64_t)(int32_t)result;
+            return 0;
+        }
+        int rc=em_area11_roger_001C6120(bank,(int32_t)c->a[1],&result);
         if(rc==0)c->v0=(uint64_t)(int64_t)(int32_t)result;
         return worker_result(l,rc,c->function);
     }

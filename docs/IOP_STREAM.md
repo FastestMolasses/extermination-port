@@ -542,7 +542,17 @@ The cues exported are:
 - Voice: 143..151; and 1 (since chain step BRANCHES, 2026-10-03: line 0x13, Roger's talk after the encounter,
   its area-11 message record's voice word; the BRANCH recording br_14 plays it).
 
-The export is 8 extents, 24.6 MB (7 extents, 24.3 MB before cue 1). A read of any other sector faults. The capture checks prove the exported
+- AREA01 (since the AREA01 crash sweep merge, 2026-10-07): every cue its `D_0026EC60` rows name, the spawn
+  selections 13 / 22, the overlay script's cue 20 and every voice of its message table `D_00264DD0[2]`.
+- AREA00 (since 2026-10-19): its `D_0026EC60` rows (area 0: music 45 and 47) and every voice of its message
+  table `D_00264DD0[1]` (19..28, 30, 31, 32; its one record with voice 0 names the empty voice row 0, which has no
+  sectors). The fork's AREA00 recordings read voices 19..28 during the arrival, 30 at door [51] and 31 / 32 at the
+  cage terminal; before this export the arrival's first voice read faulted at 00112610 (code 8, not exported).
+
+The export was 8 extents, 24.6 MB for the first level (7 extents, 24.3 MB before cue 1), 23,725 sectors with AREA01,
+and is 14 extents, 25,603 sectors (52.4 MB) with AREA00. `make test-area01-stream-export` checks every exported
+sector against the disc and that every listed cue's sectors are present; run with `--previous` on the earlier export
+(2026-10-19) it also found all 23,725 earlier sectors unchanged. A read of any other sector faults. The capture checks prove the exported
 sectors are what the original held: every lane-0 IOP buffer half and every stream SPU half in the 16 save states
 equals them.
 

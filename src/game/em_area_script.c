@@ -805,12 +805,18 @@ static EmScriptCommandResult op0A(Op *o)
     return EM_SCRIPT_ADVANCE;
 }
 
-/* 001B8020 (ftab_0024D880[11]): owner animation. Subs 6, 0 and 4 are
- * admitted (byte-matched src/func_001B8020.c): sub 6 plays 001FBD50(owner,
- * rec +0x18, 0, 300.0) and falls into sub 0, anim_clip_init(owner, (short)
- * rec +0x14, rec +0x0C, 0.0) with st +0x0E = 0 (census L18: the ordinary
- * door program's 0x24DC40); sub 4 binds D_0028A490[rec +0x1C] at the owner's
- * +0x40 first and passes 0.0 for both floats. The other subs fault. */
+/* 001B8020 (ftab_0024D880[11]): owner animation (byte-matched
+ * src/func_001B8020.c). Sub 6 plays 001FBD50(owner, rec +0x18, 0, 300.0)
+ * and falls into sub 0, anim_clip_init(owner, (short) rec +0x14, rec +0x0C,
+ * 0.0) with st +0x0E = 0 (census L18: the ordinary door program's
+ * 0x24DC40); sub 1 waits for st +0x0E bit 0x1000; subs 2 and 3 store
+ * st +0x0E = 001C64F0(owner, rec +0x0C) each tick: sub 2 advances when it
+ * shares a bit with rec +0x14; sub 3 on phase byte 0 sets rec +0x10 =
+ * (float) rec +0x14 and phase 1, then (on phase 1, falling through) stores
+ * rec +0x10 - 1.0 and advances when that is 0.0, any other phase advancing
+ * at once; sub 4 binds D_0028A490[rec +0x1C] at the owner's +0x40 first and
+ * passes 0.0 for both floats. Sub 5 (bone_init_default_2) faults; every
+ * value outside 0..6 advances without a call. */
 static EmScriptCommandResult op0B(Op *o)
 {
     const EmAreaScriptWorld *w = o->w;
@@ -818,6 +824,27 @@ static EmScriptCommandResult op0B(Op *o)
     switch (u32(o->rec, 8)) {
     case 1:
         return (o->h->st_0E & 0x1000) ? EM_SCRIPT_ADVANCE : EM_SCRIPT_WAIT;
+    case 2: case 3: {
+        int32_t flags;
+        WORKER(w_001C64F0, 0x001C64F0u);
+        CALL(0x001C64F0u, o->k->w_001C64F0(o->ctx, w->self, f32(o->rec, 0x0C), &flags));
+        o->h->st_0E = (int16_t)flags;
+        if (u32(o->rec, 8) == 2)
+            return (o->h->st_0E & s32(o->rec, 0x14)) ? EM_SCRIPT_ADVANCE : EM_SCRIPT_WAIT;
+        switch (phase(o)) {
+        case 0:
+            putf(o->rec, 0x10, em_ee_cvt_s_w(s32(o->rec, 0x14)));
+            set_phase(o, (uint8_t)(phase(o) + 1));
+            /* fall through */
+        case 1: {
+            float x = pose_sub(f32(o->rec, 0x10), 1.0f);
+            putf(o->rec, 0x10, x);
+            return em_ee_c_eq(x, 0.0f) ? EM_SCRIPT_ADVANCE : EM_SCRIPT_WAIT;
+        }
+        default:
+            return EM_SCRIPT_ADVANCE;
+        }
+    }
     case 6:
         WORKER(w_001FBD50, 0x001FBD50u);
         CALL(0x001FBD50u, o->k->w_001FBD50(o->ctx, w->self, s32(o->rec, 0x18), 0, 300.0f));
@@ -837,8 +864,10 @@ static EmScriptCommandResult op0B(Op *o)
         CALL(0x001C67E0u, o->k->w_001C67E0(o->ctx, w->self, s16(o->rec, 0x14), 0.0f, 0.0f));
         o->h->st_0E = 0;
         return EM_SCRIPT_ADVANCE;
-    default:
+    case 5:
         return fault(o, 0x001B8020u);
+    default:
+        return EM_SCRIPT_ADVANCE;
     }
 }
 

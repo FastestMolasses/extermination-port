@@ -35,6 +35,13 @@ LIGHT_WINDOWS = ((LIGHT_TABLE, LIGHT_RECORDS * 0x40 + 4), (0x0026A900, 0x90))
 FIELD_ROWS = (0x00248120, 20, (3, 4))
 FIELD_WINDOWS = ((FIELD_ROWS[0] + FIELD_ROWS[1] * FIELD_ROWS[2][0], FIELD_ROWS[1] * len(FIELD_ROWS[2])),)
 
+# The class-2 owners' immutable tables up to D_00242F20 (already exported):
+# 00128C10's halfword clip tables D_00242EB0 / D_00242EB6 / D_00242EBC
+# (indexed by 00128600(0)) and 00128600's byte table D_00242ED0, 16 bytes
+# per row (rows 0, 1 and 4 named by its callers; the AREA00 arrival's
+# 0012A5D0 -> 0012AFC0 reaches 00128600(0)). Both are byte-matched decomp C.
+CLASS2_WINDOWS = ((0x00242EB0, 0x70),)
+
 
 def captures(decomp):
     root = decomp / 'build/fork_refs/s87'
@@ -66,7 +73,7 @@ def blocks(elf):
     if hashlib.sha256(elf).hexdigest() != E.ELF_SHA256:
         raise ValueError('Not the pinned SCUS-97112 boot ELF')
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
-    windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS)
+    windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -106,7 +113,7 @@ def verify_windows(data, paths):
     verify_light_table(wanted)
     for path in paths:
         ram = path.read_bytes()
-        for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS):
+        for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS):
             if ram[address:address + size] != wanted[address]:
                 raise ValueError('AREA00 immutable table differs from pinned ELF')
     verify_field_rows(paths)

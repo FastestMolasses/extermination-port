@@ -2032,7 +2032,18 @@ frames and stops at op 0x0B mode 3 (001B8020, record `008285E0` of the
 AREA00 owner `00823580`), which the script host does not admit yet; the
 first-level smokes' logs are byte-identical to port main 0deae8b's and
 a01_arrival..a01_07 pass again (receipts in ignored
-`build/frontier2_i4_20261019_184516/`).
+`build/frontier2_i4_20261019_184516/`). Since the arrival's script, bank,
+voice and class-2 reads (op0B subs 2 / 3 with `w_001C64F0`, 001C6120 over
+any delivered bank, AREA00's stream cues in `export_streams.py`, the
+`D_00242EB0` window; LEVEL3_BINDING.md "Current state", 2026-10-19 night)
+`--run --until a00_00` plays the arrival's 4,017 rows on the C side,
+aligns a00_00 at counter 30942 and stops 33 frames in at the untranslated
+effect handler `001EB980`. The arrival's capture check still fails at row
+0: 86 rows differ (rows 0..80, the original's arrival stance and its clock;
+rows 3750..3754, the message phase). The first-level smokes' tick and
+present logs are byte-identical to port main 9b9c26b's and
+a01_arrival..a01_07 pass (receipts in ignored
+`build/frontier2_i5_20261019_205006/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

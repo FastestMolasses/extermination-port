@@ -184,6 +184,9 @@ typedef struct EmAreaScriptWorkers {
      * The opening 0x828FC0's actors (em_sdf_001BAC00 in the binder). */
     int (*w_001BAC00)(void *ctx, uint32_t actor, uint32_t script, uint32_t record, int32_t *result);
     int (*w_0011DE90)(void *ctx, float a0, float *result); /* SDK cosine, op01 kind8 */
+    /* 001B8020 (op0B) subs 2 / 3: anim_advance_time 001C64F0(owner, rec
+     * +0x0C); *result is its halfword flag result (stored at st +0x0E). */
+    int (*w_001C64F0)(void *ctx, uint32_t actor, float dt, int32_t *result);
     /* Optional dispatch to an existing original handler owner. The live
      * area binder publishes/reloads the same script block and world around
      * it. NULL preserves the original admitted-handler fail-stop policy. */

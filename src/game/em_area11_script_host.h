@@ -78,6 +78,9 @@ typedef struct {
     int (*record)(void *, uint32_t function, uint32_t actor, uint32_t block,
                   uint32_t record, int32_t *result);
     int (*camera)(void *, uint32_t function, uint32_t camera);
+    /* 001C64F0(actor, dt) (op0B subs 2 / 3): *result is v0. Optional; a
+     * NULL hook faults when a script reaches it. */
+    int (*advance)(void *, uint32_t actor, float dt, int32_t *result);
 } EmAreaScriptHostArea;
 int em_area11_script_host_area(const EmAreaScriptHostArea *);
 

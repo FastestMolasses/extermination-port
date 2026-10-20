@@ -14,6 +14,63 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-19, night (port main 9b9c26b plus the arrival's script, bank,
+voice and class-2 reads): the arrival runs to its end; the stop moved 33
+frames into a00_00.** One change supplied what the arrival reached after
+frame 203, in the order the run met it:
+
+- `001B8020` op 0x0B (byte-matched C) subs 2 and 3 in `em_area_script.c`
+  (the owner `00823580`'s records `008285E0` = sub 3, count 0x8C, and
+  `00828660` = sub 2, mask 0x1000): st +0x0E = `001C64F0`(owner, rec
+  +0x0C) through the new worker `w_001C64F0` (the area binding's
+  `advance` hook, `em_area01_script_live.c`, to the live runtime's
+  anim_advance_time); sub 3 sets rec +0x10 = (float) rec +0x14 and the
+  phase byte to 1, then counts rec +0x10 down by 1.0 and advances at 0.0;
+  sub 2 advances on a bit shared with rec +0x14; values outside 0..6
+  advance without a call (sub 5 still faults). Oracle: `make
+  test-area-script-reference` (the synthetic 'owner anim advance' script,
+  12 lockstep ticks against the executed 001BA1F0 + 001B8020; quick 57
+  scripts / 1,394 ticks, EM_TEST_FULL=1 6,068 ticks).
+- `001C6120` (byte-matched C) over a bank other than Roger's library (the
+  arrival owner `00824EA0`'s 001C2770 -> 001C39F0 -> 001C6160 with clip
+  0x8006 over its bank `0113D1C0`): the live runtime now serves it with
+  `em_pose_host_001C6120` (oracle-checked in
+  `test-pose-host-workers-reference`) over the one directory word.
+- The arrival's voices: `tools/export_streams.py` now also exports AREA00's
+  `D_0026EC60` rows (music 45, 47) and every voice of its message table
+  `D_00264DD0[1]` (19..28, 30, 31, 32); before, the first arrival voice
+  read faulted at `00112610` (code 8). 14 extents, 25,603 sectors; the
+  23,725 earlier sectors unchanged (`tools/test_area01_stream_export.py
+  --previous`, every sector against the disc).
+- `D_00242EB0..D_00242F20` (00128C10's halfword clip tables and
+  00128600's byte rows, both byte-matched C): the class-2 owner
+  `0012A5D0` -> `0012AFC0` -> `00128600(0)` read `00242EDB` at arrival
+  frame 3956. Exported by `tools/export_area00_runtime_tables.py`
+  (`CLASS2_WINDOWS`), equal to the ELF in all 52 retained captures
+  (startup, AREA11 route, AREA01, AREA00, revisit); `make
+  test-area00-arrival-bindings` serves it through the production loader.
+
+The C side now plays the arrival's 4,017 rows and aligns a00_00 at counter
+30942 (drive replay), then fault-stops 33 frames in at the untranslated
+effect handler `001EB980` (`effects: untranslated effect handler at
+001EB980`). The arrival's capture comparison is not a pass: 86 of its 4,017
+rows differ, in two runs. Rows 0..80: the original's player runs an
+arrival stance first (row 1: +0x1F0 = 1, byte 5 = 1, scratchpad 0x70003B8D
+word 0x0400; row 2: clip 2, x -40.0 where the port has -40.5, camera
+target and forward to match; row 3: +0x1F1 = 65), and its clock reads 0, 1,
+8, 7 .. 1 before its 80 countdown starts at row 11, while the port's clock
+counts down from 80 at row 0. Rows 3750..3754: the message phase (the
+original's block goes 2 -> 0 at row 3751; the port's stays 1 until row
+3754). Next AREA00 units: the arrival stance (read the original player
+code the arrival's first rows run; a label is not evidence), the message
+phase at row 3750, then `001EB980`. Proof of this step: the first-level
+smokes' tick and present logs equal port main 9b9c26b's
+(sha256 2866e0de... / f8a37cb8... full, d2cb9bed... / 2fa87dc2... drive
+switch); newgame-control 9.599849; `make
+test-level-smoke-full` and `make test-level-smoke-ps2-drive` pass;
+`tools/test_level_smoke_area01.py --until a01_07` passes a01_arrival..a01_07
+row for row. Receipts in ignored `build/frontier2_i5_20261019_205006/`.
+
 **2026-10-19, evening (port main 0deae8b plus the surface program): the
 arrival runs 203 frames; the stop moved to a script op.** 001E9280 (the
 surface owner `0015AB00`'s packet, NEARMISS C in the decomp; its packet
@@ -452,7 +509,7 @@ nice -n 15 python3 tools/test_area01_sfx_registry.py
 nice -n 15 python3 tools/test_world_textures_reference.py
 nice -n 15 python3 tools/test_scene_no_shadow.py
 nice -n 15 env EM_HEADLESS=1 EM_STARTUP_TEST=newgame-control build/extermination
-# Long diagnostic: currently expected to fail at arrival frame 203 (001B8020 op0B mode 3, record 008285E0).
+# Long diagnostic: the arrival plays out (86 of 4,017 rows differ, LEVEL3_BINDING.md), then a00_00 stops 33 frames in at effect handler 001EB980.
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/live-arrival-1
 # Later full-route and independent side-return checks:
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
@@ -513,13 +570,18 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop (2026-10-19, evening) is arrival frame 203:
-op 0x0B mode 3 (001B8020) of record `008285E0`, run by the AREA00 owner
-`00823580`; the chain page's surface packet `00234FE0` (frame 1), the
+The current reproducible stop (2026-10-19, night) is a00_00 frame 33, the
+untranslated effect handler `001EB980`, after the arrival's 4,017 rows (86
+differ: the arrival stance in rows 0..80 and the message phase in rows
+3750..3754; "Current state"). Op 0x0B modes 2 / 3 (001B8020, record
+`008285E0`), 001C6120 over the arrival owner's bank, the arrival's voice
+sectors and `00242EDB` (00128600) are resolved, as are the chain page's
+surface packet `00234FE0` (frame 1), the
 `0022DCD0` read `00269400` (frame 0) and the `00156620` stop (the 32-view
-owner table) are resolved. Surface dimensions, retained pickup
+owner table). Surface dimensions, retained pickup
 models and crate roots are now supplied exactly, with no native game-code
-changes. Arrival aligns, but still has zero certified rows. Movement,
+changes. Arrival aligns and plays out, but still has zero certified rows
+(the harness's comparison stops at its first differing row, row 0). Movement,
 camera, interactions, drawing and both returns remain uncertified.
 Standalone tests do not establish live call order or eliminate later
 missing workers. The inherited AREA01 a01_03 row-957 difference (the disc

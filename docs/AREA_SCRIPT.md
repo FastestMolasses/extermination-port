@@ -35,8 +35,13 @@ D_00810813 = 1 the director's beat 0 waits for.
 - Translated here (decomp C, checked against the original instructions by the
   oracle): 001B8FC0 op00 kinds 0–7, 9, 10 (sine ease on kind 1); 001B94F0 op01
   kinds 0–7, 9, 10; 001B9BA0 op02; 001B9C10 op04; 001BA080 op06; 001B99F0 op09
-  (record callback); 001B9A00 op0A subs 0–7; 001B8020 op0B subs 0, 4 and 6 (sub 6's
-  001FBD50 cue falls into sub 0's clip init; census L18); 001B7B30 op0D
+  (record callback); 001B9A00 op0A subs 0–7; 001B8020 op0B subs 0–4, 6 and every
+  value outside 0..6 (sub 6's 001FBD50 cue falls into sub 0's clip init; census
+  L18; since 2026-10-19 subs 2 and 3, the AREA00 owner 00823580's records
+  008285E0 / 00828660: st +0x0E = 001C64F0(owner, rec +0x0C) through the new
+  `w_001C64F0` worker, sub 2 waiting for a bit shared with rec +0x14, sub 3
+  counting rec +0x10 down from (float) rec +0x14 over the phase byte; values
+  outside the 7-entry table advance without a call); 001B7B30 op0D
   subs 1–8; 001B7A30 op0F; 001B7840 op10; 001B6FA0 op15; 001B6E40 op16;
   001B6BF0 op18; 001B81D0 (face attach, inline, with 001CA700/001D06D0 workers).
 - Also translated here, from the original instructions (0011E2A8, 0011D770 and
@@ -50,7 +55,7 @@ D_00810813 = 1 the director's beat 0 waits for.
 - **Not admitted (fault):** opcodes 03, 05, 08, 0E, 11–13, 17, 19, 1A; op00/op01
   kind 8 (settle/orbit: 0018C6A0/0018C4B0/0011DE90; `em_pickup_camera_settle`
   is the module to delegate op00 kind 8 to when a script needs it); op0A sub8
-  (001798D0); op0B subs other than 0, 4 and 6; out-of-range kinds. Of the AREA11
+  (001798D0); op0B sub 5 (bone_init_default_2); out-of-range kinds. Of the AREA11
   first-visit scripts only the pickup grab programs use them (op0E sub1 and
   op00 kind 8; the battery runs 0x266620, section 2). Those programs stay on
   `em_pickup_program`, which translates both. op14 (001BAC00 spawn) is used only
@@ -181,9 +186,14 @@ The two manager callbacks are tiny: 0x825900 calls 001DFE10() and returns 1;
   (level scripts with skips at several ticks), test-generated records for the
   admitted sub-commands the level scripts do not reach, a jump record, an
   unported opcode, an unadmitted kind, and missing worker/pointer faults.
-  Quick mode: 51 scripts/variants, level durations clamped to 5 ticks in both
-  images. `EM_TEST_FULL=1`: captured durations (5,977 ticks; the 0x8294C0 beat
-  alone is 2,421).
+  Since 2026-10-19 the synthetic 'owner anim advance' script runs op0B subs 3
+  and 2 (twice each, one sub 3 ending on its first tick and one sub 2 on a
+  negative halfword's bit 0x8000) and the out-of-table values 9 and
+  0xFFFFFFFF; `w_001C64F0` (001C64F0) is an environment worker answering a
+  fixed halfword cycle on both sides (12 lockstep ticks, the record's +0x10
+  and the phase byte compared). Quick mode: 57 scripts/variants (1,394 ticks),
+  level durations clamped to 5 ticks in both images. `EM_TEST_FULL=1`:
+  captured durations (6,068 ticks; the 0x8294C0 beat alone is 2,421).
 - **Route captures** (same test, every mode). The host is replayed over the
   original pad-only route traces in `../Extermination/build/s87/route/`
   (FIRST_LEVEL_ROUTE.md). Each case is seeded from the snapshot its beat was

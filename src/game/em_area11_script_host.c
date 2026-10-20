@@ -556,6 +556,17 @@ static int w_001C67E0(void *ctx, uint32_t actor, int16_t clip, float a, float b)
     return rc;
 }
 
+/* The owner's 001C64F0 (op0B subs 2 / 3): the area binding's
+ * anim_advance_time. The first level's scripts never reach these subs, so
+ * AREA11 has no binding (fail-stop). */
+static int w_001C64F0(void *ctx, uint32_t actor, float dt, int32_t *result)
+{
+    (void)ctx;
+    if (!H.area.overlay_id || !H.area.advance) return report("001C64F0 without an area binding");
+    if (area_before() < 0) return -1;
+    return area_after(H.area.advance(H.area.ctx, actor, dt, result));
+}
+
 /* 001BAC00(actor, script, record) (op14; the opening 0x828FC0's 0x8290C0):
  * em_sdf_001BAC00 over the owner's record, with the placement list the
  * record's +0x14 names in the opening image and the pool's 001AFA90
@@ -877,6 +888,7 @@ static void workers_bind(void)
     H.workers.w_001C6120 = w_001C6120;
     H.workers.w_0022EC30 = w_0022EC30;
     H.workers.w_001C67E0 = w_001C67E0;
+    H.workers.w_001C64F0 = w_001C64F0;
     H.workers.w_001B0250 = w_001B0250;
     H.workers.w_0021B9A0 = w_0021B9A0;
     H.workers.w_001D2830 = w_001D2830;

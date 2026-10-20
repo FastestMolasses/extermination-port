@@ -297,6 +297,7 @@ WORKERS = [
     ('w_001FBD50', 0x1FBD50, 'aiif', ''),
     ('w_001BAC00', 0x1BAC00, 'aaa', 'io'),
     ('w_0011DE90', 0x11DE90, 'f', 'fo'),
+    ('w_001C64F0', 0x1C64F0, 'af', 'io'),
 ]
 PASSTHROUGH = {0x11E2A8, 0x11DE90, 0x1B1240, 0x1B12B0, 0x1B1380, 0x1B1470, 0x182F90, 0x1B7D60}
 KIND_CTYPE = {'i': C.c_int, 'h': C.c_int16, 'b': C.c_uint8, 'a': C.c_uint32, 'f': C.c_float,
@@ -335,6 +336,9 @@ Host._fields_ = [('script', Script), ('st_0E', C.c_int16), ('st_10', C.c_float*4
 def fbits(value): return bits(value) & 0xffffffff
 
 
+ANIM_FLAGS = (0x0002, 0x0000, 0x8010-0x10000, 0x1003)
+
+
 class Env:
     """Services outside the scripts, driven identically on both sides.
     It sees only the calls its side made; the comparison asserts those are
@@ -352,6 +356,7 @@ class Env:
         self.callback_calls = {}
         self.busy_age = 0
         self.cue_age = 0
+        self.advance_calls = 0
 
     def before_tick(self, mem):
         s = self.s
@@ -414,6 +419,11 @@ class Env:
             return 1        # 001BAC00 always returns 1 (em_sdf_001BAC00's own oracle)
         elif name == 'w_001C6120':
             return TRACK
+        elif name == 'w_001C64F0':
+            # anim_advance_time's halfword flags, sign-extended (0x8010
+            # is negative): a fixed cycle, the same on both sides.
+            self.advance_calls += 1
+            return ANIM_FLAGS[(self.advance_calls-1) % len(ANIM_FLAGS)]
         elif name == 'c_record':
             n = self.callback_calls.get(args[0], 0)+1
             self.callback_calls[args[0]] = n
@@ -744,6 +754,14 @@ def synthetic_arena():
     script('owner clip', [rec(7, 0, w14=1), rec(0x0B, 6, f0c=0., w14=2, w18=0x401),
                           rec(0x0B, 0, f0c=0.5, w14=3), rec(0x0B, 6, f0c=1., w14=0, w18=0x402),
                           rec(7, 4, END)])
+    # op0B subs 3 / 2 (001C64F0 each tick; sub 3 counts rec +0x10 down from
+    # (float) rec +0x14 over the phase byte; sub 2 waits for a shared bit)
+    # and two values outside the 7-entry table (advance without a call):
+    # the AREA00 owner 00823580's record 008285E0 is a sub 3.
+    script('owner anim advance', [rec(7, 0, w14=1), rec(0x0B, 3, f0c=1., w14=3),
+                                  rec(0x0B, 2, f0c=0.5, w14=0x1000), rec(0x0B, 3, f0c=2., w14=1),
+                                  rec(0x0B, 9), rec(0x0B, 0xFFFFFFFF),
+                                  rec(0x0B, 2, f0c=1., w14=0x8000), rec(7, 4, END)])
     script('unported opcode', [rec(7, 0, w14=1), rec(0x13), rec(7, 4, END)])
     script('unadmitted kind', [rec(7, 0, w14=1), rec(0, 8, f0c=3.), rec(7, 4, END)])
     return scripts, bytes(data)

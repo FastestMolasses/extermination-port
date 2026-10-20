@@ -2,33 +2,37 @@
  * AREA00 arrival's added windows (tools/test_area00_arrival_bindings.py):
  * 0022DCD0's record list D_00269400 (six records and the terminator word)
  * and its 0x90-byte record D_0026A900, and 0015A2C0's config rows 3 and 4
- * (D_00248120 + 20 * 3, 40 bytes). argv[1] holds the expected bytes, in
- * that order; argv[2] is 0 for an export without these windows. */
+ * (D_00248120 + 20 * 3, 40 bytes), and (since 2026-10-19, later) the
+ * class-2 owners' D_00242EB0..D_00242F20 (00128C10's clip tables and
+ * 00128600's byte rows). argv[1] holds the expected bytes, in that order;
+ * argv[2] is 0 for an export without these windows. */
 #define main earlier_effects_fixture_main
 #include "aim_fire_effects_live_test.c"
 #undef main
 
 static const struct { uint32_t base, size; } k_windows[] = {
     {0x00269400u, 0x184u}, {0x0026A900u, 0x90u}, {0x0024815Cu, 0x28u},
+    {0x00242EB0u, 0x70u},
 };
+enum { WINDOWS = sizeof k_windows / sizeof k_windows[0] };
 
 int main(int argc, char **argv)
 {
     assert(argc == 3);
     const int present = atoi(argv[2]);
-    uint8_t expected[0x184 + 0x90 + 0x28];
+    uint8_t expected[0x184 + 0x90 + 0x28 + 0x70];
     FILE *f = fopen(argv[1], "rb");
     assert(f && fread(expected, 1, sizeof expected, f) == sizeof expected);
     assert(fgetc(f) == EOF);
     fclose(f);
     assert(em_effects_live_load() == 0);
     if (!present) {
-        for (unsigned i = 0; i < 3; ++i) assert(!em_effects_live_window(k_windows[i].base, 1));
+        for (unsigned i = 0; i < WINDOWS; ++i) assert(!em_effects_live_window(k_windows[i].base, 1));
         puts("PASS prior export refuses the absent arrival windows");
         return 0;
     }
     unsigned slices = 0, refusals = 0, start = 0;
-    for (unsigned i = 0; i < 3; ++i) {
+    for (unsigned i = 0; i < WINDOWS; ++i) {
         const uint32_t base = k_windows[i].base, size = k_windows[i].size;
         for (uint32_t offset = 0; offset < size; ++offset)
             for (uint32_t n = 1; n <= size - offset && n <= 0x40u; ++n) {
@@ -49,6 +53,11 @@ int main(int argc, char **argv)
     assert(!em_effects_live_window(0x0026A8FFu, 1)); ++refusals;
     assert(!em_effects_live_window(0x00248148u, 20)); ++refusals;
     assert(!em_effects_live_window(0x0024815Bu, 2)); ++refusals;
+    /* D_00242EAF is not exported; the class-2 window's end meets the
+     * D_00242F20 clip-id window: each side reads, a span across does not. */
+    assert(!em_effects_live_window(0x00242EAFu, 1)); ++refusals;
+    assert(!em_effects_live_window(0x00242EAFu, 2)); ++refusals;
+    assert(em_effects_live_window(0x00242F1Fu, 1) && em_effects_live_window(0x00242F20u, 1));
     /* Row 4's end meets the AREA01 row-5 window: each side reads, a span
      * across the two windows does not. */
     assert(em_effects_live_window(0x00248183u, 1) && em_effects_live_window(0x00248184u, 1));

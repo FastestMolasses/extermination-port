@@ -9,7 +9,10 @@ frames 0 and 1 reach three original reads the port did not serve:
     the 0x90-byte record D_0026A900 every frame (001D0400); it keeps its
     tables in the boot BSS D_00822CF0..D_008234C0;
   * 0015A2C0 (NEARMISS C) reads the 20-byte config row D_00248120 + 20 *
-    (short)+0x54; AREA00's placements use rows 1, 3, 4 and 5.
+    (short)+0x54; AREA00's placements use rows 1, 3, 4 and 5;
+  * (later the same day) the class-2 owners' 0012A5D0 -> 0012AFC0 ->
+    00128600(0) (byte-matched C) reads D_00242ED0; the export carries
+    D_00242EB0..D_00242F20 (00128C10's clip tables and those byte rows).
 
 This checks, with the user's own pinned ELF and the retained fork
 snapshots: every exported byte equals the ELF and every AREA00 snapshot
@@ -49,7 +52,7 @@ def check_tables(elf):
     paths = X.captures(X.E.DECOMP)
     X.verify_windows(data, paths)
     wanted = dict(data)
-    windows = (*X.LIGHT_WINDOWS, *X.FIELD_WINDOWS)
+    windows = (*X.LIGHT_WINDOWS, *X.FIELD_WINDOWS, *X.CLASS2_WINDOWS)
     rejected = 0
     for address, _ in windows:
         changed = dict(wanted)
@@ -99,7 +102,7 @@ def check_bss_users():
 
 def check_readview(data):
     wanted = dict(data)
-    windows = (*X.LIGHT_WINDOWS, *X.FIELD_WINDOWS)
+    windows = (*X.LIGHT_WINDOWS, *X.FIELD_WINDOWS, *X.CLASS2_WINDOWS)
     expected = OUT / 'expected.bin'
     expected.write_bytes(b''.join(wanted[address] for address, _ in windows))
     before = [(a, b) for a, b in data if a not in dict(windows)]
@@ -127,7 +130,7 @@ def main():
     data, snapshots, rejected = check_tables(elf)
     names = check_bss_users()
     check_readview(data)
-    print(f'PASS AREA00 arrival read views: 3 windows equal the ELF and {snapshots} retained snapshots; '
+    print(f'PASS AREA00 arrival read views: {len(X.LIGHT_WINDOWS) + len(X.FIELD_WINDOWS) + len(X.CLASS2_WINDOWS)} windows equal the ELF and {snapshots} retained snapshots; '
           f'{rejected} corruptions refused; the BSS block is 0022DCD0\'s alone ({names} names)')
     return 0
 

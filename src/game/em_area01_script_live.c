@@ -124,6 +124,15 @@ static int clip(void *ctx,uint32_t actor,int16_t index,float blend,float frame)
                     .f={em_ee_bits(blend),em_ee_bits(frame)},.nf=2};
     return s->host.worker(s->host.ctx,&c);
 }
+static int advance(void *ctx,uint32_t actor,float dt,int32_t *result)
+{
+    EmArea01Script *s=ctx;
+    if (!result) return -1;
+    EmArea01Call c={.function=0x001C64F0u,.a={actor},.na=1,.f={em_ee_bits(dt)},.nf=1};
+    int rc=s->host.worker(s->host.ctx,&c);
+    if (rc>=0) *result=(int32_t)(int16_t)c.v0;
+    return rc;
+}
 static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
                   uint32_t rec,int32_t *result)
 {
@@ -187,7 +196,7 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
     if(n<0 || (size_t)n>=sizeof path || em_spawn_table_load(&s->timeline_tables,path)<0)goto fail;
     s->host=*host;s->loader=loader;s->area=area_id;s->bound=1;
     EmAreaScriptHostArea area={.ctx=s,.overlay_id=areas[area_id].overlay_id,.image=image,.resource=resource,
-        .owner_bank=owner_bank,.clip=clip,.record=record,.camera=camera};
+        .owner_bank=owner_bank,.clip=clip,.record=record,.camera=camera,.advance=advance};
     if (em_area11_script_host_area(&area)<0) goto fail;
     return 0;
 fail:
