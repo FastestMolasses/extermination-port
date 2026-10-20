@@ -161,13 +161,27 @@ void *em_aim_fire_world_live_map(void *context,uint32_t a,size_t n,int write)
 /* The region-only verified owners share these exact byte pointers. There is no
  * retry after a fault and no replay of a routine that has already stored. */
 typedef struct {
-    EmAimFireWorldLive *world; EmAimFireLive *live;
-    EmPoseRegion views[EM_AIM_FIRE_WORLD_VIEWS]; unsigned count;
+    EmPoseRegion views[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea02MathRegion math[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea00WorldRegion hit[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea01SideRegion side[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea01RenderView fx[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea02MiscRegion misc[EM_AIM_FIRE_WORLD_VIEWS];
+    struct Bridge *bridge; /* this depth's running call, NULL before it has one */
+} BridgeViews;
+/* One view set per nesting depth of em_aim_fire_world_live_call (a
+ * composition callee can come back through it), allocated on first use
+ * and kept: a nested call never touches its caller's views. */
+static BridgeViews **bridge_slabs;
+static unsigned bridge_slab_count,bridge_depth;
+typedef struct Bridge {
+    EmAimFireWorldLive *world; EmAimFireLive *live;
+    EmPoseRegion *views; unsigned count;
+    EmArea02MathRegion *math;
+    EmArea00WorldRegion *hit;
+    EmArea01SideRegion *side;
+    EmArea01RenderView *fx;
+    EmArea02MiscRegion *misc;
     EmArea02Misc *misc_state;
     EmArea01Ui *ui_state;
     EmArea02Math *math_state; EmArea00World *hit_state;
@@ -180,7 +194,13 @@ typedef struct {
      * as views: 001AA840 walks it (the knife's reach). */
     uint32_t c4_cursor, c4_words[EM_ACTOR_LIST_MAX];
     int16_t c4_count;
+    /* Published class-4 entries freed since publication: their cleared
+     * header words (see refresh and owner_view). */
+    uint32_t freed_address[EM_ACTOR_LIST_MAX];
+    const uint8_t *freed_bytes[EM_ACTOR_LIST_MAX];
+    unsigned freed_count;
 } Bridge;
+#define FREED_HEADER 0x10u
 static int append(Bridge *b,uint32_t a,uint32_t n,void *bytes,int writable)
 {
     if(!bytes||!n)return 0;
@@ -191,7 +211,7 @@ static int append(Bridge *b,uint32_t a,uint32_t n,void *bytes,int writable)
 static int refresh(Bridge *b)
 {
     EmAimFireLive *h=b->live; EmAimFireWorldLive *w=b->world;
-    b->count=0;
+    b->count=0;b->freed_count=0;
     TRY(append(b,LOCAL_BASE,sizeof h->temporary,h->temporary,1));
     if(h->player)TRY(append(b,h->player_address,sizeof h->player->bytes,h->player->bytes,1));
     for(unsigned i=0;h->regions&&i<h->region_count;++i) {
@@ -258,6 +278,21 @@ static int refresh(Bridge *b)
                     if(l->published)
                         APPEND_OPTIONAL(append(b,b->c4_cursor,4u*(uint32_t)l->published,
                                                b->c4_words+EM_ACTOR_LIST_MAX-l->published,0));
+                    /* A record freed after the list was published stays in
+                     * it until the next build; 001AA840 still reads its
+                     * +0, +2 and +3. The original memory then holds what
+                     * 001AFC10 (byte-matched) left: its four header words
+                     * +0x00..+0x0F cleared, which the native record keeps
+                     * (em_actor_pool_free_001AFC10). Those 16 bytes, read
+                     * only, for the region-only effect owners (owner_view);
+                     * no other field of a freed record is exposed. */
+                    for(int j=0;j<l->published;++j) {
+                        const EmActor *actor=l->slot[j];
+                        if(!actor->allocated) {
+                            b->freed_address[b->freed_count]=actor_address(w,actor);
+                            b->freed_bytes[b->freed_count++]=&actor->status;
+                        }
+                    }
                 }
             }
         }
@@ -303,6 +338,27 @@ static int refresh(Bridge *b)
     if(b->fx_state)b->fx_state->core.world.view_count=b->count;
     if(b->ui_state)b->ui_state->core.world.view_count=b->count;
     return 0;
+}
+/* The region-only effect owners' memory (EmArea01RenderWorld.view): a
+ * freed class-4 header first (reads inside its 16 bytes only; a write, or
+ * an access reaching past it, gets nothing), then the views in order,
+ * exactly as em_a01r_mem searches them. */
+static uint8_t *owner_view(void *ctx,uint32_t a,uint32_t n,int write)
+{
+    const Bridge *b=ctx;
+    if(!b||!n)return NULL;
+    for(unsigned k=0;k<b->freed_count;++k) {
+        const uint32_t base=b->freed_address[k];
+        if((uint64_t)a+n<=base || (uint64_t)a>=(uint64_t)base+FREED_HEADER)continue;
+        return !write && a>=base && (uint64_t)a+n<=(uint64_t)base+FREED_HEADER
+               ? (uint8_t *)(uintptr_t)b->freed_bytes[k]+(a-base) : NULL;
+    }
+    for(unsigned i=0;i<b->count;++i) {
+        const EmArea01RenderView *v=&b->fx[i];
+        if(v->bytes && a>=v->address && (uint64_t)a+n<=(uint64_t)v->address+v->size)
+            return v->bytes+(a-v->address);
+    }
+    return NULL;
 }
 static int forward(Bridge *b,uint32_t fn,uint32_t sp,uint64_t *a,unsigned na,
                    uint32_t *f,unsigned nf,uint64_t *v0,uint32_t *f0)
@@ -387,7 +443,7 @@ static int fault(EmAimFireLive *h,uint32_t fn,uint32_t a)
     if(a&&!h->fault_address)h->fault_address=a;
     return -1;
 }
-int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c)
+static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,BridgeViews *v)
 {
     EmAimFireWorldLive *w=context;
     if(!w||!h||!c||h->fault_function||h->fault_address)return -1;
@@ -442,6 +498,8 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
        c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
+    b.views=v->views;b.math=v->math;b.hit=v->hit;b.side=v->side;b.fx=v->fx;b.misc=v->misc;
+    v->bridge=&b;
     b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
     if(refresh(&b)<0) {
@@ -544,6 +602,7 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
         c->v0=(uint32_t)result;
     } else {
         EmArea00Fx s={0};s.core.world.views=b.fx;s.core.world.view_count=b.count;
+        s.core.world.view=owner_view;s.core.world.view_ctx=&b;
         s.call=fx_call;s.ctx=&b;s.sp=c->sp;b.fx_state=&s;
         /* 001F00A0(id, pos, rot, a3): the marker's (0018ABA0) effect spawn;
          * em_area00_fx is its one bound owner (AIM_FIRE.md section 7). */
@@ -584,4 +643,25 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
         }
     }
     return 0;
+}
+int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c)
+{
+    if(bridge_depth==bridge_slab_count) {
+        BridgeViews **grown=realloc(bridge_slabs,(bridge_slab_count+1u)*sizeof *grown);
+        if(!grown)return -1;
+        bridge_slabs=grown;
+        if(!(bridge_slabs[bridge_slab_count]=malloc(sizeof **bridge_slabs)))return -1;
+        ++bridge_slab_count;
+    }
+    BridgeViews *v=bridge_slabs[bridge_depth++];
+    v->bridge=NULL;
+    const int status=world_call(context,h,c,v);
+    v->bridge=NULL;
+    --bridge_depth;
+    return status;
+}
+void *em_aim_fire_world_live_owner_view(uint32_t a,size_t n,int write)
+{
+    const BridgeViews *v=bridge_depth?bridge_slabs[bridge_depth-1]:NULL;
+    return v&&v->bridge&&n<=UINT32_MAX?owner_view(v->bridge,a,(uint32_t)n,write):NULL;
 }

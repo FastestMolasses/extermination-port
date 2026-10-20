@@ -290,6 +290,10 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
                 TRY(append(out,capacity,count,trail[j].address,trail[j].size,trail[j].bytes,trail[j].writable));
             /* The bone-burst node (0022BBC0): its +0x110 words and slots. */
             EmPoseRegion burst[6];
+            /* The composition's per-record bound (em_aim_fire_world_live.h). */
+            _Static_assert(sizeof fields/sizeof fields[0]+sizeof trail/sizeof trail[0]+
+                           sizeof burst/sizeof burst[0]+1u<=EM_AIM_FIRE_WORLD_RECORD_VIEWS,
+                           "an effect record's views exceed EM_AIM_FIRE_WORLD_RECORD_VIEWS");
             size_t burst_count=em_bone_burst_regions(address,burst,6);
             if (burst_count>6) return -1;
             for (size_t j=0;j<burst_count;++j)

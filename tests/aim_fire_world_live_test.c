@@ -79,6 +79,12 @@ void *em_aim_fire_live_map(void *ctx,uint32_t a,size_t n,int write)
     if(!p)h->fault_address=a;
     return p;
 }
+/* 001AA840's 001AA7A0 callee (a test worker inside the composition call):
+ * probes the running call's owner memory for the freed class-4 record at
+ * 0x5800 (actors[2]) and re-enters the composition once. */
+static int reach_probe,reach_calls;
+static uint8_t victim2[0x320];
+static void reach(EmAimFireLive *h,EmAimFireTargetCall *c);
 int em_aim_fire_live_call(EmAimFireLive *h,EmAimFireTargetCall *c)
 {
     ++calls;
@@ -94,9 +100,42 @@ int em_aim_fire_live_call(EmAimFireLive *h,EmAimFireTargetCall *c)
         memcpy(to,from,n);return 0;
     }
     if(c->function==0xEF9D0 || c->function==0x1EF9D0){allocated=1;c->v0=0x9000;return 0;}
+    if(c->function==0x1AA7A0 && reach_probe){reach(h,c);c->v0=0;return 0;}
     h->fault_function=c->function;return -1;
 }
 static uint32_t word(const void *p){uint32_t v;memcpy(&v,p,4);return v;}
+static void freed_header_probes(void)
+{
+    static const uint8_t zero[16];
+    const uint8_t *p=em_aim_fire_world_live_owner_view(0x5800,16,0);
+    CHECK(p==(const uint8_t *)&actors[2].status);CHECK(!memcmp(p,zero,16)); /* the cleared header */
+    CHECK(em_aim_fire_world_live_owner_view(0x580F,1,0)==p+15);
+    CHECK(!em_aim_fire_world_live_owner_view(0x5810,1,0));                 /* +0x10 is not exposed */
+    CHECK(!em_aim_fire_world_live_owner_view(0x5810,4,0));
+    CHECK(!em_aim_fire_world_live_owner_view(0x580E,4,0));                 /* reaching past it */
+    CHECK(!em_aim_fire_world_live_owner_view(0x57FC,8,0));                 /* reaching before it */
+    for(uint32_t k=0;k<16;++k)CHECK(!em_aim_fire_world_live_owner_view(0x5800+k,1,1)); /* read only */
+    CHECK(!em_aim_fire_world_live_owner_view(0x5800,16,1));
+}
+static void reach(EmAimFireLive *h,EmAimFireTargetCall *c)
+{
+    ++reach_calls;CHECK(c->na>=2&&c->a[1]==0x5000);
+    if(reach_calls!=1)return;
+    freed_header_probes();
+    CHECK(em_aim_fire_world_live_owner_view(0x5002,1,0)==victim+2);
+    /* A nested composition call with other views for 0x5000 (an
+     * all-zero record, so its own walk calls nothing): afterwards this
+     * call's views are its own again. */
+    static EmAimFireLive inner;memset(&inner,0,sizeof inner);
+    static EmPoseRegion inner_regions[1];
+    inner_regions[0]=(EmPoseRegion){0x5000,sizeof victim2,victim2,1};
+    inner.regions=inner_regions;inner.region_count=1;
+    EmAimFireTargetCall n={.function=0x1AA840,.sp=0x7F001400};
+    CHECK(em_aim_fire_world_live_call(&world,&inner,&n)==0);CHECK(reach_calls==1);
+    CHECK(em_aim_fire_world_live_owner_view(0x5002,1,0)==victim+2);
+    freed_header_probes();
+    (void)h;
+}
 static void put(void *p,uint32_t v){memcpy(p,&v,4);}
 static void reset(EmAimFireLive *h)
 {
@@ -153,6 +192,17 @@ int main(void)
     c=(EmAimFireTargetCall){.function=0x1EFE00,.a={0x80000045u,0x5000},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(allocated&&!parent_valid&&parent_notifications==0);
     CHECK(word(node+0x24)==0);
+    /* More views than the old 1,024-view list held (a00_03's 994 enumerated
+     * plus the fixed views): the list is sized from the actor pool now. */
+    {
+        static EmPoseRegion many[2000];
+        reset(&h);put(victim+0x14,0x5000);put(victim+0xB0,0x3F800000);put(victim+0xB4,0x40000000);put(victim+0xBC,0x3F800000);
+        for(unsigned i=0;i<2000;++i)many[i]=regions[i<3?i:0];
+        h.regions=many;h.region_count=2000;
+        c=(EmAimFireTargetCall){.function=0x1EFE00,.a={0x80000045u,0x5000},.sp=0x7F001400};
+        CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(c.v0==0x9000);CHECK(word(node+0x24)==0x5000);
+    }
+    CHECK(EM_AIM_FIRE_WORLD_VIEWS>=EM_ACTOR_POOL_CAPACITY*EM_AIM_FIRE_WORLD_RECORD_VIEWS);
     reset(&h);float a[3]={1,2,3},b[3]={4,5,6};memcpy(point,a,12);memcpy(direction,b,12);
     c=(EmAimFireTargetCall){.function=0x19A570,.a={0x6000,0x7000,7,32}};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(c.v0==2);
@@ -196,5 +246,39 @@ int main(void)
     CHECK(!world.move_last);
     reset(&h);c=(EmAimFireTargetCall){.function=0x183C40,.a={0x5555,0x6000},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(h.fault_address==0x5557);CHECK(calls==0);
+    /* 001AA840 over a class-4 list that still holds a record freed after
+     * publication: the free's cleared header words (+0x00..+0x0F) are its
+     * view, so the entry's +2 class reads 0 and the knife's 001AA7A0 is not
+     * called. An allocated record gets no such view here (the enumerate
+     * owns it), so the same walk faults on it. */
+    {
+        memset(&lists,0,sizeof lists);EmActorClassList *c4=&lists.list[EM_ACTOR_LIST_CLASS4];
+        memset(&actors[2],0,sizeof actors[2]);c4->slot[0]=actors+2;c4->published=1;
+        reset(&h);c=(EmAimFireTargetCall){.function=0x1AA840,.sp=0x7F001400};
+        CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(calls==0);
+        CHECK(!em_aim_fire_world_live_map(&world,0x5800,1,0)); /* not a general map */
+        CHECK(!em_aim_fire_world_live_owner_view(0x5800,1,0)); /* outside a call */
+        actors[2].allocated=1;actors[2].cls=4;
+        reset(&h);c=(EmAimFireTargetCall){.function=0x1AA840,.sp=0x7F001400};
+        CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(calls==0);
+        memset(&actors[2],0,sizeof actors[2]);memset(&lists,0,sizeof lists);
+    }
+    /* Inside the call: the list walks 0x5000 (an allocated reach target),
+     * the freed 0x5800, then 0x5000 again. The first 001AA7A0 probes the
+     * freed header (its 16 cleared bytes read, nothing past them, no
+     * write) and re-enters the composition; the outer walk then still
+     * reads its own views and reaches 0x5000 a second time. */
+    {
+        memset(&lists,0,sizeof lists);EmActorClassList *c4=&lists.list[EM_ACTOR_LIST_CLASS4];
+        memset(&actors[2],0,sizeof actors[2]);memset(&actors[0],0,sizeof actors[0]);
+        actors[0].allocated=1;actors[0].cls=4;
+        c4->slot[0]=actors;c4->slot[1]=actors+2;c4->slot[2]=actors;c4->published=3;
+        reset(&h);victim[0]=1;victim[2]=4;victim[3]=0x29;memset(victim2,0,sizeof victim2);
+        reach_probe=1;reach_calls=0;
+        c=(EmAimFireTargetCall){.function=0x1AA840,.sp=0x7F001400};
+        CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(reach_calls==2);
+        CHECK(!em_aim_fire_world_live_owner_view(0x5800,1,0));
+        reach_probe=0;memset(&actors[0],0,sizeof actors[0]);memset(&lists,0,sizeof lists);
+    }
     printf("aim/fire world live: %d binding checks PASS\n",checks);return 0;
 }

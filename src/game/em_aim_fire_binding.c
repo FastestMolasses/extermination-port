@@ -17,6 +17,7 @@
 #include "game/em_stream_lanes_original.h"
 #include "game/em_locomotion_display.h"
 #include "game/em_random.h"
+#include "game/em_aim_fire_soft_float.h"
 #include "game/em_sdk_vu0.h"
 #include "game/em_sfx.h"
 #include <stdio.h>
@@ -80,6 +81,10 @@ static int aim_fire_binding_call(void *context,EmAimFireTargetCall *f)
     (void)context;
     int memory_status=em_aim_fire_sdk_memory_call(&B.live,em_aim_fire_live_map,f);
     if (memory_status!=1) return memory_status;
+    /* The knife's facing test (00189EC0 type 0x0E): 00128350 and 001000C0
+     * (em_aim_fire_soft_float, oracle-checked). */
+    const int float_status=em_aim_fire_soft_float_call(f);
+    if (float_status!=1) return float_status;
     const uint32_t a=(uint32_t)f->a[0],b=(uint32_t)f->a[1],c=(uint32_t)f->a[2];
     const uint32_t fn=f->function;
     EmSdkMathContext *sdk=B.config.sdk;

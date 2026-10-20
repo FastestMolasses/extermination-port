@@ -3,7 +3,20 @@
 #include "game/em_aim_fire_live.h"
 #include "game/em_collision_world.h"
 
-#define EM_AIM_FIRE_WORLD_VIEWS 1024u
+#include "game/em_actor_pool.h"
+
+/* The composition's host view list (host bookkeeping, not an original
+ * table), sized so it can never refuse a view the original's state holds:
+ * one record's most (the runtime's enumerate: an effect record's 40 node
+ * fields, 57 trail views, 6 burst views and its +0x14 word) for each of the
+ * actor pool's 256 records (D_00275BC8), plus the fixed views (the locals,
+ * the player, the pose's 12 regions, the attach's bss words, the render
+ * context's 32, the particles, the probe words, the class-4 list and the
+ * target's two). The arrays are on the heap, one set per call depth. */
+#define EM_AIM_FIRE_WORLD_RECORD_VIEWS 104u
+#define EM_AIM_FIRE_WORLD_FIXED_VIEWS 256u
+#define EM_AIM_FIRE_WORLD_VIEWS \
+    (EM_AIM_FIRE_WORLD_FIXED_VIEWS + EM_ACTOR_POOL_CAPACITY * EM_AIM_FIRE_WORLD_RECORD_VIEWS)
 /* Composition of existing owners, with no shadow actor records or game globals.
  * Region bytes must be the owner's live storage. enumerate appends views of
  * dynamically allocated records; it is called again after every worker call.
@@ -49,4 +62,9 @@ typedef struct {
 
 void *em_aim_fire_world_live_map(void *, uint32_t address, size_t size, int write);
 int em_aim_fire_world_live_call(void *, EmAimFireLive *, EmAimFireTargetCall *);
+/* The innermost running em_aim_fire_world_live_call's resolution for its
+ * region-only effect owners (the bytes they get for [a, a + n), with the
+ * freed class-4 headers read only); NULL outside a call. Used by the
+ * composition's effect owners and by tests. */
+void *em_aim_fire_world_live_owner_view(uint32_t a, size_t n, int write);
 #endif

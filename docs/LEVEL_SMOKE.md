@@ -2055,6 +2055,21 @@ not capture passes: the capture check still stops at the arrival's first
 differing row. The first-level smokes' tick, RNG and present logs are
 byte-identical to port main e600fc5's and a01_arrival..a01_07 pass
 (receipts in ignored `build/frontier2_i6_20261020_002849/`).
+Since the knife's reach in a00_03 is supplied (2026-10-20, later;
+LEVEL3_BINDING.md "Current state": the aim / fire composition's view list
+sized from the actor pool and moved to the heap, 00189EC0's soft-float
+facing test bound, and the padlock freed before the same frame's 001AA840
+walk given its cleared header words) `--run --until a00_10` runs a00_03
+(143 frames) as well without a fault (an in-process phase line, not a
+capture pass: windowed per phase, a00_03 has 92 of 144 recorded rows
+exact, first divergence after the break at row 106; LEVEL3_BINDING.md),
+aligns a00_04 at counter 33323 and fault-stops at
+frame 7943 in the script host (`001BA1F0` of `00825600` at `0024D88C`,
+record `00829DE0`). The capture check still stops at the arrival's first
+differing row. The first-level smokes' tick, RNG and present logs are
+byte-identical to port main c4aa4a5's and a01_arrival..a01_07 pass
+(receipts in ignored `build/frontier2_i7_20261020_024700/` and
+`build/frontier2_i7_fix_20261020/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

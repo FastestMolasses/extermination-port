@@ -14,6 +14,108 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20, later (port main c4aa4a5 plus the knife's reach in a00_03):
+the C side runs a00_03 without a fault; the stop moved to a00_04.** That is
+not a capture pass: windowed against route_a00 with `compare_route_row`,
+a00_03 has 92 of 144 rows exact (measured below). a00_03 (break the cage
+padlock) reached three things on the knife's path, in this order:
+
+- `001AA840` (NEARMISS decomp C) refreshes the aim / fire composition,
+  whose host view list (1,024 entries, seven arrays on the C stack) was
+  full. The list is host bookkeeping, not an original table: it is now
+  `EM_AIM_FIRE_WORLD_VIEWS` = 256 fixed views + 256 pool records x 104
+  (the enumerate's most for one record: an effect record's 40 node
+  fields, 57 trail, 6 burst views and its +0x14 word; a `_Static_assert`
+  in em_aim_fire_runtime.c ties the bound to those arrays), on the heap,
+  one set per nesting depth of `em_aim_fire_world_live_call` and kept, so
+  a nested call never touches its caller's views.
+- `00189EC0` (NEARMISS) type 0x0E (the padlock [54], callback 001581A0):
+  its facing test `001000C0(00128350(t), pi/2)` faulted in the aim / fire
+  binding, which had no leaf for either. `00128350` (byte-matched eegcc
+  C, libgcc __extendsfdf2) and `001000C0` (byte-matched C: 1 when
+  `001274B0` of its two double words is negative) are now bound to
+  `em_sdk_soft_float_00128350` / `em_sdk_soft_float_001274B0`, their
+  existing translations (`make test-sdk-soft-float-reference`: 27,324
+  cases equal to the original instructions). The binding's case dispatch
+  is `em_aim_fire_soft_float_call` (src/game/em_aim_fire_soft_float.c):
+  f12 in, the 64-bit v0 out for 00128350, a0 / a1 passed through as two
+  64-bit double words for 001000C0. `make
+  test-aim-fire-soft-float-reference` runs that dispatch, through the
+  binding's EmAimFireTargetCall, against the original instructions of
+  both functions and of the chain 001000C0(00128350(t), 0x3FF921FB60000000)
+  (t below, at and above pi/2: 1, 0, 0; zeros, infinities, NaNs, random
+  words and double pairs). Its negative controls (the comparison flipped,
+  a0 / a1 swapped, a0 truncated to 32 bits) each fail it.
+- The melee hit frees the padlock (001AFC10, byte-matched), and the same
+  frame's `001AA840` walks the class-4 list published before the free, so
+  it reads the freed record's +0, +2 and +3. The original memory then
+  holds what 001AFC10 left (the header words +0x00..+0x0F cleared; the
+  entry's class byte reads 0, so 001AA7A0 is not called). For a published
+  class-4 entry that is no longer allocated, the composition's effect
+  owners (the `EmArea00Fx` path, which runs 001AA840) resolve memory
+  through one provider, `owner_view` in em_aim_fire_world_live.c: reads
+  inside exactly those 16 bytes of the native record (which
+  `em_actor_pool_free_001AFC10` clears the same way) succeed, a write to
+  them or an access reaching past them gets nothing (a fault), and every
+  other address resolves through the ordinary views as before. The other
+  region-only owners (hit, side, math, misc) never see a freed header.
+  `em_aim_fire_world_live_owner_view` exposes the innermost running
+  call's resolution (for tests). Found with a temporary local diagnostic
+  (record 102 = 0x7B81E0, class 0x44, type 0x0E, freed before the walk),
+  removed.
+
+Proof: `make test-aim-fire-world-live` (175 checks). Inside a 001AA840
+call, a test 001AA7A0 worker probes the freed record: its 16 bytes read as
+the cleared header, +0x10 and accesses reaching past either end fault,
+and every write to +0x00..+0x0F faults; the worker then re-enters the
+composition with other views for the same address, and afterwards the
+outer call still resolves its own views and its walk reaches the second
+allocated entry. A freed entry alone is walked without 001AA7A0 and is not
+a general map; an allocated one without a view still faults. Negative
+controls in scratch copies each fail it: the freed header widened to 0x40
+bytes, made writable, and every nesting depth sharing one view set. The
+change to a provider leaves the AREA00 run's tick and RNG logs
+byte-identical to the previous round's build (sha256 ed83ac95...).
+`--run --until a00_10` (drive replay) now runs a00_00 (362 frames),
+a00_01 (1,272), a00_02 (600) and a00_03 (143) on the C side without a
+fault (in-process phase lines, not capture passes), aligns a00_04
+at counter 33323 and fault-stops at frame 7943 in the script host:
+`001BA1F0 of 00825600 faulted at 0024D88C (record 00829DE0)` (next unit).
+The arrival's capture check is unchanged (first difference row 539, tick
+25667, the clock). The first-level smokes' tick, RNG and present logs
+equal port main c4aa4a5's (sha256 2866e0de... / f8a37cb8... full,
+d2cb9bed... / 2fa87dc2... drive switch); newgame-control 9.599849;
+`make test-level-smoke-full` (its eleven aim side runs drive this
+composition) and `make test-level-smoke-ps2-drive` pass;
+`tools/test_level_smoke_area01.py --until a01_07` passes 28 live phases;
+the bridge regressions `test_area01_target_hit_reference.py`,
+`test_area01_water_reference.py`, `test_area00_world_reference.py` and
+`test_player_equipment_reference.py` and the aim / fire live tests pass.
+Receipts in ignored `build/frontier2_i7_20261020_024700/` and
+`build/frontier2_i7_fix_20261020/`.
+
+Measured comparison of that run, each phase windowed from its aligned
+counter against route_a00 with `compare_route_row` (owners included),
+counting every row rather than stopping at the first difference:
+
+| phase | rows exact | first differing row ranges | first differing field |
+|---|---|---|---|
+| a00_00 | 242 / 363 | 0..2, 51..71, 121..141, 146..166, 218..238, 286..306, 350..362 | lock_r54 (the +0x2DC byte toggle) |
+| a00_01 | 938 / 1,273 | 0..7, 60..80, 151..159, 172..180, 282..299, 303..320, ... | lock_r54 (the same toggle) |
+| a00_02 | 424 / 601 | 19..38, 40..59, 144..164, 194..214, 308..328, 347..367, 441..461, 516..531, 537..552 | lock_r54 (the same toggle) |
+| a00_03 | 92 / 144 | 49..55, 70..76; 106..143 | lock_r54 (the toggle); from row 106 the post-break record |
+| a00_04 | 1,334 / 1,546 compared (2,017 recorded) | 0..59, 75..112, 153..190, 444..481, 484..521 | lock_r54 = the post-break record (z) |
+
+Only the first differing rows of each phase were inspected field by field;
+the later ranges are counted, not classified.
+
+a00_03 row 106 (tick 32027) is the first divergence after the break: the
+record re-allocated in [54]'s slot (header `02000c00 01...`, callback
+0x1EA240) has z -1687.31641 where the recording has -1687.104, and its
++0x1F0 words read `ee5d880f ee5d880f` where the recording has `a6db8e6d
+a6db8e6d` (the next two words agree). This is an open fidelity unit,
+next to the a00_04 script-host stop (see "Remaining differences").
+
 **2026-10-20 (port main e600fc5 plus the footstep handler): the C side
 plays a00_00, a00_01 and a00_02; the stop moved to a00_03.** a00_00's
 33rd frame reached the effect pass's handler `001EB980` (effect subtype
@@ -615,12 +717,20 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop (2026-10-20) is about 100 frames into
-a00_03, at `001AA840`: the aim / fire world's host view list (1,024) is
-full ("Current state"). Before it the C side plays the arrival's 4,017 rows
-(86 differ: the arrival stance in rows 0..80 and the message phase in rows
-3750..3754) and a00_00..a00_02; the footstep handler `001EB980` (a00_00
-frame 33) is resolved. Op 0x0B modes 2 / 3 (001B8020, record
+The current reproducible stop (2026-10-20, later) is a00_04 frame 7943, in
+the script host: `001BA1F0` of the owner `00825600` faults at the read
+`0024D88C` (record `00829DE0`) ("Current state"). Before it the C side
+plays the arrival's 4,017 rows (86 differ: the arrival stance in rows 0..80
+and the message phase in rows 3750..3754) and a00_00..a00_03; the
+footstep handler `001EB980` (a00_00 frame 33) and the knife's reach in
+a00_03 (the composition's view list, the soft-float facing test of
+00189EC0 and the freed padlock in the class-4 list) no longer fault.
+Open fidelity units preserved from the measured comparison ("Current
+state"): the lock_r54 +0x2DC toggle class (a00_00..a00_03, first at
+a00_03 row 49) and the post-break record in [54]'s slot (callback
+0x1EA240; first at a00_03 row 106, tick 32027: z -1687.31641 vs the
+recording's -1687.104 and the +0x1F0 words), which carries into a00_04
+from its row 0. Op 0x0B modes 2 / 3 (001B8020, record
 `008285E0`), 001C6120 over the arrival owner's bank, the arrival's voice
 sectors and `00242EDB` (00128600) are resolved, as are the chain page's
 surface packet `00234FE0` (frame 1), the

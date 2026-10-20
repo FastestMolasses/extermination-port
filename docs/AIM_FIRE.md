@@ -551,6 +551,20 @@ with D_00275B40 = the knife's bones, and copies it back.
 - 001AA840 (em_area00_fx) walks the published class-4 list; its 001AA7A0
   (em_aim_fire_leaves, new: 48 original-instruction reaches in
   test-aim-fire-leaves-reference) sets the struck record's +0x36.
+  A record freed after the list was published (AREA00 a00_03: the
+  padlock, freed by the melee hit) is still walked in that frame; the
+  composition's effect owners resolve it through one provider
+  (`owner_view`; `em_aim_fire_world_live_owner_view` for tests): reads of
+  the 16 header bytes 001AFC10 cleared, nothing past them and no writes
+  (2026-10-20; `make test-aim-fire-world-live` probes this inside a call).
+  The composition's view list holds 256 fixed views plus 104 per pool
+  record (`EM_AIM_FIRE_WORLD_VIEWS`), on the heap, one set per call depth
+  (a nested call leaves its caller's views intact; tested).
+- 00189EC0 type 0x0E's facing test 001000C0(00128350(t), pi/2) runs on
+  em_sdk_soft_float's 00128350 and 001274B0 through the binding's case
+  dispatch `em_aim_fire_soft_float_call` (2026-10-20; `make
+  test-aim-fire-soft-float-reference` checks the dispatch against the
+  original instructions, with negative controls).
 - 0019B2C0(player + 0xB0, 0x700038A0, 6), the reach probe, is
   `em_coll_move_probe_0019B2C0` (new in em_coll_move_original): the move
   walk without an actor (query class -1, 0x70003254 = 0, bit 0 never
