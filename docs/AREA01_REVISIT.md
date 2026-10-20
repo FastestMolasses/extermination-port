@@ -43,7 +43,9 @@ LEVEL_ORACLE_AUDIT.md); none of them is bound, and the other hooks in
 "Binding" still need verified port translations. A revisit harness in the style of
 `tools/test_level_smoke_area00.py` / `test_level_smoke_area01.py`
 (a01r_00..a01r_02 row for row) is not written; it is only useful once the
-AREA00 return passes.
+AREA00 return passes. (Later on 2026-10-19 the AREA00 arrival gets past
+frames 0 and 1 and stops at frame 203, at 001B8020's op 0x0B mode 3;
+LEVEL3_BINDING.md "Current state".)
 
 ## Scope: what ran, and what these functions reach
 

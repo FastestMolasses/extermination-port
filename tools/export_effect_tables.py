@@ -110,6 +110,11 @@ Blocks (original address, bytes, what reads them):
                       130 instructions from ELF 0x0023D958 / 0x0023E160,
                       the lookup and 17 constant rows) and its RET tag,
                       read by the chain page (em_chain_page.c)
+  0x00234FE0  0x4B0   the AREA00 surface program's DMA packet D_00234FE0
+                      (001E9280's CALL through 001CB760: the floor
+                      program's set-up and one MPG of 142 instructions from
+                      ELF 0x00235010) and its RET tag, read by the chain
+                      page (em_chain_page.c)
   0x002531D0  0x40    D_002531D0: the four PACKED XYZF2 rows of the
                       drop shadow's alpha-clear strip (001DA290 copies them
                       into 001DA1E0's DIRECT packet), read by the Original
@@ -183,7 +188,10 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x0023D930, 0xF70),
           # D_002531D0: the drop shadow's alpha-clear strip, read by the
           # Original profile's GS frame.
-          (0x002531D0, 0x40))
+          (0x002531D0, 0x40),
+          # 001E9280's AREA00 surface program packet D_00234FE0 (CALLed by
+          # 001CB760 for 0015AB00's surface) and its RET tag.
+          (0x00234FE0, 0x4B0))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

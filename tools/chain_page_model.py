@@ -53,6 +53,7 @@ PROGRAM_KIND2 = 0x232540          # table 0x232540: 001CFBE0 kind 2 (the cable's
 PROGRAM_FLOOR = 0x2345E0          # D_002345E0: 001E9E60's floor fields (AREA01 0015A2C0)
 PROGRAM_RIPPLE = 0x234B00         # D_00234B00: 001E7D20's ripple surface (AREA01)
 PROGRAM_KIND6 = 0x23D930          # D_0023D930: 001CFBE0 kind 6 (001E3D90's near-fire layer, AREA01)
+PROGRAM_SURFACE = 0x234FE0        # D_00234FE0: 001E9280's surface (AREA00 0015AB00)
 # Their MPG uploads: (source address of the code, instructions, micro address).
 LANE_MPG = (0x2332B8, 138, 0)
 SPRITE_MPG = ((0x231798, 256, 0), (0x231FA0, 79, 0x100))
@@ -61,14 +62,15 @@ STREAK_MPG = ((0x230828, 256, 0), (0x231030, 126, 0x100))
 KIND2_MPG = ((0x232568, 256, 0), (0x232D70, 66, 0x100))
 FLOOR_MPG = (0x234610, 153, 0)
 RIPPLE_MPG = (0x234B30, 145, 0)
+SURFACE_MPG = (0x235010, 142, 0)
 KIND6_MPG = ((0x23D958, 256, 0), (0x23E160, 130, 0x100))
 PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW, PROGRAM_STREAK, PROGRAM_KIND2, PROGRAM_FLOOR,
-            PROGRAM_RIPPLE, PROGRAM_KIND6)
-BATCHED = (PROGRAM_FLOOR, PROGRAM_RIPPLE)   # TOPS-relative batches, MSCAL then MSCNT
+            PROGRAM_RIPPLE, PROGRAM_KIND6, PROGRAM_SURFACE)
+BATCHED = (PROGRAM_FLOOR, PROGRAM_RIPPLE, PROGRAM_SURFACE)   # TOPS-relative batches, MSCAL then MSCNT
 # Each packet's bytes: its CNT tag and data, then its RET tag.
 PROGRAM_PACKET_SIZE = {PROGRAM_LANE: 0x570, PROGRAM_SPRITE: 0xDD0, PROGRAM_SNOW: 0xDE0, PROGRAM_STREAK: 0xF70,
                        PROGRAM_KIND2: 0xD50, PROGRAM_FLOOR: 0x510, PROGRAM_RIPPLE: 0x4D0,
-                       PROGRAM_KIND6: 0xF70}
+                       PROGRAM_KIND6: 0xF70, PROGRAM_SURFACE: 0x4B0}
 
 # The EFU (the streak program's ERCPR / ERLENG, read back by MFP). No
 # capture holds an EFU result, so its arithmetic is a model, the one the
@@ -627,7 +629,7 @@ class Page:
         self.skip_calls = set(skip_calls)
         self.skipped = []
         self.mscal_counts = {}     # program -> MSCALs run
-        self.floor_ran = False     # the floor / ripple program ran since its MPG (MSCNT)
+        self.floor_ran = False     # the floor / ripple / surface program ran since its MPG (MSCNT)
 
     def u(self, a):
         return u32(self.read(a, 4), 0)
@@ -753,11 +755,11 @@ class Page:
                 fail(f'VIF code {v:#010x} at {at:#x}: interrupt bit')
             if cmd >= 0x60:
                 vn, vl, cnt = cmd >> 2 & 3, cmd & 3, num or 256
-                # FLG (TOPS-relative) occurs only in the floor / ripple batches.
+                # FLG (TOPS-relative) occurs only in the floor / ripple / surface batches.
                 if cmd & 0x10 or vl != 0 or vn not in (0, 3) or imm & 0x4000 or \
                         (imm & 0x8000 and self.program not in BATCHED):
                     fail(f'VIF UNPACK {v:#010x} at {at:#x} (only V4-32 / V1-32 without mask, USN, '
-                         'and FLG only for the floor / ripple programs)')
+                         'and FLG only for the floor / ripple / surface programs)')
                 if not self.cycle_set:
                     # The cycle is the frame's (the lane program packet's
                     # STCYCL sits in its DMA tag, which is not transferred):
@@ -791,6 +793,8 @@ class Page:
                     self.program, self.parts, self.floor_ran = PROGRAM_FLOOR, 1, False
                 elif (first, cnt, imm) == RIPPLE_MPG:
                     self.program, self.parts, self.floor_ran = PROGRAM_RIPPLE, 1, False
+                elif (first, cnt, imm) == SURFACE_MPG:
+                    self.program, self.parts, self.floor_ran = PROGRAM_SURFACE, 1, False
                 elif (first, cnt, imm) == LANE_MPG:
                     self.program, self.parts = PROGRAM_LANE, 1
                 elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0], STREAK_MPG[0], KIND2_MPG[0], KIND6_MPG[0]):
@@ -848,7 +852,7 @@ class Page:
             if cmd == 0x14:                                 # MSCAL
                 self.mscal(imm, at)
                 continue
-            if cmd == 0x17:                                 # MSCNT (the floor / ripple program)
+            if cmd == 0x17:                                 # MSCNT (the floor / ripple / surface program)
                 self.mscal(0, at, cont=True)
                 continue
             if cmd in (0x00, 0x10, 0x11, 0x13):
@@ -866,7 +870,7 @@ class Page:
         if self.program is None or imm != 0:
             fail(f'MSCAL {imm:#x} at {at:#x}: no page program loaded, or not entry 0')
         if cont and not (self.program in BATCHED and self.floor_ran):
-            fail(f'MSCNT at {at:#x}: not after a floor / ripple batch')
+            fail(f'MSCNT at {at:#x}: not after a floor / ripple / surface batch')
         self.mscal_counts[self.program] = self.mscal_counts.get(self.program, 0) + 1
         top = self.tops
         self.dbf ^= 1

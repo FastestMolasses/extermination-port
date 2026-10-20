@@ -1862,6 +1862,15 @@ test-world-textures-reference:
 test-area00-arrival-bindings:
 	python3 tools/test_area00_arrival_bindings.py
 
+# test-area00-surface-vu-reference: AREA00's surface program D_00234FE0
+# (001E9280's packet) on the original microcode against
+# em_vu1_surface_program_mscal and the native chain page: the retained
+# snapshots' surface runs, synthetic batches on both arithmetic paths and
+# the fail-stops (about 3 s; EM_TEST_FULL=1 every snapshot, ~8 s; opt-in).
+.PHONY: test-area00-surface-vu-reference
+test-area00-surface-vu-reference:
+	python3 tools/test_area00_surface_vu_reference.py
+
 .PHONY: test-area01-collision-view-reference test-area01-shadow-live-reference test-area01-scratch-views
 test-area01-collision-view-reference:
 	python3 tools/test_area01_collision_view_reference.py

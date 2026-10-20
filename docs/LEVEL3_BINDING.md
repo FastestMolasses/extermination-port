@@ -14,6 +14,47 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-19, evening (port main 0deae8b plus the surface program): the
+arrival runs 203 frames; the stop moved to a script op.** 001E9280 (the
+surface owner `0015AB00`'s packet, NEARMISS C in the decomp; its packet
+bytes follow the C) CALLs the static program packet `D_00234FE0` (0x4B0
+bytes with its RET), which is now exported from the pinned ELF into the
+effect export (`tools/export_effect_tables.py` BLOCKS, installed through
+`tools/export_area00_runtime_tables.py`; the window equals RAM in all 15
+AREA11 route captures and the 13 AREA00 snapshots) and walked by the native
+chain page (MPG of 142 instructions from ELF 0x00235010, FLG UNPACKs and
+MSCNT after a batch of its own, count `mscal_surface`). Its VU1 program is
+translated as `em_vu1_surface_program_mscal` (em_vu1_page_programs.h): the
+batch code is the floor program's instruction for instruction; the vertex
+is the floor vertex with the colour's alpha taken from the point's w (no
+depth fade), the texture pair offset by VF20.x / VF20.y and no depth
+scale. Oracle: `make test-area00-surface-vu-reference`
+(`tools/test_area00_surface_vu_reference.py`) runs the original microcode
+on the shared VU1 machine (tools/chain_page_model.py, which now knows the
+packet) and compares every surface run of the retained snapshots through
+the model and the native page (EM_TEST_FULL=1: 11 snapshots with surfaces,
+88 runs, 528 batches and kicks, 4,020 primitives, every GIF byte), 1,500
+synthetic MSCAL + MSCNT pairs on both arithmetic paths (all data memory and
+registers; 14 cases where the original faults on an exponent-255 operand,
+the native too; exponent-255 alphas pass through MOVE / MAX / MINI / FTOI
+equal) and three fail-stops. Receipts in ignored
+`build/frontier2_i4_20261019_184516/`.
+
+The arrival now stops at frame 203: the AREA00 overlay owner `00823580`
+(node `007B7C00`) runs its script through `001BA1F0`, and record
+`008285E0` is op 0x0B with mode 3, which `em_area_script.c`'s `op0B`
+(001B8020, byte-matched in the decomp) does not admit yet (it admits modes
+0, 1, 4 and 6): `em_area11 script host: 001BA1F0 of 00823580 faulted at
+001B8020 (record 008285E0)`. Next AREA00 unit: admit 001B8020's mode 3
+(anim_advance_time, then the sub-phase byte +4; read the decomp C) with
+its oracle cases, then rerun the arrival. Proof of this step: the
+first-level smokes' tick, RNG and present logs are byte-identical to port
+main 0deae8b's (EM_TEST_FULL main line and the drive switch to
+a01_arrival); newgame-control 9.599849; `make test-level-smoke-full` and
+`make test-level-smoke-ps2-drive` pass; the AREA00 harness (`--run --until
+a00_00`, drive replay) passes a01_arrival..a01_07 again, and its tick
+records before the old frame-1 stop equal the old build's.
+
 **2026-10-19, later (port main ffd515c plus the arrival read views): frame
 0 of the arrival completes; the stop moved to frame 1's chain page.** One
 change supplied every read and worker the arrival's frames 0 and 1 reached
@@ -411,7 +452,7 @@ nice -n 15 python3 tools/test_area01_sfx_registry.py
 nice -n 15 python3 tools/test_world_textures_reference.py
 nice -n 15 python3 tools/test_scene_no_shadow.py
 nice -n 15 env EM_HEADLESS=1 EM_STARTUP_TEST=newgame-control build/extermination
-# Long diagnostic: currently expected to fail at frame 1 in the chain page (001E9280's surface packet 00234FE0).
+# Long diagnostic: currently expected to fail at arrival frame 203 (001B8020 op0B mode 3, record 008285E0).
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/live-arrival-1
 # Later full-route and independent side-return checks:
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
@@ -472,21 +513,24 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop (2026-10-19, later) is the chain page at
-arrival frame 1 (001E9280's surface packet `00234FE0`); the earlier
-`0022DCD0` read `00269400` (frame 0) and `00156620` stop (the 32-view owner
-table) are resolved. Surface dimensions, retained pickup
+The current reproducible stop (2026-10-19, evening) is arrival frame 203:
+op 0x0B mode 3 (001B8020) of record `008285E0`, run by the AREA00 owner
+`00823580`; the chain page's surface packet `00234FE0` (frame 1), the
+`0022DCD0` read `00269400` (frame 0) and the `00156620` stop (the 32-view
+owner table) are resolved. Surface dimensions, retained pickup
 models and crate roots are now supplied exactly, with no native game-code
 changes. Arrival aligns, but still has zero certified rows. Movement,
 camera, interactions, drawing and both returns remain uncertified.
 Standalone tests do not establish live call order or eliminate later
-missing workers. The inherited AREA01 a01_03 row-957 difference also
-remains; since 2026-10-19 it is traced to the disc drive's per-read seek
-time and waits for a user decision (LEVEL2_BINDING.md "State (2026-10-19)").
+missing workers. The inherited AREA01 a01_03 row-957 difference (the disc
+drive's per-read seek time) no longer applies to the comparison: with the
+comparison-only drive replay (the user's decision of 2026-10-19,
+"Comparison-only replay"; LEVEL2_BINDING.md) a01_00..a01_07 pass row for
+row.
 
-With the owner-view capacity and the arrival read views resolved (frame 0
-completes), supply 001E9280's surface packet `00234FE0` and its VU1
-program and rerun arrival before expanding downstream phases. Preserve the first fault and bind remaining
+With the owner-view capacity, the arrival read views and the surface
+program resolved (frames 0..202 run), admit 001B8020's mode 3 and rerun
+arrival before expanding downstream phases. Preserve the first fault and bind remaining
 workers to their existing owners. Then compare all
 4,017 arrival/neutral rows and the ending camera memory, followed by each
 route phase and the independent side return. Drawing still requires

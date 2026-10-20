@@ -2025,7 +2025,14 @@ was raised to the actor pool's 256 (LEVEL3_BINDING.md "Owner-view capacity
 Since the arrival read views (LEVEL3_BINDING.md "Current state") frame 0
 completes and the arrival stops at frame 1 in the chain page (001E9280's
 surface packet `00234FE0`); every tick record before the arrival frame is
-byte-identical to the build without them.
+byte-identical to the build without them. Since the surface program
+(exported packet, `em_vu1_surface_program_mscal`, `make
+test-area00-surface-vu-reference`; same evening) the arrival runs 203
+frames and stops at op 0x0B mode 3 (001B8020, record `008285E0` of the
+AREA00 owner `00823580`), which the script host does not admit yet; the
+first-level smokes' logs are byte-identical to port main 0deae8b's and
+a01_arrival..a01_07 pass again (receipts in ignored
+`build/frontier2_i4_20261019_184516/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

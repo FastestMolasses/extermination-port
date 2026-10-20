@@ -202,6 +202,18 @@ only after a batch of the same program (counts `mscal_floor` /
 the Metal page path implements Af = Av for TCC 0 (MODULATE only;
 HIGHLIGHT with TCC 0 is refused).
 
+AREA00's surface (2026-10-19): 001E9280, the surface owner 0015AB00's
+packet builder (001E9E60's sibling), CALLs D_00234FE0 (0x4B0 bytes with
+its RET; 142 instructions from ELF 0x00235010) with the same set-up, six
+24-qword batches and a TCC 0 MODULATE TEX0. Its batch code is the floor
+program's; per vertex the colour's alpha is the point's own w (no
+(1 - n.y) fade), the texture pair adds VF20.x / VF20.y as the ripple
+program does, and there is no depth scale. Native:
+`em_vu1_surface_program_mscal` (the floor batch with its own vertex),
+chain-page count `mscal_surface`, window 0x00234FE0 in
+`assets/effect_tables.emet`; verified by `make
+test-area00-surface-vu-reference` (LEVEL3_BINDING.md "Current state").
+
 Verification: `make test-level2-floor-vu-reference` (`tools/test_level2_floor_vu_reference.py`)
 executes the original microcode on the chain-page model's VU1 machine
 (tools/chain_page_model.py VuOracle, which gained the vector MULA the
