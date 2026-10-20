@@ -36,8 +36,8 @@
  *
  * Handlers: each bound handler runs its one translation (em_effect_kinds;
  * the skid's 001EAD70 through em_level8_port; 001EAF00 / 001EAF80 /
- * 001EB020 / 001EB7F0 / 001EC270 through em_area01_render_hud; 001ECB00 /
- * 001ED7A0 through em_area00_hud). There is no counted gap any more: every
+ * 001EB020 / 001EB7F0 / 001EC270 through em_area01_render_hud; 001EB980 /
+ * 001ECB00 / 001ED7A0 through em_area00_hud). There is no counted gap any more: every
  * handler without a translation faults at its address, including one that
  * only emits packets. Some do more than draw (001EF510 spawns a child
  * node). EFFECT_MANAGER.md 8.2; AREA01: LEVEL2_CRASHES.md "Effect inventory".

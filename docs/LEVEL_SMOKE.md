@@ -2044,6 +2044,17 @@ rows 3750..3754, the message phase). The first-level smokes' tick and
 present logs are byte-identical to port main 9b9c26b's and
 a01_arrival..a01_07 pass (receipts in ignored
 `build/frontier2_i5_20261019_205006/`).
+Since the footstep handler 001EB980 (effect subtype 0x27, byte-matched
+decomp C) is wired into the live effect pass (2026-10-20; LEVEL3_BINDING.md
+"Current state") `--run --until a00_10` plays a00_00 (362 frames), a00_01
+(1,272) and a00_02 (600) on the C side without a fault, aligns a00_03 at
+counter 33179 and fault-stops about 100 frames in at 001AA840: the aim /
+fire world's host view list (`EM_AIM_FIRE_WORLD_VIEWS`, 1,024) is full
+(`aim/fire runtime: view list full`). The in-process "PASS frames" lines are
+not capture passes: the capture check still stops at the arrival's first
+differing row. The first-level smokes' tick, RNG and present logs are
+byte-identical to port main e600fc5's and a01_arrival..a01_07 pass
+(receipts in ignored `build/frontier2_i6_20261020_002849/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

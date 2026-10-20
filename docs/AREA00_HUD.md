@@ -28,7 +28,7 @@ the table says what the code does.
 | 001E8E80 | 1012 | NEARMISS | hud_objects | arrival | 8 x 8 lattice record set-up | **reused**: em_area01_exitb.c |
 | 001E9280 | 756 | NEARMISS | hud_objects | arrival | packet build from that record | **reused**: em_area01_exitb.c |
 | 001EAB50 | 412 | byte-matched | hud_objects | a00_03 | effect subtype 0 handler | translated |
-| 001EB980 | 156 | byte-matched | hud_objects | a00_00 | effect subtype 0x27 handler | translated |
+| 001EB980 | 156 | byte-matched | hud_objects | a00_00 | effect subtype 0x27 handler | translated; live in the effect pass since 2026-10-20 (em_effects_live.c `handler_001EB980`, test-area00-footstep-reference) |
 | 001EBBB0 | 124 | NEARMISS | hud_objects | a00_10 exit | effect subtype 7 handler | translated |
 | 001EBC30 | 228 | NEARMISS | hud_objects | a00_09 | effect subtype 8 handler | translated |
 | 001ECB00 | 872 | NEARMISS | hud_objects | a00_03 | effect subtype 0xF handler | translated |

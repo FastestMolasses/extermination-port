@@ -103,7 +103,8 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
 {
     if(address<EM_ACTOR_POOL_BASE || (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE ||
        (address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY ||
-       (!splash_handler(handler) && handler!=0x001ECB00u && handler!=0x001ED7A0u))return -1;
+       (!splash_handler(handler) && handler!=0x001ECB00u && handler!=0x001ED7A0u &&
+        handler!=0x001EB980u))return -1;
     fs_seed(ram,spr);
     memcpy(S.xs.spad3AC0,spr+0x3AC0,sizeof S.xs.spad3AC0);
     memcpy(S.sources,ram+0x2565E0,sizeof S.sources);
@@ -115,6 +116,9 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     memcpy(S.elf+ELF_AT(0x256EE0),ram+0x256EE0,0x120);
     S.window[2].address=0x257360;S.window[2].size=0x1B0;
     memcpy(S.elf+ELF_AT(0x257360),ram+0x257360,0x1B0);
+    /* The footstep 001EB980's D_00255FB0 / D_00256040 (one window). */
+    S.window[3].address=0x255FB0;S.window[3].size=0x120;S.windows=4;
+    memcpy(S.elf+ELF_AT(0x255FB0),ram+0x255FB0,0x120);
     if(splash_deny_descriptors)S.windows=2;
     memcpy(S.spad3600_sprite,spr+0x3600,sizeof S.spad3600_sprite);
     S.sworkers=(EmPlayerEquipmentSpriteWorkers){&pc,w_sprite_001CD370,w_sprite_001CB5F0,

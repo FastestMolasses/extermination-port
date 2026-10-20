@@ -42,6 +42,11 @@ FIELD_WINDOWS = ((FIELD_ROWS[0] + FIELD_ROWS[1] * FIELD_ROWS[2][0], FIELD_ROWS[1
 # 0012A5D0 -> 0012AFC0 reaches 00128600(0)). Both are byte-matched decomp C.
 CLASS2_WINDOWS = ((0x00242EB0, 0x70),)
 
+# The footstep handler 001EB980 (effect subtype 0x27, byte-matched decomp C;
+# AREA00's a00_00 reaches it) passes the two 0x90-byte 001CFBE0 source
+# blocks D_00255FB0 and D_00256040 (adjacent: one window). Only read.
+FOOTSTEP_WINDOWS = ((0x00255FB0, 0x120),)
+
 
 def captures(decomp):
     root = decomp / 'build/fork_refs/s87'
@@ -73,7 +78,7 @@ def blocks(elf):
     if hashlib.sha256(elf).hexdigest() != E.ELF_SHA256:
         raise ValueError('Not the pinned SCUS-97112 boot ELF')
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
-    windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS)
+    windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -113,7 +118,8 @@ def verify_windows(data, paths):
     verify_light_table(wanted)
     for path in paths:
         ram = path.read_bytes()
-        for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS):
+        for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS,
+                              *FOOTSTEP_WINDOWS):
             if ram[address:address + size] != wanted[address]:
                 raise ValueError('AREA00 immutable table differs from pinned ELF')
     verify_field_rows(paths)

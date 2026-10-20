@@ -6,8 +6,8 @@
       "test": "tools/test_aim_fire_control_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:55.657004+00:00",
-      "seconds": 2.105,
+      "finished_utc": "2026-10-20T07:57:54.664739+00:00",
+      "seconds": 3.172,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -162,15 +162,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "f93bf5b0711945ec782c346b6e57c71a0d646fef61798a203c3bcaf751b8efcc",
-      "private_log": "build/levels/oracle-capacity-refresh-1/aim_fire_control.log"
+      "source_sha256": "ec69489e0241520765926e946f8819d0399ec98eea356d95e10d996a40d9c62e",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/aim_fire_control.log"
     },
     {
       "test": "tools/test_aim_fire_lamp_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:58.671811+00:00",
-      "seconds": 2.711,
+      "finished_utc": "2026-10-20T07:58:01.962265+00:00",
+      "seconds": 6.98,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -326,15 +326,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "727f09c1d4360b5b23ed75c038ae612b51e6f03942c007d74372deeb125f7f6e",
-      "private_log": "build/levels/oracle-capacity-refresh-1/aim_fire_lamp.log"
+      "source_sha256": "eef08b2a0c1e3002b32d0f736303d6c7e8874f0b5f1438a7ecbe6783c8e71bf5",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/aim_fire_lamp.log"
     },
     {
       "test": "tools/test_aim_fire_target_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:59:00.729839+00:00",
-      "seconds": 1.749,
+      "finished_utc": "2026-10-20T07:58:04.382296+00:00",
+      "seconds": 2.137,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -489,15 +489,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "9ebef071eac1d7919d394551d1eee091de5167c98445f323e12944f1a2dca19b",
-      "private_log": "build/levels/oracle-capacity-refresh-1/aim_fire_target.log"
+      "source_sha256": "56823012b218b3db2b1ef0180b035c1399175bd33156452b9fd8b11e3c2ecc46",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/aim_fire_target.log"
     },
     {
       "test": "tools/test_area00_fx_existing_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:36.754538+00:00",
-      "seconds": 3.61,
+      "finished_utc": "2026-10-20T07:49:52.907428+00:00",
+      "seconds": 4.157,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -718,15 +718,15 @@
         "tools/test_status_scene_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "751038b4f842b262f721d79dccfcd957fcb547ee80abfe66b8a720b28ac2739e",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_fx_existing.log"
+      "source_sha256": "bbb524f0a2a54218bf4952cfed94890404c7177a82aca0822f2b5143afd1f517",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_fx_existing.log"
     },
     {
       "test": "tools/test_area00_fx_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:32.531530+00:00",
-      "seconds": 10.272,
+      "finished_utc": "2026-10-20T07:49:48.054222+00:00",
+      "seconds": 11.91,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -907,15 +907,15 @@
         "tools/test_shadow_actor_route_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "762d6fa7e2768fe47e7a9154c80172ae3e807f448d376dc156a686ed3c7384f2",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_fx.log"
+      "source_sha256": "5be0c68c69d7330f03abc6d5334794ed3929d6c3e6aa17cacdcc42c18b9f3e6b",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_fx.log"
     },
     {
       "test": "tools/test_area00_hud_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:21.803732+00:00",
-      "seconds": 3.835,
+      "finished_utc": "2026-10-20T07:49:35.704935+00:00",
+      "seconds": 4.811,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -1082,15 +1082,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "f87212b2665852691662bfe49cfdc203eaf4d63d1dc3297fadab2e3dfb1c43aa",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_hud.log"
+      "source_sha256": "f771157c3befbc026458d7aa80b2e56e0960199c4aaeb3011c6c986c465a08b7",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_hud.log"
     },
     {
       "test": "tools/test_area00_low_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:14.593391+00:00",
-      "seconds": 2.134,
+      "finished_utc": "2026-10-20T07:49:27.983318+00:00",
+      "seconds": 2.026,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -1252,15 +1252,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "5738636e4c21ab005a7fd780839d45fc6ae5bf69bcf3d322e9b162869ffd0227",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_low.log"
+      "source_sha256": "eff902d4c486d6421d97f07a0f30c1b76eac7d00e01ce458cb8e5017dcbbc169",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_low.log"
     },
     {
       "test": "tools/test_area00_overlay_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:12.062948+00:00",
-      "seconds": 3.398,
+      "finished_utc": "2026-10-20T07:49:25.545148+00:00",
+      "seconds": 3.134,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -1416,15 +1416,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "f9cf2bd5ed289fb5911007b4b31112ddeb1b5e1450747b1d88c92bcc6873b286",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_overlay.log"
+      "source_sha256": "5c2e5f54a641147e804145aed969148457d08d0b4a0f34a2c4a6d62d4fd1c315",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_overlay.log"
     },
     {
       "test": "tools/test_area00_return_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:20.058007+00:00",
-      "seconds": 2.004,
+      "finished_utc": "2026-10-20T07:56:44.208602+00:00",
+      "seconds": 4.352,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -1587,15 +1587,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "c1eb148a64a488feb27840c8d59bac172d13ac4f2b74959fac2b4f79ef24339f",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_return.log"
+      "source_sha256": "9d34d672fc1e45fac69f31424c233b9cc86a214900662fc44a31311374ed660c",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_return.log"
     },
     {
       "test": "tools/test_area00_world_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:17.535490+00:00",
-      "seconds": 2.554,
+      "finished_utc": "2026-10-20T07:49:30.499052+00:00",
+      "seconds": 2.148,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -1757,15 +1757,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "2d30aec11ed988327fd79d7b3d00bf354efc66798149c73557976c9ee69f55d9",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area00_world.log"
+      "source_sha256": "b047a30aa78977d6a7b6565eaa0088d6b05c8d7afb69be41055985974aff39bc",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area00_world.log"
     },
     {
       "test": "tools/test_area01_exita_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:48.075664+00:00",
-      "seconds": 2.46,
+      "finished_utc": "2026-10-20T07:48:48.255230+00:00",
+      "seconds": 4.996,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -1927,15 +1927,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "0efb3c7924cdbc64549581f5fce1803499e820106f3c76ad6c27353261d741ca",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_exita.log"
+      "source_sha256": "55f95551233fa4a91d9f8e7409a710ed5cd34f1cf5296041412c97d27aacc81a",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_exita.log"
     },
     {
       "test": "tools/test_area01_exitb_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:50.848878+00:00",
-      "seconds": 2.387,
+      "finished_utc": "2026-10-20T07:48:54.646419+00:00",
+      "seconds": 5.701,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -2097,15 +2097,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "4627be461b3a2be395d9a22c4d3d601519f8d5427717d123343ac1936357b62e",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_exitb.log"
+      "source_sha256": "945427e162e0a7a856b31ddf9a1630f894dffefb28cb1b2e09f7611dd653529f",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_exitb.log"
     },
     {
       "test": "tools/test_area01_math_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:17.698936+00:00",
-      "seconds": 6.911,
+      "finished_utc": "2026-10-20T07:47:53.001135+00:00",
+      "seconds": 12.661,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -2266,15 +2266,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "7de559e75a80072b66c607f7dd4a206502e1815fd0573a9f908074bebf3d375a",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_math.log"
+      "source_sha256": "3aebb3d3931dc155c7de2f28b274cbb7a2eceba2130f9a6c42b7d9bf877381c2",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_math.log"
     },
     {
       "test": "tools/test_area01_overlay_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:10.451277+00:00",
-      "seconds": 5.649,
+      "finished_utc": "2026-10-20T07:47:39.934567+00:00",
+      "seconds": 7.438,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -2431,15 +2431,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "3f93c03a70178e90be4396d8599bed80b614e3975d03c6daf8fb860520167cc7",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_overlay.log"
+      "source_sha256": "4b13dda8dc3975d948ed63ac35a2c80cac76c83e86045cd51cfbc790b7bd5a6a",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_overlay.log"
     },
     {
       "test": "tools/test_area01_render_existing_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:25.661656+00:00",
-      "seconds": 2.292,
+      "finished_utc": "2026-10-20T07:48:06.917103+00:00",
+      "seconds": 2.513,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -2624,15 +2624,15 @@
         "tools/test_status_scene_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "326097aef394649f478af8fde3dd2635af8bfb39fb90094c54d224f6ac28af80",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_render_existing.log"
+      "source_sha256": "f8f9423e5c97540a7947587b7da216db221c986c7715a29f48dc4d820b7e4261",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_render_existing.log"
     },
     {
       "test": "tools/test_area01_render_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:22.956506+00:00",
-      "seconds": 4.92,
+      "finished_utc": "2026-10-20T07:48:03.976958+00:00",
+      "seconds": 10.553,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -2800,15 +2800,15 @@
         "tools/test_shadow_actor_route_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "f4e30793b20af75905fe2d41c47597dd589fbe0af313b1f5d73de91350d68aeb",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_render.log"
+      "source_sha256": "579bcc7e8630120c107fc879153004c8dec7545cdad342090f18b1c0aacd9611",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_render.log"
     },
     {
       "test": "tools/test_area01_revisit_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:08.339308+00:00",
-      "seconds": 4.701,
+      "finished_utc": "2026-10-20T07:49:22.115852+00:00",
+      "seconds": 7.164,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -2964,15 +2964,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "f1c5b7285c036cf02a25840c37c6b5295432ac10037bd092b1aae6bbcce3ff53",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_revisit.log"
+      "source_sha256": "35e23dc5aaa46daf5cc8362b57fb7c705f146a74235ca9cebbb98d2134fea45a",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_revisit.log"
     },
     {
       "test": "tools/test_area01_room_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:03.274159+00:00",
-      "seconds": 12.123,
+      "finished_utc": "2026-10-20T07:49:14.506295+00:00",
+      "seconds": 19.055,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -3132,15 +3132,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "c1135c2147615e131fb40801854614c7a888bf4d66df1631c3fec037237e5106",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_room.log"
+      "source_sha256": "6fc93405da807e479b1744c86bf7f26bd46a4b789cdb8d95334e581be12d6b35",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_room.log"
     },
     {
       "test": "tools/test_area01_side_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:35.180204+00:00",
-      "seconds": 2.723,
+      "finished_utc": "2026-10-20T07:48:23.376106+00:00",
+      "seconds": 5.251,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -3303,15 +3303,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "6d0bb74376857936dceed2f9aef758875d7589557ba4456a9fd2a7bc308a779b",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_side.log"
+      "source_sha256": "3e269fa1695c5380b88288c8a4f77f1cb7ca1bc3ce1b8fd9118d93a095ff376e",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_side.log"
     },
     {
       "test": "tools/test_area01_sys_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:32.146970+00:00",
-      "seconds": 6.127,
+      "finished_utc": "2026-10-20T07:48:17.554291+00:00",
+      "seconds": 10.21,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -3470,15 +3470,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "c75a1b5b623a7b51ffff7e737e3ab200af4766fdb965916bc5ba6bdb82540f45",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_sys.log"
+      "source_sha256": "279b519400760d0d652e00102cc49a679720b3881c5c293d4f65b39a355af42b",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_sys.log"
     },
     {
       "test": "tools/test_area01_ui_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:55:45.230809+00:00",
-      "seconds": 9.671,
+      "finished_utc": "2026-10-20T07:48:42.575946+00:00",
+      "seconds": 18.525,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -3651,15 +3651,15 @@
         "tools/test_shadow_actor_route_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "7e7098a4c92a025dc2557d6539c1fe90f4d5090076c7c5c14219ffb7931cb08f",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area01_ui.log"
+      "source_sha256": "815962839970c68ebcfced7688df6b38eaf5679742b4802184c8fb251f0bbbfb",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area01_ui.log"
     },
     {
       "test": "tools/test_area02_math_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:46.533712+00:00",
-      "seconds": 4.556,
+      "finished_utc": "2026-10-20T07:50:04.978818+00:00",
+      "seconds": 4.237,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -3821,15 +3821,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "b501456c534d3393771847da47ce8f555de07b07d41d15996420f24fec013f4a",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area02_math.log"
+      "source_sha256": "0772f3880f41b7c697d2d255388aae4738bc9b90aecc9d2aeb14d555ff59a362",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area02_math.log"
     },
     {
       "test": "tools/test_area02_misc_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:48.653997+00:00",
-      "seconds": 1.71,
+      "finished_utc": "2026-10-20T07:50:07.072447+00:00",
+      "seconds": 1.709,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -3991,15 +3991,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "0d5df6233cf22ddfd23ce379a5f1ded650e57e4ecc4cbf62afa0e5e93eb73aa0",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area02_misc.log"
+      "source_sha256": "984956bc106a83e4852ff0da45e35e8a86da72af7069c7160cb08d4b8127cd07",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area02_misc.log"
     },
     {
       "test": "tools/test_area02_overlay_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:56:41.566953+00:00",
-      "seconds": 4.441,
+      "finished_utc": "2026-10-20T07:50:00.364014+00:00",
+      "seconds": 7.157,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4155,15 +4155,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "8fc84dc0608cb71a517b195b6a07c9ca701bbb385fe40dc85f548ecaa457c72b",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area02_overlay.log"
+      "source_sha256": "5c2dd2af4d2a32048b2a2dc0a30e05d51f2a3c71053e6147dcb657439ad7f4fe",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area02_overlay.log"
     },
     {
       "test": "tools/test_area02_ui_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:04.992579+00:00",
-      "seconds": 15.859,
+      "finished_utc": "2026-10-20T07:52:21.578703+00:00",
+      "seconds": 134.071,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4375,15 +4375,15 @@
         "tools/test_status_pages_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "343594805dc1c4ad36e405f4bbb477079af1e80e73d08645fadd08ab6b1667b7",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area02_ui.log"
+      "source_sha256": "2afa7837a696ed1fdf5bc2f6809634913036c105800868015884a9bc07d23418",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area02_ui.log"
     },
     {
       "test": "tools/test_area03_arrival_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:35.137808+00:00",
-      "seconds": 3.276,
+      "finished_utc": "2026-10-20T07:57:16.171989+00:00",
+      "seconds": 7.85,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4547,15 +4547,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "d204c4958031c17b9a7dc5455b0ded58574668dcce2eb759bbe53724496f64ce",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area03_arrival.log"
+      "source_sha256": "fab35680fbd365d60c32d1b2474973e9b706afcda2819bccaf831be8d1a20b21",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area03_arrival.log"
     },
     {
       "test": "tools/test_area03_route_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:31.521456+00:00",
-      "seconds": 3.9,
+      "finished_utc": "2026-10-20T07:57:07.778825+00:00",
+      "seconds": 8.796,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4724,15 +4724,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "51948173302acffad88f8704ecd61ea35318049f866e05249f3e0c573142d3a8",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area03_route.log"
+      "source_sha256": "ca685b44a3dff6fdd78bdd15890cc008dd4f5348749a75fa7ef785bd74be8cb6",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area03_route.log"
     },
     {
       "test": "tools/test_area04_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:10.900406+00:00",
-      "seconds": 5.583,
+      "finished_utc": "2026-10-20T07:53:46.238488+00:00",
+      "seconds": 80.847,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -4888,15 +4888,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "1412be65727c2f72e5c21cc3760e11744dfc6b1328e2ff3aceb66a8b7f339bc1",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area04_port.log"
+      "source_sha256": "41fd5dced3364a5ada88147c0bb2335370961c4b789f084833c2b5c21b9bf659",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area04_port.log"
     },
     {
       "test": "tools/test_area06_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-19T19:40:44.717074+00:00",
-      "seconds": 7.617,
+      "finished_utc": "2026-10-20T07:54:31.182801+00:00",
+      "seconds": 22.212,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -5358,15 +5358,15 @@
         "tools/test_truck_original_reference.py",
         "tools/vu1_vm.py"
       ],
-      "source_sha256": "d9ee285b92132ff8d80c3c30d613d28bfbebed60a10615bd95508fdc6c63b3e1",
-      "private_log": "build/frontier2_i2_20261019_092911/fix_oracle_area06/area06_port.log"
+      "source_sha256": "637129b071a6ca69b1b1d2c9f41505b8dae47c7630e4c010de292dd9799a59e4",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area06_port.log"
     },
     {
       "test": "tools/test_area13_route_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:21.671608+00:00",
-      "seconds": 1.274,
+      "finished_utc": "2026-10-20T07:56:46.828850+00:00",
+      "seconds": 2.141,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -5529,15 +5529,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "6b5f5015bbc3322dd898e2dec9c8500e34da79df741f7a4b42b00caf176152d7",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area13_route.log"
+      "source_sha256": "03dd1b6ae3689aa1f26431f246fd1a50ccc71307b5ae5ee34656803a9853859b",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area13_route.log"
     },
     {
       "test": "tools/test_area15_route_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:23.639396+00:00",
-      "seconds": 1.621,
+      "finished_utc": "2026-10-20T07:56:50.480737+00:00",
+      "seconds": 3.128,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -5700,15 +5700,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "1c4baac9bd22e958d01caf31458a9504b0912395e3f886b6a185c75a03caca6c",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area15_route.log"
+      "source_sha256": "d517cd1850accd651a5a36236685b049e4b032535fe517b6ba26ca189f096764",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area15_route.log"
     },
     {
       "test": "tools/test_area19_partner_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:59:10.623039+00:00",
-      "seconds": 1.533,
+      "finished_utc": "2026-10-20T07:58:21.564540+00:00",
+      "seconds": 1.409,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -5873,15 +5873,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "c4246dbb99d3463f1f6c2d5035b400d1abd2d46b0f4ad873561c46689a42de83",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area19_partner.log"
+      "source_sha256": "d91e830515c25424743d829f7e8994be092342bff1f7018b8a3230d6d93b78e3",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area19_partner.log"
     },
     {
       "test": "tools/test_area19_route_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:27.225155+00:00",
-      "seconds": 3.185,
+      "finished_utc": "2026-10-20T07:56:58.290706+00:00",
+      "seconds": 7.139,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -6050,15 +6050,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "224bbee2ec8fadec2d4bb18957aa7fdd1b40522fcbb5ff7a79735ee7c9395ba7",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area19_route.log"
+      "source_sha256": "9ed7f5bab3f6c3f63b6aa91949cbfd80b06e62ba199d4c74fc346739be2290a7",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area19_route.log"
     },
     {
       "test": "tools/test_area22_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:16.584092+00:00",
-      "seconds": 5.352,
+      "finished_utc": "2026-10-20T07:54:06.524228+00:00",
+      "seconds": 19.37,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -6215,15 +6215,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "6a81ee4a036c62d1f1265de1372e6ce3cc4f4fa6fa3058449359627057bf6a58",
-      "private_log": "build/levels/oracle-capacity-refresh-1/area22_port.log"
+      "source_sha256": "d6a60e0fa02a9beb9357733cf7340b315bc3b9b9d5933d8eae6375adb19bd67f",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/area22_port.log"
     },
     {
       "test": "tools/test_level10_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:59.211716+00:00",
-      "seconds": 2.811,
+      "finished_utc": "2026-10-20T07:56:00.664375+00:00",
+      "seconds": 4.082,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -6385,15 +6385,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "f8643a1b0d2b5e20c806e7b07c9dd4811154b1d3d2f15a6e38ea4b52ad8d2102",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level10_port.log"
+      "source_sha256": "a0303108701473fe4c8360159bd4a37a324b0ed532b1cb8c583b77ab8555c11c",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level10_port.log"
     },
     {
       "test": "tools/test_level11_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:04.139211+00:00",
-      "seconds": 4.568,
+      "finished_utc": "2026-10-20T07:56:08.947788+00:00",
+      "seconds": 7.924,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -6553,15 +6553,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "af2b4cebb08ca21f27f7d50f8542f9a9eba33a808be9b80b7245227021468047",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level11_port.log"
+      "source_sha256": "980eeb3167a8ad945bd9f922128ccc1a4de2fd315fdbd5b70706d6827b494fba",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level11_port.log"
     },
     {
       "test": "tools/test_level12_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:08.641308+00:00",
-      "seconds": 4.169,
+      "finished_utc": "2026-10-20T07:56:19.317731+00:00",
+      "seconds": 10.025,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -6719,15 +6719,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "b9c194736fd616ff7d9b7c187f8f7e64cce9e080f3bfe20cff23701cd19d2e50",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level12_port.log"
+      "source_sha256": "ecb17ac0d791de407c59075fc7d4b0e4ab65ed8ac4cb2710d6d81f91e7f82713",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level12_port.log"
     },
     {
       "test": "tools/test_level13_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:14.495940+00:00",
-      "seconds": 5.518,
+      "finished_utc": "2026-10-20T07:56:33.002006+00:00",
+      "seconds": 13.272,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -6888,15 +6888,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "b253c01692071d9a54bccfe3ae61b9b021a4893d51621a0df0cf5f75d1ae2e31",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level13_port.log"
+      "source_sha256": "97647810bc96fb6c9cbb2bc22c8978f379f0467f8b479ec73c49f1325d2ccae4",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level13_port.log"
     },
     {
       "test": "tools/test_level14_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:17.714594+00:00",
-      "seconds": 2.876,
+      "finished_utc": "2026-10-20T07:56:39.340674+00:00",
+      "seconds": 5.73,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -7055,15 +7055,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "b3b4554e53309458529b0016acfdbade3c7ffd61f880fedfd4c953b740553f94",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level14_port.log"
+      "source_sha256": "6d63cb3f659b8e8e5d62c0260e92d74eb794b4e699147cf9f7d0ba090d75056b",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level14_port.log"
     },
     {
       "test": "tools/test_level15_creatures_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:42.315535+00:00",
-      "seconds": 4.064,
+      "finished_utc": "2026-10-20T07:57:31.356474+00:00",
+      "seconds": 9.295,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -7226,15 +7226,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "0bd30a384207f6ebc7426117643bbfb5c7c54cc10ca4844f5991d834cf02db01",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level15_creatures.log"
+      "source_sha256": "89815c7ec136a3136129db70bb3eace5ec8e3b6e669215ce9d2a04e1c2f7cef0",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level15_creatures.log"
     },
     {
       "test": "tools/test_level15_fountain_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:44.742970+00:00",
-      "seconds": 2.086,
+      "finished_utc": "2026-10-20T07:57:35.917133+00:00",
+      "seconds": 4.034,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -7397,15 +7397,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "0da309766f96ccde090960f3c674ec49fb3ddbddeda777064c0e409f92373551",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level15_fountain.log"
+      "source_sha256": "edad2a91ec339de0490408d8d1fe3a9725c84dd2e6e556341510f2b1d3794875",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level15_fountain.log"
     },
     {
       "test": "tools/test_level15_motion_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:46.492262+00:00",
-      "seconds": 1.407,
+      "finished_utc": "2026-10-20T07:57:39.252004+00:00",
+      "seconds": 2.836,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -7568,15 +7568,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "e82630347b3bf67a358b9f27d5af3642e7eb5973a69f1cf2c49ade9e0d94c4fb",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level15_motion.log"
+      "source_sha256": "793acb0785eb15403e6b66cb9e8b600f95fd65f1450d2a4c2d6568996cca54a5",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level15_motion.log"
     },
     {
       "test": "tools/test_level15_particles_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:53.241727+00:00",
-      "seconds": 1.211,
+      "finished_utc": "2026-10-20T07:57:51.174335+00:00",
+      "seconds": 2.115,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -7739,15 +7739,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "1e719129479046c24d48474248ac619e57344b75fe37ec85bab5375edea40d6c",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level15_particles.log"
+      "source_sha256": "d88f0b0d53655dbe9797bedb1a6c8a0e539484a5780a8287e6ea0f07e1230dc1",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level15_particles.log"
     },
     {
       "test": "tools/test_level15_perception_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:51.684232+00:00",
-      "seconds": 4.845,
+      "finished_utc": "2026-10-20T07:57:48.689552+00:00",
+      "seconds": 8.942,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -7910,15 +7910,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "5fb068e38ac79aad51bb7e6287705f2cd1b6cf95dd23e1f386b71a5d9a9bce3a",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level15_perception.log"
+      "source_sha256": "1a1e790d669403f10fdd53286566d5d31e716b73a9374f9408e24b5256f9097a",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level15_perception.log"
     },
     {
       "test": "tools/test_level15_support_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:58:37.911462+00:00",
-      "seconds": 2.424,
+      "finished_utc": "2026-10-20T07:57:21.580595+00:00",
+      "seconds": 4.83,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -8081,15 +8081,15 @@
         "tools/test_script_host_workers_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "a56363282be21d85f57f999263357df93bc2300f737232f24969829a395246d0",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level15_support.log"
+      "source_sha256": "1f833249777b479967ac357cb14c87d05aaf420ba146c8ac81f1cb63f385ae80",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level15_support.log"
     },
     {
       "test": "tools/test_level8_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:39.588663+00:00",
-      "seconds": 12.575,
+      "finished_utc": "2026-10-20T07:55:08.223770+00:00",
+      "seconds": 35.901,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -8289,15 +8289,15 @@
         "tools/test_status_pages_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "3816d0384d3f4c152b9f506c2fa8d1213207ceddaa896332d2122acecee900de",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level8_port.log"
+      "source_sha256": "d9fb01948735533d5ef20521c61d62d48c46ca183041b43f7505d0f0dd0449b3",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level8_port.log"
     },
     {
       "test": "tools/test_level9_port_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:57:56.010114+00:00",
-      "seconds": 15.905,
+      "finished_utc": "2026-10-20T07:55:56.123875+00:00",
+      "seconds": 46.958,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -8489,15 +8489,15 @@
         "tools/test_status_pages_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "1cc3c44443a03c059638b867df19bf22218a87cf9e7097dd6af72c93fbe4ab06",
-      "private_log": "build/levels/oracle-capacity-refresh-1/level9_port.log"
+      "source_sha256": "74be801b56fe3253edb02e90b6e62f16b9919779ae2eaf0206e002270f576829",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/level9_port.log"
     },
     {
       "test": "tools/test_status_pages_reference.py",
       "mode": "quick",
       "exit_code": 0,
-      "finished_utc": "2026-10-18T17:59:08.697358+00:00",
-      "seconds": 7.574,
+      "finished_utc": "2026-10-20T07:58:19.784542+00:00",
+      "seconds": 15.006,
       "dependencies": [
         "src/em_gfx.h",
         "src/em_input.h",
@@ -8677,8 +8677,8 @@
         "tools/test_status_pages_reference.py",
         "tools/test_truck_original_reference.py"
       ],
-      "source_sha256": "e6cfe7f552d26f053ed9a99527565780319b505a9950fda9ef1fbd1c45264e05",
-      "private_log": "build/levels/oracle-capacity-refresh-1/status_pages.log"
+      "source_sha256": "c52bc48034e2b380afc86e159d1eb1edf5469c5cf0d7f8fbdcb384240c6fe443",
+      "private_log": "build/frontier2_i6_20261020_002849/oracle_audit/status_pages.log"
     }
   ]
 }

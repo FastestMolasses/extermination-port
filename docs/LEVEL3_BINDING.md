@@ -14,6 +14,51 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20 (port main e600fc5 plus the footstep handler): the C side
+plays a00_00, a00_01 and a00_02; the stop moved to a00_03.** a00_00's
+33rd frame reached the effect pass's handler `001EB980` (effect subtype
+0x27, the footstep variant of entity 0x80000068; byte-matched decomp C,
+`src/func_001EB980.c`): one 001CFB50 of the node's matrix with the work
+block's +0x54 / +0x5C (accumulator, fraction) and 3.0, then 001CFBE0 mode 1
+of `D_00255FB0` and of `D_00256040`. Its translation already existed and
+was oracle-checked (`em_area00_hud_001EB980`, test_area00_hud_reference.py);
+it is now wired into `em_effects_live.c` (`handler_001EB980`, the same view
+pattern as 001ECB00: the pointer `D_00275C34` = node + 0x1F0 and the work
+block's +0x244 / +0x24C), and its two source blocks are exported
+(`tools/export_area00_runtime_tables.py` `FOOTSTEP_WINDOWS`, one 0x120-byte
+window at `D_00255FB0`, equal to the pinned ELF in all 34 retained AREA00,
+AREA01 and revisit captures; the export now holds 59 of the loader's 64
+windows). Oracle: `make test-area00-footstep-reference`
+(`tools/test_area00_footstep_reference.py`) executes the original
+001EB980 with every transform and packet callee over the retained AREA00
+captures' effect nodes (four accumulator / fraction variants, two depths)
+and compares the production adapter's whole RAM and scratchpad (quick 48
+cases, EM_TEST_FULL=1 288 over 12 captures), plus two refusals; swapping
+the two emits fails it. No retained capture holds a subtype-0x27 node, so
+the cases are synthetic work values over real matrices, not a recorded
+footstep.
+
+Result: `--run --until a00_10` (drive replay) plays a00_00 (362 frames),
+a00_01 (1,272) and a00_02 (600) on the C side, aligns a00_03 at counter
+33179 and fault-stops about 100 frames in at `001AA840`: `aim/fire runtime:
+view list full at 007BD15E` / `aim/fire world: enumerate failed after 994`
+/ `001AA840 refresh failed (30 views)`. The aim / fire world's host view
+list (`EM_AIM_FIRE_WORLD_VIEWS` = 1,024 in em_aim_fire_world_live.h; the
+Bridge's seven view arrays are on the C stack) is host bookkeeping, not an
+original table: the next unit is to size it from the actor pool (the
+enumerate adds at most 104 views for one effect record: 40 node fields, 57
+trail, 6 burst and one +0x14 word) and move the arrays off the stack, with
+proof the first level and AREA01 stay byte-identical. The arrival's 86
+differing rows (below) are unchanged; no AREA00 phase is a capture pass
+yet. Proof of this step: the first-level smokes' tick, RNG and present logs
+equal port main e600fc5's (sha256 2866e0de... / f8a37cb8... full,
+d2cb9bed... / 2fa87dc2... drive switch); newgame-control 9.599849; `make
+test-level-smoke-full` and `make test-level-smoke-ps2-drive` pass;
+`tools/test_level_smoke_area01.py --until a01_07` passes; the bridge
+regressions `test_area01_target_hit_reference.py` and
+`test_area01_water_reference.py` pass. Receipts in ignored
+`build/frontier2_i6_20261020_002849/`.
+
 **2026-10-19, night (port main 9b9c26b plus the arrival's script, bank,
 voice and class-2 reads): the arrival runs to its end; the stop moved 33
 frames into a00_00.** One change supplied what the arrival reached after
@@ -570,10 +615,12 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop (2026-10-19, night) is a00_00 frame 33, the
-untranslated effect handler `001EB980`, after the arrival's 4,017 rows (86
-differ: the arrival stance in rows 0..80 and the message phase in rows
-3750..3754; "Current state"). Op 0x0B modes 2 / 3 (001B8020, record
+The current reproducible stop (2026-10-20) is about 100 frames into
+a00_03, at `001AA840`: the aim / fire world's host view list (1,024) is
+full ("Current state"). Before it the C side plays the arrival's 4,017 rows
+(86 differ: the arrival stance in rows 0..80 and the message phase in rows
+3750..3754) and a00_00..a00_02; the footstep handler `001EB980` (a00_00
+frame 33) is resolved. Op 0x0B modes 2 / 3 (001B8020, record
 `008285E0`), 001C6120 over the arrival owner's bank, the arrival's voice
 sectors and `00242EDB` (00128600) are resolved, as are the chain page's
 surface packet `00234FE0` (frame 1), the

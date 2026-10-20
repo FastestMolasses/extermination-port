@@ -1871,6 +1871,15 @@ test-area00-arrival-bindings:
 test-area00-surface-vu-reference:
 	python3 tools/test_area00_surface_vu_reference.py
 
+# test-area00-footstep-reference: the live effect pass's footstep handler
+# 001EB980 (effect subtype 0x27, a00_00) against the original instructions
+# and every transform / packet callee, whole RAM and scratchpad, over the
+# retained AREA00 captures' effect nodes; the export's D_00255FB0 window and
+# two refusals (about 7 s; EM_TEST_FULL=1 all 12 captures, ~30 s; opt-in).
+.PHONY: test-area00-footstep-reference
+test-area00-footstep-reference:
+	python3 tools/test_area00_footstep_reference.py
+
 .PHONY: test-area01-collision-view-reference test-area01-shadow-live-reference test-area01-scratch-views
 test-area01-collision-view-reference:
 	python3 tools/test_area01_collision_view_reference.py

@@ -358,7 +358,9 @@ Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
   kind 0 with D_00255590), both executed by test-effect-kinds-reference (every instruction; 001EAB50's
   three float_to_int results scripted); the AIM side runs aim_world / aim_cable reach them (AIM_FIRE.md
   section 10.5). None is live on the route snapshots, but 001EBD20 (crate) and 001EC5F0 /
-  001EC820 / 001EB980 (footstep variants) belong to other lanes.
+  001EC820 / 001EB980 (footstep variants) belong to other lanes. Since 2026-10-20 001EB980 (AREA00's
+  a00_00) runs live through em_area00_hud's translation (em_effects_live.c `handler_001EB980`; sources
+  D_00255FB0 / D_00256040 from export_area00_runtime_tables.py; test-area00-footstep-reference).
 - **Workers:**
   - **w_001CFB50.** Bind it to `em_effect_kinds_001CFB50` (section 2.1a), with an `EmEffectKindsXfState` over
     the live D_00275670 and scratchpad 0x70003AC0, and a block that stands for D_0081F8F0. It has the same

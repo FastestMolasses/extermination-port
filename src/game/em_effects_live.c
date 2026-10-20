@@ -922,6 +922,30 @@ static int handler_001ED7A0(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* 001EB980 (effect subtype 0x27, the footstep variant of entity 0x80000068;
+ * byte-matched decomp C), AREA00's first reached in a00_00: one 001CFB50 of
+ * the node's matrix with work +0x54 / +0x5C (the accumulator and the
+ * fraction) and 3.0, then 001CFBE0 mode 1 of D_00255FB0 and of D_00256040
+ * (exported by export_area00_runtime_tables.py FOOTSTEP_WINDOWS). Its
+ * existing HUD owner's translation, over the views it addresses. */
+static int handler_001EB980(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001EB980u,"footstep without its node");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea00HudRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {at+0x24Cu,4,(uint8_t *)&work->fraction},
+    };
+    ImpactCall call={node,at};
+    EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
+                       .call=impact_worker,.ctx=&call,.sp=HANDLER_SP};
+    if(em_area00_hud_001EB980(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001EB980u,"footstep HUD handler fault");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
@@ -932,6 +956,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
+    if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -990,13 +1015,16 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
      * since chain step AIMCAM's fix round D_00255620 / D_002560D0 /
      * D_00256160, since AIMLIVE's fix round D_002561F0 and D_00255590,
      * the skid's D_002556B0 / D_00255740 and the AREA01 splash handlers'
-     * D_002557D0 + 0x90 n (n = 0..5), export_effect_tables.py), 0x90 bytes. */
+     * D_002557D0 + 0x90 n (n = 0..5), export_effect_tables.py; the
+     * footstep 001EB980's D_00255FB0 / D_00256040,
+     * export_area00_runtime_tables.py), 0x90 bytes. */
     const uint8_t *bytes = source >= 0x002565E0u && source - 0x002565E0u <= sizeof S.sources - 0x90u
                                ? S.sources + (source - 0x002565E0u)
                            : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u ||
                               source == 0x002561F0u || source == 0x00255590u || source == 0x002563A0u ||
                               source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u ||
                               source == 0x00255E90u || source == 0x00255F20u ||
+                              source == 0x00255FB0u || source == 0x00256040u ||
                               source == 0x00256EE0u || source == 0x00256F70u ||
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))
