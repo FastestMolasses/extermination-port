@@ -4244,6 +4244,26 @@ int em_scene_bindings_001B0250(void)
     return 0;
 }
 
+static int room_001B0250_canonical(void *ctx)
+{
+    (void)ctx;
+    return em_scene_bindings_001B0250();
+}
+
+/* 001B0460(a0) from a script (byte-matched src/func_001B0460.c; the
+ * translation em_script_host_001B0460 through em_camera_live_001B0460, as
+ * the room move runs it): the room camera record of D_0024D650 for
+ * (D_00810700, D_00810701, D_00810702) from the spawn table window, and
+ * 001B0250 on the canonical D_008106C8. */
+int em_scene_bindings_001B0460(int a0, const float d810350[4], const float d810370[4],
+                               const int32_t *d8104E0)
+{
+    if (!s_spawn_table_loaded || !d810350 || !d810370 || !d8104E0)
+        return em_scene_fault(&s_state, 0x001B0460u, EM_SCENE_FAULT_NULL_WORKER);
+    const EmCameraLiveRoom room = {NULL, room_read_word, room_001B0250_canonical, d810350, d810370, d8104E0};
+    return em_camera_live_001B0460(a0, &room) < 0 ? -1 : 0;
+}
+
 /* 001FAD70(lane, fade, release): the lane's fade-out (001B0C00's three
  * calls, lanes 0, 1, 2). */
 int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release)

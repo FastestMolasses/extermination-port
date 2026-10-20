@@ -592,20 +592,7 @@ def markdown(report):
         'The supplemental index is LEVEL_ROUTE_EVIDENCE.json. Existing legacy '
         'captures remain original evidence; a fork recording does not establish legacy parity. '
         'Record displayed fields and missing boundary counters where needed; use the shared run lock.',
-        '5. AREA00 surface dimensions, pickup library models and crate roots now pass delivery/oracle checks. '
-        'Arrival aligns; the shared owner-view table now holds the actor pool\'s 256 views (the original AREA00 '
-        'crates/drums alone require 39; raised 2026-10-19). Since the arrival read views (2026-10-19: 0022DCD0\'s '
-        'tables, 0015A2C0\'s config rows, the 001F6BB0 latch, 0019AD00 through the collision view) frame 0 '
-        'completes; since the surface program (2026-10-19: 001E9280\'s packet `00234FE0` exported, its VU1 program '
-        'translated and checked against the original microcode) the arrival runs 203 frames; since its script, bank, '
-        'voice and class-2 reads (2026-10-19: 001B8020 op 0x0B modes 2 / 3, 001C6120 over any bank, AREA00\'s stream '
-        'cues, `D_00242EB0`) it plays its 4,017 rows; since the footstep handler (2026-10-20: 001EB980 wired into the '
-        'live effect pass, its sources `D_00255FB0` / `D_00256040` exported) the C side plays a00_00, a00_01 and a00_02 '
-        'and fault-stops about 100 frames into a00_03 at 001AA840 (the aim / fire world\'s host view list, 1,024 views, '
-        'is full). 86 arrival rows differ (rows 0..80, the original\'s arrival stance and clock; rows 3750..3754, the '
-        'message phase). Fix those and the view list before neutral frames, movement, camera, drawing, interactions and both returns. The AREA01 prerequisite passes: with the comparison-only drive replay '
-        '(the user\'s decision of 2026-10-19; EM_PS2_DRIVE_REPLAY) a01_00..a01_07 pass row for row through the AREA00 '
-        'arrival. Preserve every first divergent row. See ' + link('docs/LEVEL3_BINDING.md') + ' and ' + link('docs/LEVEL2_BINDING.md') + '.', '',
+        "5. AREA00 surface dimensions, pickup library models and crate roots now pass delivery/oracle checks. Arrival aligns; the shared owner-view table now holds the actor pool's 256 views (the original AREA00 crates/drums alone require 39; raised 2026-10-19). Since the arrival read views (2026-10-19: 0022DCD0's tables, 0015A2C0's config rows, the 001F6BB0 latch, 0019AD00 through the collision view) frame 0 completes; since the surface program (2026-10-19: 001E9280's packet `00234FE0` exported, its VU1 program translated and checked against the original microcode) the arrival runs 203 frames; since its script, bank, voice and class-2 reads (2026-10-19: 001B8020 op 0x0B modes 2 / 3, 001C6120 over any bank, AREA00's stream cues, `D_00242EB0`) it plays its 4,017 rows; since the footstep handler (2026-10-20: 001EB980 wired into the live effect pass, its sources `D_00255FB0` / `D_00256040` exported) the C side plays a00_00, a00_01 and a00_02; since the knife's reach in a00_03 (2026-10-20: the aim / fire composition's view list sized from the actor pool, 00189EC0's soft-float facing test bound, the freed padlock's cleared header in the class-4 list) it runs a00_03 without a fault too (not a capture pass: 92 of 144 rows exact; first divergent rows preserved in LEVEL3_BINDING.md: a00_03 row 49, the lock_r54 +0x2DC toggle, and row 106, the post-break record in [54]'s slot) ; since the a00_04 script commands (2026-10-20: op 0x03, the camera shake 001B8AB0, through the area handler, and op 0x0D sub 1, the camera re-seat 001B0460, bound to the live camera) it plays a00_04 to its end (1,797 of 2,017 rows exact; rows 1546..1553, the shake, differ because the native RNG stream runs behind the original's) and fault-stops at a00_05 frame 9075 at `001288D0` (the owner `00128C10` reaches an unbound worker of the live composition). 86 arrival rows differ (rows 0..80, the original's arrival stance and clock; rows 3750..3754, the message phase). Fix those, the RNG drift (LEVEL3_BINDING.md) and `001288D0` before neutral frames, movement, camera, drawing, interactions and both returns. The AREA01 prerequisite passes: with the comparison-only drive replay (the user's decision of 2026-10-19; EM_PS2_DRIVE_REPLAY) a01_00..a01_07 pass row for row through the AREA00 arrival. Preserve every first divergent row. See " + link('docs/LEVEL3_BINDING.md') + ' and ' + link('docs/LEVEL2_BINDING.md') + '.', '',
         '## Route coverage and function counts', '',
         'Counts are unique `(region, address)` per level; reused rows occur in several levels. '
         'The native-boundary column is a subset of M, not additional missing game logic.', '',
@@ -700,19 +687,7 @@ def markdown(report):
               'AREA00 continuation then reached the 32-view owner capacity, resolved on 2026-10-19; see '
               'LEVEL3_BINDING.md for the change and exact evidence.', '',
               '## Native play state (2026-10-20)', '',
-              'Measured on port main e600fc5 plus the footstep handler 001EB980, headless. From New Game the port plays the '
-              'whole first level (newgame-control 9.599849; the full and drive-switch level smokes pass), then AREA01 '
-              'row for row through a01_07 with the comparison-only drive replay (EM_PS2_DRIVE_REPLAY, the user\'s '
-              'decision of 2026-10-19): arrival, a01_00 781, a01_01 306, a01_02 591, a01_03 992, a01_04 1960, a01_05 '
-              '3960, a01_06 2647 rows and a01_07 through the AREA00 arrival state 0 (LEVEL2_BINDING.md). Open: ten stream '
-              'reads in a01_05 are issued off the recording\'s time, so its stream and audio timing is not yet counted as '
-              'original (only its compared rows). With the replay the side beats a01_s0, a01_s3, a01_s4, a01_s6 and '
-              'a01_s7 pass; a01_s1, a01_s2 and a01_s5 stop at their pickup page request. AREA00 plays the arrival\'s 4,017 rows '
-              '(86 differ: the arrival stance in rows 0..80 and the message phase in rows 3750..3754); since the footstep '
-              'handler 001EB980 is wired (2026-10-20) the C side plays a00_00, a00_01 and a00_02 and fault-stops about 100 '
-              'frames into a00_03 at 001AA840, the aim / fire world\'s full host view list (LEVEL3_BINDING.md); no AREA00 '
-              'phase is certified, a00_03..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the '
-              'bugs\' attack on Roger and the bridge, AREA01_REVISIT.md) are not reached, and the revisit has no harness yet.', '',
+              "Measured on port main 6798a81 plus the a00_04 script commands (op 0x03 and op 0x0D sub 1), headless. From New Game the port plays the whole first level (newgame-control 9.599849; the full and drive-switch level smokes pass), then AREA01 row for row through a01_07 with the comparison-only drive replay (EM_PS2_DRIVE_REPLAY, the user's decision of 2026-10-19): arrival, a01_00 781, a01_01 306, a01_02 591, a01_03 992, a01_04 1960, a01_05 3960, a01_06 2647 rows and a01_07 through the AREA00 arrival state 0 (LEVEL2_BINDING.md). Open: ten stream reads in a01_05 are issued off the recording's time, so its stream and audio timing is not yet counted as original (only its compared rows). With the replay the side beats a01_s0, a01_s3, a01_s4, a01_s6 and a01_s7 pass; a01_s1, a01_s2 and a01_s5 stop at their pickup page request. AREA00 plays the arrival's 4,017 rows (86 differ: the arrival stance in rows 0..80 and the message phase in rows 3750..3754); since the footstep handler 001EB980 is wired and the knife's reach in a00_03 is supplied (2026-10-20) the C side runs a00_00..a00_03 without a fault (242/363, 938/1273, 424/601 and 92/144 rows exact); since op 0x03 (001B8AB0) and op 0x0D sub 1 (001B0460) are bound (2026-10-20) it plays a00_04 (1,797/2,017) and fault-stops at a00_05 frame 9075 at `001288D0` (LEVEL3_BINDING.md); the native RNG stream runs behind the original's from a01_02 on (12 draws at its end, 198 at a00_03's); no AREA00 phase is certified, a00_05..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the bugs' attack on Roger and the bridge, AREA01_REVISIT.md) are not reached, and the revisit has no harness yet.", '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '
               'For exact beats, first-hit metadata, census hashes, owner definitions and test entry locations, '

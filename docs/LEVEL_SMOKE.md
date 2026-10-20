@@ -2070,6 +2070,18 @@ differing row. The first-level smokes' tick, RNG and present logs are
 byte-identical to port main c4aa4a5's and a01_arrival..a01_07 pass
 (receipts in ignored `build/frontier2_i7_20261020_024700/` and
 `build/frontier2_i7_fix_20261020/`).
+Since the a00_04 script commands (2026-10-20, iteration 8;
+LEVEL3_BINDING.md "Current state": op 0x03, the camera shake 001B8AB0,
+through the area handler, and op 0x0D sub 1, the camera re-seat 001B0460,
+bound to the live camera) `--run --until a00_10` plays a00_04 (2,016
+frames; windowed, 1,797 of 2,017 rows exact, the shake's rows 1546..1553
+differing because the native RNG stream runs behind the original's),
+aligns a00_05 at counter 35343 and fault-stops at frame 9075 at
+`001288D0` (owner `00128C10`, an unbound worker of the live composition).
+The capture check still stops at the arrival's first differing row. The
+first-level smokes' tick, RNG and present logs are byte-identical to port
+main 6798a81's and a01_arrival..a01_07 pass (receipts in ignored
+`build/frontier2_i8_20261020_083957/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

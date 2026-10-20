@@ -14,6 +14,88 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20, iteration 8 (port main 6798a81 plus the a00_04 script
+commands): the C side plays a00_04 to its end; the stop moved to a00_05.**
+Not a capture pass (windowed counts below). The ferry owner `00825600`'s
+scripts reached two script commands the area script host did not run, in
+this order:
+
+- **op 0x03 (`001B8AB0`, `ftab_0024D880[3]`; NEARMISS decomp C, src/func_001B8AB0.c).**
+  The fault "001BA1F0 of 00825600 faulted at 0024D88C (record 00829DE0)"
+  was the dispatch read of `ftab_0024D880[3]`: em_area_script.c had no
+  case for it. The command is the camera shake: it saves D_008105D0 /
+  D_008105E0 at rec +0x20 / +0x30, then for rec +0x0C counts adds a random
+  offset (by the mode word rec +0x08 and the word rec +0x14, drawn with
+  00122BB8) turned by D_00810650 on every odd count, and restores them.
+  Its translation `em_area00_low_001B8AB0` already existed (checked against
+  the original instructions by `make test-area00-low-reference`, 16/16
+  conditional branches). It now runs as the other original-handler owners
+  do: `execute` hands op 0x03 to the area binding's handler, the AREA01 /
+  AREA00 binding (`em_area01_script_live.c` `record`) admits `001B8AB0`,
+  and `em_area01_script_workers.c` runs the translation over rec
+  +0x08..+0x17, the phase byte (block +4) and the scratch quadword
+  0x70003600, its quadword copies, 001281C0, 00122BB8 (the live
+  `em_random_next`), 001026A0 and 001028B8 going through the host's
+  worker. Without a handler (AREA11) op 0x03 still fails stop.
+- **op 0x0D sub 1 (`001B0460(1)` from `001B7B30`; byte-matched decomp C,
+  src/func_001B0460.c).** Then "001BA1F0 of 00825600 faulted at 001B0460
+  (record 0082A020)": the script host's `w_001B0460` was NULL. It is now
+  bound (`em_area11_script_host.c`) to the camera re-seat the room move
+  already runs, `em_camera_live_001B0460` (its translation
+  `em_script_host_001B0460`, `make test-script-host-workers-reference`),
+  through the new `em_scene_bindings_001B0460`: the room camera record of
+  D_0024D650 from the spawn table window, 001B0250 on the canonical
+  D_008106C8, and the player's D_00810350 (+0xA0, w +0xAC), D_00810370
+  (+0xC0 with the heading) and D_008104E0 (+0x230) from the live record,
+  published before the call and reloaded after it.
+
+Proof. `make test-area01-script-workers-reference` now also runs 225
+op 0x03 cases per capture (every third in quick mode) (modes 0, 1, 2, 3, 0xFF; phases 0..2; rec +0x14
+0 / 7 / 0x40; timers 0, 1, 78, 79, 80 against 80) through the binding
+(`em_area01_script_worker_call`) against the original instructions,
+comparing every worker boundary (callee, arguments, stack pointer and the
+compared memory, now including 0x70003600..0x7000361F and the rand state
+word) and the result: quick 306 cases / 564 boundaries, `EM_TEST_FULL=1`
+4,736 cases / 8,576 boundaries. Scratch negative controls each fail it:
+mode 1's draw `& 7) - 4` changed to `- 3` in the translation, the scratch
+region cut to 8 bytes, and the result inverted. The re-seat is checked by
+the recording: the camera jumps at a00_04 row 1984 (eye (66.8, 11.7,
+-1538.7) to (255, -24, -1694)) and rows 1984..2016 are exact, camera
+included. The first-level smokes' tick, RNG and present logs equal port
+main 6798a81's (sha256 2866e0de... / f8a37cb8... full, d2cb9bed... /
+2fa87dc2... drive switch); newgame-control 9.599849;
+`tools/test_level_smoke_area01.py --until a01_07` passes 28 live phases;
+`make test-area-script`, `test-area-script-reference`,
+`test-area01-script-host-reference`, `test-script-host-workers-reference`,
+`test-area00-low-reference` and `tools/test_area00_script_binding_reference.py`
+pass. The AREA00 run's tick log equals the previous build's up to the
+faulting tick. Receipts in ignored `build/frontier2_i8_20261020_083957/`.
+
+`--run --until a00_10` now plays a00_04 (2,016 frames), aligns a00_05 at
+counter 35343 and fault-stops at frame 9075: "owner 00128C10 node 007AC5E0
+failed at 001288D0", an unbound worker of the live composition (next
+unit; `em_area00_low_001288D0` is its checked translation, and it calls
+001F4A00, the tail call to 001F4BF0). Windowed (owners included): a00_04
+1,797 of 2,017 rows exact (differing ranges 0..59, 75..112, 153..190,
+444..481, 484..521, the carried [54] slot / lock_r54 class; and
+1546..1553, the shake); a00_05 498 of 658 rows reached exact.
+
+**The native RNG stream runs behind the original's (found 2026-10-20).**
+The shake rows 1546..1553 differ only in eye / target (by up to about 0.9),
+the rows before and after are exact: the offsets come from 00122BB8's
+draws. At each fork beat end the original's rand state (the word +0x58 of
+the block D_0024295C names, in the beat's eeMemory.bin) is the native
+state at the same counter advanced by N draws of the LCG: a01_00 4,
+a01_01 -1 (native one ahead), a01_02 12, a01_03 18, a01_04 27, a01_05 34,
+the arrival's end 94, a00_00 79, a00_01 57, a00_02 129, a00_03 198 (the
+native draws about 26..42 per frame there). The first values are within a
+frame (the snapshot's place in the frame); from a01_02 on the native makes
+fewer draws than the original, and the AREA01 rows do not observe them.
+Finding which draws are missing (a consumer the port does not run, or runs
+fewer times) is a fidelity unit before any phase that shows a random value
+can pass; record the original's per-frame draw count on the fork around
+a01_02 to locate it.
+
 **2026-10-20, later (port main c4aa4a5 plus the knife's reach in a00_03):
 the C side runs a00_03 without a fault; the stop moved to a00_04.** That is
 not a capture pass: windowed against route_a00 with `compare_route_row`,
@@ -717,9 +799,13 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop (2026-10-20, later) is a00_04 frame 7943, in
-the script host: `001BA1F0` of the owner `00825600` faults at the read
-`0024D88C` (record `00829DE0`) ("Current state"). Before it the C side
+The current reproducible stop (2026-10-20, iteration 8) is a00_05 frame
+9075: the owner `00128C10` (node `007AC5E0`) reaches `001288D0`, a worker
+the live composition does not bind ("Current state"). Before it the C side
+plays a00_04 to its end (op 0x03 and op 0x0D sub 1 run since iteration 8).
+Earlier, a00_04 frame 7943 in the script host: `001BA1F0` of the owner
+`00825600` faulted at the read `0024D88C` (record `00829DE0`), the dispatch
+of `ftab_0024D880[3]`. Before it the C side
 plays the arrival's 4,017 rows (86 differ: the arrival stance in rows 0..80
 and the message phase in rows 3750..3754) and a00_00..a00_03; the
 footstep handler `001EB980` (a00_00 frame 33) and the knife's reach in

@@ -610,6 +610,25 @@ static int w_001B0250(void *ctx)
     return em_scene_bindings_001B0250();
 }
 
+/* 001B0460(1) (001B7B30 sub 1; byte-matched src/func_001B0460.c): the
+ * camera re-seat from the room camera record, through the scene bindings'
+ * em_camera_live_001B0460. Its player reads are the record's +0xA0 quad
+ * (D_00810350: the feet, w +0xAC), +0xC0 quad (D_00810370: the Euler lanes
+ * with the heading) and +0x230 word (D_008104E0), published first. */
+static int w_001B0460(void *ctx, int a0)
+{
+    (void)ctx;
+    if (view_store() < 0) return -1;
+    const EmPlayerLiveActor *a = player_states_actor();
+    if (!a) return report("001B0460 without the player record");
+    const float a0v[4] = {H.pA0[0], H.pA0[1], H.pA0[2], em_live_f32(a, 0xAC)};
+    const float c0v[4] = {em_live_f32(a, 0xC0), g.yaw, em_live_f32(a, 0xC8), em_live_f32(a, 0xCC)};
+    const int32_t w230 = (int32_t)em_live_u32(a, 0x230);
+    int rc = em_scene_bindings_001B0460(a0, a0v, c0v, &w230);
+    view_load();
+    return rc < 0 ? report("001B0460 faulted") : 0;
+}
+
 /* 0021B9A0(mode, scale, bias): the fog / depth-range programmer on the
  * render context (em_packet_chain_0021B9A0 through em_render_context_live;
  * the floats are passed as their bits). */
@@ -890,6 +909,7 @@ static void workers_bind(void)
     H.workers.w_001C67E0 = w_001C67E0;
     H.workers.w_001C64F0 = w_001C64F0;
     H.workers.w_001B0250 = w_001B0250;
+    H.workers.w_001B0460 = w_001B0460;
     H.workers.w_0021B9A0 = w_0021B9A0;
     H.workers.w_001D2830 = w_001D2830;
     H.workers.w_001FBC50 = w_001FBC50;

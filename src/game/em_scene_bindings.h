@@ -102,6 +102,14 @@ int em_scene_bindings_player_record_drawn(void);
 /* 001B0250 over the canonical D_008106C8 and the spawn table (0, or -1
  * with the fault latched). */
 int em_scene_bindings_001B0250(void);
+/* 001B0460(a0) outside the room move (001B7B30 sub 1, a script's camera
+ * re-seat): the live camera's translation (em_camera_live_001B0460) over
+ * the spawn table window's room camera records, with 001B0250 on the
+ * canonical D_008106C8. The caller supplies the player's D_00810350 (+0xA0)
+ * and D_00810370 (+0xC0) quads and its D_008104E0 (+0x230) word. Fails
+ * (scene fault) without the spawn table or a view. */
+int em_scene_bindings_001B0460(int a0, const float d810350[4], const float d810370[4],
+                               const int32_t *d8104E0);
 
 /* 00119828(ch, l, r), the IOP command 0x16 packer, for callers outside the
  * frame machine (the opening's 001B82D0 ops 9..12 phase 0, the scripts):

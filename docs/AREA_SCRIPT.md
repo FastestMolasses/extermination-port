@@ -460,7 +460,10 @@ route 09 (the door record 0x7A70B0, the patched words from the beat's end
 snapshot) with no difference, and its synthetic 'owner clip' script covers
 op0B subs 6 and 0 against the executed 001B8020.
 
-Still NULL (fail-stop): op0D sub 1 (001B0460). Bound since chain C11 EXIT
+Op0D sub 1 (001B0460) is bound since 2026-10-20 (AREA00 a00_04, the ferry
+owner 00825600; LEVEL3_BINDING.md): `w_001B0460` runs the room move's
+re-seat, em_camera_live_001B0460, through `em_scene_bindings_001B0460`
+over the spawn table window and the live player record. Bound since chain C11 EXIT
 (Roger's departure 0x828A10, route beat 15): op01 kinds 3 / 5 / 8's
 D_0024D8F0 (the ELF's nine halfwords, `tools/export_script_walk_clips.py`,
 `assets/script_walk_clips.emwc`) and op0F's bytes: D_00282157 is the stream
@@ -538,7 +541,8 @@ Workers → native services:
 | w_001B1470 | `em_fan_original_wrap_001B1470` (verified on observed values) |
 | w_0011E2A8 | `em_area_script_w_0011E2A8` (verified: sweep, lockstep, route captures) |
 | w_001B1240, w_001B12B0, w_001B1380 | no verified native binding yet (section 5) |
-| w_00182BF0, w_001B0C00, w_001B6250, w_001B0460 | untranslated (section 5) |
+| w_00182BF0, w_001B0C00, w_001B6250 | untranslated (section 5) |
+| w_001B0460 | `em_scene_bindings_001B0460` (em_camera_live_001B0460, the room move's re-seat) |
 | r_0028A490 | the bank-table words (handles the player/owner bank fields hold) |
 | r_player_bone_C0 | the player's bone-1 translation (quad at *(player+0x114)+0xC0) |
 | c_record | 0x828050 elevator mover; 0x157F60 / 0x1575B0 / 0x1580C0 panel callbacks; 0x825900 / 0x825920 (001DFE10 / 001DFE40, return 1); 0x1B6EA0 pickup take (short program only; the grab program the battery runs stays on `em_pickup_program`) |

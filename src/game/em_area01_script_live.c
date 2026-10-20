@@ -144,6 +144,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x001BAC00u: /* op14 placement */
     case 0x001798D0u: case 0x001B7F90u: case 0x001B9CF0u: case 0x001B76D0u:
     case 0x001B7670u: case 0x001B7700u: case 0x001B6D70u: case 0x001B6AE0u:
+    case 0x001B8AB0u: /* op03 camera shake */
     case 0x001B6EA0u: /* shared pickup take callback */
     case 0x00158130u: case 0x00158050u: case 0x001580C0u:
     case 0x00157F60u: case 0x001575B0u: /* shared panel callbacks */

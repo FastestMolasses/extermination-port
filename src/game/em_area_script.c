@@ -1371,6 +1371,7 @@ static EmScriptCommandResult execute(void *context, EmScript *script, unsigned c
     case 0x15: return op15(&o);
     case 0x16: return op16(&o);
     case 0x18: return op18(&o);
+    case 0x03: if (o.k->handler) return external_handler(&o, 0x001B8AB0u); break;
     case 0x0E: if (o.k->handler) return external_handler(&o, 0x001B7F90u); break;
     case 0x05: if (o.k->handler) return external_handler(&o, 0x001B9CF0u); break;
     case 0x12: if (o.k->handler) return external_handler(&o, 0x001B76D0u); break;
@@ -1380,7 +1381,9 @@ static EmScriptCommandResult execute(void *context, EmScript *script, unsigned c
     default: break;
     }
         /* Opcodes 03, 05, 08, 0E, 11..13, 17, 19, 1A: not used by the
-         * AREA11 scripts this host admits (docs/AREA_SCRIPT.md). */
+         * AREA11 scripts this host admits (docs/AREA_SCRIPT.md); 03, 05,
+         * 0E, 12, 13, 17 and 1A run only through an area binding's handler
+         * (the existing original-handler owners). */
     return fault(&o, 0x0024D880u + 4u * (u32(record, 0) & 0xFFF));
 }
 

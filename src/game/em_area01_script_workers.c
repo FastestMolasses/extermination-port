@@ -17,6 +17,13 @@ static int misc_call(void *ctx,EmArea02MiscCall *in)
     memcpy(c.a,in->a,sizeof c.a);memcpy(c.f,in->f,sizeof c.f);
     int rc=f->h->worker(f->h->ctx,&c);in->v0=c.v0;in->f0=c.f0;return rc;
 }
+static int low_call(void *ctx,EmArea00LowCall *in)
+{
+    Frame *f=ctx;
+    EmArea01Call c={.function=in->fn,.sp=in->sp,.na=in->na,.nf=in->nf};
+    memcpy(c.a,in->a,sizeof c.a);memcpy(c.f,in->f,sizeof c.f);
+    int rc=f->h->worker(f->h->ctx,&c);in->v0=c.v0;in->f0=c.f0;return rc;
+}
 static int math_call(void *ctx,uint32_t fn,const uint32_t *a,unsigned na,
                      const uint32_t *fp,unsigned nf,uint32_t *v0,uint32_t *f0)
 {
@@ -76,7 +83,7 @@ int em_area01_script_worker_handles(uint32_t fn)
 int em_area01_script_worker_handles_area(uint32_t fn,unsigned area)
 {
     if(area>1)return 0;
-    return fn==0x001B7670u || fn==0x001B7700u || fn==0x001B6AE0u ||
+    return fn==0x001B7670u || fn==0x001B7700u || fn==0x001B8AB0u || fn==0x001B6AE0u ||
            (area==1 && (fn==0x00825910u || fn==0x00826950u)) ||
            (area==0 && fn==0x00824E40u);
 }
@@ -102,6 +109,17 @@ int em_area01_script_worker_call_area(const EmArea01RuntimeHost *host,EmArea01Ca
             {0x00275BD8u,1,view(&f,0x00275BD8u,1,1)}};
         EmArea00Low owner={.regions=regions,.region_count=4,.sp=c->sp};
         rc=em_area00_low_001B7700(&owner,block,rec,&result);failed=owner.fault_address;
+    } else if(c->function==0x001B8AB0u) {
+        /* 001B8AB0 (op03; NEARMISS decomp C, em_area00_low's translation
+         * checked against the original instructions): the camera shake of
+         * D_008105D0 / D_008105E0 by the mode word rec +0x08. It reads and
+         * writes rec +0x08..+0x17, the phase byte block +4 and the scratch
+         * quadword 0x70003600; its quadword copies, 001281C0, 00122BB8,
+         * 001026A0 and 001028B8 are calls through the host. */
+        EmArea00LowRegion regions[3]={{rec+8,0x10,view(&f,rec+8,0x10,1)},
+            {block+4,1,view(&f,block+4,1,1)},{0x70003600u,0x10,view(&f,0x70003600u,0x10,1)}};
+        EmArea00Low owner={.regions=regions,.region_count=3,.sp=c->sp,.call=low_call,.ctx=&f};
+        rc=em_area00_low_001B8AB0(&owner,block,rec,&result);failed=owner.fault_address;
     } else if(c->function==0x00824E40u) {
         /* Byte-matched func_overlay_AREA00_00824E00: the arrival's clip
          * callback. Stores and clip call stay on the canonical actor view. */

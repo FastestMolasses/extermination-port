@@ -11,7 +11,9 @@ from test_player_fall_reference import FallEE
 from test_player_slide_reference import read_elf,bits,number,STACK_TOP
 
 LEAVES={0x102948:(2,0),0x1028D0:(3,0),0x1B1240:(1,2),0x1B12B0:(0,3),
-        0x1FB9F0:(4,0),0x182F90:(2,0),0x1FD4C0:(1,0),0x119828:(3,0)}
+        0x1FB9F0:(4,0),0x182F90:(2,0),0x1FD4C0:(1,0),0x119828:(3,0),
+        # 001B8AB0 (op03): 001281C0, 00122BB8, 001026A0, 001028B8.
+        0x1281C0:(0,1),0x122BB8:(0,0),0x1026A0:(3,0),0x1028B8:(3,0)}
 EXTERNAL={0x1FB9F0,0x1FD4C0,0x119828}
 
 def main():
@@ -28,10 +30,18 @@ def main():
         cases += [(0x1B6AE0,phase,wait,t) for phase,wait,t in itertools.product((0,1,2,3),(0,1),(59.,60.,61.))]
         cases += [(0x825910,0,0,value) for value in (504.,505.,506.)]
         cases += [(0x826950,phase,0,t) for phase,t in itertools.product((0,1,2,3),(0.,19.,20.,39.,40.,54.,55.,80.))]
+        # 001B8AB0 (op03, the camera shake): flag = mode | n << 8 (rec +0x08
+        # and the word rec +0x14); the timer rec +0x10 against rec +0x0C = 80
+        # (draws on odd counts, the restore at 80); modes 3 and 0xFF return 0.
+        cases += [(0x1B8AB0,phase,mode|n<<8,t) for phase,mode,n,t in itertools.product(
+            (0,1,2),(0,1,2,3,0xFF),(0,7,0x40),(0.,1.,78.,79.,80.))]
         if not FULL:cases=cases[::3]+[(0x826950,2,0,t) for t in (20.,40.,55.)]
         node,block,record=0x7ABD10,0x7ABF00,0x82B650
         spans=[(node,0x2F0),(record,64),(0x8101E0,0x710)]
-        def snapshot(o):return tuple(o.read(a,size) for a,size in spans)+(o.read(0x70003600,16),o.read(0x70003B80,32))
+        # The rand state word (00122BB8's +0x58 of the block D_0024295C names).
+        rand=int.from_bytes(bytes(cap.ram[0x24295C:0x242960]),'little')+0x58
+        spans=spans+[(rand,4)]
+        def snapshot(o):return tuple(o.read(a,size) for a,size in spans)+(o.read(0x70003600,32),o.read(0x70003B80,32))
         for fn,phase,flag,t in cases:
             o=FallEE(elf);o.mem[:]=cap.ram;o.spad[:]=cap.spad
             o.write(record,A.read_overlay()[record-0x823500:record-0x823500+64])
@@ -39,6 +49,7 @@ def main():
             o.save(record+0x10,bits(t));o.save(record+0xC,bits(80.));o.save(node+0x3C,bits(t))
             if fn==0x1B7670:o.save(record+8,phase)
             if fn==0x1B6AE0:o.save(record+8,flag)
+            if fn==0x1B8AB0:o.save(record+8,flag&0xFF);o.save(record+0x14,flag>>8)
             before,spad=bytes(o.mem),bytes(o.spad);expected=[]
             def leaf(o,fn,args,floats):
                 if fn in EXTERNAL:o.r[2]=0;return
@@ -59,7 +70,7 @@ def main():
                 if a+size<=len(ram):return C.addressof(ram)+a
                 if 0x70000000<=a and a+size<=0x70004000:return C.addressof(sp)+a-0x70000000
                 return None
-            def current():return tuple(bytes(ram[a:a+size]) for a,size in spans)+(bytes(sp[0x3600:0x3610]),bytes(sp[0x3B80:0x3BA0]))
+            def current():return tuple(bytes(ram[a:a+size]) for a,size in spans)+(bytes(sp[0x3600:0x3620]),bytes(sp[0x3B80:0x3BA0]))
             @Worker
             def worker(_,ptr):
                 nonlocal pos

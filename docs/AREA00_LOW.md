@@ -351,8 +351,11 @@ worker ABI to this module's region model, as EXITA's):
 - **Scene.** `em_scene_frame.c` calls `w_001FF030` in 0x1AE040 state 6; this is it.
 - **Sounds.** `em_crate_original.h` / `em_drum_original.h` take 001FC580 as their `sound`
   worker and `em_area11_boxes.c` leaves it unbound (fail-stop); this is the translation for it.
-- **Area script.** `em_area_script.c` handles the AREA11 command set; commands 3, 0x11 and 0x13
-  (001B8AB0, 001B7700, 001B7670) are not in it and fault today. 001B7670 writes S3B91, a
+- **Area script.** `em_area_script.c` handles the AREA11 command set. With an area binding's
+  handler, commands 3 and 0x13 (001B8AB0 since 2026-10-20, 001B7670) run these translations
+  through `em_area01_script_workers.c` (`make test-area01-script-workers-reference` checks both
+  through that binding against the original instructions); command 0x11 (001B7700) is handled
+  there too, but `execute` has no case for it yet, so it still faults. 001B7670 writes S3B91, a
   canonical scratchpad byte: its binding must write the canonical storage and join G6's WRITERS
   for `spad3B91` as the counterpart of that original writer.
 - **Canonical bytes.** 0012E070 / 0012E0B0's `grab_bits` view goes to EmProgress's D_0081083C
