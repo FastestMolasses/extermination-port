@@ -1215,9 +1215,9 @@ test-dof-pass-reference:
 # build/status_field_capture, the PCSX2 fork's software renderer;
 # STATUS_FIELD.md, GS_EXACT.md sections 3.4, 7 and 8.8): the original's
 # BATTERY page lists through the model bit-exact, the drawn field equal to
-# the displayed one, strict mode's refusals only the column rule's open
-# class; the column probe at its documented residual. Default: one frame;
-# EM_TEST_FULL=1: all five.
+# the displayed one, in strict mode too (nothing refused); the four column
+# probes (p10_cols, p11_open, p12_open, the held-out p13_holdout) exact in
+# both modes. Default: one frame; EM_TEST_FULL=1: all five.
 .PHONY: test-status-field-reference
 test-status-field-reference:
 	python3 tools/test_status_field_reference.py

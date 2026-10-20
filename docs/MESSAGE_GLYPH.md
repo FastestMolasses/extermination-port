@@ -122,8 +122,9 @@ the GS's own sample, the integer point of its row under the field's draw
 offset (OFY 1936.5 on a half-line field), with the sprite's coverage, U
 and V as the floor of their exact values in 1/16 texel (the rows' 2 texels
 per row are dyadic; the columns' u_end = width + 1 span, 228 over 227 in
-the AREA01 title, is not, and the GS model's column rule takes the floor of
-the exact value), and the CLUT's ink colour: 001CC8A0 expands an ink bit
+the AREA01 title, is not; the GS model's column rule, GS_EXACT.md 3.4,
+reads the same texel as the floor of the exact value at every column of
+that shape, widths 1 to 512 from any start column), and the CLUT's ink colour: 001CC8A0 expands an ink bit
 to texel index 15, and the strip's TEX0 reads the CLUT 001CCB10 uploads
 (byte-matched; CBP 0x1B67), a grey ramp whose entry 15 is grey 240 at the
 GS's full alpha (`GLYPH_INK` in em_hud.c; the atlas keeps the coverage

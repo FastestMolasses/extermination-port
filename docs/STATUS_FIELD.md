@@ -56,12 +56,10 @@ toward zero to 2^-14 of a 1/16 texel, accumulated from the first drawn
 column. Now all five lists draw every word of local memory exactly, and the
 drawn field equals the field the display showed two loop tops later.
 
-Strict mode (the Original profile's) still refuses part of these pages:
-the probe leaves 19 of its 85,314 columns open (GS_EXACT.md 8.8), and the
-check that refuses that class refuses 12 sprites on four frames (a row of
-bilinear 32-texel sprites 12 pixels wide) and 9 on 03 f500 (eight of them
-and the background's wide layer). The rule draws those exactly in every
-captured frame; settling the open class is the next measurement.
+Strict mode (the Original profile's) still refused part of these pages
+after this step (12 sprites on four frames, 9 on 03 f500): the probe left
+19 of its columns open. Step 1 of section 5 settled that (section 3c):
+strict mode now draws all five pages exactly.
 
 Unchanged elsewhere: no UV sprite of the first level's world frames has a
 non-dyadic column step (a scratch build counting them over the level smoke
@@ -73,7 +71,47 @@ harness's quick point pass. The Metal glyph pass (em_gfx_overlay_glyph_gs,
 MESSAGE_GLYPH.md) keeps the floor of the exact value for its columns; for
 the glyph strips' shape (u_end = width + 1 texels over width pixels from a
 whole pixel, nearest) both rules read the same texel at every column of
-every width 1..512 (checked), so it stays matching.
+every width 1..512 (checked; checked again for the rule of section 3c, at
+every start column mod 4), so it stays matching.
+
+## 3c. Step 1: the column rule settled, strict mode draws the pages (2026-10-20)
+
+Four designed probes in the fork (decomp `build/status_field_capture`:
+`probe_cols.py` p10_cols, and this step's `probe_open.py` p11_open,
+`probe_open2.py` p12_open and `probe_holdout.py` p13_holdout, hidden, under
+the run lock, about 1 s each; 2,048 UV sprites of height 1, about 360,000
+decoded columns) measured the UV sprite column rule (GS_EXACT.md 3.4): 16.16
+fixed point set up in binary32 from the left corner, for bilinear sampling
+the filter's coordinate U - 0.5 texel truncated toward zero, then four
+columns at a time in groups aligned to window x mod 4, each lane its own
+truncated binary32 offset and each group a truncated four-column step. The
+first three probes found it (one parameter a test: the old rule's open
+columns were a start offset per x mod 4 and per sub-pixel start); the
+fourth was captured after it was written down and every one of its columns
+is predicted (random sprites of every kind, starts whose binary32
+association matters, XYOFFSET X at 1025 and 1024.5 pixels). em_gs_raster
+draws by it (`uv_cols_init` / `uv_cols_u16`); strict mode refuses only
+where the start's sum order, which no probe tells apart, would change a
+drawn column (`uv_col_settled`; GS_EXACT.md 8.8).
+
+Proof:
+- `make test-status-field-reference` (extended): the five captured BATTERY
+  page lists bit-exact through the model in both modes, strict mode
+  refusing nothing (it refused 12 / 12 / 12 / 12 / 9 sprites before), and
+  all four probes exact in both modes. Mutants of the rule, 9 of 9 killed
+  (GS_EXACT.md section 7).
+- `make test-gs-raster-reference`: 703 of 906 bit-exact as before (931 of
+  1,158 with EM_TEST_FULL=1), every open count unchanged; its strict cases
+  now 18 (the old open class's sprite a control, also under XYOFFSET X 1
+  and 4 pixels off; the sum-order case refused).
+- Unchanged elsewhere: a scratch build comparing every drawn UV sprite
+  column with the rule before over the level smoke through the AREA01
+  arrival (one GS worker): 105,808 UV sprites, 40,594,432 columns, 0
+  changed, nothing refused, the run passing through a01_arrival; the
+  depth-of-field captures (`make test-dof-pass-reference`, EM_TEST_FULL=1),
+  `make test-gs-world`, `make test-ui-packet-reference` (EM_TEST_FULL=1),
+  `make test-status-gs-page`, `make test-level-smoke` and the fb2 harness's
+  quick point pass.
 
 ## 3a. Step 2: the page packets built natively, byte for byte (2026-10-20)
 
@@ -235,20 +273,24 @@ Proof:
 - `build/status_field_capture/probe_cols.py list | capture | decode`: the
   column probe (decomp tools/gs_conformance.py's harness; 8 tests of 64
   sprites; GS_EXACT.md 3.4).
+- `build/status_field_capture/probe_open.py`, `probe_open2.py` and
+  `probe_holdout.py` (`list | capture | decode`, same harness): p11_open,
+  p12_open and p13_holdout under `build/status_field_capture/probe_open`
+  (section 3c).
 - The status hub (`state:slot14_status_hub`) and the ITEM root
   (`state:slot12_status_root`) lists hold VU1 code (the models): their GS
   stream is the fork's GS dump, which `capture.py` records in its third
   pass (not yet run to completion: the hub run's hidden launch timed out
   once).
 
-These two scripts are this lane's own code in an ignored folder; copies
-for the decomp's `tools/` are in the lane's diff folder (the port lane does
+These scripts are this lane's own code in an ignored folder; copies for
+the decomp's `tools/` are in the lane's diff folders (the port lane does
 not commit to the decomp).
 
 ## 5. What remains (the next steps of this lane)
 
-1. Settle the column rule's open class (GS_EXACT.md 8.8) with a probe aimed
-   at it, so strict mode draws the captured pages.
+1. (done, section 3c) Settle the column rule's open class (GS_EXACT.md
+   8.8), so strict mode draws the captured pages.
 2. (done, section 3a) Build the pages' packets natively, byte for byte.
    001CCB10's CLUT is not a slot packet (a boot-time kick on its own DMA
    channel); its 64 entries are the grey ramp em_hud's GLYPH_INK reads.

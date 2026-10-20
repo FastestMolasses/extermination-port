@@ -1891,33 +1891,37 @@ static inline int wy(const EmGsContext *c, int32_t y) { return y - (int)bits(c->
  * (and a product from the start, a double accumulation or blocks of four
  * rows do not).
  *
- * The column coordinate U is fixed point (measured 2026-10-20: the status
- * pages' fork captures, decomp build/status_field_capture, and its designed
- * probe probe_cols.py, 512 UV sprites of height 1 and 85,314 decoded
- * columns; docs/GS_EXACT.md section 3.4), in units of 2^-14 of a 1/16
- * texel: the step per pixel and the exact value at the start column xs,
- * each truncated toward zero,
- *   g     = trunc((u1 - u0) * 2^18 / (x1 - x0))       (x, u: 12.4, 10.4)
- *   s     = trunc((u1 - u0) * (16 xs - x0) * 2^14 / (x1 - x0))
- * and at column x the 1/16-texel coordinate
- *   U16   = u0 + floor((s + g * (x - xs)) / 2^14)
- * from the first vertex as given, where xs is the first column drawn: the
- * sprite's first covered column, or the scissor's left column when the
- * sprite starts left of it. Where the step is exact (dyadic to 18 bits)
- * this is the floor of the exact value; where it is not, the truncated step
- * leaves a column one 1/16 texel below where the exact value lies on or
- * just above an integer (the status background's wide layer, 128 texels
- * over 561 pixels from x = -24.6: columns 180, 263, 326, 346, 409, 429 and
- * 492 of every row). The probe settles the start column (the first covered
- * column, not window column 0 or the scissor's; the scissor's, not the
- * first covered one, when the sprite starts left of it) and the truncation
- * toward zero (a negative step: 0 and 1 columns off against 8 and 138 with
- * the floor). It leaves 19 of its 85,314 decoded columns off, every one
- * within 16 units (2^-14 of a 1/16 texel) of a coordinate boundary and at
- * most 79 columns after the start, mostly an exact integer value a few
- * columns in that the fork keeps (GS_EXACT.md 8.8): strict mode refuses a
- * sprite with a drawn column that close to a boundary within its first 128
- * columns when the step or the start was truncated (uv_col_settled). */
+ * The column coordinate U (measured 2026-10-20: the status pages' fork
+ * captures, decomp build/status_field_capture, and four designed probes in
+ * the fork, probe_cols.py p10_cols, probe_open.py p11_open, probe_open2.py
+ * p12_open and the held-out probe_holdout.py p13_holdout: 2,048 UV sprites
+ * of height 1, about 360,000 decoded columns, every one equal;
+ * docs/GS_EXACT.md section 3.4) is 16.16 fixed point, W in 2^-16 texel,
+ * set up in binary32 from the LEFT corner (the one with the lower X, with
+ * its U) whatever the order the corners are given in; for bilinear sampling
+ * W is the coordinate the filter reads, U - 0.5 texel (h = 0.5; nearest:
+ * h = 0). In texels and pixels (U / 16, X / 16: exact), each operation
+ * rounded to binary32:
+ *   d   = (uR - uL) / (xR - xL)
+ *   W0  = trunc(((uL - h) + (xs - xL) * d) * 2^16)      toward zero, so a
+ *         start below half a texel rounds UP
+ *   G   = trunc(d * 2^18)                               four columns
+ *   L_k = trunc((k * d) * 2^16), k = -3 .. 3            a lane's offset
+ * at xs, the first column drawn (the first covered column, or the
+ * scissor's left column when the sprite starts left of it). The columns go
+ * four at a time, in groups aligned to window x mod 4 (whatever XYOFFSET's
+ * X: p13_holdout phase1 at 1025 px and phase_half at 1024.5 px): lane L of
+ * the group holding xs (r = xs mod 4) is W0 + L_(L - r), each next group adds
+ * G. The 1/16-texel coordinate is floor(W / 2^12) (+ 8 for bilinear, which
+ * the filter takes off again). Over many groups this is close to an 18-bit
+ * step truncated toward zero (the rule before; it left 19 probe columns
+ * open, all within 79 columns of the start); the start, the lanes inside a
+ * group and the binary32 step are where it differs (a start in double
+ * precision leaves 152 columns of p11_open off, an exact-integer step and
+ * lanes 7 of p13_holdout's, a start as (uL + p d) - h 1 and one fused
+ * multiply-add 67). Not settled by the probes, and refused in strict mode
+ * where it changes a drawn coordinate (uv_col_settled): the start's sum as
+ * uL + (p d - h), which fits every probe column too. */
 static inline float uv_texels(uint32_t q4) { return (float)q4 * 0.0625f; }   /* 1/16 texel -> texel: exact */
 
 /* The accumulation's start: t0 + (first - a0) * step, the product and the
@@ -1930,54 +1934,87 @@ static float uv_start(float t0, float a0, float step, int first)
     return t0 + prod;
 }
 
-/* The column rule above, from start column xs: the 1/16-texel U of window
- * column x (12.4 corner X0 / X1 with U q0 / q1, X1 != X0). */
-static inline int64_t uv_col_acc(uint32_t q0, uint32_t q1, int X0, int X1, int xs, int x)
-{
-    const int64_t du = (int64_t)q1 - (int64_t)q0, dx = (int64_t)X1 - X0;
-    const int64_t g = du * ((int64_t)1 << 18) / dx;                              /* C: toward zero */
-    const int64_t s0 = du * (16 * (int64_t)xs - X0) * ((int64_t)1 << 14) / dx;
-    return (int64_t)q0 * ((int64_t)1 << 14) + s0 + g * ((int64_t)x - xs);
-}
-static inline int64_t uv_col(uint32_t q0, uint32_t q1, int X0, int X1, int xs, int x)
-{
-    return floordiv64(uv_col_acc(q0, q1, X0, X1, xs, x), (int64_t)1 << 14);
-}
+/* The column rule above for one sprite. */
+typedef struct {
+    int64_t w0, step4;
+    int64_t lane[7];                 /* L_k, k = -3 .. 3 */
+    int xb, r, bil, flat;
+} UvCols;
 
-/* The start column of uv_col for a sprite whose covered columns begin at
- * `first` inside a scissor whose left column is sx0. */
-static inline int uv_col_start(int first, int sx0) { return first < sx0 ? sx0 : first; }
-
-/* Strict mode (section 6) for the columns: 0 when a drawn column's U is
- * one the captures leave open (GS_EXACT.md 8.8):
- * - with a truncated step or start, an accumulator within 16 units of a
- *   coordinate boundary less than 128 columns after the start (every column
- *   the probe leaves off is that close, at most 79 columns in; the 56 probe
- *   columns that close 96 or more columns in all match). A column the
- *   truncation left at its exact value is not open unless the first vertex
- *   is the right one. With nearest sampling (`shift` 4) only the texel
- *   boundaries count, since U >> 4 is all it reads;
- * - when the first vertex is the right one, a column where the base taken
- *   from the left corner gives another U (of the 5 probe columns where the
- *   two differ, neither base matches every one).
- * 1: settled. */
-static int uv_col_settled(uint32_t q0, uint32_t q1, int X0, int X1, int sx0, int lo, int hi, int shift)
+/* The rule's state from xs (the first column drawn) for corners (q0, X0),
+ * (q1, X1) as given (U in 1/16 texel, X in 12.4 window), bilinear or not;
+ * assoc 1 takes the start's sum as uL + (p d - h) (strict mode's check).
+ * Each binary32 operation is its own statement: never contracted into a
+ * fused multiply-add. */
+static void uv_cols_init_v(UvCols *c, uint32_t q0, uint32_t q1, int X0, int X1, int xs, int bil, int assoc)
 {
-    if (X1 == X0) return 1;
-    const int64_t du = (int64_t)q1 - (int64_t)q0, dx = (int64_t)X1 - X0;
-    const int first = (int)floordiv64((X0 < X1 ? X0 : X1) + 15, 16);
-    const int xs = uv_col_start(first, sx0);
-    const int inexact = (du * ((int64_t)1 << 18)) % dx != 0 ||
-                        (du * (16 * (int64_t)xs - X0) * ((int64_t)1 << 14)) % dx != 0;
-    const int64_t unit = (int64_t)1 << (14 + shift), margin = 16;
-    for (int x = lo; x <= hi; ++x) {
-        const int64_t a = uv_col_acc(q0, q1, X0, X1, xs, x);
-        const int64_t r = a - floordiv64(a, unit) * unit;
-        const int64_t num = du * (16 * (int64_t)x - X0) * ((int64_t)1 << 14);
-        const int untouched = X0 < X1 && num % dx == 0 && num / dx == a - (int64_t)q0 * ((int64_t)1 << 14);
-        if (inexact && !untouched && x - xs < 128 && (r < margin || r >= unit - margin)) return 0;
-        if (X0 > X1 && uv_col(q1, q0, X1, X0, xs, x) >> shift != uv_col(q0, q1, X0, X1, xs, x) >> shift) return 0;
+    const int left = X0 <= X1;
+    const uint32_t qL = left ? q0 : q1, qR = left ? q1 : q0;
+    const int XL = left ? X0 : X1, XR = left ? X1 : X0;
+    c->bil = bil;
+    c->flat = XL == XR;
+    c->r = xs & 3;
+    c->xb = xs - c->r;
+    if (c->flat) {
+        c->w0 = (int64_t)qL << 12;
+        c->step4 = 0;
+        memset(c->lane, 0, sizeof c->lane);
+        return;
     }
+    const float uL = uv_texels(qL), uR = uv_texels(qR);
+    const float xL = (float)XL * 0.0625f, xR = (float)XR * 0.0625f;
+    const float span = xR - xL, rise = uR - uL;
+    const float d = rise / span;
+    const float h = bil ? 0.5f : 0.0f;
+    const float pre = (float)xs - xL;            /* exact */
+    const float prod = pre * d;
+    float s;
+    if (assoc == 0) {
+        const float base = uL - h;
+        s = base + prod;
+    } else {
+        const float shifted = prod - h;
+        s = uL + shifted;
+    }
+    const float w0 = s * 65536.0f;               /* exact: a power of two */
+    c->w0 = (int64_t)w0;                         /* C: toward zero */
+    const float g4 = d * 262144.0f;              /* exact */
+    c->step4 = (int64_t)g4;
+    for (int k = -3; k <= 3; ++k) {
+        const float kd = (float)k * d;
+        const float lk = kd * 65536.0f;          /* exact */
+        c->lane[k + 3] = (int64_t)lk;
+    }
+}
+
+static void uv_cols_init(UvCols *c, uint32_t q0, uint32_t q1, int X0, int X1, int xs, int bil)
+{
+    uv_cols_init_v(c, q0, q1, X0, X1, xs, bil, 0);
+}
+
+/* The 1/16-texel U of window column x (x >= the group start of xs). */
+static inline int64_t uv_cols_u16(const UvCols *c, int x)
+{
+    if (c->flat) return c->w0 >> 12;
+    const int off = x - c->xb;
+    const int64_t w = c->w0 + c->lane[(off & 3) - c->r + 3] + c->step4 * (int64_t)(off >> 2);
+    return floordiv64(w, (int64_t)1 << 12) + (c->bil ? 8 : 0);
+}
+
+/* Strict mode (section 6) for the columns: 0 when a drawn column (xs..hi)
+ * reads another coordinate with the start's sum taken the other way the
+ * probes leave open (above). With nearest sampling only the texel
+ * (U16 >> 4) counts. 1: settled. */
+static int uv_col_settled(uint32_t q0, uint32_t q1, int X0, int X1, int xs, int hi, int bil)
+{
+    if (X1 == X0 || hi < xs) return 1;
+    const int shift = bil ? 0 : 4;
+    UvCols rule, alt;
+    uv_cols_init_v(&rule, q0, q1, X0, X1, xs, bil, 0);
+    uv_cols_init_v(&alt, q0, q1, X0, X1, xs, bil, 1);
+    if (alt.w0 == rule.w0) return 1;
+    for (int x = xs; x <= hi; ++x)
+        if (uv_cols_u16(&alt, x) >> shift != uv_cols_u16(&rule, x) >> shift) return 0;
     return 1;
 }
 
@@ -2026,7 +2063,8 @@ static int sprite_uv_settled(const Draw *d, const EmGsVertex *v0, const EmGsVert
     if (py0 < d->sy0) py0 = d->sy0;
     if (py1 > d->sy1) py1 = d->sy1;
     if (px0 > px1 || py0 > py1) return 1;                    /* draws nothing */
-    return uv_row_settled(v0->v, v1->v, Y0, Y1, py0, py1) && uv_col_settled(v0->u, v1->u, X0, X1, d->sx0, px0, px1, d->mmag ? 0 : 4);
+    return uv_row_settled(v0->v, v1->v, Y0, Y1, py0, py1) &&
+           uv_col_settled(v0->u, v1->u, X0, X1, px0, px1, d->mmag);   /* px0: xs */
 }
 
 /* The alpha test's comparison (TEST.ATST against AREF) for a fragment alpha
@@ -2209,6 +2247,8 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
      * (0..2047). */
     int64_t ucol[2048];
     int ucol_ready = 0;
+    UvCols ucols;
+    uv_cols_init(&ucols, v0->u, v1->u, X0, X1, px0, d->mmag);   /* px0: xs, the first column drawn; FST 1 only */
     for (int y = py0; y <= py1; y++, vrow += vstep) {
         if (!own_row(gs, y))
             continue;
@@ -2223,7 +2263,7 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
                 for (int x = px0; x <= px1; x++) {
                     int64_t U16;
                     if (d->fst) {
-                        U16 = (X1 == X0) ? (int64_t)v0->u : uv_col(v0->u, v1->u, X0, X1, px0, x); /* px0: uv_col_start */
+                        U16 = (X1 == X0) ? (int64_t)v0->u : uv_cols_u16(&ucols, x);
                     } else {
                         double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
                         U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
@@ -2875,6 +2915,8 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
      * on the first row this band draws, as draw_sprite computes its U */
     int32_t col_a[2048], col_b[2048];
     uint8_t col_f[2048];
+    UvCols ucols;
+    uv_cols_init(&ucols, v0->u, v1->u, X0, X1, px0, d->mmag);   /* px0: xs, the first column drawn; FST 1 only */
     int ready = 0;
     uint64_t zfail = 0, samples = 0, drawn = 0;
     for (int y = py0; y <= py1; y++, vrow += vstep) {
@@ -2891,7 +2933,7 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
             for (int x = px0; x <= px1; x++) {
                 int64_t U16;
                 if (d->fst) {
-                    U16 = (X1 == X0) ? (int64_t)v0->u : uv_col(v0->u, v1->u, X0, X1, px0, x); /* px0: uv_col_start */
+                    U16 = (X1 == X0) ? (int64_t)v0->u : uv_cols_u16(&ucols, x);
                 } else {
                     double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
                     U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);

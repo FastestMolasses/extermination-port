@@ -20,22 +20,26 @@ A. The status pages. ../Extermination/build/status_field_capture/<beat>/
    registers list T starts with from list T - 1 (the last value of every
    state register it wrote: list T writes the rest itself), and runs list T
    through em_gs_raster from the BEFORE memory:
-   - not strict: every word of the 4 MiB equals the AFTER memory, and the
-     drawn field (list T's FRAME_1) equals the displayed field;
-   - strict (the Original profile's mode): the only refusals are UV sprites
-     of the column rule's open class (GS_EXACT.md 8.8), reported.
-B. The column probe. ../Extermination/build/status_field_capture/
-   probe_cols/p10_cols (decomp build/status_field_capture/probe_cols.py,
-   the gs_conformance harness): 512 designed UV sprites of height 1 (start
-   inside a scissor at 0 and left of one at 37, first vertex right, U
-   decreasing; nearest over a 64-texel ramp, bilinear over a 16-texel one).
-   The packet through the model: not strict, the pixels off must be exactly
-   the documented residual (OPEN_COUNT below: the columns where the fork keeps a
-   value the rule does not give); strict, every one of those pixels must be
-   left undrawn (its sprite refused).
+   in both modes, not strict and strict (the Original profile's mode):
+   nothing refused, every word of the 4 MiB equals the AFTER memory, and the
+   drawn field (list T's FRAME_1) equals the displayed field.
+B. The column probes (GS_EXACT.md 3.4): ../Extermination/build/
+   status_field_capture/probe_cols/p10_cols (decomp build/
+   status_field_capture/probe_cols.py, the gs_conformance harness): 512
+   designed UV sprites of height 1 (start inside a scissor at 0 and left of
+   one at 37, first vertex right, U decreasing; nearest over a 64-texel
+   ramp, bilinear over a 16-texel one); probe_open/p11_open and p12_open
+   (probe_open.py, probe_open2.py): 1,024 more, bilinear, one parameter a
+   test (position, start value, width, gradient, sub-pixel start, row, the
+   scissor, corner order; the step's truncation remainder over the start
+   column mod 4 and the sub-pixel start); probe_open/p13_holdout
+   (probe_holdout.py, captured after the rule was derived from the other
+   three: random sprites of every kind, starts whose binary32 association
+   matters, XYOFFSET X at 1025 and 1024.5 pixels). Each packet through the
+   model in both modes: nothing refused, every pixel of every test equal.
 
 Quick (default): A at 01_battery f0300, and B. EM_TEST_FULL=1: every
-captured frame. Everything else must be bit-exact; a difference fails.
+captured frame. A difference fails.
 """
 from __future__ import annotations
 
@@ -61,11 +65,9 @@ LIST_BASE = 0x0028F700
 QUICK = [('01_battery', 300)]
 FRAMES = [('01_battery', 230), ('01_battery', 300), ('01_battery', 400),
           ('03_panel_power', 440), ('03_panel_power', 500)]
-# The probe's residual (B): pixels off per test, the columns where the fork
-# keeps a value the column rule does not give (GS_EXACT.md 8.8).
-OPEN_COUNT = {'in_near': 2, 'in_bil': 10, 'left37_bil': 2, 'rtl_bil': 4, 'neg_bil': 1}
+# The column probes (B), each a batch folder under CAP.
+PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout']
 SOURCES = ['tests/status_field_reference_bridge.c', 'src/gs/em_gs_raster.c']
-COLUMN_REASON = "unmeasured: a UV sprite's texel coordinates (3.4)"
 # the state registers list T may inherit from list T - 1 (PRIM and the vertex
 # registers excluded: list T sets them before every primitive)
 STATE_REGS = {0x06, 0x07, 0x08, 0x09, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x22, 0x34, 0x35,
@@ -235,70 +237,59 @@ def check_frame(lib, beat: str, T: int) -> None:
         print(line)
         if r['consumed'] != len(cur) or r['span_faults']:
             fail(f'{beat} f{T} {tag}: consumed {r["consumed"]} of {len(cur)}, span faults {r["span_faults"]}')
-        if not strict:
-            if r['refused'] or off:
-                fail(f'{beat} f{T}: the model leaves {off} words off ({r["refused"]} refused: {r["reason"]})')
-            if not (got[words] == disp).all():
-                fail(f'{beat} f{T}: the drawn field is not the displayed field at loop top T + 2')
-        elif r['refused'] and r['reason'] != COLUMN_REASON:
-            fail(f'{beat} f{T}: strict refusal outside the column rule: {r["reason"]}')
+        if r['refused'] or off:
+            fail(f'{beat} f{T} {tag}: the model leaves {off} words off ({r["refused"]} refused: {r["reason"]})')
+        if not (got[words] == disp).all():
+            fail(f'{beat} f{T} {tag}: the drawn field is not the displayed field at loop top T + 2')
 
 
-# ---------------------------------------------------------------- B: the probe
-def check_probe(lib) -> None:
-    pb = CAP / 'probe_cols/p10_cols'
+# ---------------------------------------------------------------- B: the probes
+def check_probe(lib, rel: str) -> None:
+    pb = CAP / rel
     doc = json.loads((pb / 'batch.json').read_text())
     pkt = (pb / 'packet.bin').read_bytes()
-    results = {}
     for strict in (0, 1):
         mem = bytearray(4 << 20)
         r = replay(lib, mem, {}, pkt, strict)
         words = np.frombuffer(bytes(mem), '<u4')
-        results[strict] = (r, words)
-    counts, open_px = {}, []
-    for t in doc['tests']:
-        m = field_words(lib, t['fbp'], t['w'], t['h'])
-        want = np.load(pb / f"{t['name']}.npz")['color']
-        got = results[0][1][m].reshape(t['h'], t['w'])
-        ys, xs = np.nonzero(got != want)
-        if len(ys):
-            counts[t['name']] = len(ys)
-        strict = results[1][1][m].reshape(t['h'], t['w'])
-        open_px += [(t['name'], int(y), int(x), int(strict[y, x])) for y, x in zip(ys, xs)]
-    print(f'  probe: {len(doc["tests"])} tests, model {results[0][0]["prims"]} primitives drawn, pixels off by test '
-          f'{counts} (documented {OPEN_COUNT}); strict refused {results[1][0]["refused"]} sprites')
-    if counts != OPEN_COUNT:
-        fail(f'probe: the pixels off {counts} are not the documented residual {OPEN_COUNT}')
-    undrawn = [p for p in open_px if p[3] != 0]
-    if undrawn:
-        fail(f'probe: strict mode draws {len(undrawn)} of the residual pixels (their sprites must be refused): '
-             f'{undrawn[:4]}')
-    if results[0][0]['refused'] or results[0][0]['span_faults']:
-        fail(f'probe: the model refused {results[0][0]["refused"]} ({results[0][0]["reason"]})')
-    if results[1][0]['refused'] and results[1][0]['reason'] != COLUMN_REASON:
-        fail(f'probe: strict refusal outside the column rule: {results[1][0]["reason"]}')
+        counts = {}
+        for t in doc['tests']:
+            m = field_words(lib, t['fbp'], t['w'], t['h'])
+            want = np.load(pb / f"{t['name']}.npz")['color']
+            off = int((words[m].reshape(t['h'], t['w']) != want).sum())
+            if off:
+                counts[t['name']] = off
+        tag = 'strict' if strict else 'model'
+        print(f'  {doc["batch"]} {tag}: {len(doc["tests"])} tests, {r["prims"]} primitives drawn, {r["refused"]} '
+              f'refused; pixels off by test {counts}')
+        if counts:
+            fail(f'{doc["batch"]} {tag}: pixels off {counts}')
+        if r['refused'] or r['span_faults'] or r['consumed'] != len(pkt):
+            fail(f'{doc["batch"]} {tag}: refused {r["refused"]} ({r["reason"]}), span faults {r["span_faults"]}, '
+                 f'consumed {r["consumed"]} of {len(pkt)}')
 
 
 def main() -> int:
     t0 = time.monotonic()
     missing = [p for p in [CAP / b / f'f{T:04d}' / 'capture.json' for b, T in FRAMES] +
-               [CAP / 'probe_cols/p10_cols/packet.bin'] if not p.exists()]
+               [CAP / rel / 'packet.bin' for rel in PROBES] if not p.exists()]
     if missing:
         print(f'test_status_field_reference: REFUSED (no capture at {missing[0]}; decomp '
-              f'build/status_field_capture/capture.py and probe_cols.py record them)')
+              f'build/status_field_capture/capture.py, probe_cols.py, probe_open.py, probe_open2.py and probe_holdout.py record them)')
         return 2
     lib = build()
     frames = FRAMES if FULL else QUICK
-    print(f'mode {MODE}: {len(frames)} of {len(FRAMES)} status page frames, and the column probe')
+    print(f'mode {MODE}: {len(frames)} of {len(FRAMES)} status page frames, and {len(PROBES)} column probes')
     for beat, T in frames:
         check_frame(lib, beat, T)
-    check_probe(lib)
+    for rel in PROBES:
+        check_probe(lib, rel)
     dt = time.monotonic() - t0
     if FAILS:
         print(f'test_status_field_reference: FAIL ({len(FAILS)} failures; {dt:.1f} s)')
         return 1
-    print(f'test_status_field_reference: PASS ({len(frames)} status page lists bit-exact through the model, the '
-          f'column probe at its documented residual; {dt:.1f} s)')
+    print(f'test_status_field_reference: PASS ({len(frames)} status page lists bit-exact through the model in both '
+          f'modes, {len(PROBES)} column probes exact, nothing refused; {dt:.1f} s)')
     return 0
 
 
