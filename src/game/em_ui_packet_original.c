@@ -339,3 +339,70 @@ int em_uip_001CC3B0(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t u_end,
     }
     return 0;
 }
+
+/* The packet range one cursor will take: the cursor word and `size` bytes
+ * at its value must be memory, and the range may hold neither cursor word
+ * (`other`: the second cursor of the run, or the same one). */
+static int check_range(EmUip *u, int32_t slot, uint32_t size, uint32_t other)
+{
+    const uint32_t cell = u->context + 0x10u + ((uint32_t)slot << 2);
+    const uint8_t *c = u->mem.bytes(u->mem.ctx, cell, 4);
+    if (!c) return fail(u, "slot cursor outside memory");
+    const uint32_t at = (uint32_t)c[0] | (uint32_t)c[1] << 8 | (uint32_t)c[2] << 16 | (uint32_t)c[3] << 24;
+    if (at > UINT32_MAX - size) return fail(u, "packet wraps the address space");
+    if ((cell + 4u > at && cell < at + size) || (other + 4u > at && other < at + size))
+        return fail(u, "packet overlaps its cursor");
+    if (size && !u->mem.bytes(u->mem.ctx, at, size)) return fail(u, "packet outside memory");
+    return 0;
+}
+
+/* 001CBA50's glyph mapping (the byte before the remap). */
+static uint32_t small_glyph(uint32_t c)
+{
+    if (c < 0x20u) return 0;
+    return c == 0x24u ? 0x87u : c - 0x20u;
+}
+
+/* 001CBA50(slot, x, y, advance, height, text, style). */
+int em_uip_001CBA50(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t advance, int32_t height,
+                    const uint8_t *text, uint32_t avail, const EmMessageTextStyle *style)
+{
+    if (!u || u->fault) return -1;
+    if (!text) return fail(u, "001CBA50 text missing");
+    uint32_t n = 0;
+    while (n < avail && text[n]) n++;
+    if (n >= avail) return fail(u, "001CBA50 text without terminator");
+    /* Everything the run will touch, before the first store. */
+    if (!u->nibbles) return fail(u, "D_0026E350 missing");
+    if (!u->font_small) return fail(u, "font missing");
+    for (uint32_t i = 0; i < n; i++) {
+        const uint32_t offset = small_glyph(text[i]) << 5;
+        if (offset > u->font_small_size || u->font_small_size - offset < 0x20u)
+            return fail(u, "glyph outside the font");
+    }
+    const uint32_t flushes = n / EM_UIP_001CBA50_CELLS + 1u;
+    if (n > (UINT32_MAX - EM_UIP_001CBC20_BYTES * flushes) / EM_UIP_001CC8A0_SMALL_BYTES)
+        return fail(u, "001CBA50 text too long");
+    const uint32_t uploads = n * EM_UIP_001CC8A0_SMALL_BYTES, sprites = flushes * EM_UIP_001CBC20_BYTES;
+    const uint32_t cell1 = u->context + 0x14u, cell = u->context + 0x10u + ((uint32_t)slot << 2);
+    if (cell == cell1) {
+        if (check_range(u, 1, uploads + sprites, cell1) < 0) return -1;
+    } else if (check_range(u, 1, uploads, cell) < 0 || check_range(u, slot, sprites, cell1) < 0) {
+        return -1;
+    }
+    /* 001CCB00(slot, 0, 0, 0x200, 0x10) is empty. */
+    int32_t col = 0, w = 0, h = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        if (em_uip_001CC8A0(u, 0, col, 0, (int32_t)(small_glyph(text[i]) << 5)) < 0) return -1;
+        col += 0x10;
+        w = (int32_t)((uint32_t)w + (uint32_t)advance);
+        if (col >= 0x200) {
+            h = (int32_t)((uint32_t)h + (uint32_t)height);
+            if (em_uip_001CBC20(u, slot, x, y, w, h, col, 0x10, style) < 0) return -1;
+            x = (int32_t)((uint32_t)x + (uint32_t)w);
+            col = w = h = 0;
+        }
+    }
+    h = (int32_t)((uint32_t)h + (uint32_t)height);
+    return em_uip_001CBC20(u, slot, x, y, w, h, col, 0x10, style);
+}

@@ -77,6 +77,23 @@ int em_status_background_render(struct EmGfx *gfx, float u, float v, float w, fl
  * 0 missing or invalid (reported). */
 int em_status_background_load_sdk(const char *path);
 
+/* The live call at the caller's call time (the BATTERY page's 0020A7A0
+ * inside 002149F0, docs/STATUS_FIELD.md section 5 step 3): one 0020A7A0
+ * over the shared state now, its 00207D00 / 00207E40 calls handed to
+ * `emit` (NULL: none) in the original's order, and its sprites kept for
+ * em_status_background_render_step. *token names the step. 1, or 0 (a
+ * fault: also without the tables, or when emit refuses). */
+typedef struct {
+    void *context;
+    int (*mode)(void *, int slot, int mode);                                     /* 00207D00 */
+    int (*sprite)(void *, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba); /* 00207E40 */
+} EmStatusBackgroundEmit;
+int em_status_background_live_step(const EmStatusBackgroundEmit *emit, uint32_t *token);
+/* Draw the sprites of step `token` (the last live step) as
+ * em_status_background_render draws its own, without stepping again. 1, or
+ * 0 (no such step, or no renderer). */
+int em_status_background_render_step(struct EmGfx *gfx, uint32_t token, float u, float v, float w, float h);
+
 /* The number of live 0020A7A0 calls so far (each advances D_002655A0
  * once), for the level smoke's once-per-status-frame check. */
 unsigned long em_status_background_live_steps(void);

@@ -56,6 +56,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
+           src/game/em_ui_packet_original.c src/game/em_ui_font_raw.c src/game/em_status_gs_page.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c src/game/em_face_attach.c \
            src/game/em_indicator_child.c src/game/em_indicator_bind_live.c src/game/em_effect_kinds.c \
@@ -1229,6 +1230,16 @@ test-status-field-reference:
 .PHONY: test-ui-packet-reference
 test-ui-packet-reference:
 	python3 tools/test_ui_packet_reference.py
+
+# The status pages' GS packets as the live game builds them
+# (src/game/em_status_gs_page.c, STATUS_FIELD.md section 3b): the headless
+# game to the battery take with EM_STATUS_GS_DUMP; every dumped frame decodes
+# into the builders' packets, route 01's f300 / f400 are built byte for byte
+# at the frames the counts give and drawn to the displayed field (about 16 s;
+# EM_TEST_FULL=1, about 25 s: on to route 03's panel page, both drawn).
+.PHONY: test-status-gs-page
+test-status-gs-page: $(BIN)
+	python3 tools/test_status_gs_page.py
 
 # The Original profile's GS frame (src/gs/em_gs_world.h, GS_EXACT.md section
 # 9): 1, 2, 3 and 8 workers draw the same fields and memory over designed

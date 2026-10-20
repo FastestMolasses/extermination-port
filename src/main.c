@@ -34,6 +34,7 @@
 #include "game/em_replay.h"
 #include "game/em_load_veil_live.h"
 #include "game/em_gs_frame_live.h"
+#include "game/em_status_gs_page.h"
 #include "game/em_background_live.h"
 #include "game/em_display_env_live.h"
 
@@ -288,13 +289,20 @@ static int stream_field(void *context)
 }
 static int loader_check(void *context) { (void)context; return em_scene_bindings_module_loader_check(); }
 /* Main-loop step B: 001D1AE0(D_00810E80) on the render context. */
-static int rcl_step_b(void *context, int32_t index) { (void)context; return em_rcl_001D1AE0(index); }
+static int rcl_step_b(void *context, int32_t index)
+{
+    (void)context;
+    const int rc = em_rcl_001D1AE0(index);
+    if (rc == 0) em_sgp_frame_begin(); /* the frame's slot-1 start (em_status_gs_page) */
+    return rc;
+}
 /* Main-loop steps V and W: 001D2300 and 001D2580(field) on the render context.
  * Its kick is the renderer boundary: in a frame the load veil drew
  * (0021B1B0), the kicked list is the whole frame and the GS frame stage
  * draws it (em_load_veil_live, docs/LOAD_VEIL_PARTICLES.md section 3). */
 static int rcl_step_v(void *context)
 {
+    em_sgp_frame_end(); /* EM_STATUS_GS_DUMP's record, before the close */
     if (em_rcl_001D2300() < 0) return -1;
     if (em_load_veil_live_draw((EmGfx *)context) < 0) return -1;
     /* A list that CALLs channel 3 in an iteration without a world frame
@@ -452,6 +460,20 @@ int main(void)
      * CPU GS model draws the world frame; without its GS memory image the
      * game cannot start (fail-stop). */
     if (em_gs_frame_live_install(gfx) != 0) {
+        em_frame_set_sound_service(NULL);
+        em_frame_set_task_check(NULL, NULL);
+        em_scene_bindings_module_loader_shutdown();
+        em_message_presenters_live_shutdown();
+        em_message_live_shutdown();
+        em_stream_live_shutdown();
+        em_gfx_destroy(gfx);
+        em_window_destroy(win);
+        return 1;
+    }
+    /* The status pages' GS packets (em_status_gs_page): the fonts and the
+     * sinks of the BATTERY page and the glyph runs; without the font export
+     * the game cannot start (fail-stop). */
+    if (em_sgp_install(EM_SGP_FONT_PATH) != 0) {
         em_frame_set_sound_service(NULL);
         em_frame_set_task_check(NULL, NULL);
         em_scene_bindings_module_loader_shutdown();

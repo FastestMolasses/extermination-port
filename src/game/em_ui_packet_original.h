@@ -27,6 +27,8 @@
  *   001CC3B0  tall-font strip flush: REFs of D_002511C0 and D_002510C0 (or
  *             D_00251140), the five passes as em_message_glyph_cc3b0 packs
  *             their register values (that module's translation)
+ *   001CBA50  small-font text run: one 001CC8A0 mode-0 upload per byte,
+ *             001CBC20 flushes (NEARMISS C; the .s followed)
  *
  * The REF targets are original addresses (the GS blocks at D_00275674,
  * em_gs_blocks_original; the glyph packets in the ELF's data): the packets
@@ -77,7 +79,8 @@ enum {
     EM_UIP_001CC8A0_TALL_BYTES = 0x280,    /* mode 1 */
     EM_UIP_001CBC20_BYTES = 0x80,
     EM_UIP_001CC3B0_SPRITE_BYTES = 0x180,
-    EM_UIP_001CC3B0_STRIP_BYTES = 0x220
+    EM_UIP_001CC3B0_STRIP_BYTES = 0x220,
+    EM_UIP_001CBA50_CELLS = 0x20           /* cells per small strip (0x200 / 16) */
 };
 
 typedef struct {
@@ -128,6 +131,20 @@ int em_uip_001CBC20(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t w, int
 /* 001CC3B0(slot, x, y, u_end, v_end, width, height, style). */
 int em_uip_001CC3B0(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t u_end, int32_t v_end, int32_t width,
                     int32_t height, const EmMessageTextStyle *style);
+/* 001CBA50(slot, x, y, advance, height, text, style): the small-font run.
+ * 001CCB00 (empty) resets the strip; every byte of the text (its length by
+ * 001232E0) uploads one 16 x 16 cell with 001CC8A0(0, column, 0, glyph *
+ * 32): a byte below 0x20 the blank glyph 0, '$' (0x24) glyph 0x87, any
+ * other byte - 0x20. The column steps by 16 texels and the drawn width by
+ * `advance`; at column 0x200 the strip is flushed with 001CBC20(slot, x, y,
+ * width, height, 0x200, 0x10, style) and restarted at x + width. The rest
+ * is flushed the same way at the end (an empty text flushes a sprite of
+ * width 0). `text` must hold its NUL within `avail` bytes. Every packet of
+ * the run (the uploads on slot 1's cursor, the flushes on `slot`'s) and
+ * every glyph is checked before the first write, so a refusal writes
+ * nothing. */
+int em_uip_001CBA50(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t advance, int32_t height,
+                    const uint8_t *text, uint32_t avail, const EmMessageTextStyle *style);
 
 #ifdef __cplusplus
 }

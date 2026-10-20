@@ -57,6 +57,27 @@ int em_battery_ui_rectangle(EmBatteryUI *ui, int32_t slot, int32_t x0, int32_t y
  * the style record's colour word. */
 int em_battery_ui_text(EmBatteryUI *ui, int proportional, int32_t x, int32_t y, int32_t w,
                        int32_t h, const char *text, uint64_t style);
+/* The live packet sink (docs/STATUS_FIELD.md section 5 step 3; bound by
+ * em_status_gs_page): when set, every leaf call the list accepts is also
+ * handed to it at its call time, in the call order (the original builds
+ * its slot-1 packets there), and the background call runs 0020A7A0 there
+ * (background: the step, its token kept with the call; draw_background:
+ * the render draws that step's sprites instead of stepping again). Each
+ * returns 1, or 0 (the call is then refused as well). NULL, the default
+ * (the reference tests): the render steps the background. */
+typedef struct {
+    void *context;
+    int (*background)(void *, uint64_t tex0, uint32_t *token);
+    int (*draw_background)(void *, EmGfx *, uint32_t token, float u, float v, float w, float h);
+    int (*blend)(void *, int32_t slot, int32_t mode);
+    int (*sprite)(void *, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                  uint64_t tex0);
+    int (*rectangle)(void *, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t rgba);
+    int (*text)(void *, int proportional, int32_t x, int32_t y, int32_t w, int32_t h, const char *text,
+                uint64_t style);
+} EmBatteryUISink;
+void em_battery_ui_set_sink(const EmBatteryUISink *sink);
+
 /* The number of calls recorded since the last begin (0: nothing drawn). */
 unsigned em_battery_ui_count(const EmBatteryUI *ui);
 

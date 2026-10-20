@@ -2054,8 +2054,11 @@ pool's free list (item 5): those are port work that needs no new recording
      column rule's open class, 8.8); the page packets' builders are
      translated byte for byte (em_ui_packet_original, STATUS_FIELD.md 3a:
      the five captured slot-1 chains rebuilt and drawn to the displayed
-     field) but not yet bound, so the port does not yet build or present a
-     page's GS list;
+     field); since step 3's first part (STATUS_FIELD.md 3b) the live game
+     builds the BATTERY page's and the glyph runs' packets in the slot-1
+     arena (route 01's f300 / f400 byte for byte, drawn to the displayed
+     field), but nothing presents them yet and the other pages are not
+     bound;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make

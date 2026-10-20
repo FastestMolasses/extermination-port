@@ -48,6 +48,7 @@ static struct {
      * on this service's EmMessageDraw. */
     EmMessageLivePresenters presenters;
     FrameGlyphs task, step;              /* see FrameGlyphs                   */
+    const EmMessageGlyphWorkers *sink;   /* the glyph packets' sink, or NULL  */
     int in_step;                         /* 1 inside step F's tick            */
     const char *fault;
     int reported;
@@ -143,6 +144,8 @@ static int w_upload(void *ctx, const EmMessageGlyphUpload *upload)
         return fail("001CC8A0 outside the one-row tall strip");
     if (!em_hud_tall_glyph_cell(upload->offset / 30u, NULL))
         return fail("tall glyph missing from assets/font.emfn");
+    if (s.sink && (!s.sink->upload || s.sink->upload(s.sink->context, upload) != 1))
+        return fail("001CC8A0's packet (the glyph packets' sink)");
     return 1;
 }
 
@@ -153,6 +156,8 @@ static int w_flush(void *ctx, const EmMessageGlyphFlush *flush)
     FrameGlyphs *g = s.in_step ? &s.step : &s.task;
     if (g->flush_count >= FRAME_FLUSHES || flush->upload_count > FRAME_UPLOADS - g->upload_count)
         return fail("too many glyph passes in one frame");
+    if (s.sink && (!s.sink->flush || s.sink->flush(s.sink->context, flush) != 1))
+        return fail("001CC3B0's packet (the glyph packets' sink)");
     EmMessageGlyphFlush *out = &g->flushes[g->flush_count++];
     *out = *flush;
     memcpy(&g->uploads[g->upload_count], flush->uploads, flush->upload_count * sizeof *flush->uploads);
@@ -540,6 +545,11 @@ int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t av
         return -1;
     }
     return 0;
+}
+
+void em_message_live_set_glyph_sink(const EmMessageGlyphWorkers *sink)
+{
+    s.sink = sink;
 }
 
 EmMessageBlock *em_message_live_block(void)

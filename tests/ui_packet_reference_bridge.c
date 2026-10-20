@@ -5,6 +5,7 @@
  *
  * Nothing here is disc-derived: the captures, the fonts and the ELF data
  * are read at run time from the user's own files. */
+#include "game/em_ui_font_raw.h"
 #include "game/em_ui_packet_original.h"
 
 #include <stdio.h>
@@ -34,7 +35,7 @@ static int region_to_int(void *ctx, uint32_t bits, int32_t *result)
     return r->to_int ? r->to_int(NULL, bits, result) : 0;
 }
 
-enum { B_7D00, B_7D90, B_7E40, B_7F80, B_8040, B_CC8A0, B_CBC20, B_CC3B0 };
+enum { B_7D00, B_7D90, B_7E40, B_7F80, B_8040, B_CC8A0, B_CBC20, B_CC3B0, B_CBA50 };
 
 /* a: the builder's arguments in the original's order; a style is five
  * entries (present, colour, glyph, flag, the +7 byte). */
@@ -60,6 +61,13 @@ int uipb_call(const uint32_t *address, const uint32_t *size, uint8_t *const *byt
         style.glyph = (uint8_t)a[9];
         style.flag = (uint8_t)a[10];
         style.pad[1] = (uint8_t)a[11];
+        sp = &style;
+    }
+    if (which == B_CBA50 && a[6]) { /* 001CBA50: six arguments, then the style */
+        style.color = (int32_t)a[7];
+        style.glyph = (uint8_t)a[8];
+        style.flag = (uint8_t)a[9];
+        style.pad[1] = (uint8_t)a[10];
         sp = &style;
     }
     int rc;
@@ -91,6 +99,20 @@ int uipb_call(const uint32_t *address, const uint32_t *size, uint8_t *const *byt
         rc = em_uip_001CC3B0(&u, (int32_t)a[0], (int32_t)a[1], (int32_t)a[2], (int32_t)a[3], (int32_t)a[4],
                              (int32_t)a[5], (int32_t)a[6], sp);
         break;
+    case B_CBA50: {
+        /* the text: the region holding a[5], to that region's end */
+        const uint32_t at = (uint32_t)a[5];
+        const uint8_t *text = NULL;
+        uint32_t avail = 0;
+        for (uint32_t i = 0; i < count; i++)
+            if (at >= address[i] && at - address[i] < size[i]) {
+                text = bytes[i] + (at - address[i]);
+                avail = size[i] - (at - address[i]);
+            }
+        rc = em_uip_001CBA50(&u, (int32_t)a[0], (int32_t)a[1], (int32_t)a[2], (int32_t)a[3], (int32_t)a[4], text,
+                             avail, sp);
+        break;
+    }
     default: return -2;
     }
     if (fault && fault_cap) snprintf(fault, fault_cap, "%s", u.fault ? u.fault : "");
@@ -113,4 +135,20 @@ int uipb_latch(uint8_t *area, uint32_t area_address, uint32_t context, uint8_t *
     const char *first = u.fault;
     r.count = 2;
     return em_uip_00207D00(&u, 1, 0) == -1 && u.fault == first;
+}
+
+/* The fonts rebuilt from a font export (em_ui_font_raw) and D_0026E350's
+ * formula: 0, or -1 with the reason in `why`. */
+int uipb_fonts(const char *path, uint8_t *tall, uint8_t *small, uint16_t *nibbles, char *why, uint32_t why_cap)
+{
+    static EmUfrFonts f;
+    const char *reason = NULL;
+    const int rc = em_ufr_load(path, &f, &reason);
+    if (why && why_cap) snprintf(why, why_cap, "%s", reason ? reason : "");
+    if (rc == 0) {
+        memcpy(tall, f.tall, sizeof f.tall);
+        memcpy(small, f.small, sizeof f.small);
+    }
+    em_ufr_nibbles(nibbles);
+    return rc;
 }

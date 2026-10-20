@@ -80,6 +80,15 @@ fault and later calls refuse; text without a terminator inside the supplied
 bytes, a run that would fill the 0x80-byte buffer (the original would lose
 its terminator), and a missing config fault.
 
+## The packets (since 2026-10-20)
+
+Every 001CC8A0 upload and 001CC3B0 flush the live service's runs make also
+builds the original's packet in the render context's slot-1 arena at its
+call time, through em_message_live's glyph sink (`em_message_live_set_glyph_sink`,
+bound by `em_status_gs_page`; the builders em_uip_001CC8A0 / em_uip_001CC3B0,
+docs/STATUS_FIELD.md sections 3a and 3b). The draw below is unchanged; the
+packets are what the status pages' GS frame will draw.
+
 ## The draw boundary
 
 `em_hud_glyph_strip` draws a flush through the tall-font atlas

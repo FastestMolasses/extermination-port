@@ -66,22 +66,27 @@ CAP = sf.CAP
 OUT = ROOT / 'build/ui_packet_reference'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 SOURCES = ['tests/ui_packet_reference_bridge.c', 'src/game/em_ui_packet_original.c',
-           'src/game/em_message_glyph_original.c']
+           'src/game/em_message_glyph_original.c', 'src/game/em_ui_font_raw.c']
 
-B_7D00, B_7D90, B_7E40, B_7F80, B_8040, B_CC8A0, B_CBC20, B_CC3B0 = range(8)
+B_7D00, B_7D90, B_7E40, B_7F80, B_8040, B_CC8A0, B_CBC20, B_CC3B0, B_CBA50 = range(9)
 ENTRY = {B_7D00: 0x207D00, B_7D90: 0x207D90, B_7E40: 0x207E40, B_7F80: 0x207F80, B_8040: 0x208040,
-         B_CC8A0: 0x1CC8A0, B_CBC20: 0x1CBC20, B_CC3B0: 0x1CC3B0}
+         B_CC8A0: 0x1CC8A0, B_CBC20: 0x1CBC20, B_CC3B0: 0x1CC3B0, B_CBA50: 0x1CBA50}
 NAME = {B_7D00: '00207D00', B_7D90: '00207D90', B_7E40: '00207E40', B_7F80: '00207F80', B_8040: '00208040',
-        B_CC8A0: '001CC8A0', B_CBC20: '001CBC20', B_CC3B0: '001CC3B0'}
+        B_CC8A0: '001CC8A0', B_CBC20: '001CBC20', B_CC3B0: '001CC3B0', B_CBA50: '001CBA50'}
 EXECUTED = ((0x207D00, 0x84), (0x207D90, 0xAC), (0x207E40, 0x134), (0x207F80, 0xB8), (0x208040, 0x160),
-            (0x1CC8A0, 0x254), (0x1CCE80, 0xEC), (0x1CBC20, 0x1F0), (0x1CC3B0, 0x4E8), (0x1281C0, 0x8C))
+            (0x1CC8A0, 0x254), (0x1CCE80, 0xEC), (0x1CBC20, 0x1F0), (0x1CC3B0, 0x4E8), (0x1281C0, 0x8C),
+            (0x1CBA50, 0x1C4), (0x1232E0, 0x138), (0x1CCB00, 0x8))
 FLOAT_TO_INT = 0x1281C0
 CONTEXT_PTR, GS_BLOCKS_PTR = 0x275670, 0x275674
 NIBBLES, FONT_TALL_PTR, FONT_SMALL_PTR = 0x26E350, 0x28A490, 0x28A494
 FONT_TALL_SIZE = FONT_SMALL_SIZE = 0x3000     # the two resources' spacing in the captures
 HEAD, SPRITE, STRIP, SMALL = 0x2511C0, 0x2510C0, 0x251140, 0x250FC0
 PACKET, AREA = 0x1F40000, 0x400               # scratch packet area of the oracle's image
-VEC, STYLE = 0x1F48000, 0x1F48100
+AREA_TEXT, FLUSH_AT = 0x6000, 0x5000           # 001CBA50's area; a flush cursor other than slot 1's
+VEC, STYLE, TEXT = 0x1F48000, 0x1F48100, 0x1F48200
+TEXT_AREA = 0x100
+FONT_EXPORT = ROOT / 'assets/font.emfn'        # the user's own font export (tools/export_font.py)
+UFR_TALL, UFR_SMALL = 409 * 30, 256 * 32       # em_ui_font_raw's resource sizes
 CH1_BASE, CH1_STRIDE = 0x0028F700 + 0xC9000, 0x95760   # 001D1AE0's +0x14 buffers
 FRAMES = sf.FRAMES
 RASTER_QUICK = [('01_battery', 300)]
@@ -105,7 +110,7 @@ def build() -> C.CDLL:
            '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc', *SOURCES, '-o', str(lib)]
     digest = hashlib.sha256(' '.join(cmd).encode())
     for path in SOURCES + ['src/game/em_ui_packet_original.h', 'src/game/em_message_glyph_original.h',
-                           'src/game/em_message_draw_original.h']:
+                           'src/game/em_message_draw_original.h', 'src/game/em_ui_font_raw.h']:
         digest.update(path.encode() + b'\0' + (ROOT / path).read_bytes())
     stamp = lib.with_suffix('.sha256')
     if not lib.exists() or not stamp.exists() or stamp.read_text() != digest.hexdigest():
@@ -119,6 +124,8 @@ def build() -> C.CDLL:
     n.uipb_call.restype = C.c_int
     n.uipb_latch.argtypes = [C.c_void_p, C.c_uint32, C.c_uint32, C.c_void_p]
     n.uipb_latch.restype = C.c_int
+    n.uipb_fonts.argtypes = [C.c_char_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_char_p, C.c_uint32]
+    n.uipb_fonts.restype = C.c_int
     return n
 
 
@@ -246,7 +253,70 @@ def oracle_cases(r: random.Random) -> list[tuple]:
         st = None if r.random() < 0.2 else style_bytes(r)
         add(False, (B_CBC20, r.choice((1, 1, 2)), r.randrange(0, 0x40, 16), tuple(rnd32(r) for _ in range(6)), st))
         add(False, (B_CC3B0, r.choice((1, 1, 2)), r.randrange(0, 0x40, 16), tuple(rnd32(r) for _ in range(6)), st))
+    printable = bytes(range(0x20, 0x7F))
+    texts = [b'', b'0', b'$', b'A$b', b'\x01\x1f ', b'\x80\xff\xa0\x87', b'00000', b'BATT. 6',
+             bytes(printable[i % len(printable)] for i in range(31)), bytes(printable[:32]),
+             bytes(printable[:33]), bytes(printable[i % 95] for i in range(64)),
+             bytes(printable[i % 95] for i in range(65)), bytes(printable[i % 95] for i in range(70))]
+    for i, t in enumerate(texts):
+        st = None if i % 3 == 0 else bytes([0x60, 0x60, 0x60, 0, 0x80, 0, 0, i & 0x1F])
+        add(True, (B_CBA50, 1, 0, (2012, 2066, 16, 16, t), st))
+    for slot in (0, 2):
+        add(True, (B_CBA50, slot, 0, (0x7C0, 0x7F0, 12, 12, bytes(printable[:40])), None))
+    for adv, h in ((0, 0), (-3, -5), (0x7FFFFFFF, 1), (12, 16), (-0x80000000, 0x7FFFFFFF)):
+        add(True, (B_CBA50, 1, 0, (-1, 0x7FFFFFFF, adv, h, bytes(printable[:34])), style_bytes(r)))
+    for _ in range(60):
+        t = bytes(r.randrange(1, 256) for _ in range(r.randrange(0, 71)))
+        add(False, (B_CBA50, r.choice((1, 1, 1, 0, 2)), r.randrange(0, 0x40, 16),
+                    (rnd32(r), rnd32(r), r.choice((12, 16, rnd32(r))), r.choice((12, 16, rnd32(r))), t),
+                    None if r.random() < 0.3 else style_bytes(r)))
     return cases
+
+
+def run_cba50(o: 'Original', n: 'Native', case) -> str | None:
+    """001CBA50: its uploads on slot 1's cursor, its flushes on the slot's
+    (the same cursor for slot 1, else one at FLUSH_AT); the whole area, both
+    cursors and the stores compared."""
+    _, slot, off, (x, y, adv, h, text), st = case[:5]
+    ee = o.ee
+    c1 = (o.context + 0x14) & 0xFFFFFFFF
+    cs = (o.context + 0x10 + 4 * slot) & 0xFFFFFFFF
+    saved = {c: ee.load(c) for c in (c1, cs)}
+    fill = bytes([0xA5]) * AREA_TEXT
+    ee.write(PACKET, fill)
+    ee.save(c1, PACKET + off)
+    if cs != c1:
+        ee.save(cs, PACKET + FLUSH_AT)
+    ee.write(TEXT, text + b'\0' + bytes(TEXT_AREA - len(text) - 1))
+    if st is not None:
+        ee.write(STYLE, st)
+    o.stores.clear()
+    o.run(B_CBA50, [sx32(slot), sx32(x), sx32(y), sx32(adv), sx32(h), TEXT, STYLE if st is not None else 0])
+    want = ee.read(PACKET, AREA_TEXT)
+    want_c = {c: ee.load(c) for c in (c1, cs)}
+    stray = sorted(a for a in o.stores if not (PACKET <= a < PACKET + AREA_TEXT or c1 <= a < c1 + 4 or
+                                               cs <= a < cs + 4))
+    for c, v in saved.items():
+        ee.save(c, v)
+    area = bytearray(fill)
+    b1 = bytearray(struct.pack('<I', PACKET + off))
+    regions = [(c1, b1), (PACKET, area), (TEXT, bytearray(text + b'\0' + bytes(TEXT_AREA - len(text) - 1)))]
+    bs = b1
+    if cs != c1:
+        bs = bytearray(struct.pack('<I', PACKET + FLUSH_AT))
+        regions.insert(1, (cs, bs))
+    rc, why = n.call(B_CBA50, [slot, x, y, adv, h, TEXT, *style_args(st)], regions)
+    if stray:
+        return f'the original stores outside the packets: {[hex(a) for a in stray[:4]]}'
+    if rc != 0:
+        return f'native refused: {why}'
+    if bytes(area) != want:
+        i = next(i for i in range(AREA_TEXT) if area[i] != want[i])
+        return f'byte {PACKET + i:#x}: native {area[i]:#04x}, original {want[i]:#04x}'
+    if struct.unpack('<I', b1)[0] != want_c[c1] or struct.unpack('<I', bs)[0] != want_c[cs]:
+        return f'cursors {struct.unpack("<I", b1)[0]:#x} / {struct.unpack("<I", bs)[0]:#x}, original ' \
+               f'{want_c[c1]:#x} / {want_c[cs]:#x}'
+    return None
 
 
 def style_args(st: bytes | None) -> list[int]:
@@ -257,6 +327,8 @@ def style_args(st: bytes | None) -> list[int]:
 
 def run_oracle(o: Original, n: Native, case) -> str | None:
     which, slot, off, args, st = case[:5]
+    if which == B_CBA50:
+        return run_cba50(o, n, case)
     ee = o.ee
     if which == B_CC8A0:
         slot = 1
@@ -326,7 +398,7 @@ def part_a(elf: bytes, ram: bytes, lib) -> dict:
         bad = run_oracle(o, n, case)
         counts[NAME[case[0]]] = counts.get(NAME[case[0]], 0) + 1
         if bad:
-            fail(f'A {NAME[case[0]]} slot {case[1]} args {[hex(a) if isinstance(a, int) else a for a in case[3]]}: '
+            fail(f'A {NAME[case[0]]} slot {case[1]} args {[hex(a) if isinstance(a, int) else a[:12] for a in case[3]]}: '
                  f'{bad}')
             if len(FAILS) > 20:
                 break
@@ -368,6 +440,20 @@ def fail_stop(n: Native, context: int) -> int:
     expect(B_CC8A0, [1, 0, 0, -1], good(), '001CC8A0 negative glyph offset')
     expect(B_CC8A0, [1, 0, 0, 0], good(), '001CC8A0 without fonts', fonts=False)
     expect(B_CC8A0, [0, 0, 0, 0], good(), '001CC8A0 without D_0026E350', nibbles=False)
+    # 001CBA50: the whole run is checked before its first store
+    text = lambda t: (TEXT, bytearray(t))
+    expect(B_CBA50, [1, 0, 0, 16, 16, TEXT, 0, 0, 0, 0, 0], good() + [text(b'AB')], '001CBA50 text without its NUL')
+    expect(B_CBA50, [1, 0, 0, 16, 16, TEXT, 0, 0, 0, 0, 0],
+           [(cell, bytearray(struct.pack('<I', PACKET + AREA - 0x200))), (PACKET, area), text(b'AB\0')],
+           '001CBA50 run past memory (its first upload fits)')
+    expect(B_CBA50, [1, 0, 0, 16, 16, TEXT, 0, 0, 0, 0, 0], good() + [text(b'A\0')], '001CBA50 without fonts',
+           fonts=False)
+    expect(B_CBA50, [1, 0, 0, 16, 16, TEXT, 0, 0, 0, 0, 0], good() + [text(b'A\0')],
+           '001CBA50 without D_0026E350', nibbles=False)
+    expect(B_CBA50, [1, 0, 0, 16, 16, 0, 0, 0, 0, 0, 0], good(), '001CBA50 without its text')
+    expect(B_CBA50, [0, 0, 0, 16, 16, TEXT, 0, 0, 0, 0, 0],
+           [(cell, bytearray(struct.pack('<I', PACKET))), (PACKET, area), text(b'A\0')],
+           '001CBA50 flush cursor (slot 0) missing, the uploads\' present')
     cbuf, area = bytearray(struct.pack('<I', PACKET)), bytearray(fill)
     a = (C.c_char * AREA).from_buffer(area)
     c4 = (C.c_char * 4).from_buffer(cbuf)
@@ -425,7 +511,8 @@ def ref_at(ram, at):
     return (lo >> 28) & 7, lo & 0xFFFF, (lo >> 32) & 0x7FFFFFFF
 
 
-def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font_small: bytes, inv: dict):
+def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font_small: bytes, inv: dict,
+           skewed: bool = False):
     """The chain as [(address, kind, args)]: 'tag' entries for the open and
     close (their 8 written bytes), builder calls for the rest."""
     out, at = [], start
@@ -459,6 +546,16 @@ def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font
                       [1, s32(fill), outline >> 24, 0, a])
                 out.append((at, B_CC3B0, (1, x, y, (uv1 & 0xFFFF) >> 4, sra(uv1, 20), w, 2 * hh, *st)))
                 at += 0x180
+            elif t2 == 3 and q2 == 8 and a2 == STRIP and t3 == 1 and q3 == 0x1F and skewed:
+                # 001CC3B0's skewed strip (style flag != 0): its shape only (the
+                # five passes' GIF tags and register lists); its arguments are
+                # not decoded (part A proves the builder against the original)
+                for i in range(5):
+                    gt, rg = q(ram, at + 0x40 + 0x60 * i), q(ram, at + 0x48 + 0x60 * i)
+                    if gt != 0x9400000000008001 or rg != 0x434343431:
+                        raise RuntimeError(f'skewed glyph strip pass {i} at {at:#x}: {gt:#x} {rg:#x}')
+                out.append((at, B_CC3B0, None))
+                at += 0x220
             else:
                 raise RuntimeError(f'glyph flush shape not decoded at {at:#x} ({t2}, {q2}, {a2:#x}, {t3}, {q3})')
         elif tid == 1 and qwc == 7 and q(ram, at + 0x20) == 0xA400000000008001:
@@ -640,6 +737,33 @@ def raster_check(rlib, d: Path, info: dict, ram: bytes, first: int, chain: bytes
     return {'field_equal': field_ok, 'words_off_in_strip_pages': int(len(diff)), 'outside': outside}
 
 
+def fonts_check(lib, ram: bytes, elf: bytes, text: int) -> dict:
+    """em_ui_font_raw: both resources rebuilt from the font export equal the
+    capture's every byte; em_ufr_nibbles equals the ELF's D_0026E350."""
+    if not FONT_EXPORT.exists():
+        fail(f'no font export at {FONT_EXPORT} (the decomp\'s tools/export_font.py)')
+        return {}
+    tall, small = C.create_string_buffer(UFR_TALL), C.create_string_buffer(UFR_SMALL)
+    nib, why = (C.c_uint16 * 16)(), C.create_string_buffer(128)
+    rc = lib.uipb_fonts(str(FONT_EXPORT).encode(), tall, small, nib, why, 128)
+    if rc != 0:
+        fail(f'em_ufr_load refused the font export: {why.value.decode()}')
+        return {}
+    t = struct.unpack_from('<I', ram, FONT_TALL_PTR)[0] & 0x1FFFFFF
+    sm = struct.unpack_from('<I', ram, FONT_SMALL_PTR)[0] & 0x1FFFFFF
+    out = {}
+    for name, got, want in (('tall', tall.raw, ram[t:t + UFR_TALL]), ('small', small.raw, ram[sm:sm + UFR_SMALL])):
+        off = sum(a != b for a, b in zip(got, want))
+        if off:
+            fail(f'the {name} font rebuilt from the export differs from the capture\'s in {off} bytes')
+        out[name] = len(got) - off
+    if bytes(nib) != elf[NIBBLES + text:NIBBLES + text + 32]:
+        fail('em_ufr_nibbles differs from the ELF\'s D_0026E350')
+    print(f'  fonts: the export rebuilt to the resources\' bytes, every byte equal (tall {out.get("tall")}, '
+          f'small {out.get("small")}); D_0026E350 equal to em_ufr_nibbles')
+    return out
+
+
 def main() -> int:
     t0 = time.monotonic()
     missing = [p for p in [CAP / b / f'f{T:04d}' / 'capture.json' for b, T in FRAMES] if not p.exists()]
@@ -661,7 +785,7 @@ def main() -> int:
     if ram[NIBBLES:NIBBLES + 32] != elf[NIBBLES + text:NIBBLES + text + 32]:
         fail('the capture\'s D_0026E350 differs from the pinned ELF')
     print(f'mode {MODE}: A the builders against the original instructions, B {len(FRAMES)} captured chains')
-    report = {'mode': MODE, 'A': part_a(elf, ram, lib), 'B': {}}
+    report = {'mode': MODE, 'fonts': fonts_check(lib, ram, elf, text), 'A': part_a(elf, ram, lib), 'B': {}}
     raster = FRAMES if FULL else RASTER_QUICK
     for beat, T in FRAMES:
         report['B'][f'{beat}/f{T:04d}'] = part_b(lib, beat, T, (beat, T) in raster, rlib)
