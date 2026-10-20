@@ -315,9 +315,20 @@ region since this step; nothing writes them in AREA11.
   - After the AREA01 arrival (level 2) the camera host carries AREA01's
     worker (em_scene_bindings `camera_area_worker`): mode 1's 001B0300 and
     action 10's 00198D90 with its 001D2830 are forwarded to the AREA01 live
-    runtime instead, and actions 9, 11 and 14 stay unbound there (they
-    fault if reached); the bindings of section 6 hold while no AREA01
-    worker is set (merge of chain step CAMERAS, 2026-10-08).
+    runtime instead; the bindings of section 6 hold while no AREA01
+    worker is set (merge of chain step CAMERAS, 2026-10-08). Since
+    2026-10-20 the duct's actions 9 and 11 (00198CE0 / 00198F10) are bound
+    there too, to the same `low_run` over the camera's own regions as in
+    AREA11 (AREA00 a00_07 records 9 -> 10 -> 11 -> 0 at rows 888, 1034,
+    1035 and 1098 over the player states 44 / 45 / 46); action 14 stays
+    unbound there (it faults if reached).
+  - 001B0080's rotation 0x70003B50 (rw_001B0080): inside 001B07C0 it is
+    that routine's own store of the placed +C0..+CC (the scene state's
+    spad3B40[4..7], passed by the spawn binding); for a 001B0460 from a
+    script (001B7B30) or a player closure (0016D130 / 0016DE40, AREA00) it
+    is 0015BCF0's tail publication of +C0..+CC (the camera's per-entry
+    load, section 3), as the original's scratchpad holds it then (2026-10-20:
+    the stale spawn value turned the a00_07 duct exit's seat by 90 degrees).
 
   None is reached on the route (the census saw only actions 0 and 8). The
   original stances set camera actions 1 / 2 and run the aim camera

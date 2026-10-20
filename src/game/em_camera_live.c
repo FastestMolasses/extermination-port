@@ -95,8 +95,10 @@ static struct {
     /* 0x70003B50 as the camera frame reads it: a per-entry load of
      * 0015BCF0's tail publication (the pose host's), never written back;
      * no camera routine stores 0x70003B50. The scene state's
-     * spad3B40[4..7] is 001B07C0's write, which only 001B0080 reads (rw_001B0080,
-     * inside 001B07C0 -> 001B0460). CAMERA_LIVE.md section 3. */
+     * spad3B40[4..7] is 001B07C0's write, which 001B0080 reads only inside
+     * 001B07C0 -> 001B0460 (the room's spad3B50); a 001B0460 from a script
+     * or a player closure reads this tail publication (rw_001B0080).
+     * CAMERA_LIVE.md section 3. */
     uint32_t s3B50[4];
     uint16_t s3B80;                               /* 0x70003B80 */
     /* ---- the aim camera's own storage (docs/CAMERA_LIVE.md section 7) ---- */
@@ -1497,8 +1499,12 @@ static void bind_worlds(void)
      * the router's area-0xB arms, the camera routines and the actions
      * above, which go 9 -> 10 -> 11 -> 0 and 14 -> 0) stores 12, 13 or 15
      * (CAMERA_LIVE.md section 6). AREA01 instead forwards mode 1's 001B0300
-     * and action 10's 00198D90 / 001D2830 through its canonical host; its
-     * other camera actions remain unbound and fail if reached. */
+     * and action 10's 00198D90 / 001D2830 through its canonical host. The
+     * duct's actions 9 and 11 (00198CE0 / 00198F10, recorded in AREA00
+     * a00_07: 9 -> 10 -> 11 -> 0 over the player states 44 / 45 / 46) run
+     * on the camera's own regions there too (low_run, as in AREA11; 10
+     * between them stays forwarded); action 14 remains unbound and fails
+     * if reached. */
     C.lw.w_00197D20 = lw_00197D20;
     C.lw.w_00198650 = lw_00198650;
     C.lw.w_0018CA90 = lw_0018CA90;
@@ -1506,6 +1512,8 @@ static void bind_worlds(void)
         C.lw.w_001B0300 = lw_001B0300;
         C.lw.w_00198D90 = area_00198D90;
         C.lw.w_001D2830 = area_001D2830;
+        C.lw.w_00198CE0 = lw_00198CE0;
+        C.lw.w_00198F10 = lw_00198F10;
     } else {
         C.lw.w_00198CE0 = lw_00198CE0;
         C.lw.w_00198D90 = lw_00198D90;
@@ -1740,7 +1748,8 @@ static int rw_001B0080(void *ctx, uint32_t camera, float a1)
     memcpy(eye, &C.pool[P_EYE], 16);
     memcpy(tgt, &C.pool[P_TGT], 16);
     memcpy(p350, s_room->d810350, 16);
-    memcpy(s3B50, &s->spad3B40[4], 16);
+    if (s_room->spad3B50) memcpy(s3B50, s_room->spad3B50, 16);
+    else memcpy(s3B50, C.s3B50, 16);
     EmSdfSeatWorld world = { &s->d810700, &s->d810702, p350, s3B50, eye, tgt, S3400, S3600 };
     EmSdfWorkers workers;
     memset(&workers, 0, sizeof workers);

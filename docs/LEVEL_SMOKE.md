@@ -2082,6 +2082,19 @@ The capture check still stops at the arrival's first differing row. The
 first-level smokes' tick, RNG and present logs are byte-identical to port
 main 6798a81's and a01_arrival..a01_07 pass (receipts in ignored
 `build/frontier2_i8_20261020_083957/`).
+Since the workers a00_05..a00_07 reach (2026-10-20, iteration 9;
+LEVEL3_BINDING.md "Current state": 00128C10's glow 001288D0 and its tail
+call 001F4A00, camera actions 9 / 11 outside AREA11, the player closures'
+camera re-seat 001B0460 and its 0x70003B50 rotation) `--run --until a00_10`
+plays a00_05 (1,159 frames), a00_06 (1,374) and a00_07 (1,201), aligns
+a00_08 at counter 39081 and fault-stops at frame 12512 on movie selector 2
+(`\MOVIE\E006S1.PSS`, not exported). Windowed, every row of a00_05..a00_08
+is exact apart from two observations: the padlock [54]'s slot
+(`lock_r54`) and, from a00_05 row 815, a taken bit the original never sets
+(`progress`). The capture check still stops at the arrival's first
+differing row. The first-level smokes' tick, RNG and present logs are
+byte-identical to port main e88dc26's and a01_arrival..a01_07 pass
+(receipts in ignored `build/frontier2_i9_20261020_122303/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

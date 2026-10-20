@@ -78,7 +78,7 @@ static void *sprite_memory(void *ctx,uint32_t address,size_t size,int write)
     return size<=UINT32_MAX?h->bytes(h->ctx,address,(uint32_t)size,write):NULL;
 }
 int em_area01_flame_services_handles(uint32_t fn)
-{ return fn==0x001CD070u || fn==0x001CD2B0u || fn==0x001CFAE0u || fn==0x001F4A10u || fn==0x001E8B90u || fn==0x001E9E60u || fn==0x001F4CC0u || fn==0x001F4BF0u || fn==0x001CD520u; }
+{ return fn==0x001CD070u || fn==0x001CD2B0u || fn==0x001CFAE0u || fn==0x001F4A10u || fn==0x001E8B90u || fn==0x001E9E60u || fn==0x001F4CC0u || fn==0x001F4BF0u || fn==0x001F4A00u || fn==0x001CD520u; }
 int em_area01_flame_services_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_t *fault)
 {
     if(!c)return fail(fault,0x001E3D90u);
@@ -105,7 +105,9 @@ int em_area01_flame_services_call(const EmArea01RuntimeHost *h,EmArea01Call *c,u
         c->v0=target.v0;c->f0=target.f0;return rc;
     }
     Frame frame={.host=h};
-    if(c->function==0x001F4BF0u) {
+    /* 001F4A00 (byte-matched decomp C) is a frameless tail call to
+     * 001F4BF0: the glow runs on the caller's stack pointer and arguments. */
+    if(c->function==0x001F4BF0u || c->function==0x001F4A00u) {
         if(c->na!=2 || c->nf || c->sp<0x40u)return fail(fault,c->function);
         frame.sp=c->sp-0x40u;
         const uint8_t *p=h->bytes(h->ctx,(uint32_t)c->a[1],16,0);

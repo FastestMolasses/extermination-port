@@ -14,6 +14,103 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20, iteration 9 (port main e88dc26 plus the workers a00_05 ..
+a00_07 reach): the C side plays a00_05, a00_06 and a00_07 and aligns
+a00_08; the stop moved to a00_08's movie.** Not a capture pass. In the
+order the run met them:
+
+- **`001288D0` (byte-matched decomp C, src/func_001288D0.c), 00128C10's
+  glow** (a00_05 frame 9075: "owner 00128C10 node 007AC5E0 failed at
+  001288D0"). `em_area01_live.c` now hands it, as `0012D580` already is,
+  to its checked translation `em_area00_low_001288D0` (`make
+  test-area00-low-reference`) over the live composition's byte views; its
+  callees re-enter the runtime. Its tail call `001F4A00` (byte-matched,
+  `src/func_001F4A00.c`: a frameless jump to `001F4BF0`) is served by the
+  flame services as `001F4BF0` on the caller's stack pointer and
+  arguments. `make test-area01-glow-services-reference` now also runs
+  `001F4A00` through the services against the original instructions
+  (`001F4A00` -> `001F4BF0` -> `00122BB8` / `001CD520`): every capture
+  with 001288D0's two colour sets (byte +0xE1 zero / non-zero), the
+  controlled clips and three refusals (quick 36 tail-call bodies); a frame
+  of 0x50 instead of 0x40 for the tail call fails it.
+- **Camera actions 9 and 11 (`00198CE0`, byte-matched; `00198F10`,
+  NEARMISS) outside AREA11** (a00_07 frame 11842: "FAULT at 00198CE0").
+  With the AREA01 / AREA00 camera worker set, `em_camera_live.c` bound only
+  mode 1's `001B0300` and action 10 (forwarded). The recording runs the
+  duct's 9 -> 10 -> 11 -> 0 (a00_07 rows 888, 1034, 1035, 1098; player
+  states 44 / 45 / 46): 9 and 11 are now bound there to the same
+  `low_run` as in AREA11 (CAMERA_LIVE.md section 5); 14 stays unbound.
+- **`001B0460(1)` from the player closures** (a00_07 frame 11988: "player
+  closure: reached 001B0460 (camera re-init)"). `0016D130` state 13 and
+  `0016DE40` states 0 / 0x17 (both byte-matched C) re-seat the camera in
+  area 0 after placing the player. `em_player_closure_live.c` binds both
+  slots to `em_scene_bindings_001B0460` with the record's +0xA0 quad
+  (D_00810350, the previous feet the stage keeps there), +0xC0 quad
+  (D_00810370, the heading the state just stored) and +0x230; the 10 / 12
+  / 19 / 1A closure publishes its scene copy first (0016DE40 stored
+  D_00810702 = 5 and D_008106BE = 2 in it) and reloads D_00810702,
+  D_008106BE, D_008106B5..B8 and D_008106C8 after.
+- **001B0080's rotation 0x70003B50.** The first such re-seat (a00_07 row
+  1035) seated the camera 90 degrees off: `rw_001B0080` read the scene
+  state's spad3B40[4..7], 001B07C0's store at the AREA00 arrival. Only
+  inside 001B07C0 does 001B0080 see that store; otherwise 0x70003B50 holds
+  0015BCF0's tail copy of +C0..+CC (byte-matched src/func_0015BCF0.c),
+  which the camera already loads per entry (`C.s3B50`). `EmCameraLiveRoom`
+  now carries the quad: the spawn binding passes spad3B40[4..7], the script
+  host and the closures NULL (the tail publication). Rows 1035..1036 are
+  then exact.
+
+Proof. The first-level smokes' tick, RNG and present logs equal port main
+e88dc26's (sha256 2866e0de... / f8a37cb8... full, d2cb9bed... /
+2fa87dc2... drive switch); newgame-control 9.599849; `make
+test-level-smoke-full` and `make test-level-smoke-ps2-drive` pass;
+`tools/test_level_smoke_area01.py --until a01_07` passes 28 live phases.
+The AREA00 run's tick log equals the previous build's line for line up to
+its faulting tick (34,744 lines), and the 0x70003B50 change alters nothing
+before a00_07 row 1035. `make test-area00-low-reference`,
+`test-area01-glow-services-reference`, `test-area01-flame-services-reference`,
+`test-camera-live-reference`, `test-camera-interaction-fixture`,
+`test-script-host-workers-reference`, `test-player-closure-0e-18-reference`,
+`test-player-closure-10-12-19-reference`, `test-area-script-reference` and
+`test-area01-script-workers-reference` pass. Receipts in ignored
+`build/frontier2_i9_20261020_122303/`.
+
+`--run --until a00_10` now plays a00_05 (1,159 frames), a00_06 (1,374)
+and a00_07 (1,201), aligns a00_08 at counter 39081 and fault-stops at
+frame 12512: the area script host's op 0x0F requests movie selector 2,
+which the port does not export (`movie request D_00821058=1 with selector
+2 is not exported`, owner 00825920, the switch). Selector 2 is
+`\MOVIE\E006S1.PSS` (the ELF's name table D_00264FB0[2]); the recording
+plays it whole (a00_08 rows 356 -> 357: one main-loop step over 1,626
+vblanks). Next unit: export it (`tools/export_movie.py`) and record its
+field-clock facts on the fork (pictures, held pictures and the feed loop's
+end after the gate, as `k_movies` holds for E900 / E001; GS_EXACT.md
+"The end-of-movie stall").
+
+**Every difference the C side shows from the arrival's end through a00_08's
+movie is in four classes** (windowed against route_a00, owners included):
+a00_00 242/363, a00_01 938/1273, a00_02 424/601, a00_03 92/144, a00_04
+1,797/2,017, a00_05 655/1,160, a00_06 0/1,375, a00_07 0/1,202, a00_08
+0/357 rows exact. Ignoring the padlock [54]'s slot observation
+(`lock_r54`) every row of a00_00..a00_03 is exact and a00_04 differs only
+in the shake rows 1546..1553 (the RNG drift below). Ignoring `lock_r54`
+and `progress` as well, a00_05..a00_08 (to the movie) are exact row for
+row. The classes:
+
+1. `lock_r54`: the observation of the padlock [54]'s pool slot (from
+   a00_00 row 0; after the break, a00_05 rows 91..252, the original
+   allocates a class-2 record there that the native allocates elsewhere).
+2. The RNG drift (a00_04 rows 1546..1553; below).
+3. **A taken bit the original never sets** (new finding): from a00_05
+   row 815 (native counter 36158) the native's D_00810860 row 0 byte 12
+   bit 5 (taken id 0x65) is set, so `progress` differs in every later row;
+   the original sets no taken bit in AREA00 before a00_09 row 152. The
+   setters reached in AREA00 are the class-2 creature brains' state 3
+   (00128C10 / 0012A5D0: 001B1190(+0x9A) then 001AFC10): a native creature
+   dies that the original's does not (likely downstream of the RNG drift;
+   its record is not in the observed owner list, so which one is open).
+4. The arrival's rows 0..80 and 3750..3754 (below).
+
 **2026-10-20, iteration 8 (port main 6798a81 plus the a00_04 script
 commands): the C side plays a00_04 to its end; the stop moved to a00_05.**
 Not a capture pass (windowed counts below). The ferry owner `00825600`'s

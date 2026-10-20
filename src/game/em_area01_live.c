@@ -409,6 +409,19 @@ static int low_0012D580(EmArea01Live *l,EmArea01Call *c)
     int rc=em_area00_low_0012D580(&low,(uint32_t)c->a[0],(uint32_t)c->a[1],c->a[2]);
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
 }
+/* 001288D0(a0, a1): the creature glow (byte-matched decomp C), which
+ * 00128C10 / 0012A5D0 call when their block a1's signed byte +0xFA is
+ * non-zero: scratch 0x700038A0 = (0, -1.5, 0, 1) through the current bone
+ * row's +0x90, the colour words at 0x700038B0 by a1 +0xE1, then 001F4A00
+ * (the tail call to 001F4BF0, flame services). */
+static int low_001288D0(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<2)return worker_result(l,-1,c->function);
+    EmArea00Low low;memset(&low,0,sizeof low);
+    low.call=low_call;low.ctx=l;low.sp=c->sp;low.view=low_view;low.view_ctx=l;
+    int rc=em_area00_low_001288D0(&low,(uint32_t)c->a[0],(uint32_t)c->a[1]);
+    return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
+}
 /* 001F9100(owner, point, normal, f12) from 001B5360 (em_area00_low): the
  * first level's decal route (em_shadow_actor_route through em_shadow_live)
  * over the three quadwords the original loads (low four address bits
@@ -679,6 +692,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,fault);
     }
     if(c->function==0x0012D580u)return low_0012D580(l,c);
+    if(c->function==0x001288D0u)return low_001288D0(l,c);
     if(c->function==0x001F9100u)return owner_001F9100(l,c);
     if(c->function==0x001C9D50u)return rest_001C9D50(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);

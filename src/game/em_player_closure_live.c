@@ -1005,7 +1005,35 @@ static int x_00188610(void *c, EmPlayerLiveActor *a, int *clip)
 STUB_ACTOR(x_0021C200, "0021C200 (reaction)")
 STUB_ACTOR(x_0015C1F0, "0015C1F0 (player model kind select: 001CA6E0 / 00200890 are not bound)")
 static int x_stream_check(void *c) { (void)c; return unbound("001FAFD0 (0021C190's stream test)"); }
-static int x_camera_1B0460(void *c, int a0) { (void)c; (void)a0; return unbound("001B0460 (camera re-init)"); }
+/* 001B0460(1) (byte-matched src/func_001B0460.c), the camera re-seat of
+ * AREA00's one-way duct and shaft drops: 0016D130 state 13 (byte-matched
+ * src/func_0016D130.c) after it places the player at (186, -19.5, -1463.5)
+ * facing pi and sets D_00810702 = 0xA, and 0016DE40 (byte-matched
+ * src/func_0016DE40.c) state 0 / 0x17. It is the scene bindings' re-seat
+ * (em_camera_live_001B0460, the script host's and the room move's). During
+ * the stage the record is D_008102B0 as the original holds it: its +0xA0
+ * quad (D_00810350, the previous feet; w +0xAC), +0xC0 quad (D_00810370,
+ * the heading the state just stored) and +0x230 word (D_008104E0). */
+static int camera_1B0460(int a0)
+{
+    if (!L.bound || !L.actor) return unbound("001B0460 (camera re-init) without the player record");
+    const EmPlayerLiveActor *a = L.actor;
+    const float a0v[4] = {em_live_f32(a, 0xA0), em_live_f32(a, 0xA4), em_live_f32(a, 0xA8), em_live_f32(a, 0xAC)};
+    const float c0v[4] = {em_live_f32(a, 0xC0), em_live_f32(a, 0xC4), em_live_f32(a, 0xC8), em_live_f32(a, 0xCC)};
+    const int32_t w230 = (int32_t)em_live_u32(a, 0x230);
+    if (em_scene_bindings_001B0460(a0, a0v, c0v, &w230) < 0) {
+        ++L.faults;
+        if (!L.reported) {
+            L.reported = 1;
+            fprintf(stderr, "player closure: 001B0460 (camera re-init) faulted\n");
+        }
+        return -1;
+    }
+    return 0;
+}
+/* The 0E / 13 / 14 / 18 closure reads and writes the canonical scene bytes
+ * directly (its D_00810702 store went through w_set_810702 first). */
+static int x_camera_1B0460(void *c, int a0) { (void)c; return camera_1B0460(a0); }
 static int x_alloc(void *c, int cls, uint8_t **node)
 {
     (void)c; (void)cls;
@@ -1396,6 +1424,28 @@ static int c10_post(void)
     L.d275B0C = s->d275B0C;
     L.d281B64 = s->d281B64;
     L.d275B14 = L.m2_scene.d275B14;
+    return 0;
+}
+
+/* The 10 / 12 / 19 / 1A closure keeps a scene copy (c10_pre / c10_post):
+ * publish it before 001B0460 reads D_00810702 (0016DE40 state 0 stored 5
+ * into its copy), D_008106BE and the requests, and reload what the re-seat
+ * may store (D_00810702, D_008106BE, D_008106B5..B8 and 001B0250's
+ * D_008106C8). */
+static int c10_camera_1B0460(void *c, int a0)
+{
+    (void)c;
+    FAULT(c10_post());
+    FAULT(camera_1B0460(a0));
+    EmPlayerClosure1019Scene *s = &L.c10_scene;
+    EmSceneState *st = scene();
+    s->zone = st->d810702;
+    FAULT(req_byte(0x008106BEu, &s->d8106BE));
+    FAULT(req_byte(0x008106B5u, &s->d8106B5));
+    FAULT(req_byte(0x008106B6u, &s->d8106B6));
+    FAULT(req_byte(0x008106B7u, &s->d8106B7));
+    FAULT(req_byte(0x008106B8u, &s->d8106B8));
+    s->d8106C8 = em_scene_req_u32(st, EM_SCENE_REQ_C8);
     return 0;
 }
 
@@ -2478,7 +2528,7 @@ static void bind_closure_10(void)
     w->segment = c10_segment; w->move = c10_move; w->sweep = c10_sweep; w->ground = c10_ground;
     w->slope = c10_slope; w->floor_query = w_floor_query; w->w00179150 = c10_00179150;
     w->midpoint = le_midpoint; w->ledge_top = x_001782A0; w->area_point = x_area_point;
-    w->skeleton = w_eval_skeleton; w->script_1B0460 = x_camera_1B0460;
+    w->skeleton = w_eval_skeleton; w->script_1B0460 = c10_camera_1B0460;
     w->fade = w_fade; w->fade_1AEE10 = w_fade_end;
     w->use = use_scan; w->use_probe = le_use_probe; w->arbiter = w_arbiter;
     w->rotate_x = w_rotate_x_bits; w->land = w_land; w->surface5d = w_surface5d;

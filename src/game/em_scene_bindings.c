@@ -2870,7 +2870,8 @@ static int spawn_w_001B0460(void *ctx, int a0)
     int32_t w230 = (int32_t)s_spawn_io->player.w230;
     float c0[4] = {s_spawn_io->player.f0C0[0], s_spawn_io->player.f0C0[1], s_spawn_io->player.f0C0[2],
                    s_spawn_io->player.f0C0[3]};
-    const EmCameraLiveRoom room = {NULL, room_read_word, room_001B0250, s_spawn_io->player.f0A0, c0, &w230};
+    const EmCameraLiveRoom room = {NULL, room_read_word, room_001B0250, s_spawn_io->player.f0A0, c0, &w230,
+                                   &s_state.spad3B40[4]};
     return em_camera_live_001B0460(a0, &room) < 0 ? -1 : 0;
 }
 
@@ -4260,7 +4261,8 @@ int em_scene_bindings_001B0460(int a0, const float d810350[4], const float d8103
 {
     if (!s_spawn_table_loaded || !d810350 || !d810370 || !d8104E0)
         return em_scene_fault(&s_state, 0x001B0460u, EM_SCENE_FAULT_NULL_WORKER);
-    const EmCameraLiveRoom room = {NULL, room_read_word, room_001B0250_canonical, d810350, d810370, d8104E0};
+    /* 0x70003B50: 0015BCF0's tail publication (the camera's per-entry load). */
+    const EmCameraLiveRoom room = {NULL, room_read_word, room_001B0250_canonical, d810350, d810370, d8104E0, NULL};
     return em_camera_live_001B0460(a0, &room) < 0 ? -1 : 0;
 }
 

@@ -131,6 +131,12 @@ typedef struct EmCameraLiveRoom {
     const float *d810350;   /* player +0xA0 quad (the placement) */
     const float *d810370;   /* player +0xC0 quad */
     const int32_t *d8104E0; /* player +0x230 */
+    /* The scratch quad 0x70003B50 its 001B0080 reads (the rotation): inside
+     * 001B07C0 that routine's own store of the placed +C0..+CC (the scene
+     * state's spad3B40[4..7]); NULL elsewhere (a script's 001B7B30, the
+     * player closures' 0016D130 / 0016DE40), where 0x70003B50 holds 0015BCF0's
+     * tail publication of +C0..+CC, the camera's per-entry load of it. */
+    const float *spad3B50;
 } EmCameraLiveRoom;
 int em_camera_live_001B0460(int a0, const EmCameraLiveRoom *room);
 

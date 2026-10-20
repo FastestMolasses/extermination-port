@@ -567,8 +567,14 @@ mechanism still lacks; in AREA11 it lacks nothing):
     0017F1C0 (hang, ledge and crawl helpers);
   - 00188570 / 590 / 5B0 / 610;
   - 0021C200, 00182AF0, 0015C1F0 (with 001CA6E0 / 001C6150 / 00200890 on
-    the player), 001FAFD0, 001B0460, 001AFA90, 00187EE0, 001FB9F0,
+    the player), 001FAFD0, 001AFA90, 00187EE0, 001FB9F0,
     001CA6E0, 001C6150, 00200890, 001B1380, 001AAC00 (area 0x15);
+  (001B0460(1), the camera re-seat of AREA00's duct / shaft drops from
+  0016D130 state 13 and 0016DE40 states 0 / 0x17, is bound since
+  2026-10-20 to the scene bindings' re-seat em_scene_bindings_001B0460
+  over the record's +0xA0 / +0xC0 quads and +0x230; the 10 / 12 / 19 / 1A
+  closure publishes its scene copy first and reloads it after:
+  LEVEL3_BINDING.md "Current state".)
   - the weapon stance handlers and the D_00275B8C target list (no AREA11
     owner publishes class 2);
   - the rumble 001B61C0 (no pad actuator block);
