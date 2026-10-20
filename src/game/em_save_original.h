@@ -2,8 +2,9 @@
  * write a saved game to the card, translated from the original
  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
  * em_save_. Not wired yet (docs/SAVE_GAME.md section 6): the card screen
- * 00227300 that runs it still faults, and em_memcard answers only the
- * GetInfo and Sync calls of the load screen.
+ * 00227300 that runs it still faults. Its libmc callees are answered by
+ * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder
+ * routes them there.
  *
  * The record is the card screen's, D_00810040 (docs/OPTIONS.md): +3 the
  * writer's state, +4 its step, +5, +0xA the save slot (0..4, the file

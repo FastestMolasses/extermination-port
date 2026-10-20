@@ -1,0 +1,1224 @@
+diff --git a/Makefile b/Makefile
+index 204207c..cd3f7b4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1456,6 +1456,13 @@ test-options-reference:
+ test-save-reference:
+ 	python3 tools/test_save_reference.py
+ 
++# The host memory card's file commands (em_memcard) under the original save
++# writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
++# EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).
++.PHONY: test-memcard-host
++test-memcard-host:
++	python3 tools/test_memcard_host.py
++
+ # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
+ # (em_menu_hover) against the original instructions; the MAP page's model
+ # bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against
+diff --git a/docs/OPTIONS.md b/docs/OPTIONS.md
+index 3f8d9c6..65db364 100644
+--- a/docs/OPTIONS.md
++++ b/docs/OPTIONS.md
+@@ -165,7 +165,9 @@ recordings' GetInfo results in the load row are 0 on both ports. A free or
+ format pointer, a slot other than 0, a port other than 0 / 1 or a missing
+ directory faults (no recording shows what the card server returns then).
+ The card helpers' globals (D_00275C58..6F, D_00264E30..3B, D_00275840..47)
+-have one storage there.
++have one storage there. The card's file commands (Open, Mkdir, Close, Write,
++Read, GetDir) are answered there too since the save lane's round 2
++(docs/SAVE_GAME.md section 5); no first-level path reaches them.
+ 
+ ## 6. The side runs
+ 
+diff --git a/docs/SAVE_GAME.md b/docs/SAVE_GAME.md
+index c6d000b..072c236 100644
+--- a/docs/SAVE_GAME.md
++++ b/docs/SAVE_GAME.md
+@@ -16,15 +16,10 @@ instruction of the original is reproduced here.
+ | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
+ | The card screen around them | 00227300 and its screens (002280F0, 002283B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00226B90, 002267A0, 00226D50, 002293B0) | faults (docs/OPTIONS.md section 4.2) | - |
+ | The load side | 00228EB0 (the five slots read), 00228B60 (one slot read), 001FE7C0 / 001FEB00 (read), the restore and the area entry | not translated | - |
+-| The host card | em_memcard: GetInfo and Sync only | Open / Write / Close / Mkdir / GetDir / Read not answered | - |
++| The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
+ | Start-point saves, `EM_START_AT` | - | not built | - |
+ 
+-Next steps, in order: the host card's file commands (em_memcard) with their
+-answers checked against a fork recording of the original saving on a
+-separate card file (the user's decision of 2026-10-09, HANDOFF item 9); the
+-load side; the card screen 00227300 and the save terminal's Yes path; the
+-start-point save builder; `EM_START_AT` (docs/STARTUP.md "Developer
+-switches").
++Next steps: section 6.
+ 
+ ## 2. The save on the card
+ 
+@@ -135,7 +130,89 @@ cases, 18,106 callee entries equal). Mutants checked: the Open mode, the
+ check byte's range, the iterator bound, each header store: all fail the
+ quick run.
+ 
+-## 4. Re-exports
++## 5. The host card's file commands (em_memcard)
++
++The card server is the IOP's (mcserv / mcman), not EE code; the port's
++stand-in is `src/game/em_memcard.c`, which answers every libmc call the save
++and load code makes, at host speed, on the host card folders
++`data/memcard/slot1` (port 0) and `slot2` (port 1). The EE side of each call
++is the original SDK's (the decomp's C: 00114360, 00114448, 00114480,
++00114708, 00114630, 00114AC0, 00114848, all ee-gcc; 00114360 and 00114708
++NEARMISS): with a command pending (D_00241D68) the call returns its number
++and issues nothing; otherwise the command is issued with v0 0, and the next
++Sync stores its number and the result word D_0027C680. Mkdir is 00114360's
++Open with mode 0x40, its pending number then set to 0xB.
++
++| Call | Command | Result | Host |
++|---|---|---|---|
++| Open(port, slot, name, mode) | 2 | a descriptor 0..2 (the lowest free) | opens `slotN/<name>`; mode 1 / 2 / 3 (read / write / both), 0x200 creates; no truncation |
++| Mkdir(port, slot, name) | 0xB | 0 | makes the directory |
++| Close(fd) | 3 | 0 | closes the file |
++| Write(fd, buf, size) | 6 | size | writes the EE bytes at the descriptor's offset |
++| Read(fd, buf, size) | 5 | the bytes read (0 at the end) | the bytes reach EE memory at buf |
++| GetDir(port, slot, name, 0, max, table) | 0xD | the entries stored | see below |
++
++GetDir with a plain name stores that one entry if it exists (result 1) and
++nothing if not (0): 00228530 / 002283B0 / 00229A70 ask
++`BASCUS-97112-DS00-00` this way. With a pattern (`D/*`, the load
++enumeration 00228EB0 asks `BASCUS-97112-DS00-00/*` for at most 0x12) it
++stores "." and "..", then D's entries in byte order of their names (host
++names beginning with '.', such as Finder's .DS_Store, are not the card's).
++An entry is 0x40 bytes with the name at +0x20; the port leaves the first
++0x20 bytes (the server's dates, size, attributes) zero, which the only
++reader, 00228C90, never looks at (it compares names). Every condition no
++recording shows the server's answer for faults (latched, as GetInfo's
++policy): a name that is not a relative path of card names (`..`, a leading
++'/', a component over 31 bytes or with other characters), a wildcard at the
++card's root, a GetDir that continues a listing, any other Open mode, a
++missing file without create, a file in a missing directory, a directory
++opened as a file, a Mkdir of an existing name, a fourth descriptor, a
++descriptor not open, a Write on a read-only or a Read on a write-only one,
++a size outside 0..8 MiB, and memory outside the caller's. The bytes Write is
++handed are read, and the bytes Read and GetDir store are written, when the
++command is issued; nothing reads them before the Sync that completes it.
++`em_memcard_call(target, registers, ...)` answers any of the eight entries
++by address, for the binder the card screen will use.
++
++What is a claim and what is checked. `make test-memcard-host`
++(`tools/test_memcard_host.py`) runs the ORIGINAL save writer 00228A90
++frame by frame on both sides of test-save-reference's harness (the
++original's instructions over the a01_s4 / opt_07 recordings' RAM, and the
++em_save_* translations) with em_memcard answering both sides, each on its
++own host folder: RAM, the scratchpad and the arguments equal at every
++callee entry, the two host cards byte-identical, and the folder holding
++section 2's layout. Then the ORIGINAL code reads the card back: a second
++save into the existing directory, and the card screen's load enumeration
++002283B0 (GetDir, 00228EB0: the listing, the name check 00228C90, five
++Open / Read / Close of the EX_DATA slots, the check byte 00228C50,
++GetInfo), which must report 1 with both saved slots present and their
++records equal to the saved blocks' headers; with one byte of a slot
++changed, or icon.sys missing, the original rejects the card (3). Plus 89
++direct calls covering every answer and refusal. Run 2026-10-20: quick
++PASS (2 saves, 2 round trips, 3.7 s), EM_TEST_FULL=1 PASS (40 saves on
++both recordings, every slot and port, 12 round trips, 852 libmc calls).
++Eight mutants of em_memcard (Read's count, GetDir's names, its plain-name
++count, the dots, Mkdir's result, the Write offset, the first descriptor)
++all fail it. The server's own answers (the descriptor numbers, GetDir's
++entry order and its first 0x20 bytes, the result on a fresh card) are
++what the original EE code accepts, not yet what the IOP was recorded
++answering: that is section 6's first step.
++
++## 6. Next steps
++
++In order: a fork recording of the original saving at AREA01's save
++terminal on a separate card file (the user's decisions of 2026-10-09, HANDOFF
++item 9: a dedicated card, never the user's own), whose libmc results (the
++Sync result words, the GetDir table) check em_memcard's answers and whose
++card files check section 2 against the card the IOP wrote; the load side's
++translations (00228EB0, 00228B60, 001FE7C0, 001FEB00, 00228C90, 00228C50
++and LOAD GAME's restore and area entry); the card screen 00227300 and the
++save terminal's Yes path, wired through `em_memcard_call`; the start-point
++save builder (the fork recordings route_a01 / route_a00 / route_a01r at
++each area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
++"Developer switches").
++
++## 7. Re-exports
+ 
+ None: the save code is in the boot ELF, and the test reads the recordings
+ in the reference `tools/reference_root.py` selects.
+diff --git a/src/game/em_memcard.c b/src/game/em_memcard.c
+index 9435b84..bfc14b7 100644
+--- a/src/game/em_memcard.c
++++ b/src/game/em_memcard.c
+@@ -1,10 +1,28 @@
+-/* em_memcard.c - see em_memcard.h (docs/OPTIONS.md section 5). */
++/* em_memcard.c - see em_memcard.h (docs/OPTIONS.md section 5,
++ * docs/SAVE_GAME.md section 5). */
++#define _POSIX_C_SOURCE 200809L
+ #include "game/em_memcard.h"
+ 
++#include <dirent.h>
+ #include <errno.h>
++#include <fcntl.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <string.h>
+ #include <sys/stat.h>
++#include <unistd.h>
++
++#define FDS 3                   /* the card server's handle table: descriptors 0..2 */
++#define NAME_MAX_SDK 0x3FFu     /* 00114360 / 00114AC0 copy at most 0x3FF bytes of a name */
++#define ENTRY_NAME 32u          /* a card name: at most 31 bytes and its NUL */
++#define IO_MAX 0x800000         /* a Write / Read size above a card's 8 MiB is refused */
++
++typedef struct {
++    int open;
++    int host;                   /* the host file's descriptor */
++    int32_t mode;               /* the Open mode (1 read, 2 write, 3 both; | 0x200) */
++    int64_t offset;
++} Fd;
+ 
+ /* The boot values of the card helpers' globals: D_00275C58..6C are .bss
+  * (0), D_00264E30..38 .data words 0 and D_00275840 / 44 .sdata words -1 in
+@@ -17,6 +35,7 @@ static struct {
+     int32_t pending;        /* D_00241D68: the command Sync waits for (0 none, 1 GetInfo) */
+     int32_t result;         /* D_0027C680: the server's result of the pending command */
+     int known[2];           /* the card server's per-port "asked since the boot" */
++    Fd fd[FDS];
+     int initialised;
+     const char *fault;
+ } M;
+@@ -30,8 +49,19 @@ static int fail(const char *why)
+     return -1;
+ }
+ 
++static char root[512] = EM_MEMCARD_DIR;
++
++void em_memcard_set_root(const char *dir)
++{
++    snprintf(root, sizeof root, "%s", dir ? dir : EM_MEMCARD_DIR);
++}
++
++const char *em_memcard_root(void) { return root; }
++
+ void em_memcard_reset(void)
+ {
++    for (unsigned i = 0; i < FDS; ++i)
++        if (M.initialised && M.fd[i].open) close(M.fd[i].host);
+     memset(&M, 0, sizeof M);
+     memset(M.s840, 0xFF, sizeof M.s840);
+     M.initialised = 1;
+@@ -46,12 +76,13 @@ const char *em_memcard_fault(void) { return M.fault; }
+ 
+ static int slot_dir(int port, char *path, size_t size)
+ {
+-    return snprintf(path, size, "%s/slot%d", EM_MEMCARD_DIR, port + 1) < (int)size;
++    const int n = snprintf(path, size, "%s/slot%d", root, port + 1);
++    return n > 0 && n < (int)size;
+ }
+ 
+ static int present(int port)
+ {
+-    char path[64];
++    char path[600];
+     struct stat st;
+     return slot_dir(port, path, sizeof path) && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+ }
+@@ -59,10 +90,10 @@ static int present(int port)
+ int em_memcard_boot_check(void)
+ {
+     ensure();
+-    if (mkdir("data", 0700) && errno != EEXIST) return 0;
+-    if (mkdir(EM_MEMCARD_DIR, 0700) && errno != EEXIST) return 0;
++    if (strcmp(root, EM_MEMCARD_DIR) == 0 && mkdir("data", 0700) && errno != EEXIST) return 0;
++    if (mkdir(root, 0700) && errno != EEXIST) return 0;
+     for (int port = 0; port < 2; ++port) {
+-        char path[64];
++        char path[600];
+         if (!slot_dir(port, path, sizeof path) || (mkdir(path, 0700) && errno != EEXIST) ||
+             !present(port))
+             return 0;
+@@ -134,3 +165,355 @@ int em_memcard_00114848(int32_t mode, uint32_t cmd, uint32_t result, int32_t *v0
+     *v0 = 1;
+     return 0;
+ }
++
++/* ---- the file commands ------------------------------------------------ */
++
++/* Issue: D_00241D68 nonzero returns it (no call is made); else the command
++ * is served now and pending until the next Sync. */
++static int busy(int32_t *v0)
++{
++    if (M.pending == 0) return 0;
++    *v0 = M.pending;
++    return 1;
++}
++
++static void issue(int32_t number, int32_t result, int32_t *v0)
++{
++    M.pending = number;
++    M.result = result;
++    *v0 = 0;
++}
++
++/* The name at `at` as the SDK copies it (at most 0x3FF bytes). */
++static int read_name(const EmMemcardMemory *m, uint32_t at, char *out)
++{
++    for (uint32_t i = 0; i < NAME_MAX_SDK; ++i) {
++        uint8_t c;
++        if (m->read(m->ctx, at + i, &c, 1) < 0) return fail("a card name outside the caller's memory");
++        out[i] = (char)c;
++        if (!c) return 0;
++    }
++    out[NAME_MAX_SDK] = 0;
++    return 0;
++}
++
++static int name_char(char c, int wild)
++{
++    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' ||
++           c == '-' || (wild && (c == '*' || c == '?'));
++}
++
++/* A relative card path of valid components; `wild`: the last component
++ * may hold '*' / '?'. */
++static int valid_name(const char *name, int wild)
++{
++    const char *c = name;
++    if (!*c) return 0;
++    for (;;) {
++        const char *end = strchr(c, '/');
++        const size_t n = end ? (size_t)(end - c) : strlen(c);
++        if (n == 0 || n >= ENTRY_NAME || (n == 1 && c[0] == '.') || (n == 2 && c[0] == '.' && c[1] == '.'))
++            return 0;
++        for (size_t i = 0; i < n; ++i)
++            if (!name_char(c[i], wild && !end)) return 0;
++        if (!end) return 1;
++        c = end + 1;
++    }
++}
++
++static int host_path(int32_t port, const char *name, char *path, size_t size)
++{
++    char dir[600];
++    if (!slot_dir(port, dir, sizeof dir)) return 0;
++    const int n = snprintf(path, size, "%s/%s", dir, name);
++    return n > 0 && n < (int)size;
++}
++
++/* The checks every command that names a card makes. */
++static int card_name(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t at, int wild, char *name)
++{
++    if (!m || !m->read || !m->write) return fail("a card file command without the caller's memory");
++    if (port < 0 || port > 1 || slot != 0)
++        return fail("a card file command on a port other than 0 / 1 or a slot other than 0 (no recording)");
++    if (!present(port)) return fail("a card file command on a missing data/memcard/slotN (no recording)");
++    if (read_name(m, at, name) < 0) return -1;
++    if (!valid_name(name, wild))
++        return fail("a card name that is not a relative path of card names (no recording shows the server's "
++                    "answer)");
++    return 0;
++}
++
++static int open_file(int32_t port, const char *name, int32_t mode)
++{
++    const int access = mode & ~0x200;
++    if (access < 1 || access > 3 || (mode & ~0x203)) return fail("an Open mode other than 1 / 2 / 3 (| 0x200)");
++    char path[1200];
++    if (!host_path(port, name, path, sizeof path)) return fail("a card path too long for the host");
++    struct stat st;
++    if (stat(path, &st) == 0) {
++        if (!S_ISREG(st.st_mode)) return fail("an Open of a card directory (no recording)");
++    } else if (!(mode & 0x200)) {
++        return fail("an Open of a missing card file without create (no recording)");
++    }
++    int slot = -1;
++    for (int i = 0; i < FDS && slot < 0; ++i)
++        if (!M.fd[i].open) slot = i;
++    if (slot < 0) return fail("a fourth open card descriptor (no recording)");
++    const int flags = (access == 1 ? O_RDONLY : access == 2 ? O_WRONLY : O_RDWR) | ((mode & 0x200) ? O_CREAT : 0);
++    const int host = open(path, flags, 0600);
++    if (host < 0)
++        return fail(errno == ENOENT ? "an Open in a missing card directory (no recording)"
++                                    : "a host card file could not be opened");
++    M.fd[slot] = (Fd){1, host, mode, 0};
++    return slot;
++}
++
++int em_memcard_00114360(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t name, int32_t mode,
++                        int32_t *v0)
++{
++    ensure();
++    if (M.fault) return -1;
++    if (!v0) return fail("00114360 without its output");
++    if (busy(v0)) return 0;
++    char text[NAME_MAX_SDK + 1];
++    if (card_name(m, port, slot, name, 0, text) < 0) return -1;
++    if (mode == 0x40) {
++        /* 00114448's Open: the server makes the directory */
++        char path[1200];
++        struct stat st;
++        if (!host_path(port, text, path, sizeof path)) return fail("a card path too long for the host");
++        if (stat(path, &st) == 0) return fail("a Mkdir of a card name that exists (no recording)");
++        if (mkdir(path, 0700) != 0)
++            return fail(errno == ENOENT ? "a Mkdir in a missing card directory (no recording)"
++                                        : "a host card directory could not be made");
++        issue(2, 0, v0);
++        return 0;
++    }
++    const int fd = open_file(port, text, mode);
++    if (fd < 0) return -1;
++    issue(2, fd, v0);
++    return 0;
++}
++
++/* 00114448 (byte-matched C): 00114360(port, slot, name, 0x40); on 0 the
++ * pending number is 0xB. */
++int em_memcard_00114448(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t name, int32_t *v0)
++{
++    if (em_memcard_00114360(m, port, slot, name, 0x40, v0) < 0) return -1;
++    if (*v0 == 0) M.pending = 0xB;
++    return 0;
++}
++
++static Fd *descriptor(int32_t fd)
++{
++    if (fd < 0 || fd >= FDS || !M.fd[fd].open) {
++        fail("a card command on a descriptor that is not open (no recording)");
++        return NULL;
++    }
++    return &M.fd[fd];
++}
++
++int em_memcard_00114480(int32_t fd, int32_t *v0)
++{
++    ensure();
++    if (M.fault) return -1;
++    if (!v0) return fail("00114480 without its output");
++    if (busy(v0)) return 0;
++    Fd *f = descriptor(fd);
++    if (!f) return -1;
++    const int bad = close(f->host);
++    *f = (Fd){0};
++    if (bad) return fail("a host card file could not be closed");
++    issue(3, 0, v0);
++    return 0;
++}
++
++static int io_checks(const EmMemcardMemory *m, int32_t size)
++{
++    if (!m || !m->read || !m->write) return fail("a card Write / Read without the caller's memory");
++    if (size < 0 || size > IO_MAX) return fail("a card Write / Read size outside 0..8 MiB (no recording)");
++    return 0;
++}
++
++int em_memcard_00114708(const EmMemcardMemory *m, int32_t fd, uint32_t buf, int32_t size, int32_t *v0)
++{
++    ensure();
++    if (M.fault) return -1;
++    if (!v0) return fail("00114708 without its output");
++    if (busy(v0)) return 0;
++    if (io_checks(m, size) < 0) return -1;
++    Fd *f = descriptor(fd);
++    if (!f) return -1;
++    if ((f->mode & 3) == 1) return fail("a card Write on a read-only descriptor (no recording)");
++    uint8_t *data = malloc(size ? (size_t)size : 1u);
++    if (!data) return fail("no memory for a card Write");
++    if (size && m->read(m->ctx, buf, data, (uint32_t)size) < 0) {
++        free(data);
++        return fail("a card Write of bytes outside the caller's memory");
++    }
++    const ssize_t n = size ? pwrite(f->host, data, (size_t)size, (off_t)f->offset) : 0;
++    free(data);
++    if (n != size) return fail("a host card file could not be written");
++    f->offset += size;
++    issue(6, size, v0);
++    return 0;
++}
++
++int em_memcard_00114630(const EmMemcardMemory *m, int32_t fd, uint32_t buf, int32_t size, int32_t *v0)
++{
++    ensure();
++    if (M.fault) return -1;
++    if (!v0) return fail("00114630 without its output");
++    if (busy(v0)) return 0;
++    if (io_checks(m, size) < 0) return -1;
++    Fd *f = descriptor(fd);
++    if (!f) return -1;
++    if ((f->mode & 3) == 2) return fail("a card Read on a write-only descriptor (no recording)");
++    uint8_t *data = malloc(size ? (size_t)size : 1u);
++    if (!data) return fail("no memory for a card Read");
++    const ssize_t n = size ? pread(f->host, data, (size_t)size, (off_t)f->offset) : 0;
++    if (n < 0 || (n && m->write(m->ctx, buf, data, (uint32_t)n) < 0)) {
++        free(data);
++        return fail(n < 0 ? "a host card file could not be read" : "a card Read into bytes outside the caller's memory");
++    }
++    free(data);
++    f->offset += n;
++    issue(5, (int32_t)n, v0);
++    return 0;
++}
++
++static int match(const char *pattern, const char *name)
++{
++    if (!*pattern) return !*name;
++    if (*pattern == '*') return match(pattern + 1, name) || (*name && match(pattern, name + 1));
++    return *name && (*pattern == '?' || *pattern == *name) && match(pattern + 1, name + 1);
++}
++
++static int by_name(const void *a, const void *b)
++{
++    return strcmp((const char *)a, (const char *)b);
++}
++
++int em_memcard_00114AC0(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t name, int32_t mode,
++                        int32_t max, uint32_t table, int32_t *v0)
++{
++    ensure();
++    if (M.fault) return -1;
++    if (!v0) return fail("00114AC0 without its output");
++    if (busy(v0)) return 0;
++    char text[NAME_MAX_SDK + 1];
++    if (card_name(m, port, slot, name, 1, text) < 0) return -1;
++    if (mode != 0) return fail("a GetDir that continues a listing (mode != 0; no caller, no recording)");
++    if (max < 0 || max > 0x1000) return fail("a GetDir table size outside 0..0x1000 entries (no recording)");
++    char *cut = strrchr(text, '/');
++    const char *pattern = cut ? cut + 1 : text;
++    const int wild = strpbrk(pattern, "*?") != NULL;
++    if (wild && !cut) return fail("a GetDir wildcard at the card's root (no recording)");
++    char dir[1200];
++    if (cut) *cut = 0;
++    if (!host_path(port, cut ? text : "", dir, sizeof dir)) return fail("a card path too long for the host");
++    if (!cut) dir[strlen(dir) - 1] = 0;          /* the slot directory itself (no trailing '/') */
++    /* the entries: "." and ".." below a directory, then the host's */
++    char (*names)[ENTRY_NAME] = NULL;
++    size_t count = 0, cap = 0;
++    struct stat st;
++    if (wild) {
++        if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode))
++            return fail("a GetDir of a missing card directory (no recording)");
++    }
++    DIR *d = opendir(dir);
++    if (!d) return fail(cut ? "a GetDir of a missing card directory (no recording)"
++                            : "the host card directory could not be read");
++    for (struct dirent *e; (e = readdir(d)) != NULL;) {
++        if (e->d_name[0] == '.' || strlen(e->d_name) >= ENTRY_NAME) continue;
++        if (!(wild ? match(pattern, e->d_name) : strcmp(pattern, e->d_name) == 0)) continue;
++        if (count == cap) {
++            cap = cap ? 2 * cap : 16;
++            void *grown = realloc(names, cap * sizeof *names);
++            if (!grown) {
++                closedir(d);
++                free(names);
++                return fail("no memory for a GetDir");
++            }
++            names = grown;
++        }
++        snprintf(names[count++], ENTRY_NAME, "%s", e->d_name);
++    }
++    closedir(d);
++    qsort(names, count, sizeof *names, by_name);
++    static const char *const dots[2] = {".", ".."};
++    int32_t stored = 0;
++    for (size_t i = 0; i < (wild ? 2u : 0u) + count && stored < max; ++i) {
++        const char *n = wild && i < 2 ? dots[i] : names[i - (wild ? 2u : 0u)];
++        if (wild && i < 2 && !match(pattern, n)) continue;
++        uint8_t entry[0x40] = {0};
++        memcpy(entry + 0x20, n, strlen(n));
++        if (m->write(m->ctx, table + 0x40u * (uint32_t)stored, entry, sizeof entry) < 0) {
++            free(names);
++            return fail("a GetDir table outside the caller's memory");
++        }
++        ++stored;
++    }
++    free(names);
++    issue(0xD, stored, v0);
++    return 0;
++}
++
++/* ---- by address --------------------------------------------------------- */
++
++int em_memcard_is_sdk(uint32_t target)
++{
++    switch (target) {
++    case 0x00114988u: case 0x00114848u: case 0x00114360u: case 0x00114448u:
++    case 0x00114480u: case 0x00114708u: case 0x00114630u: case 0x00114AC0u:
++        return 1;
++    default:
++        return 0;
++    }
++}
++
++static int put_stores(const EmMemcardMemory *m, const EmMemcardStore *stores, unsigned n)
++{
++    for (unsigned i = 0; i < n; ++i) {
++        const uint32_t v = (uint32_t)stores[i].value;
++        const uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)};
++        if (stores[i].address & 3u) return fail("a card store to an unaligned word");
++        if (!m || !m->write || m->write(m->ctx, stores[i].address, b, 4) < 0)
++            return fail("a card store outside the caller's memory");
++    }
++    return 0;
++}
++
++int em_memcard_call(uint32_t target, const uint64_t *a, unsigned na, const EmMemcardMemory *m, uint64_t *v0)
++{
++    ensure();
++    if (M.fault) return -1;
++    static const unsigned need[8] = {5, 3, 4, 3, 1, 3, 3, 6};
++    static const uint32_t order[8] = {0x00114988u, 0x00114848u, 0x00114360u, 0x00114448u,
++                                      0x00114480u, 0x00114708u, 0x00114630u, 0x00114AC0u};
++    unsigned k = 0;
++    while (k < 8 && order[k] != target) ++k;
++    if (k == 8) return fail("em_memcard_call on an address that is not a libmc entry");
++    if (!a || !v0 || na < need[k]) return fail("em_memcard_call without its argument registers");
++#define I(i) ((int32_t)(uint32_t)a[i])
++#define U(i) ((uint32_t)a[i])
++    int32_t r = 0;
++    int rc;
++    EmMemcardStore stores[3];
++    unsigned n = 0;
++    switch (k) {
++    case 0: rc = em_memcard_00114988(I(0), I(1), U(2), U(3), U(4), &r, stores, &n); break;
++    case 1: rc = em_memcard_00114848(I(0), U(1), U(2), &r, stores, &n); break;
++    case 2: rc = em_memcard_00114360(m, I(0), I(1), U(2), I(3), &r); break;
++    case 3: rc = em_memcard_00114448(m, I(0), I(1), U(2), &r); break;
++    case 4: rc = em_memcard_00114480(I(0), &r); break;
++    case 5: rc = em_memcard_00114708(m, I(0), U(1), I(2), &r); break;
++    case 6: rc = em_memcard_00114630(m, I(0), U(1), I(2), &r); break;
++    default: rc = em_memcard_00114AC0(m, I(0), I(1), U(2), I(3), I(4), U(5), &r); break;
++    }
++#undef I
++#undef U
++    if (rc < 0 || put_stores(m, stores, n) < 0) return -1;
++    *v0 = (uint64_t)(int64_t)r;
++    return 0;
++}
+diff --git a/src/game/em_memcard.h b/src/game/em_memcard.h
+index 3404652..c79d3d2 100644
+--- a/src/game/em_memcard.h
++++ b/src/game/em_memcard.h
+@@ -44,6 +44,64 @@ extern "C" {
+ 
+ #define EM_MEMCARD_DIR "data/memcard"
+ 
++/* The file commands (docs/SAVE_GAME.md section 5). The save and load code
++ * reaches the card's files through six more libmc calls, each issued the
++ * same way as GetInfo (one pending command, D_00241D68 its number; its v0 is
++ * that number while one is pending, else 0 issued) and completed by the
++ * next Sync (the result word D_0027C680):
++ *
++ *   00114360 Open(port, slot, name, mode)    command 2; result a descriptor
++ *   00114448 Mkdir(port, slot, name)         Open with mode 0x40, number 0xB
++ *   00114480 Close(fd)                       command 3; result 0
++ *   00114708 Write(fd, buf, size)            command 6; result the count
++ *   00114630 Read(fd, buf, size)             command 5; result the count
++ *   00114AC0 GetDir(port, slot, name, mode, max, table)  command 0xD;
++ *                                            result the entries stored
++ *
++ * The card is the host directory data/memcard/slotN (port + 1): a card file
++ * `D/F` is the host file data/memcard/slotN/D/F, byte for byte. The server
++ * answers at host speed: the bytes Write is handed are read and written to
++ * the host file when it is issued, and the bytes Read and GetDir store reach
++ * EE memory then too (the original's IOP finishes within the frame on the
++ * recordings; nothing reads them before the Sync that completes them).
++ *
++ * What the commands answer, and what they refuse (fault, as GetInfo does,
++ * where no recording shows the server's answer): a name is the original's
++ * relative card path (at most 0x3FF bytes, the SDK's copy; components of
++ * letters, digits, '.', '_', '-', at most 31 bytes, never "." or "..";
++ * GetDir's last component may hold '*' and '?', only below a directory).
++ * Open modes 1 (read), 2 (write), 3 (both), each with 0x200 (create), and
++ * Mkdir's 0x40; any other mode faults, as do an Open of a missing file
++ * without 0x200, of a file in a missing directory or of a directory, a
++ * Mkdir of a name that exists, a fourth open descriptor, a descriptor not
++ * open, a Write on a read-only one or a Read on a write-only one, and a
++ * GetDir with mode != 0 or of a directory that is missing. A descriptor is
++ * the lowest free of 0..2 (the server's handle table; the recording that
++ * checks it is docs/SAVE_GAME.md section 6's next step). Open does not
++ * truncate; Write and Read move the descriptor's offset.
++ *
++ * GetDir: a name without a wildcard stores its one entry when it exists
++ * (the result 1) and nothing when it does not (0); `D/pattern` lists "."
++ * and ".." and then D's host entries in byte order of their names (host
++ * names that begin with '.', such as Finder's .DS_Store, are not the
++ * card's), each that matches, up to `max`. An entry is 0x40 bytes with its
++ * name, NUL-padded, at +0x20; the port stores zero in the other 0x20 bytes
++ * (the card server's dates, size and attributes, which no original that
++ * reads the table reads: 00228C90 compares only the names). */
++
++/* EE memory as the card server reaches it (the strings and buffers the
++ * calls pass). Each returns 0, or -1 when the range is not the caller's. */
++typedef struct {
++    void *ctx;
++    int (*read)(void *ctx, uint32_t address, void *dst, uint32_t size);
++    int (*write)(void *ctx, uint32_t address, const void *src, uint32_t size);
++} EmMemcardMemory;
++
++/* The host directory that holds slot1 and slot2 (NULL: EM_MEMCARD_DIR,
++ * relative to the working directory). Kept across em_memcard_reset. */
++void em_memcard_set_root(const char *dir);
++const char *em_memcard_root(void);
++
+ /* A word the SDK stores through a pointer its caller passed. */
+ typedef struct {
+     uint32_t address;
+@@ -70,8 +128,29 @@ int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free
+ int em_memcard_00114848(int32_t mode, uint32_t cmd, uint32_t result, int32_t *v0, EmMemcardStore stores[2],
+                         unsigned *n);
+ 
+-/* Back to the boot state (no command pending, no port asked, the globals
+- * as the boot leaves them). */
++/* The file commands (see above): *v0 the original's return (0 issued, or
++ * the pending command's number). 0, or -1 on a fault (reported). */
++int em_memcard_00114360(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t name, int32_t mode,
++                        int32_t *v0);
++int em_memcard_00114448(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t name, int32_t *v0);
++int em_memcard_00114480(int32_t fd, int32_t *v0);
++int em_memcard_00114708(const EmMemcardMemory *m, int32_t fd, uint32_t buf, int32_t size, int32_t *v0);
++int em_memcard_00114630(const EmMemcardMemory *m, int32_t fd, uint32_t buf, int32_t size, int32_t *v0);
++int em_memcard_00114AC0(const EmMemcardMemory *m, int32_t port, int32_t slot, uint32_t name, int32_t mode,
++                        int32_t max, uint32_t table, int32_t *v0);
++
++/* 1 when `target` is one of the eight libmc entries this module answers
++ * (00114988, 00114848 and the six above), else 0. */
++int em_memcard_is_sdk(uint32_t target);
++/* One libmc call by its original address with the argument registers'
++ * 64-bit images a[0..na) (a 32-bit argument as the EE holds it); the words
++ * GetInfo and Sync store go through m->write. *v0 the original's v0
++ * (sign-extended). 0, or -1 on a fault or a target that is not one of
++ * them. */
++int em_memcard_call(uint32_t target, const uint64_t *a, unsigned na, const EmMemcardMemory *m, uint64_t *v0);
++
++/* Back to the boot state (no command pending, no port asked, no descriptor
++ * open: the host files are closed, the globals as the boot leaves them). */
+ void em_memcard_reset(void);
+ /* The last fault text, or NULL. */
+ const char *em_memcard_fault(void);
+diff --git a/src/game/em_save_original.h b/src/game/em_save_original.h
+index 6eb9cc1..9dcb804 100644
+--- a/src/game/em_save_original.h
++++ b/src/game/em_save_original.h
+@@ -2,8 +2,9 @@
+  * write a saved game to the card, translated from the original
+  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
+  * em_save_. Not wired yet (docs/SAVE_GAME.md section 6): the card screen
+- * 00227300 that runs it still faults, and em_memcard answers only the
+- * GetInfo and Sync calls of the load screen.
++ * 00227300 that runs it still faults. Its libmc callees are answered by
++ * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder
++ * routes them there.
+  *
+  * The record is the card screen's, D_00810040 (docs/OPTIONS.md): +3 the
+  * writer's state, +4 its step, +5, +0xA the save slot (0..4, the file
+diff --git a/tools/test_memcard_host.py b/tools/test_memcard_host.py
+new file mode 100644
+index 0000000..d37bd45
+--- /dev/null
++++ b/tools/test_memcard_host.py
+@@ -0,0 +1,507 @@
++#!/usr/bin/env python3
++"""The host memory card's file commands (em_memcard) under the ORIGINAL save
++and load code, and on their own.
++
++docs/SAVE_GAME.md section 5. Two parts:
++
++1. The original's code over the host card. The save writer 00228A90 runs
++   frame by frame on both sides of test_save_reference's harness (the
++   original instructions over the a01_s4 / opt_07 recordings' RAM, and the
++   native em_save_* translations), with every libmc call answered by
++   em_memcard itself on a host card folder of its own per side (instead of
++   that test's scripted card model): at every callee entry RAM, the
++   scratchpad and the arguments must equal the original's, the two host
++   folders must be byte-identical, and the folder must hold the save layout
++   docs/SAVE_GAME.md section 2 records (test_save_reference.check_card).
++   Then the ORIGINAL load side runs over the RAM the save left: a second
++   save into the existing directory (00228A90 again, another slot), and the
++   card screen's load enumeration 002283B0 (GetDir of the directory, then
++   00228EB0: GetDir of its files, the name check 00228C90, each EX_DATA
++   slot opened, read and closed, the check byte 00228C50, GetInfo) until it
++   reports 1. Its slot records must be the two saved blocks' headers, and
++   only those slots present: the round trip, save then load, through the
++   original's own code. Negative controls: a slot file with one byte changed,
++   and a directory without icon.sys, make the original reject the card (3).
++
++2. em_memcard directly (ctypes, a Python memory): every command's answer,
++   the pending / Sync protocol, GetDir's listing, Read at the end of a
++   file, and every refusal (a fault where no recording shows the server's
++   answer).
++
++The card server is the IOP's, not EE code: what em_memcard answers (a
++descriptor 0..2, GetDir's entries, the counts) is checked here against what
++the original EE code accepts and reads back, not against a recording of the
++server; that recording is docs/SAVE_GAME.md section 6's next step.
++
++Host folders live in a temporary directory removed at the end. Quick by
++default (a covering set of saves); EM_TEST_FULL=1 runs every slot and port
++on both recordings.
++"""
++import ctypes as C
++import hashlib
++import os
++import struct
++import subprocess
++import sys
++import tempfile
++import time
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'tools'))
++import reference_mode as RM  # noqa: E402
++import test_save_reference as S  # noqa: E402
++import test_area01_render_reference as R  # noqa: E402
++import test_area01_ui_reference as U  # noqa: E402
++from test_player_slide_reference import RETURN, STACK_TOP  # noqa: E402
++
++MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
++MC = S.MC
++OPEN, MKDIR, CLOSE, WRITE, GETDIR, SYNC = S.OPEN, S.MKDIR, S.CLOSE, S.WRITE, S.GETDIR, S.SYNC
++GETINFO, READ = 0x114988, 0x114630
++SDK_ARGS = {GETINFO: 5, SYNC: 3, OPEN: 4, MKDIR: 3, CLOSE: 1, WRITE: 3, READ: 3, GETDIR: 6}
++LOAD = 0x2283B0                     # the card screen's load enumeration (state +2)
++DIR = 'BASCUS-97112-DS00-00'
++SLOTS = ['%s/EX_DATA.%02d' % (DIR, n) for n in range(5)]
++
++READF = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_void_p, C.c_uint32)
++WRITEF = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_void_p, C.c_uint32)
++
++
++class Memory(C.Structure):
++    _fields_ = [('ctx', C.c_void_p), ('read', READF), ('write', WRITEF)]
++
++
++LIB = None
++
++
++def build_lib():
++    out = S.OUT
++    out.mkdir(parents=True, exist_ok=True)
++    lib = out / ('memcard' + ('.dylib' if sys.platform == 'darwin' else '.so'))
++    src = ['src/game/em_memcard.c']
++    h = hashlib.sha256(repr(S.CFLAGS).encode())
++    for q in src + ['src/game/em_memcard.h']:
++        h.update((ROOT / q).read_bytes())
++    stamp = lib.with_suffix(lib.suffix + '.sha256')
++    if not (lib.exists() and stamp.exists() and stamp.read_text() == h.hexdigest()):
++        subprocess.run(['cc'] + S.CFLAGS + src + ['-o', str(lib)], cwd=ROOT, check=True)
++        stamp.write_text(h.hexdigest())
++    m = C.CDLL(str(lib))
++    m.em_memcard_call.argtypes = [C.c_uint32, C.POINTER(C.c_uint64), C.c_uint, C.POINTER(Memory),
++                                  C.POINTER(C.c_uint64)]
++    m.em_memcard_set_root.argtypes = [C.c_char_p]
++    m.em_memcard_fault.restype = C.c_char_p
++    m.em_memcard_is_sdk.argtypes = [C.c_uint32]
++    return m
++
++
++def fresh(root):
++    """em_memcard back to the boot state on the host card folder `root`."""
++    LIB.em_memcard_reset()
++    LIB.em_memcard_set_root(str(root).encode())
++    assert LIB.em_memcard_boot_check() == 1, root
++
++
++def call(target, args, read, write):
++    """One libmc call through em_memcard_call; (rc, v0, fault text)."""
++    keep = (READF(lambda _c, a, dst, n: read(a, dst, n)), WRITEF(lambda _c, a, src, n: write(a, src, n)))
++    mem = Memory(None, *keep)
++    regs = (C.c_uint64 * 6)(*[(x & MASK64) for x in args] + [0] * (6 - len(args)))
++    v0 = C.c_uint64(0)
++    rc = LIB.em_memcard_call(target, regs, len(args), C.byref(mem), C.byref(v0))
++    fault = LIB.em_memcard_fault()
++    return rc, v0.value, fault.decode() if fault else None
++
++
++def ram_access(load_bytes, store_byte):
++    """read / write callbacks over an EE memory (RAM below 32 MiB)."""
++    def read(a, dst, n):
++        if not (a < 0x40000000 and (a & 0x1FFFFFF) + n <= R.RAM_SIZE):
++            return -1
++        C.memmove(dst, load_bytes(a & 0x1FFFFFF, n), n)
++        return 0
++
++    def write(a, src, n):
++        if not (a < 0x40000000 and (a & 0x1FFFFFF) + n <= R.RAM_SIZE):
++            return -1
++        data = C.string_at(src, n)
++        for i, b in enumerate(data):
++            store_byte((a & 0x1FFFFFF) + i, b)
++        return 0
++    return read, write
++
++
++def card_files(root, port):
++    base = Path(root) / ('slot%d' % (port + 1))
++    out = {}
++    for p in sorted(base.rglob('*')):
++        if p.is_file() and not p.is_symlink():
++            out[str(p.relative_to(base))] = p.read_bytes()
++    return out
++
++
++# ---- part 1: the save on both sides of the harness, over em_memcard -------
++
++class HostCard:
++    """test_save_reference's Card interface, answered by em_memcard on a host
++    folder of its own; `order` logs the commands issued (as that model's)."""
++    roots = []          # the folder for each Card made, in order (oracle, native)
++    dirs = ()           # card directories present before the case
++
++    def __init__(self, _cfg):
++        root = HostCard.roots.pop(0)
++        fresh(root)
++        for d in HostCard.dirs:
++            for port in (0, 1):
++                (Path(root) / ('slot%d' % (port + 1)) / d).mkdir()
++        self.order = []
++
++    def answer(self, mem, save, address, args):
++        read, write = ram_access(lambda a, n: bytes(mem[a:a + n]), lambda a, b: save(a, b, 1))
++        rc, v0, fault = call(address, args, read, write)
++        assert rc == 0, ('em_memcard faulted', hex(address), fault)
++        if address != SYNC and v0 == 0:
++            name = S.cstr(mem, args[2]) if address in (OPEN, MKDIR, GETDIR) else None
++            if address == OPEN:
++                self.order.append(('open', name, args[3] & MASK))
++            elif address in (MKDIR, GETDIR):
++                self.order.append(('mkdir' if address == MKDIR else 'getdir', name))
++            else:
++                self.order.append((hex(address),))
++        return v0
++
++
++class Pseudo:
++    def __init__(self, order, files):
++        self.order, self.files = order, files
++
++
++def save_both(tmp, tag, beat, chosen, port, exists):
++    """One whole save, both sides of the harness, each on its own host card.
++    Returns (the oracle's end RAM, scratchpad, the start RAM, its folder)."""
++    roots = [Path(tmp) / tag / side for side in ('oracle', 'native')]
++    for r in roots:
++        r.mkdir(parents=True)
++    HostCard.roots, HostCard.dirs = list(roots), ((DIR,) if exists else ())
++    item = ('host-save', beat, {'chosen': chosen, 'port': port, 'exists': exists, 'card': {}})
++    b = S.rec(port, chosen, state=0) + S.helpers() + [(MC + 0x50, 0, 4), (MC + 0x54, 0, 4)]
++    b += [(MC + 0x6C + n, 0, 1) for n in range(5)] + [(MC + 0x74 + i, 0, 1) for i in range(60)]
++    ram, spad = S.make(beat, {'b': b})
++    start = bytes(ram)
++    steps = [('call', 0x228A90, (MC,))] * S.SAVE_FRAMES
++    S.run_both(item, bytes(spad), steps, check=lambda ee: ee.load(MC + 3, 1) == 3)
++    W = R.work()
++    end_ram, end_spad = bytes(W.oracle.data), bytes(W.oracle_live.spad)
++    o, n = card_files(roots[0], port), card_files(roots[1], port)
++    assert o == n, (item, 'the two sides wrote different host cards', sorted(o), sorted(n))
++    assert not card_files(roots[0], 1 - port), (item, 'the other port was written')
++    oracle_card = S.MODELS['oracle']
++    assert oracle_card.order == S.MODELS['native'].order, (item, 'command order differs')
++    S.check_card(item, Pseudo(oracle_card.order, o), start)
++    return end_ram, end_spad, start, roots[0]
++
++
++# ---- part 1b: the original's load side over the host card ------------------
++
++class LoadEE(U.UIEE):
++    """The UI lane's interpreter with PSUBW, which the string compare 00123020
++    (00228C90's name check) runs: four 32-bit lanes, each a - b mod 2^32."""
++
++    def mmi(self, word, pc):
++        if (word & 63) == 0x08 and (word >> 6 & 31) == 0x01:                    # psubw
++            rs, rt, rd = word >> 21 & 31, word >> 16 & 31, word >> 11 & 31
++            a = (self.r[rs] & MASK64) | (self.rh[rs] << 64)
++            b = (self.r[rt] & MASK64) | (self.rh[rt] << 64)
++            value = 0
++            for i in range(4):
++                value |= ((a >> 32 * i) - (b >> 32 * i) & MASK) << 32 * i
++            if rd:
++                self.r[rd], self.rh[rd] = value & MASK64, value >> 64
++            return
++        return U.UIEE.mmi(self, word, pc)
++
++
++def original_ee(ram, spad, root, reset=True):
++    ee = LoadEE(S.ELF, b'', spad, journal=False)
++    ee.mem = bytearray(ram)
++    if reset:
++        fresh(root)
++
++    def hook(e, address):
++        def store(a, b):
++            e.mem[a] = b
++        read, write = ram_access(lambda a, n: bytes(e.mem[a:a + n]), store)
++        args = [e.r[4 + i] & MASK64 for i in range(SDK_ARGS[address])]
++        rc, v0, fault = call(address, args, read, write)
++        if rc != 0:
++            raise AssertionError(('em_memcard faulted', hex(address), fault))
++        e.calls.append((address, tuple(a & MASK for a in args), v0 & MASK))
++        e.r[2] = v0 & MASK64
++    ee.hooks = {a: (lambda e, a=a: hook(e, a)) for a in SDK_ARGS}
++    return ee
++
++
++def run_frames(ee, entry, frames):
++    for f in range(frames):
++        ee.r[4], ee.r[29], ee.r[31] = MC, STACK_TOP, RETURN
++        ee.run(entry)
++        v = ee.r[2] & MASK
++        if v:
++            return v, f + 1
++    return 0, frames
++
++
++def setup_record(ee, port, chosen=0):
++    for at, v, size in S.rec(port, chosen, state=0) + S.helpers() + [(MC + 0x50, 0, 4), (MC + 0x54, 0, 4)]:
++        ee.save(at, v, size)
++    for at in (MC + 2, MC + 5, MC + 6):
++        ee.save(at, 0, 1)
++    ee.save(0x275844, MASK, 4)
++
++
++def original_save(ee, port, chosen):
++    setup_record(ee, port, chosen)
++    v, frames = run_frames(ee, 0x228A90, S.SAVE_FRAMES)
++    assert v == 1 and ee.load(MC + 3, 1) == 3, ('the original second save did not finish', v, frames)
++
++
++def original_load(ee, port):
++    setup_record(ee, port)
++    for n in range(5):
++        ee.save(MC + 0x6C + n, 0xEE, 1)
++    return run_frames(ee, LOAD, 400)
++
++
++def check_loaded(ee, files, present, where):
++    got = [ee.load(MC + 0x6C + n, 1) for n in range(5)]
++    assert got == [1 if n in present else 0 for n in range(5)], (where, 'slots present', got, present)
++    assert ee.load(MC + 0x68) == len(present), (where, 'count')
++    for n in present:
++        blk = files[SLOTS[n]]
++        rec = bytes(ee.mem[MC + 0x74 + 12 * n:MC + 0x80 + 12 * n])
++        want = blk[0:6] + blk[0xA:0xB] + rec[7:8] + blk[0x50:0x54]
++        assert rec == want, (where, 'slot record', n, rec.hex(), want.hex())
++
++
++def round_trip(tmp, tag, beat, first, second, port):
++    end_ram, end_spad, start, root = save_both(tmp, tag, beat, first, port, False)
++    ee = original_ee(end_ram, end_spad, root)
++    original_save(ee, port, second)
++    files = card_files(root, port)
++    want = sorted([DIR + '/' + DIR, DIR + '/EX.ico', DIR + '/icon.sys'] + SLOTS)
++    assert sorted(files) == want, (tag, sorted(files))
++    v, frames = original_load(ee, port)
++    assert v == 1, (tag, 'the original load enumeration did not accept the card', v, frames)
++    check_loaded(ee, files, {first, second}, tag)
++    assert bytes(ee.mem[0x822050:0x822050 + 0x640]) == files[SLOTS[4]], (tag, 'the last slot read')
++    names = [bytes(ee.mem[0x821500 + 0x40 * i + 0x20:0x821500 + 0x40 * i + 0x40]).split(b'\0')[0]
++             for i in range(10)]
++    assert sorted(names) == sorted([b'.', b'..', DIR.encode(), b'EX.ico', b'icon.sys'] +
++                                   [s.split('/')[1].encode() for s in SLOTS]), (tag, names)
++    calls = [c[0] for c in ee.calls]
++    reads = [c for c in ee.calls if c[0] == READ]
++    assert len(reads) == 5 and all(c[1][2] == 0x640 and c[2] == 0 for c in reads), (tag, reads)
++    assert GETINFO in calls, tag
++    # negative controls: the original rejects a changed slot and a missing icon.sys
++    slot = Path(root) / ('slot%d' % (port + 1)) / SLOTS[second]
++    data = bytearray(slot.read_bytes())
++    data[0x100] ^= 1
++    slot.write_bytes(bytes(data))
++    bad = original_ee(end_ram, end_spad, root)
++    assert original_load(bad, port)[0] == 3, (tag, 'a changed slot was accepted')
++    data[0x100] ^= 1
++    slot.write_bytes(bytes(data))
++    icon = Path(root) / ('slot%d' % (port + 1)) / DIR / 'icon.sys'
++    kept = icon.read_bytes()
++    icon.unlink()
++    bad = original_ee(end_ram, end_spad, root)
++    assert original_load(bad, port)[0] == 3, (tag, 'a directory without icon.sys was accepted')
++    icon.write_bytes(kept)
++    again = original_ee(end_ram, end_spad, root)
++    assert original_load(again, port)[0] == 1, (tag, 'restored card')
++    return len(ee.calls)
++
++
++# ---- part 2: em_memcard on its own -----------------------------------------
++
++class Mem:
++    def __init__(self):
++        self.ram = bytearray(0x10000)
++
++    def access(self):
++        def read(a, dst, n):
++            if a + n > len(self.ram):
++                return -1
++            C.memmove(dst, bytes(self.ram[a:a + n]), n)
++            return 0
++
++        def write(a, src, n):
++            if a + n > len(self.ram):
++                return -1
++            self.ram[a:a + n] = C.string_at(src, n)
++            return 0
++        return read, write
++
++    def put(self, at, data):
++        self.ram[at:at + len(data)] = data
++
++    def word(self, at):
++        return struct.unpack_from('<i', self.ram, at)[0]
++
++
++NAME, BUF, TABLE, CMD, RES, TYPE = 0x100, 0x1000, 0x4000, 0x80, 0x84, 0x88
++
++
++def unit(tmp):
++    m = Mem()
++    rd, wr = m.access()
++    n = [0]
++
++    def do(target, *args):
++        rc, v0, fault = call(target, args, rd, wr)
++        assert rc == 0, (hex(target), args, fault)
++        n[0] += 1
++        return v0 if v0 < 1 << 63 else v0 - (1 << 64)
++
++    def sync():
++        assert do(SYNC, 1, CMD, RES) == 1
++        return m.word(CMD), m.word(RES)
++
++    def name(text):
++        m.put(NAME, text.encode() + b'\0')
++        return NAME
++
++    def refused(target, args, why, prepare=None):
++        root = Path(tmp) / ('refuse%d' % n[0])
++        root.mkdir()
++        fresh(root)
++        if prepare:
++            prepare(root)
++        rc, _, fault = call(target, args, rd, wr)
++        n[0] += 1
++        assert rc == -1 and fault and why in fault, (hex(target), args, fault)
++
++    root = Path(tmp) / 'unit'
++    root.mkdir()
++    fresh(root)
++    card = root / 'slot1'
++    assert all(LIB.em_memcard_is_sdk(a) for a in SDK_ARGS) and not LIB.em_memcard_is_sdk(0x114510)
++    assert do(SYNC, 1, CMD, RES) == -1                       # nothing pending
++    assert do(GETDIR, 0, 0, name(DIR), 0, 1, TABLE) == 0
++    assert sync() == (0xD, 0)                                # a fresh card: no directory
++    assert do(MKDIR, 0, 0, name(DIR)) == 0
++    assert do(OPEN, 0, 0, name(DIR + '/x'), 0x203) == 0xB    # pending: v0 its number, nothing served
++    assert not (card / DIR / 'x').exists()
++    assert sync() == (0xB, 0) and (card / DIR).is_dir()
++    assert do(GETDIR, 0, 0, name(DIR), 0, 1, TABLE) == 0 and sync() == (0xD, 1)
++    assert m.ram[TABLE + 0x20:TABLE + 0x40].rstrip(b'\0') == DIR.encode() and not any(m.ram[TABLE:TABLE + 0x20])
++    payload = bytes((i * 7 + 3) & 0xFF for i in range(0x640))
++    m.put(BUF, payload)
++    assert do(OPEN, 0, 0, name(SLOTS[2]), 0x203) == 0 and sync() == (2, 0)     # descriptor 0
++    assert do(OPEN, 0, 0, name(SLOTS[3]), 0x203) == 0 and sync() == (2, 1)     # descriptor 1
++    assert do(WRITE, 0, BUF, 0x640) == 0 and sync() == (6, 0x640)
++    assert do(WRITE, 0, BUF, 0x10) == 0 and sync() == (6, 0x10)                # at offset 0x640
++    assert do(CLOSE, 0) == 0 and sync() == (3, 0)
++    assert do(CLOSE, 1) == 0 and sync() == (3, 0)
++    assert (card / SLOTS[2]).read_bytes() == payload + payload[:0x10]
++    assert (card / SLOTS[3]).read_bytes() == b''
++    # Open without truncation: a shorter write keeps the rest
++    m.put(BUF, b'\xAA' * 4)
++    assert do(OPEN, 0, 0, name(SLOTS[2]), 0x203) == 0 and sync() == (2, 0)
++    assert do(WRITE, 0, BUF, 4) == 0 and sync() == (6, 4)
++    assert do(CLOSE, 0) == 0 and sync()[0] == 3
++    assert (card / SLOTS[2]).read_bytes() == b'\xAA' * 4 + payload[4:] + payload[:0x10]
++    # Read: the count, then 0 at the end; the bytes reach memory
++    m.put(BUF, b'\0' * 0x700)
++    assert do(OPEN, 0, 0, name(SLOTS[2]), 1) == 0 and sync() == (2, 0)
++    assert do(READ, 0, BUF, 0x600) == 0 and sync() == (5, 0x600)
++    assert do(READ, 0, BUF + 0x600, 0x100) == 0 and sync() == (5, 0x50)
++    assert do(READ, 0, BUF, 0x10) == 0 and sync() == (5, 0)
++    assert bytes(m.ram[BUF:BUF + 0x650]) == (card / SLOTS[2]).read_bytes()
++    assert do(CLOSE, 0) == 0 and sync()[0] == 3
++    # GetDir: ".", "..", then the host's entries in byte order; host dot-files are not the card's; max
++    (card / DIR / '.DS_Store').write_bytes(b'host')
++    (card / DIR / 'B').write_bytes(b'')
++    assert do(GETDIR, 0, 0, name(DIR + '/*'), 0, 0x12, TABLE) == 0
++    count = sync()[1]
++    got = [bytes(m.ram[TABLE + 0x40 * i + 0x20:TABLE + 0x40 * i + 0x40]).rstrip(b'\0') for i in range(count)]
++    assert got == [b'.', b'..', b'B', b'EX_DATA.02', b'EX_DATA.03'], got
++    assert do(GETDIR, 0, 0, name(DIR + '/*'), 0, 2, TABLE) == 0 and sync() == (0xD, 2)
++    assert do(GETDIR, 0, 0, name(DIR + '/EX_DATA.0?'), 0, 0x12, TABLE) == 0 and sync() == (0xD, 2)
++    assert do(GETDIR, 0, 0, name(DIR + '/*.03'), 0, 0x12, TABLE) == 0 and sync() == (0xD, 1)
++    assert m.ram[TABLE + 0x20:TABLE + 0x2B] == b'EX_DATA.03\0'
++    # port 1 is slot2
++    assert do(MKDIR, 1, 0, name(DIR)) == 0 and sync() == (0xB, 0) and (root / 'slot2' / DIR).is_dir()
++    # GetInfo / Sync through em_memcard_call: type 2, result 0 (a card the port knows)
++    assert do(GETINFO, 0, 0, TYPE, 0, 0) == 0 and m.word(TYPE) == 2 and sync() == (1, 0)
++    # refusals (each on a fresh card; the fault latches)
++    mk = lambda r: (r / 'slot1' / DIR).mkdir()      # noqa: E731
++    for text in ('../x', '/' + DIR, DIR + '/../x', DIR + '//x', 'a b', 'x' * 32, DIR + '/./x', ''):
++        refused(OPEN, (0, 0, name(text), 0x203), 'not a relative path', mk)
++    refused(GETDIR, (0, 0, name('*'), 0, 1, TABLE), 'wildcard at the card')
++    refused(GETDIR, (0, 0, name(DIR + '/*'), 0, 1, TABLE), 'missing card directory')
++    refused(GETDIR, (0, 0, name(DIR), 1, 1, TABLE), 'continues a listing')
++    refused(OPEN, (0, 0, name(DIR + '/x'), 0x603), 'Open mode', mk)
++    refused(OPEN, (0, 0, name(DIR + '/x'), 0x200), 'Open mode', mk)
++    refused(OPEN, (0, 0, name(DIR + '/x'), 1), 'without create', mk)
++    refused(OPEN, (0, 0, name(DIR + '/x'), 0x203), 'missing card directory')
++    refused(OPEN, (0, 0, name(DIR), 0x203), 'directory', mk)
++    refused(MKDIR, (0, 0, name(DIR)), 'exists', mk)
++    refused(MKDIR, (0, 0, name(DIR + '/a/b')), 'missing card directory')
++    refused(OPEN, (2, 0, name(DIR), 1), 'port other than')
++    refused(OPEN, (0, 1, name(DIR), 1), 'port other than')
++    refused(CLOSE, (0,), 'not open')
++    refused(WRITE, (5, BUF, 4), 'not open')
++    refused(WRITE, (0, BUF, -1), 'size')
++
++    def three(r):
++        mk(r)
++        for i in range(3):
++            assert do(OPEN, 0, 0, name(DIR + '/f%d' % i), 0x203) == 0 and sync() == (2, i)
++    refused(OPEN, (0, 0, name(DIR + '/f3'), 0x203), 'fourth', three)
++
++    def read_only(r):
++        mk(r)
++        (r / 'slot1' / DIR / 'f').write_bytes(b'abc')
++        assert do(OPEN, 0, 0, name(DIR + '/f'), 1) == 0 and sync() == (2, 0)
++    refused(WRITE, (0, BUF, 3), 'read-only', read_only)
++
++    def write_only(r):
++        mk(r)
++        assert do(OPEN, 0, 0, name(DIR + '/f'), 0x202) == 0 and sync() == (2, 0)
++    refused(READ, (0, BUF, 3), 'write-only', write_only)
++    refused(WRITE, (0, 0xFFF0, 0x100), 'outside the caller', write_only)
++    refused(OPEN, (0, 0, 0xFFFFFF00, 0x203), 'outside the caller')
++    refused(0x114510, (0, 0, 0), 'not a libmc entry')
++    LIB.em_memcard_reset()
++    return n[0]
++
++
++def main():
++    global LIB
++    t0 = time.time()
++    LIB = build_lib()
++    S.setup()
++    S.Card = HostCard                  # both sides of the harness answer from em_memcard
++    saves = [('a4', 2, 0, False), ('a4', 0, 1, True)] if not RM.FULL else \
++        [(b, c, p, e) for b in ('a4', 'o7') for c in range(5) for p in (0, 1) for e in (False, True)]
++    trips = [('a4', 1, 3, 0), ('o7', 4, 0, 1)] if not RM.FULL else \
++        [(b, f, s, p) for b in ('a4', 'o7') for p in (0, 1) for f, s in ((1, 3), (4, 0), (0, 2))]
++    with tempfile.TemporaryDirectory(prefix='em_memcard_') as tmp:
++        commands = unit(tmp)
++        for i, (beat, chosen, port, exists) in enumerate(saves):
++            save_both(tmp, 'save%d' % i, beat, chosen, port, exists)
++        calls = 0
++        for i, (beat, first, second, port) in enumerate(trips):
++            calls += round_trip(tmp, 'trip%d' % i, beat, first, second, port)
++    LIB.em_memcard_reset()
++    RM.banner(f'{commands} direct em_memcard calls', RM.part(len(saves), 40, 'whole saves on both sides'),
++              RM.part(len(trips), 12, 'save + save + load round trips through the original code') +
++              f' ({calls} libmc calls answered)')
++    print('elapsed %.1f s' % (time.time() - t0))
++    print('memcard host: PASS')
++
++
++if __name__ == '__main__':
++    main()

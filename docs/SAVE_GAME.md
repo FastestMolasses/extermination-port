@@ -16,15 +16,10 @@ instruction of the original is reproduced here.
 | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
 | The card screen around them | 00227300 and its screens (002280F0, 002283B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00226B90, 002267A0, 00226D50, 002293B0) | faults (docs/OPTIONS.md section 4.2) | - |
 | The load side | 00228EB0 (the five slots read), 00228B60 (one slot read), 001FE7C0 / 001FEB00 (read), the restore and the area entry | not translated | - |
-| The host card | em_memcard: GetInfo and Sync only | Open / Write / Close / Mkdir / GetDir / Read not answered | - |
+| The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
 | Start-point saves, `EM_START_AT` | - | not built | - |
 
-Next steps, in order: the host card's file commands (em_memcard) with their
-answers checked against a fork recording of the original saving on a
-separate card file (the user's decision of 2026-10-09, HANDOFF item 9); the
-load side; the card screen 00227300 and the save terminal's Yes path; the
-start-point save builder; `EM_START_AT` (docs/STARTUP.md "Developer
-switches").
+Next steps: section 6.
 
 ## 2. The save on the card
 
@@ -135,7 +130,89 @@ cases, 18,106 callee entries equal). Mutants checked: the Open mode, the
 check byte's range, the iterator bound, each header store: all fail the
 quick run.
 
-## 4. Re-exports
+## 5. The host card's file commands (em_memcard)
+
+The card server is the IOP's (mcserv / mcman), not EE code; the port's
+stand-in is `src/game/em_memcard.c`, which answers every libmc call the save
+and load code makes, at host speed, on the host card folders
+`data/memcard/slot1` (port 0) and `slot2` (port 1). The EE side of each call
+is the original SDK's (the decomp's C: 00114360, 00114448, 00114480,
+00114708, 00114630, 00114AC0, 00114848, all ee-gcc; 00114360 and 00114708
+NEARMISS): with a command pending (D_00241D68) the call returns its number
+and issues nothing; otherwise the command is issued with v0 0, and the next
+Sync stores its number and the result word D_0027C680. Mkdir is 00114360's
+Open with mode 0x40, its pending number then set to 0xB.
+
+| Call | Command | Result | Host |
+|---|---|---|---|
+| Open(port, slot, name, mode) | 2 | a descriptor 0..2 (the lowest free) | opens `slotN/<name>`; mode 1 / 2 / 3 (read / write / both), 0x200 creates; no truncation |
+| Mkdir(port, slot, name) | 0xB | 0 | makes the directory |
+| Close(fd) | 3 | 0 | closes the file |
+| Write(fd, buf, size) | 6 | size | writes the EE bytes at the descriptor's offset |
+| Read(fd, buf, size) | 5 | the bytes read (0 at the end) | the bytes reach EE memory at buf |
+| GetDir(port, slot, name, 0, max, table) | 0xD | the entries stored | see below |
+
+GetDir with a plain name stores that one entry if it exists (result 1) and
+nothing if not (0): 00228530 / 002283B0 / 00229A70 ask
+`BASCUS-97112-DS00-00` this way. With a pattern (`D/*`, the load
+enumeration 00228EB0 asks `BASCUS-97112-DS00-00/*` for at most 0x12) it
+stores "." and "..", then D's entries in byte order of their names (host
+names beginning with '.', such as Finder's .DS_Store, are not the card's).
+An entry is 0x40 bytes with the name at +0x20; the port leaves the first
+0x20 bytes (the server's dates, size, attributes) zero, which the only
+reader, 00228C90, never looks at (it compares names). Every condition no
+recording shows the server's answer for faults (latched, as GetInfo's
+policy): a name that is not a relative path of card names (`..`, a leading
+'/', a component over 31 bytes or with other characters), a wildcard at the
+card's root, a GetDir that continues a listing, any other Open mode, a
+missing file without create, a file in a missing directory, a directory
+opened as a file, a Mkdir of an existing name, a fourth descriptor, a
+descriptor not open, a Write on a read-only or a Read on a write-only one,
+a size outside 0..8 MiB, and memory outside the caller's. The bytes Write is
+handed are read, and the bytes Read and GetDir store are written, when the
+command is issued; nothing reads them before the Sync that completes it.
+`em_memcard_call(target, registers, ...)` answers any of the eight entries
+by address, for the binder the card screen will use.
+
+What is a claim and what is checked. `make test-memcard-host`
+(`tools/test_memcard_host.py`) runs the ORIGINAL save writer 00228A90
+frame by frame on both sides of test-save-reference's harness (the
+original's instructions over the a01_s4 / opt_07 recordings' RAM, and the
+em_save_* translations) with em_memcard answering both sides, each on its
+own host folder: RAM, the scratchpad and the arguments equal at every
+callee entry, the two host cards byte-identical, and the folder holding
+section 2's layout. Then the ORIGINAL code reads the card back: a second
+save into the existing directory, and the card screen's load enumeration
+002283B0 (GetDir, 00228EB0: the listing, the name check 00228C90, five
+Open / Read / Close of the EX_DATA slots, the check byte 00228C50,
+GetInfo), which must report 1 with both saved slots present and their
+records equal to the saved blocks' headers; with one byte of a slot
+changed, or icon.sys missing, the original rejects the card (3). Plus 89
+direct calls covering every answer and refusal. Run 2026-10-20: quick
+PASS (2 saves, 2 round trips, 3.7 s), EM_TEST_FULL=1 PASS (40 saves on
+both recordings, every slot and port, 12 round trips, 852 libmc calls).
+Eight mutants of em_memcard (Read's count, GetDir's names, its plain-name
+count, the dots, Mkdir's result, the Write offset, the first descriptor)
+all fail it. The server's own answers (the descriptor numbers, GetDir's
+entry order and its first 0x20 bytes, the result on a fresh card) are
+what the original EE code accepts, not yet what the IOP was recorded
+answering: that is section 6's first step.
+
+## 6. Next steps
+
+In order: a fork recording of the original saving at AREA01's save
+terminal on a separate card file (the user's decisions of 2026-10-09, HANDOFF
+item 9: a dedicated card, never the user's own), whose libmc results (the
+Sync result words, the GetDir table) check em_memcard's answers and whose
+card files check section 2 against the card the IOP wrote; the load side's
+translations (00228EB0, 00228B60, 001FE7C0, 001FEB00, 00228C90, 00228C50
+and LOAD GAME's restore and area entry); the card screen 00227300 and the
+save terminal's Yes path, wired through `em_memcard_call`; the start-point
+save builder (the fork recordings route_a01 / route_a00 / route_a01r at
+each area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
+"Developer switches").
+
+## 7. Re-exports
 
 None: the save code is in the boot ELF, and the test reads the recordings
 in the reference `tools/reference_root.py` selects.

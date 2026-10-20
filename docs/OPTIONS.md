@@ -167,7 +167,9 @@ recordings' GetInfo results in the load row are 0 on both ports. A free or
 format pointer, a slot other than 0, a port other than 0 / 1 or a missing
 directory faults (no recording shows what the card server returns then).
 The card helpers' globals (D_00275C58..6F, D_00264E30..3B, D_00275840..47)
-have one storage there.
+have one storage there. The card's file commands (Open, Mkdir, Close, Write,
+Read, GetDir) are answered there too since the save lane's round 2
+(docs/SAVE_GAME.md section 5); no first-level path reaches them.
 
 ## 6. The side runs
 

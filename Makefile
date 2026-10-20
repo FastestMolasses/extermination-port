@@ -1456,6 +1456,13 @@ test-options-reference:
 test-save-reference:
 	python3 tools/test_save_reference.py
 
+# The host memory card's file commands (em_memcard) under the original save
+# writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
+# EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).
+.PHONY: test-memcard-host
+test-memcard-host:
+	python3 tools/test_memcard_host.py
+
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model
 # bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against
