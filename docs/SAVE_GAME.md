@@ -14,13 +14,13 @@ instruction of the original is reproduced here.
 |---|---|---|---|
 | The save writer | 00228A90 and its steps 00228530, 002285A0, 002288A0, 00229640, 00229680, 002284F0, 001AF220 | translated (em_save_original), not wired | test-save-reference |
 | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
-| The card screen around them | 00227300 and its screens (002280F0, 002283B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00226B90, 002267A0, 00226D50, 002293B0) | faults (docs/OPTIONS.md section 4.2) | - |
+| The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original), not wired: the options binding still faults at 002267A0 / 00227300 (docs/OPTIONS.md section 4.2) | test-card-screen-reference |
 | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
-| LOAD GAME after the read | the card screen 00227300's load path, the restore and the area entry | not translated | - |
+| LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated | - |
 | The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
 | Start-point saves, `EM_START_AT` | - | not built | - |
 
-Next steps: section 6.
+Next steps: section 7.
 
 ## 2. The save on the card
 
@@ -279,20 +279,138 @@ entry order and its first 0x20 bytes, the result on a fresh card) are
 what the original EE code accepts, not yet what the IOP was recorded
 answering: that is section 6's first step.
 
-## 6. Next steps
+## 6. The card screen past the slot choice
 
-In order: a fork recording of the original saving at AREA01's save
-terminal on a separate card file (the user's decisions of 2026-10-09, HANDOFF
-item 9: a dedicated card, never the user's own), whose libmc results (the
-Sync result words, the GetDir table) check em_memcard's answers and whose
-card files check section 2 against the card the IOP wrote; the card screen
-00227300 (its load path after 00228B60: the restore and the area entry; and
-its save path) and the save terminal's Yes path, wired through
-`em_memcard_call`; the start-point save builder (the fork recordings route_a01 / route_a00 / route_a01r at
-each area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
+What the code does from the slot screen's state 2 (00225D20 calls
+00227300(m) once per frame, m = D_00810040; m[0x14] is the mode, 1 save
+and 2 load, m[0x48] the port chosen in 00226070). The translations are in
+`src/game/em_card_original.c` (prefix em_card_; the decomp's byte-matched C,
+the instructions for the NEARMISS 002280F0, 00228320, 002293B0, 002267A0 and
+the asm body 00227C60). Line numbers below are the help container's group
+7 lines that 001FCBD0 draws; their text is not read here.
+
+- **00227300** draws the port's line (3 or 4), then runs the screen m[1]:
+  0 the card check, 1 the load enumeration 002283B0 (section 4), 2 the slot
+  list, 4 an error screen chosen by m[2]. Its result is 00225D20's: 1 back
+  to the card choice, 2 out of the card screen, 3 done (00225D20 then
+  returns 2, a game saved or loaded).
+- **The card check 002280F0** (gated by the Sync poll, on m[2]): GetInfo
+  with the format word (+0x60): a type other than 2 or a failed poll gives
+  4; the format word 1 moves on; any other format word is asked again up to
+  seven times (the count +0x20), then 2. Then GetDir of the game's
+  directory (at most one entry): there gives 1; none gives 1 in load mode,
+  and in save mode a GetInfo with the free count (+0x5C), whose result
+  00228320 tests: free >= 18 + the icon's size in KiB (rounded up) gives
+  1, else 3. 1 goes to the load enumeration; 2, 3 and 4 to the error
+  screens 0, 1 and 2. The enumeration's 1 goes to the slot list, its 2 to
+  error screen 2 and its 3 to error screen 3.
+- **The slot list** draws the five rows every frame (002293B0: the number;
+  an empty slot line 0, an unusable one line 1 (presence 2), a saved one
+  its place name, D_002671C0[record byte 1 + the first index the area's
+  entry in D_00289B40 holds], and its play time, the block's frame counter
+  +0x50, as hours / minutes / seconds, plus the glyph 0x9E when the
+  record's byte 6 (the block's byte 0xA) is set). Its steps m[2]:
+  0 the cursor 00229170: Up / Down (the repeat word D_00810E78) move m[0xA]
+  within 0..4; Cross takes the slot (in load mode only a saved one);
+  Circle backs out to the card choice, Triangle out of the screen; a card
+  whose GetInfo no longer reports type 2 sends the slot screen back to its
+  card poll (m[0x15] = 1) at 00226070's step 1, 002267A0 (m[1] = 1).
+  1 the confirmation 00227980: the question (save mode by the slot: empty
+  0x14, saved 0x15, unusable 0x27; load mode 0x1A), Yes / No moved by Left
+  and Right (D_00810E74 0x2000 / 0x8000; m[9] = 1 is Yes). Yes goes on
+  (and in save mode takes 4 off D_00810CB2); No, Circle back to the cursor;
+  Triangle out.
+  2 the save or the load: save mode over an unusable slot 00229680 (the
+  New Game block, line 0x22), save mode 00228A90 (line 0x10), load mode
+  LOAD GAME's read 00228B60 (line 0x16). Done goes to 3; a failure to 4,
+  and in save mode gives the 4 back.
+  3 the done message 00227010 (line 0x12 saved, 0x18 loaded, 0x24 after
+  00229680) for 45 frames, then 3; after 00229680 the card check runs
+  again instead.
+  4 the failure message 00227160 (0x13 / 0x19 / 0x25): Cross or Circle 1,
+  Triangle 2.
+- **The error screens** (m[1] = 4): 0 (the format word never 1): in save
+  mode the format prompt 00227C60 / 00227DE0 (line 0xD, Cross, then line
+  0x1F with Yes / No); Yes runs the libmc Format 00114D18 through 001FED40
+  (the helpers' phase 0x10) and 00228070, line 0x1B while it runs; done:
+  the save goes straight to slot 0 (m[1] = m[2] = 2, the presence bytes
+  cleared, 4 taken off D_00810CB2); a failed format shows line 0x1E
+  (00227270). In load mode screen 0 draws the slot list and runs the
+  cursor, but a chosen slot does nothing there: only Circle (1), Triangle
+  (2) or a card change leave it.
+  1 (the free count short) 00226B90: line 5, Cross, line 7, Cross: 1.
+  2 (no card of type 2) 002267A0: line 0xE (port 0) or 0xF (port 1); it
+  polls GetInfo on the chosen port and the other in turn and returns 1
+  once one reports type 2 (setting its flag +0x28 / +0x2C); Cross 1,
+  Circle or Triangle 2. 3 (the enumeration refused the card) 00226D50:
+  line 0x28, Cross or Circle 1. 00226B90 and 00226D50 take Circle as 1
+  and Triangle as 2, and return 1 when the card's GetInfo stops reporting
+  type 2.
+
+D_00810CB2 is the battery charge in half-units (decomp docs/FINDINGS.md
+"BATTERY"): a save takes 4 half-units, 2 on the status screen, as its
+confirmation's Yes is taken (or after a format), and gives them back when
+the write fails; over an unusable slot (presence 2, 00229680's path) they
+are given back whether its write succeeds or fails. The block written
+includes the reduced charge. The load never touches it except through the
+block it reads. No routine here tests the charge before taking it (what
+the save terminal checks before it opens the screen is not translated).
+
+`make test-card-screen-reference` (`tools/test_card_screen_reference.py`)
+runs the original routines over the opt_07 and dmg_05 recordings (both on
+the card screen's load row) against the translations, with the save, load
+and options lanes' translations as the callees they are and every other
+callee as original code (RAM, the scratchpad and the arguments equal at
+every callee entry and at the end). The libmc SDK is test_load_reference's
+card model plus GetInfo's free and format words and Format (the card
+emptied); its answers are inputs, not claims about the IOP's server.
+Before each frame of a whole screen the pad words and the text's packet
+pointer D_00811CD4 are poked on both sides (the main loop resets that
+pointer every frame; outside the lane). Cases: every routine on its states
+with the pad words, the poll results and types, the Sync gate and the
+error flag (1,012 single calls, each on both recordings); 76 whole card
+screens frame by frame from 00227300's first call, each ending with the
+result it is built for, with a pad script made on the original alone from
+the screen's state (a press every other frame): LOAD GAME of every slot
+(D_00810700 checked equal to the slot file), saves to a new card and over
+an existing directory (the written slot equal to the live block, its check
+byte, D_00810CB2 4 lower, a new card's eight files), a declined
+confirmation, Circle / Triangle out, no directory, an unformatted card
+(Yes then the save, No, Triangle, a failing format), a card too full, a
+card removed and put back, a rejected card, a failing read, write and
+GetInfo, and the unusable slot's path (00229680, then the card check and
+the save again). 444 of the 458 branch outcomes are taken; the 14 others
+are unreachable and listed in the test (a GetInfo poll result other than
+0 / -1 always comes with the error flag, which is tested first; switch
+arms for results a callee never returns; 002280F0's repeated type test).
+Run 2026-10-20: quick PASS (132 cases, about 20 s; the text leaves
+001CC1E0 / 001FC770 and sprintf memoized on the original's side with every
+passed argument in the key and replayed on the native side),
+EM_TEST_FULL=1 PASS (1,088 cases, 108,150 callee entries equal, about 19 min). Mutants checked (the card check's
+retry bound and GetDir count, the free count's bound, the number row's y,
+the minutes' divisor, the load-mode Cross test, the Yes test, the done
+message's 45 frames, the battery's 4, 002267A0's turn, 00227DE0's verdict,
+001FED40's phase): all fail the quick run.
+
+## 7. Next steps
+
+In order: wire the card screen: em_options_live's 002267A0 / 00227300
+dispatched to em_card_*, the libmc file commands and Format through
+`em_memcard_call`, em_memcard answering GetInfo's free and format words
+(today it faults on them: no recording shows the server's values); a fork
+recording of the original saving at AREA01's save terminal on a separate
+card file (the user's decisions of 2026-10-09, HANDOFF item 9: a dedicated
+card, never the user's own), whose libmc results (the Sync result words,
+GetInfo's free and format words, the GetDir table) check em_memcard's
+answers and whose card files check section 2 against the card the IOP
+wrote; what the card screen's callers do with its result 2 (0022A650's
+r == 2, 001AC070's title load: the restore and the area entry) and the
+save terminal's Yes path (0020CDC0, request 6); the start-point save
+builder (the fork recordings route_a01 / route_a00 / route_a01r at each
+area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
 "Developer switches").
 
-## 7. Re-exports
+## 8. Re-exports
 
 None: the save code is in the boot ELF, and the test reads the recordings
 in the reference `tools/reference_root.py` selects.

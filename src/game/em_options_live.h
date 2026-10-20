@@ -22,7 +22,8 @@
  *   001D2830, 00200970, 001AEE10 / 001AEDE0, 001FBC50, 001FABB0, 001FF080,
  *   001B61C0              the host's workers
  *   002267A0 / 00227300   fault: the card screens past the first level's
- *                         recordings (the slot's directory read, the load)
+ *                         recordings (translated in em_card_original,
+ *                         docs/SAVE_GAME.md section 6; not wired yet)
  *
  * Fail-stop: a missing view, a refused draw or a failing worker latches
  * the call's fault (reported); the caller stops the game. */

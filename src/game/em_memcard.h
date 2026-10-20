@@ -77,7 +77,7 @@ extern "C" {
  * open, a Write on a read-only one or a Read on a write-only one, and a
  * GetDir with mode != 0 or of a directory that is missing. A descriptor is
  * the lowest free of 0..2 (the server's handle table; the recording that
- * checks it is docs/SAVE_GAME.md section 6's next step). Open does not
+ * checks it is docs/SAVE_GAME.md section 7's next step). Open does not
  * truncate; Write and Read move the descriptor's offset.
  *
  * GetDir: a name without a wildcard stores its one entry when it exists

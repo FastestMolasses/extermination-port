@@ -21,7 +21,7 @@ original's; no instruction of the original is reproduced here.
 | Brightness | 00202BA0 (the calibration picture, screen module 0x2B) | live | test-options-reference; opt_04 |
 | Button config | 00202D10, then 001AF470 over the masks 0x70003B74..83 | live (the masks are canonical; the player reads them there) | test-options-reference, test-startup-load-gaps-reference (001AF470); opt_05 |
 | Default | 00201C50 | live | test-options-reference; opt_06 |
-| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice; a chosen slot faults (002267A0) | test-options-reference; opt_07 |
+| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice; a chosen card faults (00227300; translated, not wired: SAVE_GAME.md section 6) | test-options-reference; opt_07 |
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
 | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
@@ -118,9 +118,12 @@ views, the cues 0020CD40 / 60 / A0 to the host's 001FB9F0, the loader
 D_00275BD8 at its 0x63 step; tools/export_module_loader.py exports 0x2A and
 0x2B), 00200970(1) to em_status_runtime_restore, the fades, 001FBC50,
 001FABB0, 001D2830 and 001B61C0 to the interaction host's workers, and the
-card SDK to em_memcard (section 5). 002267A0 (a chosen slot's directory
-read) and 00227300 (the load) fault. A missing view, a refused draw or a
-failing worker latches the call's fault and the coordinator stops.
+card SDK to em_memcard (section 5). 002267A0 (00226070's step 1: the two
+ports polled in turn for a card) and 00227300 (the card screen past the
+slot choice) fault; both are translated since the save lane's round 4
+(em_card_original, docs/SAVE_GAME.md section 6), not wired yet. A missing
+view, a refused draw or a failing worker latches the call's fault and the
+coordinator stops.
 
 ### 4.3 The title's load screen
 
@@ -211,9 +214,10 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   screen runs in save mode (00228A90 and its steps) and the card layout it
   writes: SAVE_GAME.md.
 - **A chosen slot and a load** (002267A0, 00227300; r == 2): no recording
-  chooses a slot; both fault. The load code below the card screen (the load
-  enumeration 002283B0 and LOAD GAME's read 00228B60 of the slot into the
-  progress block) is translated, not wired (SAVE_GAME.md section 4).
+  chooses a slot; both fault. The card screen past the slot choice and the
+  load code below it (the load enumeration 002283B0 and LOAD GAME's read
+  00228B60 of the slot into the progress block) are translated, not wired
+  (SAVE_GAME.md sections 4 and 6).
 - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.
 - **The title's OPTIONS entry** (00200A40) and LOAD GAME on the boot's title.
 

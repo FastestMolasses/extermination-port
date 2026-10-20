@@ -50,7 +50,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
            src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
-           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c src/game/em_save_original.c \
+           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c src/game/em_save_original.c src/game/em_card_original.c \
            src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
            src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
@@ -1464,6 +1464,15 @@ test-save-reference:
 .PHONY: test-load-reference
 test-load-reference:
 	python3 tools/test_load_reference.py
+
+# The memory-card screen past the slot choice (docs/SAVE_GAME.md section 6):
+# em_card_original against the original instructions over the opt_07 and
+# dmg_05 recordings' RAM, single calls and whole card screens (loads, saves,
+# the error screens), every reachable branch outcome (about 20 s; EM_TEST_FULL=1 the
+# exhaustive sweep, about 19 min).
+.PHONY: test-card-screen-reference
+test-card-screen-reference:
+	python3 tools/test_card_screen_reference.py
 
 # The host memory card's file commands (em_memcard) under the original save
 # writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,

@@ -31,7 +31,7 @@ docs/SAVE_GAME.md section 5. Two parts:
 The card server is the IOP's, not EE code: what em_memcard answers (a
 descriptor 0..2, GetDir's entries, the counts) is checked here against what
 the original EE code accepts and reads back, not against a recording of the
-server; that recording is docs/SAVE_GAME.md section 6's next step.
+server; that recording is docs/SAVE_GAME.md section 7's next step.
 
 Host folders live in a temporary directory removed at the end. Quick by
 default (a covering set of saves); EM_TEST_FULL=1 runs every slot and port
