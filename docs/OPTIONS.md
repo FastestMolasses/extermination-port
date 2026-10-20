@@ -25,7 +25,7 @@ original's; no instruction of the original is reproduced here.
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
 | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
-| Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7) | decomp save_scan.json |
+| Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated, not wired (SAVE_GAME.md) | decomp save_scan.json; test-save-reference |
 
 ## 2. Opening and closing
 
@@ -205,7 +205,9 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   00157F60 for a save terminal, model 0x38: none in AREA11) and 001AD740
   (the game task's +9 = 3, set only after AREA21's store to 0x70003B93).
   Proof: decomp CAPTURES_C10.md "Save paths: the first level offers none"
-  (`build/c10/options/save_scan.json`).
+  (`build/c10/options/save_scan.json`). The save writer that the card
+  screen runs in save mode (00228A90 and its steps) and the card layout it
+  writes: SAVE_GAME.md.
 - **A chosen slot and a load** (002267A0, 00227300; r == 2): no recording
   chooses a slot; both fault.
 - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.

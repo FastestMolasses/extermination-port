@@ -50,7 +50,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
            src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
-           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c \
+           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c src/game/em_save_original.c \
            src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
            src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
@@ -1446,6 +1446,15 @@ test-status-page-reference:
 .PHONY: test-options-reference
 test-options-reference:
 	python3 tools/test_options_reference.py
+
+# The memory-card save writer (docs/SAVE_GAME.md section 3): the
+# translations em_save_original against the original instructions over the
+# opt_07 and a01_s4 recordings' RAM, the card layout read back from the
+# original's own writes, every reachable branch outcome (under 1 s;
+# EM_TEST_FULL=1 the exhaustive sweep, about 10 s).
+.PHONY: test-save-reference
+test-save-reference:
+	python3 tools/test_save_reference.py
 
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model
