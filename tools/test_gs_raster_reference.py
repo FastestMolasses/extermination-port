@@ -587,13 +587,20 @@ def check_strict(lib) -> int:
         'dithered_point': ([(0x4C, 0 | 4 << 16 | 2 << 24), (0x45, 1), (0x44, 0x1234567), (0x00, 0x00)]
                            + [(0x01, 0x80406020), (0x05, 5 * 16 | 5 * 16 << 16 | 0x100 << 32)], None),
         # UV sprites (section 3.4): the measured row rule's unsettled
-        # variants and the column rule: an accumulation started at the
-        # scissor's first row would read other rows, so would one started
-        # from the top corner of an upward sprite, and the columns' exact
-        # value differs from the same accumulation over them
+        # variants and the column rule's open class: an accumulation started
+        # at the scissor's first row would read other rows, so would one
+        # started from the top corner of an upward sprite; the columns of a
+        # truncated step whose accumulator comes within 16 units of a
+        # 1/16-texel boundary in the first 128 columns (the decomp's column
+        # probe, build/status_field_capture/probe_cols: this sprite is its
+        # in_bil row 39, where the fork keeps the exact value 3 columns in
+        # and drops it 9 columns in)
         'uv_rows_clipped': (uv_sprite(8, 8, 0, -40, 264, 906, 4096, 3208, rows=(10, 199)), 'UV sprite'),
         'uv_rows_upward': (uv_sprite(8, 8, 0, 3208, 264, 1144, 4096, 8, rows=(0, 199)), 'UV sprite'),
-        'uv_columns': (uv_sprite(8, 8, 0, 0, 500, 264, 3584, 4096, rows=(0, 199)), 'UV sprite'),
+        'uv_columns_open': (uv_sprite(39, 8, 464, 0, 8439, 264, 4064, 256, rows=(0, 199)), 'UV sprite'),
+        # control: the status background's wide layer (128 texels over 561
+        # pixels from x = -24.6; the fork's status page captures), settled
+        'uv_columns_settled': (uv_sprite(0, 8, -394, 0, 2048, 264, 8582, 256, rows=(0, 199)), None),
         # control: 001DDE10's blend sprite (rows of 256 texels over 224, a
         # half-line field), the measured case (test_dof_pass_reference.py)
         'uv_dof_blend': ([(0x4C, 0 | 8 << 16)] + uv_sprite(8, 8, 0, -8, 4104, 4104, 8192, 3576, rows=(0, 223),

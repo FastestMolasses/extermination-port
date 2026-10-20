@@ -107,7 +107,13 @@ fault (section 6).
 - the row coordinate of UV sprites, accumulated in binary32 (3.4, since
   2026-10-10), and with it 001DDE10's depth-of-field pass: bit-exact on all
   7 captured frames of the original (all of local memory; section 7,
-  `test_dof_pass_reference`).
+  `test_dof_pass_reference`);
+- the column coordinate of UV sprites, fixed point with a truncated step
+  (3.4, since 2026-10-20), and with it the status pages' whole GS lists:
+  bit-exact on all 5 captured frames of the original's BATTERY page (all of
+  local memory; section 7, `test_status_field_reference`), and 85,295 of
+  the 85,314 decoded columns of the designed column probe (the 19 left are
+  the open class of 8.8).
 
 **Not exact:**
 - Z: 16,569 of the 1,884,160 Z values (0.9 %). 14,694 of them are one LSB
@@ -340,11 +346,19 @@ Evidence:
     gradient is dyadic every value is exact and this is the floor of the
     exact value; where it is not, the accumulated rounding leaves some rows
     one 1/16 texel below an exact integer value.
-  - UV, the column coordinate U: the floor of the exact value (affine
-    between the corners as given), in 1/16 texel. No capture tells it from
-    the row rule applied to the columns (every measured column gradient is
-    dyadic or meets no integer value where the two differ); strict mode
-    refuses a sprite where they differ (section 6).
+  - UV, the column coordinate U (measured 2026-10-20, below): fixed point
+    in units of 2^-14 of a 1/16 texel. The step per pixel g = trunc((u1 -
+    u0) * 2^18 / (x1 - x0)) and the exact value at the start column xs, s
+    = trunc((u1 - u0) * (16 xs - x0) * 2^14 / (x1 - x0)), are each
+    truncated toward zero (x in 12.4, u in 10.4, from the first vertex as
+    given); at column x the coordinate is u0 + floor((s + g (x - xs)) /
+    2^14) in 1/16 texel. xs is the first column drawn: the sprite's first
+    covered column, or the scissor's left column when the sprite starts
+    left of it. Where the step is dyadic to 18 bits this is the floor of the
+    exact value (every gradient the conformance packets used but one, and
+    every UV sprite of the first level's world frames); where it is not,
+    the truncated step leaves a column one 1/16 texel below where the exact
+    value lies on or just above an integer.
   - STQ: S and T affine between the corners. Both corners use the second
     vertex's Q, and the divide is that of section 4.5.
 - Evidence:
@@ -380,15 +394,49 @@ Evidence:
   - Not settled by these captures: the accumulation's start when the
     sprite's first covered row lies above the scissor (from that row or from
     the scissor's), its start as one fused multiply-add, and corners given
-    bottom to top; the columns (above). Strict mode refuses a sprite where
-    any of these would change a coordinate it draws (section 6). None
-    occurs in the first level: in an instrumented run of the level smoke
-    through the AREA01 arrival (a scratch build counting every UV sprite
-    drawn, 2026-10-10) the only UV sprites with a non-dyadic gradient were
-    the depth-of-field blends (52,764 of 105,808 UV sprites, all on the row
-    axis, none starting above the scissor or upward, no column gradient
-    non-dyadic), and the level smoke with the check in place refuses
-    nothing.
+    bottom to top; the columns' open class (8.8). Strict mode refuses a
+    sprite where any of these would change a coordinate it draws (section
+    6). None occurs in the first level's world frames: in an instrumented
+    run of the level smoke through the AREA01 arrival (a scratch build
+    counting every UV sprite drawn, 2026-10-10) the only UV sprites with a
+    non-dyadic gradient were the depth-of-field blends (52,764 of 105,808
+    UV sprites, all on the row axis, none starting above the scissor or
+    upward, no column gradient non-dyadic), and the level smoke with the
+    check in place refuses nothing. The same run with the column rule
+    (2026-10-20, a scratch build counting the UV sprites whose column step
+    is not dyadic, whose drawn columns differ from the floor of the exact
+    value, and that strict mode refuses): 105,808 UV sprites, 0, 0 and 0.
+  - The column rule. The status pages' fork captures (decomp
+    `build/status_field_capture`, section 7 `test_status_field_reference`:
+    the original's whole GS list of a BATTERY page frame through the model
+    from the GS memory it starts from, against the memory after it) left
+    7, 222 and 709 words of the field off with the floor of the exact
+    value, all in the background's wide layer (0020A7A0's 128 texels over
+    561 pixels from x = -24.6, bilinear, corners given bottom to top): every
+    row at columns 180, 263, 326, 346, 409, 429 and 492, where the exact
+    value is an integer or less than 0.015 / 16 texel above one, one 1/16
+    texel lower. A truncated 18-bit step fits them and no other column; the
+    panel page's layer (684 pixels from x = -86.1 on a half-line field)
+    fixes the start: column 490 keeps its exact value, which a step from
+    the corner or from the first covered column does not give, and a start
+    from the scissor's column does. A designed probe then measured the rest
+    (decomp `build/status_field_capture/probe_cols.py`, gs_conformance's
+    harness in the fork: 512 UV sprites of height 1 with non-dyadic
+    gradients chosen to meet integer values, nearest over a 64-texel ramp
+    and bilinear over a 16-texel one, which names the 1/16 texel; 85,314
+    decoded columns): sprites starting inside a scissor at 0 and left of
+    one at 37, first vertex on the right, U decreasing. Pixels off per test
+    (in_near / in_bil / left37_near / left37_bil / rtl_near / rtl_bil /
+    neg_near / neg_bil): the rule 2 / 10 / 0 / 2 / 0 / 4 / 0 / 1; the floor
+    of the exact value 29 / 409 / 18 / 96 / 3 / 220 / 6 / 33; the step and
+    the start floored instead of truncated (negative values) 2 / 10 / 0 / 2
+    / 0 / 6 / 8 / 138; a start from window column 0 10 / 60 / 1 / 12 / 7 /
+    60 / 10 / 199; from the first covered column (left of the scissor) left37
+    2 / 22. Also GSCAP `min_b_near` / `min_b_bil` (64 texels over 21 pixels
+    from x = 32) refute a start from window column 0 or the scissor's
+    column for a sprite that starts inside (21 pixels off). The 906
+    conformance tests are unchanged (703 bit-exact, as before). The 19
+    columns left are the open class (8.8).
 
 ### 3.5 Points
 
@@ -913,7 +961,9 @@ has settled:
   (corners given bottom to top); its columns, whose exact value the model
   uses, under the same accumulation and those variants. The check runs at
   the sprite's kick (`sprite_uv_settled`) and refuses only where one of
-  them would read another 1/16 texel at a pixel the sprite draws.
+  them would read another 1/16 texel at a pixel the sprite draws. Since
+  2026-10-20 the columns follow the measured rule of 3.4 and the check
+  refuses their open class (8.8) instead.
 
 In every mode, a primitive is also refused when the model has no memory for
 its address tables (section 2.0, `EM_GS_REFUSE_MEMORY`, since 2026-10-12);
@@ -950,16 +1000,18 @@ span fault, as the port's fail-stop rule requires.
   their environment from `EmGfxGsPrim` / `EmGfxGsEnv` records. Memory must
   be byte-identical to the same writes sent as an A+D packet, and
   `em_gs_read_frame_rgba` must equal the measured decode.
-- **E.** Strict mode itself: fourteen synthetic packets. AA1, MXL > 0,
+- **E.** Strict mode itself: fifteen synthetic packets. AA1, MXL > 0,
   PRMODECONT.AC 0, a textured line, LOCAL -> LOCAL, LOCAL -> HOST, a
   constant-Z / varying-Z split at an unmeasured boundary (a TEX0 TW change)
   and three UV sprites of section 3.4's unsettled cases (rows starting above
-  the scissor, rows given bottom to top, columns whose exact value differs
-  from the row rule) must each be refused in strict mode with that reason
-  and draw in the default mode. Four controls must draw with no refusal in
+  the scissor, rows given bottom to top, and since 2026-10-20 the columns'
+  open class of 8.8: the probe's in_bil row 3) must each be refused in
+  strict mode with that reason
+  and draw in the default mode. Five controls must draw with no refusal in
   both modes: the same split with one Z, the split at a measured boundary
-  (TFX), a dithered point, and 001DDE10's blend sprite (the measured row
-  rule).
+  (TFX), a dithered point, 001DDE10's blend sprite (the measured row
+  rule) and, since 2026-10-20, the status background's wide layer (the
+  measured column rule).
 - **G.** The half-pixel scissor edge (section 3.8, since 2026-10-10): the
   fork's probe-9 capture (`fork_refs/pixels/b16/gscap9`, 45 tests, read in
   both `EM_REFERENCE` modes because it is the rule's reference) must be
@@ -1031,6 +1083,36 @@ read field rows a band was still blending. The ordering now covers drawn
 blocks whatever their residency (section 9); with the old rule
 `make test-gs-world`'s new every-block-uploaded frames report the data
 race under the thread sanitizer.
+
+**`tools/test_status_field_reference.py`** (`make
+test-status-field-reference`, since 2026-10-20; about 4 s quick and 3 s
+more for the full set with the captures in the file cache, about a minute
+from a cold cache; docs/STATUS_FIELD.md):
+- **A.** The status pages: the decomp's fork captures
+  (`build/status_field_capture/<beat>/f<T>`: route beat 01's BATTERY page
+  with the take notice at beat frames 230, 300 and 400, beat 03's panel
+  BATTERY page at 440 and 500). List T is walked from its start
+  D_0028F700 + (slot << 14) in the EE image taken at step V of iteration
+  T + 1 (DMA CNT / NEXT / REF / REFS / CALL / RET / END, VIF NOP and
+  FLUSH* skipped, DIRECT kept, any other VIF code refused); the GS state it
+  starts with is the last value of every state register list T - 1 wrote.
+  Through the model from the memory before list T (a second fork run with
+  its first tag made END): every word of the 4 MiB must equal the memory
+  after it, and the drawn field must equal the field the display showed at
+  loop top T + 2. Strict mode (the Original profile's): its refusals must
+  all be the column rule's open class (8.8); they are reported.
+- **B.** The column probe (`build/status_field_capture/probe_cols`): the
+  pixels off must be exactly the documented 19, and strict mode must leave
+  every one of them undrawn.
+Quick: frame 01 f300 and the probe; EM_TEST_FULL=1: all five frames.
+Result (2026-10-20): every frame bit-exact (each list changes 73,624 to
+80,514 words of local memory: the field and the glyph and CLUT uploads it
+rewrites); strict refuses 12 sprites on the beat 01 frames and on 03 f440
+(828 field pixels left undrawn) and 9 on 03 f500, the background's wide
+layer among them (88,944 pixels) (8.8). Mutants, each killed:
+the column rule reverted to the floor of the exact value (A: 7, 222, 709,
+54 and 0 words off), the step and start floored instead of truncated (B),
+the start from window column 0 (B), the strict margin removed (B).
 
 **Mutation check** (decomp `build/b16/gscap8/model/mut2.py`, run on a
 scratch copy of the model): 28 single-change mutants, all killed by the
@@ -1165,16 +1247,50 @@ these counts. A lead not yet tried (2026-10-10): a UV sprite's row
 coordinate is accumulated in binary32 one row at a time (3.4); the same
 kind of accumulation along a triangle's edges or across its spans.
 
-### 8.8 UV sprites: the row rule's variants and the columns (unmeasured)
+### 8.8 UV sprites: the row rule's variants and the columns' open class
 
 Section 3.4's row rule is measured on 001DDE10's blend sprite: corners
 given top to bottom, the first covered row drawn (not above the scissor),
 a start offset of half a row, the half-line field. Not measured, and
 refused in strict mode where they would change a drawn coordinate
 (section 6): the start when the sprite begins above the scissor, a fused
-start, corners given bottom to top, and the columns (the model keeps the
-exact value; no capture has a non-dyadic column gradient meeting an
-integer value). None of these occurs in the first level (3.4). Also not
+start, corners given bottom to top. None of these occurs in the first
+level's world frames (3.4).
+
+The column rule (3.4) leaves 19 of the probe's 85,314 decoded columns
+open: at each the fork has a value the rule does not give, at most 79
+columns after the start, every one with the rule's accumulator within 16
+units (2^-14 of a 1/16 texel) of a 1/16-texel boundary. Mostly it is an
+exact integer value a few columns in that the fork keeps and the truncated
+step drops: in_bil row 39 (7/3 texel a pixel from a corner on a pixel)
+keeps it 3 columns in and drops it 9, 12 and 15 in; row 23 (the same
+gradient from a corner 1/16 pixel left of a pixel) keeps it 2, 5, 8, 11
+and 14 columns in. One is 1 column into a sprite whose first vertex is the
+right one, where the truncation left the exact value, an integer, and the
+fork drops it. Each of the 12 rows with an open column is consistent with
+one constant offset on the rule's accumulator, 11 of them between 1 and 9
+units (each row its own), one between -14 and -3; no tested form gives
+that: a rounding mode or a bias on the step or the start (every constant
+bias leaves more off), other step widths (16, 17 and 19..30 bits: 96 or
+more off), float32 products, quotients or accumulations (196 or more off),
+and stepping in blocks of 2..16 columns. Strict mode refuses a sprite whose
+step or start was truncated when a drawn column within its first 128
+columns has the accumulator within 16 units of a coordinate boundary (with
+nearest sampling only a texel boundary counts), unless the truncation left
+that column at its exact value and the first vertex is the left one; and a
+sprite whose first vertex is the right one where the base taken from the
+left corner would give another coordinate (of the 5 probe columns where
+the two bases differ, neither matches every one). Of the probe's columns
+that close to a boundary, 157 lie under 32 columns in (17 off), 85 at
+32..63 (1 off), 11 at 64..95 (1 off) and 56 at 96 or more (none off). On
+the status pages this refuses a row of bilinear 32-texel sprites 12 pixels
+wide at field rows 101..106 (an integer value every 3 columns; TEX0
+0x20043C25154221E0; twelve on four of the frames, eight on 03 f500) and,
+on 03 f500, the background's wide layer: strict mode does not draw those
+pages yet, though the rule draws every captured one exactly. A probe aimed
+at the open class (exact integer values a few columns after the start,
+over the start's sub-pixel offset and the gradient) is the next
+measurement. Also not
 captured: a blend that passes its Z test in a whole-line field (OFY
 1936.0; open_wide_t0720 is one, but no blend reaches a pixel there). The
 row rule predicts it (a start offset of 0: every row y = 0 mod 7, y > 0,
@@ -2836,6 +2952,10 @@ was compared with real hardware.
   the original's captured GS memory (section 7).
 - `tools/test_gs_memory_reference.py` (`make test-gs-memory-reference`):
   the GS memory against the disc model of the uploads.
+- `tools/test_status_field_reference.py` with
+  `tests/status_field_reference_bridge.c` (`make
+  test-status-field-reference`, since 2026-10-20): the status pages' GS
+  lists and the column probe against the fork (section 7; STATUS_FIELD.md).
 - `tools/test_fb2_pixels.py` (`make test-fb2-pixels`): the fb2 pixel
   harness (section 10).
 - Decomp capture tools (new, lane B16): `tools/gs_conformance_probe3.py`

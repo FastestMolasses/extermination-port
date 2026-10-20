@@ -1210,6 +1210,17 @@ test-gs-memory-reference:
 test-dof-pass-reference:
 	python3 tools/test_dof_pass_reference.py
 
+# The status pages' GS lists against the original (decomp
+# build/status_field_capture, the PCSX2 fork's software renderer;
+# STATUS_FIELD.md, GS_EXACT.md sections 3.4, 7 and 8.8): the original's
+# BATTERY page lists through the model bit-exact, the drawn field equal to
+# the displayed one, strict mode's refusals only the column rule's open
+# class; the column probe at its documented residual. Default: one frame;
+# EM_TEST_FULL=1: all five.
+.PHONY: test-status-field-reference
+test-status-field-reference:
+	python3 tools/test_status_field_reference.py
+
 # The Original profile's GS frame (src/gs/em_gs_world.h, GS_EXACT.md section
 # 9): 1, 2, 3 and 8 workers draw the same fields and memory over designed
 # frames, under the thread sanitizer (a missing barrier is a reported race).

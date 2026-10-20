@@ -1889,9 +1889,35 @@ static inline int wy(const EmGsContext *c, int32_t y) { return y - (int)bits(c->
  * before; where it is not, the accumulated rounding can leave a row one
  * 1/16 texel below an exact integer value, which is what the captures show
  * (and a product from the start, a double accumulation or blocks of four
- * rows do not). The column coordinate stays floor of the exact value: no
- * capture tells it from the same accumulation, and strict mode refuses a
- * sprite where the two would differ (sprite_uv_settled). */
+ * rows do not).
+ *
+ * The column coordinate U is fixed point (measured 2026-10-20: the status
+ * pages' fork captures, decomp build/status_field_capture, and its designed
+ * probe probe_cols.py, 512 UV sprites of height 1 and 85,314 decoded
+ * columns; docs/GS_EXACT.md section 3.4), in units of 2^-14 of a 1/16
+ * texel: the step per pixel and the exact value at the start column xs,
+ * each truncated toward zero,
+ *   g     = trunc((u1 - u0) * 2^18 / (x1 - x0))       (x, u: 12.4, 10.4)
+ *   s     = trunc((u1 - u0) * (16 xs - x0) * 2^14 / (x1 - x0))
+ * and at column x the 1/16-texel coordinate
+ *   U16   = u0 + floor((s + g * (x - xs)) / 2^14)
+ * from the first vertex as given, where xs is the first column drawn: the
+ * sprite's first covered column, or the scissor's left column when the
+ * sprite starts left of it. Where the step is exact (dyadic to 18 bits)
+ * this is the floor of the exact value; where it is not, the truncated step
+ * leaves a column one 1/16 texel below where the exact value lies on or
+ * just above an integer (the status background's wide layer, 128 texels
+ * over 561 pixels from x = -24.6: columns 180, 263, 326, 346, 409, 429 and
+ * 492 of every row). The probe settles the start column (the first covered
+ * column, not window column 0 or the scissor's; the scissor's, not the
+ * first covered one, when the sprite starts left of it) and the truncation
+ * toward zero (a negative step: 0 and 1 columns off against 8 and 138 with
+ * the floor). It leaves 19 of its 85,314 decoded columns off, every one
+ * within 16 units (2^-14 of a 1/16 texel) of a coordinate boundary and at
+ * most 79 columns after the start, mostly an exact integer value a few
+ * columns in that the fork keeps (GS_EXACT.md 8.8): strict mode refuses a
+ * sprite with a drawn column that close to a boundary within its first 128
+ * columns when the step or the start was truncated (uv_col_settled). */
 static inline float uv_texels(uint32_t q4) { return (float)q4 * 0.0625f; }   /* 1/16 texel -> texel: exact */
 
 /* The accumulation's start: t0 + (first - a0) * step, the product and the
@@ -1904,16 +1930,66 @@ static float uv_start(float t0, float a0, float step, int first)
     return t0 + prod;
 }
 
+/* The column rule above, from start column xs: the 1/16-texel U of window
+ * column x (12.4 corner X0 / X1 with U q0 / q1, X1 != X0). */
+static inline int64_t uv_col_acc(uint32_t q0, uint32_t q1, int X0, int X1, int xs, int x)
+{
+    const int64_t du = (int64_t)q1 - (int64_t)q0, dx = (int64_t)X1 - X0;
+    const int64_t g = du * ((int64_t)1 << 18) / dx;                              /* C: toward zero */
+    const int64_t s0 = du * (16 * (int64_t)xs - X0) * ((int64_t)1 << 14) / dx;
+    return (int64_t)q0 * ((int64_t)1 << 14) + s0 + g * ((int64_t)x - xs);
+}
+static inline int64_t uv_col(uint32_t q0, uint32_t q1, int X0, int X1, int xs, int x)
+{
+    return floordiv64(uv_col_acc(q0, q1, X0, X1, xs, x), (int64_t)1 << 14);
+}
+
+/* The start column of uv_col for a sprite whose covered columns begin at
+ * `first` inside a scissor whose left column is sx0. */
+static inline int uv_col_start(int first, int sx0) { return first < sx0 ? sx0 : first; }
+
+/* Strict mode (section 6) for the columns: 0 when a drawn column's U is
+ * one the captures leave open (GS_EXACT.md 8.8):
+ * - with a truncated step or start, an accumulator within 16 units of a
+ *   coordinate boundary less than 128 columns after the start (every column
+ *   the probe leaves off is that close, at most 79 columns in; the 56 probe
+ *   columns that close 96 or more columns in all match). A column the
+ *   truncation left at its exact value is not open unless the first vertex
+ *   is the right one. With nearest sampling (`shift` 4) only the texel
+ *   boundaries count, since U >> 4 is all it reads;
+ * - when the first vertex is the right one, a column where the base taken
+ *   from the left corner gives another U (of the 5 probe columns where the
+ *   two differ, neither base matches every one).
+ * 1: settled. */
+static int uv_col_settled(uint32_t q0, uint32_t q1, int X0, int X1, int sx0, int lo, int hi, int shift)
+{
+    if (X1 == X0) return 1;
+    const int64_t du = (int64_t)q1 - (int64_t)q0, dx = (int64_t)X1 - X0;
+    const int first = (int)floordiv64((X0 < X1 ? X0 : X1) + 15, 16);
+    const int xs = uv_col_start(first, sx0);
+    const int inexact = (du * ((int64_t)1 << 18)) % dx != 0 ||
+                        (du * (16 * (int64_t)xs - X0) * ((int64_t)1 << 14)) % dx != 0;
+    const int64_t unit = (int64_t)1 << (14 + shift), margin = 16;
+    for (int x = lo; x <= hi; ++x) {
+        const int64_t a = uv_col_acc(q0, q1, X0, X1, xs, x);
+        const int64_t r = a - floordiv64(a, unit) * unit;
+        const int64_t num = du * (16 * (int64_t)x - X0) * ((int64_t)1 << 14);
+        const int untouched = X0 < X1 && num % dx == 0 && num / dx == a - (int64_t)q0 * ((int64_t)1 << 14);
+        if (inexact && !untouched && x - xs < 128 && (r < margin || r >= unit - margin)) return 0;
+        if (X0 > X1 && uv_col(q1, q0, X1, X0, xs, x) >> shift != uv_col(q0, q1, X0, X1, xs, x) >> shift) return 0;
+    }
+    return 1;
+}
+
 /* Strict mode (section 6): 0 when a UV sprite's drawn texel coordinates
  * depend on a rule no capture settles. The row rule above is measured for
  * corners given top to bottom whose first covered row is drawn; this checks
  * the alternatives the captures do not tell apart: the accumulation started
  * at the scissor's first row when the sprite starts above it, its start as
  * one fused multiply-add, the start from the top corner's value when the
- * corners run upward. For the columns it checks the same accumulation (and
- * those variants of it) against the exact value the model uses. 1: every
- * alternative gives every drawn pixel the same coordinate. */
-static int uv_axis_settled(uint32_t q0, uint32_t q1, int A0, int A1, int lo, int hi, int exact_model)
+ * corners run upward (the columns: uv_col_settled). 1: every alternative
+ * gives every drawn row the same coordinate. */
+static int uv_row_settled(uint32_t q0, uint32_t q1, int A0, int A1, int lo, int hi)
 {
     if (A1 == A0) return 1;
     const int first = (int)floordiv64((A0 < A1 ? A0 : A1) + 15, 16);
@@ -1926,11 +2002,8 @@ static int uv_axis_settled(uint32_t q0, uint32_t q1, int A0, int A1, int lo, int
     for (int p = first; p <= hi; ++p) {
         if (p == lo && lo > first) b = uv_start(t0, a0, step, lo);
         if (p >= lo) {
-            const int64_t mine = (int64_t)floorf(m * 16.0f);
-            const int64_t want = exact_model
-                ? (int64_t)q0 + floordiv64(((int64_t)q1 - (int64_t)q0) * (16 * (int64_t)p - A0), A1 - A0)
-                : mine;
-            if (mine != want || (int64_t)floorf(c * 16.0f) != want || (int64_t)floorf(r * 16.0f) != want ||
+            const int64_t want = (int64_t)floorf(m * 16.0f);
+            if ((int64_t)floorf(c * 16.0f) != want || (int64_t)floorf(r * 16.0f) != want ||
                 (lo > first && (int64_t)floorf(b * 16.0f) != want))
                 return 0;
             b += step;
@@ -1953,7 +2026,7 @@ static int sprite_uv_settled(const Draw *d, const EmGsVertex *v0, const EmGsVert
     if (py0 < d->sy0) py0 = d->sy0;
     if (py1 > d->sy1) py1 = d->sy1;
     if (px0 > px1 || py0 > py1) return 1;                    /* draws nothing */
-    return uv_axis_settled(v0->v, v1->v, Y0, Y1, py0, py1, 0) && uv_axis_settled(v0->u, v1->u, X0, X1, px0, px1, 1);
+    return uv_row_settled(v0->v, v1->v, Y0, Y1, py0, py1) && uv_col_settled(v0->u, v1->u, X0, X1, d->sx0, px0, px1, d->mmag ? 0 : 4);
 }
 
 /* The alpha test's comparison (TEST.ATST against AREF) for a fragment alpha
@@ -2150,8 +2223,7 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
                 for (int x = px0; x <= px1; x++) {
                     int64_t U16;
                     if (d->fst) {
-                        U16 = (X1 == X0) ? (int64_t)v0->u
-                            : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
+                        U16 = (X1 == X0) ? (int64_t)v0->u : uv_col(v0->u, v1->u, X0, X1, px0, x); /* px0: uv_col_start */
                     } else {
                         double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
                         U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
@@ -2819,8 +2891,7 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
             for (int x = px0; x <= px1; x++) {
                 int64_t U16;
                 if (d->fst) {
-                    U16 = (X1 == X0) ? (int64_t)v0->u
-                        : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
+                    U16 = (X1 == X0) ? (int64_t)v0->u : uv_col(v0->u, v1->u, X0, X1, px0, x); /* px0: uv_col_start */
                 } else {
                     double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
                     U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);

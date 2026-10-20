@@ -2047,6 +2047,12 @@ pool's free list (item 5): those are port work that needs no new recording
      exact at 15); the skewed strips (markup tag 3) are not;
    - the status screen's frames (the hub and its pages, the MAP page's
      models on the renderer's skinned path) draw with the GPU renderer;
+     since 2026-10-20 (side lane "status", STATUS_FIELD.md) the CPU GS model
+     draws the original's own BATTERY page lists bit-exact (five fork
+     captures, all of local memory; the UV sprite column rule measured,
+     GS_EXACT.md 3.4), but strict mode still refuses part of them (the
+     column rule's open class, 8.8) and the port does not yet build or
+     present a page's GS list;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make
