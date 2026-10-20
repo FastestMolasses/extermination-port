@@ -2,7 +2,7 @@
  * routines that write a saved game to the card and read it back,
  * translated from the original
  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
- * em_save_. Not wired yet (docs/SAVE_GAME.md section 7): the card screen
+ * em_save_. Not wired yet (docs/SAVE_GAME.md section 8): the card screen
  * 00227300 that runs it is translated (em_card_original) but the options
  * binding still faults there. Its libmc callees are answered by
  * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder

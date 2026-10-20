@@ -1481,6 +1481,19 @@ test-card-screen-reference:
 test-memcard-host:
 	python3 tools/test_memcard_host.py
 
+# The start-point saves EM_START_AT is to load (docs/SAVE_GAME.md section 7):
+# the original save writer over each area's arrival in the fork recordings,
+# read back by the original load code, into the ignored build/start_saves/
+# (disc-derived). start-saves builds them (about 12 s); test-start-saves
+# builds them into a temporary folder and checks them (3 s warm, about 7 s
+# when it builds its libraries).
+.PHONY: start-saves test-start-saves
+start-saves:
+	python3 tools/build_start_saves.py
+
+test-start-saves:
+	python3 tools/test_start_saves.py
+
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model
 # bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against

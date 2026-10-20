@@ -18,9 +18,10 @@ instruction of the original is reproduced here.
 | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
 | LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated | - |
 | The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
-| Start-point saves, `EM_START_AT` | - | not built | - |
+| Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
+| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
 
-Next steps: section 7.
+Next steps: section 8.
 
 ## 2. The save on the card
 
@@ -392,25 +393,108 @@ the minutes' divisor, the load-mode Cross test, the Yes test, the done
 message's 45 frames, the battery's 4, 002267A0's turn, 00227DE0's verdict,
 001FED40's phase): all fail the quick run.
 
-## 7. Next steps
+## 7. Start-point saves (round 6)
 
-In order: wire the card screen: em_options_live's 002267A0 / 00227300
-dispatched to em_card_*, the libmc file commands and Format through
-`em_memcard_call`, em_memcard answering GetInfo's free and format words
-(today it faults on them: no recording shows the server's values); a fork
-recording of the original saving at AREA01's save terminal on a separate
-card file (the user's decisions of 2026-10-09, HANDOFF item 9: a dedicated
-card, never the user's own), whose libmc results (the Sync result words,
-GetInfo's free and format words, the GetDir table) check em_memcard's
-answers and whose card files check section 2 against the card the IOP
-wrote; what the card screen's callers do with its result 2 (0022A650's
-r == 2, 001AC070's title load: the restore and the area entry) and the
-save terminal's Yes path (0020CDC0, request 6); the start-point save
-builder (the fork recordings route_a01 / route_a00 / route_a01r at each
-area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
-"Developer switches").
+What `EM_START_AT` is to load (not wired yet, section 8): one memory card
+per start point, made by the ORIGINAL save writer from the state a fork
+route recording starts its area from. `tools/build_start_saves.py`
+(`make start-saves`) builds them into `build/start_saves/<name>/`, which is
+git-ignored: the card holds the disc's icon and the recording's block.
 
-## 8. Re-exports
+| Name | Arrival state (the route manifest's first beat's source state) | D_00810700 +0..+3 there |
+|---|---|---|
+| `area01` | `s87/route/15_level_exit`, where `s87/route_a01`'s a01_00_train_room starts | 01 00 04 01 |
+| `area00` | `s87/route_a01/a01_07_level_exit`, where `s87/route_a00`'s a00_00_descend starts | 00 00 00 00 |
+| `area01-revisit` | `s87/route_a00/a00_10_progression_exit`, where `s87/route_a01r`'s a01r_00_to_train_room starts | 01 00 00 01 |
 
-None: the save code is in the boot ELF, and the test reads the recordings
-in the reference `tools/reference_root.py` selects.
+How each card is made and checked (the builder refuses and writes nothing
+when a check fails):
+
+- The arrival state is found through the route's `manifest.json` (its one
+  beat named `<prefix>_00_*`, that beat's `source_state`, a folder under the
+  decomp's `build/fork_refs/`). Its `eeMemory.bin` must have the SHA-256 its
+  own `snapshot.json` records, the block's byte +0 must be the area the name
+  says, and the block's bytes +0..+3 must equal the first beat's first
+  trace row (`area4`).
+- The save: 00228A90 frame by frame from its first call over that RAM and
+  scratchpad (chosen slot 0, port 0, a card without the game's directory),
+  test_memcard_host's `save_both`: the original in the reference interpreter
+  and the translation em_save_00228A90 over a second copy, each on its own
+  host card through em_memcard; RAM, scratchpad and arguments equal at
+  every callee entry, the 26 card commands in the same order, the two card
+  folders byte-identical, and the layout of section 2
+  (test_save_reference.check_card). The writer's New Game block (001AF2C0,
+  run as original code over the arrival RAM) fills the other four slots.
+- The read back, over the c10 opt_07 recording's RAM (the options' load
+  row; its own block differs from every start point's): the load
+  enumeration 002283B0 from its first call until it reports 1, then LOAD
+  GAME's read 00228B60 of slot 0, each on both sides of test_load_reference's
+  harness with the host card answering, equal at every callee entry (154
+  per start point). Only slot 0 is listed, with its record (bytes 0..5, 0xA
+  and the word at 0x50); after the read D_00810700 holds the slot's 0x640
+  bytes.
+- The slot is the arrival's block with +0xF = 1 and the check byte +0x63F
+  that makes all 0x640 bytes sum to zero; no other byte differs.
+
+Output, a host card root em_memcard can serve: `slot1/BASCUS-97112-DS00-00/`
+(the eight files of section 2, the save in `EX_DATA.00`), an empty `slot2/`,
+and `start.json` (the source folder, its SHA-256, the route beat, the
+block's first 16 bytes, each file's SHA-256). A rebuild rewrites only the
+files that differ; a folder holding anything else, or a symlink, is
+refused.
+
+What this is and is not. The original saves only at a save terminal
+(00225AC0(1), docs/OPTIONS.md section 7). A start-point save holds what the
+writer's code makes of the block at the arrival frame, a frame the tool
+chooses; it is not a save the original made. What LOAD GAME does after the
+read (the restore of the rest of the state and the area entry, section 1)
+is not translated, so whether loading one of these cards enters the area at
+the recorded arrival is not shown yet: that is `EM_START_AT`'s proof.
+
+`make test-start-saves` (`tools/test_start_saves.py`) builds all three into
+a temporary folder and checks each card again from the recording files
+alone (the slot from the arrival's `eeMemory.bin`, the four New Game slots
+one block with +0xF = 0 and the area bytes zero, `start.json`'s hashes, the
+three slots distinct); negative controls: a slot byte flipped and EX.ico
+removed make the original enumeration refuse the card (3); an unknown name,
+a wrong area byte, a missing recording and a manifest without the beat are
+refused before anything runs; a card folder with a foreign file or a
+symlink is refused, a second write changes nothing and a changed file is
+rewritten. An existing `build/start_saves/<name>` must equal the fresh build
+(a stale card fails). Run 2026-10-20: PASS, 2.8 s warm (6.3 s when it builds
+its libraries). Mutants (the writer's
+bytes reduced to +0xF, the listed slot, the restored block, the area check
+dropped): all fail it; the record's byte 0xA read as 0xB survives, since
+both are 0 in every arrival block.
+
+## 8. Next steps
+
+In order: wire the card screen into the game: em_options_live's 002267A0 /
+00227300 dispatched to em_card_*, the libmc file commands through
+`em_memcard_call`, em_memcard answering GetInfo's format word (today it
+faults on the free and format words: no recording shows the server's
+values; a round-5 attempt at this wiring was set aside unmerged); the
+progress block D_00810700 as one storage (LOAD GAME's read writes all 0x640
+bytes; the port holds only its canonical ranges, em_scene_state.h); what the
+card screen's callers do with its result 2 (0022A650's r == 2, 001AC070's
+title load: the restore and the area entry); `EM_START_AT=<name>`
+(docs/STARTUP.md "Developer switches"): em_memcard on
+`build/start_saves/<name>` and the title's LOAD GAME on slot 0 of port 0,
+off by default, refusing an unknown name or a card that is not built; the
+save terminal's Yes path (0020CDC0, request 6) and the save mode's leaves
+(GetInfo's free count, Format 00114D18, 001AF2C0, block_copy 00121870, the
+icon container *D_0028A4A0 as a window); a fork recording of a save at
+AREA01's save terminal on a separate, formatted card file (the user's
+decisions of 2026-10-09, HANDOFF item 9: never the user's own card), whose
+libmc results check em_memcard's answers and whose files check section 2
+against the card the IOP wrote. The lane's round-5 attempt on the
+emulator's fresh card files found them unformatted (GetInfo's format word
+0) and the game's Format failing with -2 on both ports, so nothing was
+written (receipt: the lane's build/side-save-r5/card_rec/summary.json).
+
+## 9. Re-exports
+
+`python3 tools/build_start_saves.py` after the fork recordings or the save
+code change (test-start-saves fails on a stale `build/start_saves`).
+Otherwise none: the save code is in the boot ELF, and the tests read the
+recordings in the reference `tools/reference_root.py` selects.

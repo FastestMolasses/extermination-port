@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Build the start-point saves EM_START_AT will load (docs/SAVE_GAME.md
+section 7).
+
+A start-point save is a memory card holding one saved game made by the
+ORIGINAL save writer from the state the fork recordings start an area from:
+the progress block D_00810700 as it is at that area's arrival, written with
+the original's own code into the original's card layout (docs/SAVE_GAME.md
+section 2). Nothing is synthesized by hand: the writer 00228A90 runs in the
+reference interpreter over the recording's RAM, the card answered by the
+port's host card em_memcard on a folder, and the port's translation
+em_save_00228A90 runs the same save on a second folder, which must be
+byte-identical (test_save_reference's harness, as test_memcard_host runs it).
+
+Each card is then read back with the original's load code over another
+recording's RAM (c10 opt_07, the options' load row): the load enumeration
+002283B0 must list exactly the saved slot with its record, and LOAD GAME's
+read 00228B60 must put the slot's 0x640 bytes into D_00810700; the
+translations em_save_002283B0 / em_save_00228B60 run the same reads and
+must equal the original at every callee entry. The block read back is the
+arrival's block with +0xF = 1 and the check byte +0x63F (the two bytes the
+writer sets), and nothing else changed. A card failing any check is not
+written.
+
+The start points (the state each route recording starts from, named by the
+route's manifest: its first beat's source state):
+
+  area01           s87/route_a01's a01_00 source, AREA11's level exit:
+                   the AREA01 arrival (block area 1)
+  area00           s87/route_a00's a00_00 source, AREA01's level exit:
+                   the AREA00 arrival (block area 0)
+  area01-revisit   s87/route_a01r's a01r_00 source, AREA00's progression
+                   exit: the AREA01 revisit arrival (block area 1)
+
+Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
+host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
+makes, the save in EX_DATA.00 on port 0; slot2/ empty) and start.json (the
+source state, its SHA-256, the block's area bytes, each file's SHA-256).
+The folder is git-ignored (build/). An existing card is overwritten file by
+file only when it differs; a folder holding anything else is refused.
+
+Usage (native arm64 macOS, about 15 s for all three):
+
+  python3 tools/build_start_saves.py             # every start point
+  python3 tools/build_start_saves.py area01      # one
+  python3 tools/build_start_saves.py --list
+
+Needs the user's pinned ELF (tools/test_player_slide_reference.read_elf) and
+the fork recordings in the reference tools/reference_root.py selects.
+"""
+import hashlib
+import json
+import os
+import struct
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
+os.environ.setdefault('EM_LANE', 'start_saves')
+import reference_root as refs  # noqa: E402
+import test_save_reference as S  # noqa: E402
+import test_load_reference as L  # noqa: E402
+import test_memcard_host as MH  # noqa: E402
+import test_area01_render_reference as R  # noqa: E402
+
+MASK = 0xFFFFFFFF
+MC, BLOCK, SIZE = S.MC, S.BLOCK, 0x640
+DIR = MH.DIR
+SLOT, PORT = 0, 0                  # the save: EX_DATA.00 on port 0 (data/memcard/slot1)
+LOAD_BEAT = 'o7'                   # the RAM the load runs over (c10 opt_07, the options' load row)
+OUT = ROOT / 'build' / 'start_saves'
+FILES = [DIR + '/' + f for f in (DIR, 'EX.ico', 'icon.sys')] + MH.SLOTS
+WRITTEN = (0xF, 0x63F)             # the bytes the writer sets in the chosen slot (docs/SAVE_GAME.md 2.1)
+
+START_POINTS = {
+    'area01': {'route': 's87/route_a01', 'first': 'a01_00_', 'area': 1},
+    'area00': {'route': 's87/route_a00', 'first': 'a00_00_', 'area': 0},
+    'area01-revisit': {'route': 's87/route_a01r', 'first': 'a01r_00_', 'area': 1},
+}
+
+
+class Refused(Exception):
+    """A start point that cannot be built (the message says why)."""
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def image_key(name):
+    return 'start:' + name
+
+
+def arrival(name, points=None):
+    """The recording state the start point is built from: the source state of
+    its route's first beat (the manifest's), checked against that snapshot's
+    own hash and against the first beat's first row (the area bytes)."""
+    points = START_POINTS if points is None else points
+    if name not in points:
+        raise Refused(f'unknown start point {name!r} (known: {", ".join(sorted(points))})')
+    p = points[name]
+    route = refs.capture(p['route'])
+    manifest = route / 'manifest.json'
+    if not manifest.is_file():
+        raise Refused(f'{name}: the recording {manifest} is missing')
+    beats = json.loads(manifest.read_text())['beats']
+    first = [b for b in beats if b.startswith(p['first'])]
+    if len(first) != 1:
+        raise Refused(f'{name}: {manifest} has {len(first)} beats named {p["first"]}* (want one)')
+    beat = beats[first[0]]
+    state = Path(beat['source_state']).resolve()
+    folder = state.parent
+    fork = refs.FORK.resolve()
+    if fork not in folder.parents:
+        raise Refused(f'{name}: the source state {state} is not a fork recording under {fork}')
+    ee, spad, snap = folder / 'eeMemory.bin', folder / 'scratchpad.bin', folder / 'snapshot.json'
+    for f in (ee, spad, snap):
+        if not f.is_file():
+            raise Refused(f'{name}: {f} is missing')
+    ram = ee.read_bytes()
+    want = json.loads(snap.read_text()).get('ee_sha256')
+    if sha256(ram) != want:
+        raise Refused(f'{name}: {ee} does not match its snapshot.json ee_sha256')
+    block = ram[BLOCK:BLOCK + SIZE]
+    if block[0] != p['area']:
+        raise Refused(f'{name}: the arrival block\'s area byte is {block[0]}, not {p["area"]}')
+    trace = route / first[0] / 'trace.json'
+    if not trace.is_file():
+        raise Refused(f'{name}: {trace} is missing')
+    row0 = json.loads(trace.read_text())['rows'][0]
+    if row0.get('area4') != block[:4].hex():
+        raise Refused(f'{name}: the first row of {first[0]} has the area bytes {row0.get("area4")}, '
+                      f'the state {block[:4].hex()}')
+    return {'name': name, 'folder': folder, 'beat': first[0], 'ram': ram, 'spad': spad.read_bytes(),
+            'ee_sha256': want, 'block': bytes(block)}
+
+
+def register(arrivals):
+    """The arrival images in the save harness, beside its own recordings."""
+    for a in arrivals:
+        key = image_key(a['name'])
+        S.IMAGES[key] = a['folder']
+        R.IMAGES[key] = (a['ram'], a['spad'])
+    S.BEATS = list(S.IMAGES)
+
+
+def save(tmp, a):
+    """00228A90 on both sides of the harness, each on its own host card:
+    returns the oracle's card folder (test_memcard_host.save_both checks the
+    two cards are byte-identical and the layout docs/SAVE_GAME.md section 2
+    records)."""
+    _end_ram, _end_spad, start, root = MH.save_both(tmp, 'save-' + a['name'], image_key(a['name']), SLOT, PORT,
+                                                    False)
+    assert start[BLOCK:BLOCK + SIZE] == a['block'], (a['name'], 'the save started from another block')
+    files = MH.card_files(root, PORT)
+    if sorted(files) != sorted(FILES):
+        raise Refused(f'{a["name"]}: the writer made {sorted(files)}')
+    slot = files[MH.SLOTS[SLOT]]
+    changed = [i for i in range(SIZE) if slot[i] != a['block'][i]]
+    if not set(changed) <= set(WRITTEN) or slot[0xF] != 1 or sum(slot) & 0xFF:
+        raise Refused(f'{a["name"]}: the saved slot is not the arrival block with +0xF and its check byte '
+                      f'(changed {[hex(i) for i in changed]})')
+    return root, files, len(S.MODELS['oracle'].order)
+
+
+def host_cards(root, n):
+    MH.HostCard.roots, MH.HostCard.dirs = [root] * n, ()
+
+
+def load(root, files, name):
+    """The original's load code over the card, on both sides of the load
+    harness: the enumeration lists only the saved slot; LOAD GAME's read puts
+    the slot into D_00810700."""
+    blk = files[MH.SLOTS[SLOT]]
+    S.CARD = {}
+    # the load enumeration 002283B0 from its first call
+    host_cards(root, 3)                # the oracle's pre-run, then both sides
+    b = L.rec(PORT) + L.helpers() + [(MC + 0x6C + n, 0xEE, 1) for n in range(5)]
+    b += [(MC + 0x74 + i, 0xEE, 1) for i in range(60)]
+    _ram, spad = S.make(LOAD_BEAT, {'b': b})
+    frames, value = L.prerun(bytes(spad), 0x2283B0, 400)
+    if value != 1:
+        raise Refused(f'{name}: the original load enumeration answered {value} on the card')
+
+    def listed(ee):
+        got = [ee.load(MC + 0x6C + n, 1) for n in range(5)]
+        assert got == [1 if n == SLOT else 0 for n in range(5)], (name, 'slots present', got)
+        assert ee.load(MC + 0x68) == 1, (name, 'count')
+        rec = bytes(ee.mem[MC + 0x74 + 12 * SLOT:MC + 0x80 + 12 * SLOT])
+        assert rec[:7] + rec[8:] == blk[0:6] + blk[0xA:0xB] + blk[0x50:0x54], (name, 'slot record', rec.hex())
+        return True
+    entries = S.run_both(('start-load', name), bytes(spad), [('call', 0x2283B0, (MC,))] * frames,
+                         check=listed)[2]
+    assert S.MODELS['oracle'].order == S.MODELS['native'].order, (name, 'load command order differs')
+    # LOAD GAME's read 00228B60 of the slot into D_00810700
+    host_cards(root, 3)
+    ram, spad = S.make(LOAD_BEAT, {'b': L.rec(PORT, SLOT) + L.helpers()})
+    assert bytes(ram[BLOCK:BLOCK + SIZE]) != blk, (name, 'the load RAM already holds the block')
+    frames, value = L.prerun(bytes(spad), 0x228B60, 40)
+    if value != 1:
+        raise Refused(f'{name}: LOAD GAME\'s read answered {value}')
+
+    def restored(ee):
+        assert bytes(ee.mem[BLOCK:BLOCK + SIZE]) == blk, (name, 'D_00810700 is not the saved slot')
+        assert S.cstr(ee.mem, L.PATH) == MH.SLOTS[SLOT], (name, 'the path')
+        return True
+    entries += S.run_both(('start-read', name), bytes(spad), [('call', 0x228B60, (MC,))] * frames,
+                          check=restored)[2]
+    assert S.MODELS['oracle'].order == S.MODELS['native'].order, (name, 'read command order differs')
+    return entries
+
+
+def setup(names, points=None):
+    """Every requested arrival (refusing before anything runs), then the
+    save harness over them. Returns the arrivals."""
+    arrivals = [arrival(n, points) for n in names]
+    MH.LIB = MH.build_lib()
+    register(arrivals)
+    S.setup()
+    S.Card = MH.HostCard               # both sides of the harness answer from em_memcard
+    return arrivals
+
+
+def build(names, out=OUT, points=None):
+    """Build, check and write each start point under `out`. Returns
+    {name: (status, folder, checks)}, status 'written' or 'up to date',
+    checks the save's card commands and the load's callee entries compared
+    on both sides."""
+    out = Path(out)
+    if out.is_symlink() or (out.exists() and not out.is_dir()):
+        raise Refused(f'{out} is not a folder')
+    arrivals = setup(names, points)
+    made = {}
+    with tempfile.TemporaryDirectory(prefix='em_start_saves_') as tmp:
+        for a in arrivals:
+            made[a['name']] = save(tmp, a)
+        L.setup()                      # the load lane on the same harness
+        S.Card = MH.HostCard
+        checks = {}
+        for a in arrivals:
+            root, files, commands = made[a['name']]
+            checks[a['name']] = (commands, load(root, files, a['name']))
+        result = {}
+        for a in arrivals:
+            _root, files, _n = made[a['name']]
+            result[a['name']] = write(out / a['name'], a, files) + (checks[a['name']],)
+    MH.LIB.em_memcard_reset()
+    return result
+
+
+def manifest(a, files):
+    return {
+        'name': a['name'],
+        'what': 'a start-point save: the original writer 00228A90 over the arrival state '
+                '(docs/SAVE_GAME.md section 7)',
+        'source': str(a['folder'].relative_to(refs.BUILD.resolve())),
+        'route_beat': a['beat'],
+        'ee_sha256': a['ee_sha256'],
+        'block_head': a['block'][:16].hex(),
+        'card': {'port': PORT, 'slot': SLOT, 'folder': 'slot%d' % (PORT + 1)},
+        'files': {k: sha256(v) for k, v in sorted(files.items())},
+    }
+
+
+def write(dest, a, files):
+    """The card under dest (a host card root) and its start.json; file by
+    file, only where different; anything else in dest refuses."""
+    dest = Path(dest)
+    want = {'slot%d/%s' % (PORT + 1, k): v for k, v in files.items()}
+    want['start.json'] = (json.dumps(manifest(a, files), indent=1) + '\n').encode()
+    dirs = {'slot1', 'slot2', 'slot%d/%s' % (PORT + 1, DIR)}
+    if dest.is_symlink() or (dest.exists() and not dest.is_dir()):
+        raise Refused(f'{dest} is not a folder')
+    if dest.exists():
+        for p in sorted(dest.rglob('*')):
+            rel = str(p.relative_to(dest))
+            if p.is_symlink() or not (rel in want and p.is_file() or rel in dirs and p.is_dir()):
+                raise Refused(f'{dest} holds {rel}, which this tool does not write: move it away first')
+    status = 'up to date'
+    for d in sorted(dirs):
+        (dest / d).mkdir(parents=True, exist_ok=True)
+    for rel, data in sorted(want.items()):
+        p = dest / rel
+        if not (p.is_file() and p.read_bytes() == data):
+            p.write_bytes(data)
+            status = 'written'
+    return status, dest
+
+
+def main(argv):
+    if argv == ['--list']:
+        for n, p in START_POINTS.items():
+            print('%-15s %s (%s*), block area %d' % (n, p['route'], p['first'], p['area']))
+        return 0
+    names = argv or list(START_POINTS)
+    if len(set(names)) != len(names):
+        print('build_start_saves: a start point is named twice', file=sys.stderr)
+        return 2
+    try:
+        result = build(names)
+    except AssertionError as ex:       # a check of the harness (the two sides, the card read back)
+        print(f'build_start_saves: refused: a check failed: {ex}', file=sys.stderr)
+        return 2
+    except Refused as ex:
+        print(f'build_start_saves: refused: {ex}', file=sys.stderr)
+        return 2
+    for n, (status, folder, (commands, entries)) in result.items():
+        print(f'{n}: {status}: {folder.relative_to(ROOT)} (the save: {commands} card commands, both sides equal; '
+              f'read back: {entries} callee entries equal to the original\'s)')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
