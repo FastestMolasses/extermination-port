@@ -15,7 +15,8 @@ instruction of the original is reproduced here.
 | The save writer | 00228A90 and its steps 00228530, 002285A0, 002288A0, 00229640, 00229680, 002284F0, 001AF220 | translated (em_save_original), not wired | test-save-reference |
 | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
 | The card screen around them | 00227300 and its screens (002280F0, 002283B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00226B90, 002267A0, 00226D50, 002293B0) | faults (docs/OPTIONS.md section 4.2) | - |
-| The load side | 00228EB0 (the five slots read), 00228B60 (one slot read), 001FE7C0 / 001FEB00 (read), the restore and the area entry | not translated | - |
+| The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
+| LOAD GAME after the read | the card screen 00227300's load path, the restore and the area entry | not translated | - |
 | The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
 | Start-point saves, `EM_START_AT` | - | not built | - |
 
@@ -87,6 +88,11 @@ The writer runs on the card screen's record D_00810040 (docs/OPTIONS.md):
 | +0x6C + n | slot n's presence byte (1 once written) |
 | +0x74 + 12 n | slot n's header: the block's bytes 0..5, +6 its byte 0xA (002288A0 only), +8 its word 0x50 |
 
+The load side (section 4) uses +2 (the load enumeration's state), +5 (the
+slot enumeration's state; the writer's +5 is the same byte), +6 (the slot
+cursor), +0x58 (GetInfo's type word), +0x64 (001FE7C0's file phase), +0x68
+(the count of saved slots found) and the same +0x6C / +0x74 tables.
+
 ## 3. The translations and their oracle
 
 `src/game/em_save_original.c` translates 00228A90, 00228530, 002285A0,
@@ -129,6 +135,81 @@ Run 2026-10-20: quick mode PASS (under 1 s), EM_TEST_FULL=1 PASS (718
 cases, 18,106 callee entries equal). Mutants checked: the Open mode, the
 check byte's range, the iterator bound, each header store: all fail the
 quick run.
+
+## 4. The load side
+
+What the original's load code does, as test-load-reference runs it (the
+translations are in em_save_original, prefix em_save_, not wired yet; they
+follow the decomp's byte-matched C, and the instructions for 00228C90,
+NEARMISS there as a register permutation):
+
+- **The load enumeration 002283B0** (the card screen's, on the record's +2,
+  gated by the Sync poll 001FE9A0): GetDir of the game's directory by its
+  plain name (D_002738E0, at most one entry). None: the five presence bytes
+  +0x6C.. cleared and 1 (a card without a save). One: +2 = 1, then 00228EB0
+  every frame until it reports: 3 (a bad card) and 2 (an error) are
+  returned, 1 sets +2 = 2, and +2 = 2 returns 1. Every other frame returns
+  2 when the card helpers' error flag D_00275C58 is set, else 0.
+- **The slot enumeration 00228EB0** (on +5): state 0 clears the presence
+  bytes, GetDir's 0x480-byte table D_00821500, the cursor +6, the count
+  +0x68 and the file phase +0x64. State 1 lists the directory
+  (`BASCUS-97112-DS00-00/*`, D_00273980, at most 0x12 entries) and runs the
+  name check 00228C90 over the entries returned: all eight files must be
+  there (the header file, EX.ico, icon.sys, EX_DATA.00 .. 04; strcmp 00123020
+  against the name at +0x20 of each 0x40-byte entry; their order and any
+  other entry do not matter), else 3. State 2 reads each slot file in turn
+  (001FE7C0: Open mode 1, 0x640 bytes into the staging block D_00822050): a
+  failed command or a short read gives 001FE8D0 (the card helpers reset)
+  and 3; a slot whose +0xF is 1 must have all 0x640 bytes summing to zero
+  (00228C50), else 3, and is then present (+0x6C + n = 1; its record +0x74 +
+  12 n = bytes 0..5 and 0xA, its word 0x50 at +8; the count +0x68 + 1); a
+  slot whose +0xF is not 1 (the New Game block the writer puts in the other
+  four slots) is read, accepted and not present. State 3 asks GetInfo
+  (001FECB0, +0x58 the type pointer): result 0 clears the record's bytes
+  +5..+7 (00225CF0) and reports 1; any other result sets the error flag and
+  reports 2.
+- **LOAD GAME's read 00228B60** (gated by the Sync poll): the chosen slot's
+  path `BASCUS-97112-DS00-00/EX_DATA.%02d` (sprintf 00122D10 with the format
+  D_00273960 and the slot +0xA) into D_00822010, then 001FE7C0 reads that
+  file's 0x640 bytes straight into the live progress block D_00810700. 1
+  when done, 2 on the error flag or a failed or short read, else 0. It does
+  not test the check byte: the enumeration's test is the only one. (The
+  decomp's comment on sub_s_EX_DATA_02d calls the sprintf a blit into a work
+  buffer and the read an upload; the instructions show a path and a file
+  read.)
+- **The file reader 001FE7C0** is 001FE6B0's twin on the read side's
+  descriptor D_00275844 and count D_00275C6C: Open (mode 1), Read (001FEB00,
+  phase 5 of the helpers' D_00275C5C, over the SDK's 00114630), Close, one
+  command per frame; 1 only when Read's count equals the size.
+
+What the card screen does with the block read (the restore of the rest of
+the game's state and the area entry) is in 00227300 and below, not yet
+translated (section 6).
+
+`make test-load-reference` (`tools/test_load_reference.py`) runs the
+original routines over the opt_07 and a01_s4 recordings' RAM against the
+translations as test-save-reference does (every callee outside the lane,
+00121A28, strcmp 00123020 and sprintf 00122D10, as original code; RAM, the
+scratchpad and the arguments equal at every callee entry and at the end).
+The SDK is that test's scripted card model, extended with Read, GetInfo and
+GetDir's table; its answers are inputs, not claims about the server. Cases:
+the Read command and the reader on every phase and result; 00228C50 and
+00228C90 over constructed blocks and tables (each of the eight names missing
+in turn, short counts, a negative count, near-miss names); every
+enumeration state; 82 whole enumerations frame by frame (no directory, saved
+and New Game slots mixed, both ports, busy Syncs, a failing result or a
+refused command at each of the 18 commands, a short read, a changed slot
+byte, each file missing, a failing GetInfo), each result and slot record
+checked against what the files imply; 34 LOAD GAME reads (every slot, both
+ports, the failures), D_00810700 checked equal to the slot file. 156 of the
+160 branch outcomes are taken; the four others are unreachable and listed in
+the test (001FE7C0 returns only -1, 0 or 1; 00228EB0 only 0..3; 00225CF0 is
+only called with 5..7). Run 2026-10-20: quick PASS (76 cases, about 1 s),
+EM_TEST_FULL=1 PASS (554 cases, 11,922 callee entries equal, about 6 s).
+Mutants checked (the check byte test's sense, the name check's fifth slot
+name, the record's +6 source, the Open mode, the count compare, the
+no-directory clear, the count increment, sprintf's slot argument, the read
+error's reset 001FE8D0): all fail the quick run.
 
 ## 5. The host card's file commands (em_memcard)
 
@@ -204,11 +285,10 @@ In order: a fork recording of the original saving at AREA01's save
 terminal on a separate card file (the user's decisions of 2026-10-09, HANDOFF
 item 9: a dedicated card, never the user's own), whose libmc results (the
 Sync result words, the GetDir table) check em_memcard's answers and whose
-card files check section 2 against the card the IOP wrote; the load side's
-translations (00228EB0, 00228B60, 001FE7C0, 001FEB00, 00228C90, 00228C50
-and LOAD GAME's restore and area entry); the card screen 00227300 and the
-save terminal's Yes path, wired through `em_memcard_call`; the start-point
-save builder (the fork recordings route_a01 / route_a00 / route_a01r at
+card files check section 2 against the card the IOP wrote; the card screen
+00227300 (its load path after 00228B60: the restore and the area entry; and
+its save path) and the save terminal's Yes path, wired through
+`em_memcard_call`; the start-point save builder (the fork recordings route_a01 / route_a00 / route_a01r at
 each area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
 "Developer switches").
 

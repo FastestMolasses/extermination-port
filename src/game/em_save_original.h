@@ -1,5 +1,6 @@
-/* em_save_original.h - the memory-card save writer: the routines that
- * write a saved game to the card, translated from the original
+/* em_save_original.h - the memory-card save writer and reader: the
+ * routines that write a saved game to the card and read it back,
+ * translated from the original
  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
  * em_save_. Not wired yet (docs/SAVE_GAME.md section 6): the card screen
  * 00227300 that runs it still faults. Its libmc callees are answered by
@@ -38,17 +39,36 @@
  *   001FE6B0(st, port, slot, name, buf, size)  one file: Open (0x203),
  *                 Write, Close, a frame each; 1 done, -1 an error or a
  *                 short write, 0 pending
- *   001FE9E0 / 001FEB90 / 001FEA70 / 001FEDD0 / 001FEC20: the libmc
- *                 commands Open / Write / Close / Mkdir / GetDir on the
- *                 card helpers' phase D_00275C5C (2 / 6 / 3 / 0xB / 0xD):
- *                 the first call issues the command (00114360 / 00114708
- *                 / 00114480 / 00114448 / 00114AC0), the next takes the
- *                 result 001FE9A0 kept in D_00275C64
+ *   001FE9E0 / 001FEB90 / 001FEA70 / 001FEDD0 / 001FEC20 / 001FEB00: the libmc
+ *                 commands Open / Write / Close / Mkdir / GetDir / Read on
+ *                 the card helpers' phase D_00275C5C (2 / 6 / 3 / 0xB / 0xD
+ *                 / 5): the first call issues the command (00114360 /
+ *                 00114708 / 00114480 / 00114448 / 00114AC0 / 00114630),
+ *                 the next takes the result 001FE9A0 kept in D_00275C64
+ *
+ * The load side (the card screen's; not wired either):
+ *
+ *   002283B0(e)   the load enumeration on e[2]: GetDir of the game's
+ *                 directory (none: 1 with no slot present), then 00228EB0
+ *                 until it reports; 1 done, 2 an error, 3 a bad card
+ *   00228EB0(e)   the slot enumeration on e[5]: GetDir of the directory's
+ *                 files, the name check 00228C90, each EX_DATA slot read
+ *                 (001FE7C0) into D_00822050 and checked (00228C50), its
+ *                 record e + 12n + 0x74, then GetInfo (001FECB0)
+ *   00228B60(e)   LOAD GAME's read: the slot e[0xA]'s file read straight
+ *                 into the live progress block D_00810700
+ *   00228C90(n)   the directory holds all eight files (strcmp 00123020)
+ *   00228C50(p)   a slot's bytes do not sum to zero (mod 256)
+ *   001FE7C0(st, port, slot, name, buf, size)  one file read: Open (1),
+ *                 Read, Close, a frame each; 1 done, -1 an error or a
+ *                 short read, 0 pending
  *
  * Every other original is a callee reached through EmArea01Ui.call by its
  * original address: the libmc SDK 00114360 / 00114708 / 00114480 / 00114448 / 00114AC0, the
- * copy and string leaves 00121870 (block_copy), 00121A28, 00123168 and
- * New Game's progress reset 001AF2C0.
+ * copy and string leaves 00121870 (block_copy), 00121A28, 00123168,
+ * 00123020 (strcmp), 00122D10 (sprintf) and New Game's progress reset
+ * 001AF2C0; the libmc Read 00114630. The card helpers 001FECB0 (GetInfo),
+ * 001FE8D0 and the leaf 00225CF0 run as their options translations.
  *
  * The Sync poll 001FE9A0 runs as its translation, em_options_001FE9A0
  * (em_options_original.c), over the SDK's Sync 00114848.
@@ -90,6 +110,16 @@ int em_save_001FEA70(EmArea01Ui *s, uint64_t a0, uint32_t *result);
 int em_save_001FEDD0(EmArea01Ui *s, uint64_t a0, uint64_t a1, uint64_t a2, uint32_t *result);
 int em_save_001FEC20(EmArea01Ui *s, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0,
                      uint64_t t1, uint32_t *result);
+
+/* The load side (docs/SAVE_GAME.md section 4). */
+int em_save_002283B0(EmArea01Ui *s, uint32_t e, uint32_t *result);
+int em_save_00228EB0(EmArea01Ui *s, uint32_t e, uint32_t *result);
+int em_save_00228B60(EmArea01Ui *s, uint32_t e, uint32_t *result);
+int em_save_00228C90(EmArea01Ui *s, uint64_t n, uint32_t *result);
+int em_save_00228C50(EmArea01Ui *s, uint32_t p, uint32_t *result);
+int em_save_001FE7C0(EmArea01Ui *s, uint64_t st, uint64_t port, uint64_t slot, uint64_t name, uint64_t buf,
+                     uint64_t size, uint32_t *result);
+int em_save_001FEB00(EmArea01Ui *s, uint64_t a0, uint64_t a1, uint64_t a2, uint32_t *result);
 
 #ifdef __cplusplus
 }

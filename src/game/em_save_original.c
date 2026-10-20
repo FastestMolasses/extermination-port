@@ -1,8 +1,8 @@
 /* em_save_original.c - see em_save_original.h (docs/SAVE_GAME.md).
  *
  * Each routine names the original it translates. 002285A0, 002288A0,
- * 001AF220 and 001FE9E0 are NEARMISS in the decomp and follow the
- * instructions; the others follow the byte-matched C. Callee arguments are
+ * 001AF220, 001FE9E0 and 00228C90 are NEARMISS in the decomp and follow
+ * the instructions; the others follow the byte-matched C. Callee arguments are
  * the register images the original holds at the call: an addiu / lui-ori
  * constant or an address sum as the sign-extended 32-bit result, a word
  * loaded from memory as loaded (sign-extended), a register passed on as
@@ -19,6 +19,9 @@ enum {
     SV_00114480 = 0x00114480u, /* libmc Close(fd) */
     SV_00114708 = 0x00114708u, /* libmc Write(fd, buf, size) */
     SV_00114AC0 = 0x00114AC0u, /* libmc GetDir(port, slot, name, mode, max, table) */
+    SV_00114630 = 0x00114630u, /* libmc Read(fd, buf, size) */
+    SV_00122D10 = 0x00122D10u, /* sprintf(dst, format, ...) */
+    SV_00123020 = 0x00123020u, /* strcmp(a, b) */
     SV_00121870 = 0x00121870u, /* block_copy(dst, src, n) */
     SV_00121A28 = 0x00121A28u, /* memset(p, c, n) */
     SV_00123168 = 0x00123168u, /* strcpy(dst, src) */
@@ -34,10 +37,12 @@ enum {
 #define D_00273940 0x00273940u /* icon.sys's name */
 #define D_002739B0 0x002739B0u /* the icon file's name */
 #define D_00275840 0x00275840u /* the write side's open descriptor */
+#define D_00275844 0x00275844u /* the read side's open descriptor */
 #define D_00275C58 0x00275C58u /* the card helpers' error flag */
 #define D_00275C5C 0x00275C5Cu /* the card helpers' command phase */
 #define D_00275C64 0x00275C64u /* the last Sync result 001FE9A0 kept */
 #define D_00275C68 0x00275C68u /* the bytes the last Write wrote */
+#define D_00275C6C 0x00275C6Cu /* the bytes the last Read read */
 #define D_0028A4A0 0x0028A4A0u /* the icon container pointer */
 #define D_00810700 EM_SAVE_BLOCK
 #define D_00810701 0x00810701u
@@ -53,6 +58,14 @@ enum {
 #define D_008219A0 0x008219A0u /* its word at +0x20 */
 #define D_008219D0 0x008219D0u /* a slot's staging copy (.bss) */
 #define D_00822690 0x00822690u /* 00229680's staging copy (.bss) */
+#define D_00822010 0x00822010u /* the load's slot file name (.bss) */
+#define D_00822050 0x00822050u /* the enumeration's slot staging block (.bss) */
+#define D_00266F00 0x00266F00u /* the names 00228C90 looks for: the directory's header file, */
+#define D_00275890 0x00275890u /*   the icon file, */
+#define D_00273970 0x00273970u /*   icon.sys, */
+#define D_00266F20 0x00266F20u /*   and the five slot files, 0x40 apart */
+#define D_00273960 0x00273960u /* the slot path format */
+#define D_00273980 0x00273980u /* the directory's listing pattern */
 #define SPAD_0000 0x70000000u   /* the New Game block 001AF220 leaves */
 #define SPAD_0640 0x70000640u   /* the live block 001AF220 keeps */
 
@@ -481,6 +494,294 @@ int em_save_00228A90(EmArea01Ui *s, uint32_t e, uint32_t *result)
                 (void)em_save_00228530(s, e);
             r = ui_lw(s, D_00275C58) != 0 ? 2u : 0u;
         }
+    }
+    put(result, r);
+    return ui_leave(s, fr);
+}
+
+/* ======================================================================
+ * The load side
+ * ====================================================================== */
+
+/* 001FEB00(fd, buf, size): Read, phase 5 (its three argument registers
+ * reach 00114630 as the caller holds them; the result is the count). */
+int em_save_001FEB00(EmArea01Ui *s, uint64_t a0, uint64_t a1, uint64_t a2, uint32_t *result)
+{
+    const uint64_t a[3] = {a0, a1, a2};
+    return command(s, 0x001FEB00u, 5, SV_00114630, 3, a, 1, result);
+}
+
+/* 001FE7C0(st, port, slot, name, buf, size), one file read on the word
+ * *st (001FE6B0's twin on the read side's descriptor D_00275844 and count
+ * D_00275C6C):
+ *   0: Open(port, slot, name, 1); a nonnegative descriptor goes to
+ *      D_00275844 and *st = 1;
+ *   1: Read(D_00275844, buf, size); a nonnegative count: *st = 2 and the
+ *      count to D_00275C6C;
+ *   2: Close(D_00275844) == 0: *st = -1, D_00275844 = -1, D_00275C6C = 0,
+ *      and 1 when the count was `size` (the 64-bit images compared), else
+ *      -1 (the error flag not looked at);
+ * otherwise (and after 0 / 1 / a refused Close) the error flag D_00275C58
+ * set gives *st = -1, D_00275844 = -1, D_00275C6C = 0 and -1; clear, 0. */
+int em_save_001FE7C0(EmArea01Ui *s, uint64_t st, uint64_t port, uint64_t slot, uint64_t name, uint64_t buf,
+                     uint64_t size, uint32_t *result)
+{
+    if (begin(s, 0x001FE7C0u) < 0) return -1;
+    UiFrame fr = ui_enter(s, 0x001FE7C0u, 0x30);
+    const uint32_t at = (uint32_t)st;
+    const uint32_t phase = ui_lw(s, at);
+    uint32_t v, r = 0;
+    int done = 0;
+    if (phase == 2) {
+        (void)em_save_001FEA70(s, ui_sx(ui_lw(s, D_00275844)), &v);
+        if (v == 0) {
+            ui_sw(s, at, MINUS1);
+            const uint32_t count = ui_lw(s, D_00275C6C);
+            ui_sw(s, D_00275844, MINUS1);
+            ui_sw(s, D_00275C6C, 0);
+            r = ui_sx(count) == size ? 1u : MINUS1;
+            done = 1;
+        }
+    } else if (phase == 1) {
+        (void)em_save_001FEB00(s, ui_sx(ui_lw(s, D_00275844)), buf, size, &v);
+        if ((int32_t)v >= 0) {
+            ui_sw(s, at, 2);
+            ui_sw(s, D_00275C6C, v);
+        }
+    } else if (phase == 0) {
+        (void)em_save_001FE9E0(s, port, slot, name, 1, &v);
+        if ((int32_t)v >= 0) {
+            ui_sw(s, D_00275844, v);
+            ui_sw(s, at, 1);
+        }
+    }
+    if (!done) {
+        if (ui_lw(s, D_00275C58) != 0) {
+            ui_sw(s, at, MINUS1);
+            ui_sw(s, D_00275844, MINUS1);
+            ui_sw(s, D_00275C6C, 0);
+            r = MINUS1;
+        } else {
+            r = 0;
+        }
+    }
+    put(result, r);
+    return ui_leave(s, fr);
+}
+
+/* 00228C50(p) (a leaf): 1 when the 8-bit sum of p[0..0x63F] is nonzero (a
+ * slot whose check byte does not cancel its bytes), else 0. */
+int em_save_00228C50(EmArea01Ui *s, uint32_t p, uint32_t *result)
+{
+    if (begin(s, 0x00228C50u) < 0) return -1;
+    const uint32_t fn = s->core.function;
+    s->core.function = 0x00228C50u;
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < EM_SAVE_BLOCK_SIZE && !ui_latched(s); ++i) sum = (sum + ui_lbu(s, p + i)) & 0xFFu;
+    s->core.function = fn;
+    put(result, sum != 0 ? 1u : 0u);
+    return ui_latched(s) ? -1 : 0;
+}
+
+/* 00228C90(n), the directory's name check over the n entries GetDir left
+ * at D_00821500 (0x40 apart, the name at +0x20); n is the caller's image,
+ * compared signed. Four passes, each skipped when n <= 0: the header file's
+ * name D_00266F00, then EX.ico D_00275890, then icon.sys D_00273970, then
+ * one pass comparing each entry with the five slot names D_00266F20 + 0x40
+ * k in turn; 00123020 (strcmp) == 0 marks a name found. 1 when all eight
+ * were found, else 0 (the instructions; the decomp's C is NEARMISS, a
+ * register permutation). The eight flags are the frame's (0x70 bytes). */
+int em_save_00228C90(EmArea01Ui *s, uint64_t n, uint32_t *result)
+{
+    if (begin(s, 0x00228C90u) < 0) return -1;
+    UiFrame fr = ui_enter(s, 0x00228C90u, 0x70);
+    static const uint32_t single[3] = {D_00266F00, D_00275890, D_00273970};
+    uint32_t found[8] = {0};
+    const int64_t count = (int64_t)n;
+    for (unsigned pass = 0; pass < 3; ++pass)
+        for (int64_t i = 0; i < count && !ui_latched(s); ++i)
+            if (ui_call2(s, SV_00123020, ui_sx(D_00821500 + (uint32_t)i * 0x40u + 0x20u), ui_sx(single[pass])) == 0)
+                found[pass] = 1;
+    for (int64_t i = 0; i < count && !ui_latched(s); ++i)
+        for (unsigned k = 0; k < EM_SAVE_SLOTS; ++k)
+            if (ui_call2(s, SV_00123020, ui_sx(D_00821500 + (uint32_t)i * 0x40u + 0x20u),
+                         ui_sx(D_00266F20 + k * 0x40u)) == 0)
+                found[3 + k] = 1;
+    uint32_t r = 1;
+    for (unsigned k = 0; k < 8; ++k)
+        if (!found[k]) {
+            r = 0;
+            break;
+        }
+    put(result, r);
+    return ui_leave(s, fr);
+}
+
+/* 00228EB0(e), the slot enumeration, on the state e[5]:
+ *   0: 00121A28(e + 0x6C, 0, 8), 00121A28(D_00821500, 0, 0x480), e[5] =
+ *      1, the cursor e[6] = 0, the count e[0x68] = 0, e[0x64] = 0; 0;
+ *   1: n = 001FEC20(port, slot, D_00273980, 0, 0x12, D_00821500) (the
+ *      directory's listing); n >= 0: 00228C90(n) == 0 returns 3, else
+ *      e[5] = 2; 0;
+ *   2: the cursor c = e[6] below 5: 001FE7C0(e + 0x64, port, slot,
+ *      D_00267060 + (c << 6), D_00822050, 0x640): -1: 001FE8D0(), 3; 1:
+ *      when the block's +0xF is 1, 00228C50 over it nonzero returns 3,
+ *      else e[0x6C + c] = 1, the record e + 12c + 0x74 the block's bytes
+ *      0..5 and 0xA (+0..+6) and its word 0x50 (+8), e[0x68] + 1; either
+ *      way e[0x64] = 0 and the cursor + 1; 0 (and any other value): 0. At
+ *      5: e[5] = 3; 0;
+ *   3: 001FECB0(port, slot, e + 0x58, 0, 0) (GetInfo): 0: 00225CF0(e, 5,
+ *      7), 1; -1: 0; else 00225CF0(e, 5, 7), the error flag D_00275C58 =
+ *      1, 2;
+ *   other: 0. */
+int em_save_00228EB0(EmArea01Ui *s, uint32_t e, uint32_t *result)
+{
+    if (begin(s, 0x00228EB0u) < 0) return -1;
+    UiFrame fr = ui_enter(s, 0x00228EB0u, 0x30);
+    uint32_t r = 0, v;
+    switch (ui_lbu(s, e + 5u)) {
+    case 0:
+        (void)ui_call3(s, SV_00121A28, ui_sx(e + 0x6Cu), 0, 8);
+        (void)ui_call3(s, SV_00121A28, D_00821500, 0, 0x480);
+        ui_sb(s, e + 5u, 1);
+        ui_sb(s, e + 6u, 0);
+        ui_sw(s, e + 0x68u, 0);
+        ui_sw(s, e + 0x64u, 0);
+        break;
+    case 1:
+        (void)em_save_001FEC20(s, port_of(s, e), slot_of(s, e), D_00273980, 0, 0x12, D_00821500, &v);
+        if ((int32_t)v >= 0) {
+            uint32_t ok;
+            (void)em_save_00228C90(s, ui_sx(v), &ok);
+            if (ok == 0)
+                r = 3;
+            else
+                ui_sb(s, e + 5u, 2);
+        }
+        break;
+    case 2: {
+        const uint32_t c = ui_lbu(s, e + 6u);
+        if (c >= 5u) {
+            ui_sb(s, e + 5u, 3);
+            break;
+        }
+        (void)em_save_001FE7C0(s, ui_sx(e + 0x64u), port_of(s, e), slot_of(s, e), ui_sx(D_00267060 + (c << 6)),
+                               D_00822050, EM_SAVE_BLOCK_SIZE, &v);
+        if (v == MINUS1) {
+            (void)em_options_001FE8D0(s);
+            r = 3;
+        } else if (v == 1) {
+            if (ui_lbu(s, D_00822050 + 0xFu) == 1) {
+                uint32_t bad;
+                (void)em_save_00228C50(s, D_00822050, &bad);
+                if (bad != 0) {
+                    r = 3;
+                    break;
+                }
+                ui_sb(s, e + c + 0x6Cu, 1);
+                const uint32_t q = e + c * 12u;
+                for (uint32_t i = 0; i < 6; ++i) ui_sb(s, q + 0x74u + i, ui_lbu(s, D_00822050 + i));
+                ui_sb(s, q + 0x7Au, ui_lbu(s, D_00822050 + 0xAu));
+                ui_sw(s, q + 0x7Cu, ui_lw(s, D_00822050 + 0x50u));
+                ui_sw(s, e + 0x68u, ui_lw(s, e + 0x68u) + 1u);
+            }
+            ui_sw(s, e + 0x64u, 0);
+            ui_sb(s, e + 6u, ui_lbu(s, e + 6u) + 1u);
+        }
+        break;
+    }
+    case 3:
+        (void)em_options_001FECB0(s, port_of(s, e), slot_of(s, e), ui_sx(e + 0x58u), 0, 0, &v);
+        if (v == 0) {
+            (void)em_options_00225CF0(s, e, 5, 7);
+            r = 1;
+        } else if (v != MINUS1) {
+            (void)em_options_00225CF0(s, e, 5, 7);
+            ui_sw(s, D_00275C58, 1);
+            r = 2;
+        }
+        break;
+    default:
+        break;
+    }
+    put(result, r);
+    return ui_leave(s, fr);
+}
+
+/* 002283B0(e), the card screen's load enumeration, on the state e[2]
+ * after the Sync poll (a zero v0 returns 0):
+ *   0: n = 001FEC20(port, slot, D_002738E0, 0, 1, D_00821500) (the game's
+ *      directory); n == 0: 00121A28(e + 0x6C, 0, 8) and 1 (no save on the
+ *      card); n > 0: e[2] = 1;
+ *   1: 00228EB0(e): 3 returns 3, 2 returns 2, 1 gives e[2] = 2;
+ *   2: 1;
+ * otherwise (n < 0, 00228EB0's 0, another state) 2 when the error flag
+ * D_00275C58 is set, else 0. */
+int em_save_002283B0(EmArea01Ui *s, uint32_t e, uint32_t *result)
+{
+    if (begin(s, 0x002283B0u) < 0) return -1;
+    UiFrame fr = ui_enter(s, 0x002283B0u, 0x20);
+    uint32_t r = 0, v;
+    int tail = 0;
+    if (sync_poll(s, e) != 0) {
+        tail = 1;
+        switch (ui_lbu(s, e + 2u)) {
+        case 0:
+            (void)em_save_001FEC20(s, port_of(s, e), slot_of(s, e), D_002738E0, 0, 1, D_00821500, &v);
+            if ((int32_t)v >= 0) {
+                if (v == 0) {
+                    (void)ui_call3(s, SV_00121A28, ui_sx(e + 0x6Cu), 0, 8);
+                    r = 1;
+                    tail = 0;
+                } else {
+                    ui_sb(s, e + 2u, 1);
+                }
+            }
+            break;
+        case 1:
+            (void)em_save_00228EB0(s, e, &v);
+            if (v == 3 || v == 2) {
+                r = v;
+                tail = 0;
+            } else if (v == 1) {
+                ui_sb(s, e + 2u, 2);
+            }
+            break;
+        case 2:
+            r = 1;
+            tail = 0;
+            break;
+        default:
+            break;
+        }
+    }
+    if (tail) r = ui_lw(s, D_00275C58) != 0 ? 2u : 0u;
+    put(result, r);
+    return ui_leave(s, fr);
+}
+
+/* 00228B60(e), the chosen slot read into the live progress block (LOAD
+ * GAME's read) after the Sync poll (a zero v0 returns 0):
+ * 00122D10(D_00822010, D_00273960, D_002738E0, e[0xA]) (sprintf of the
+ * slot file's path), then 001FE7C0(e + 0x64, port, slot, D_00822010,
+ * D_00810700, 0x640); the error flag D_00275C58 set gives 2; else the
+ * read's -1 gives 2, 1 gives 1, 0 gives 0, any other value 1. */
+int em_save_00228B60(EmArea01Ui *s, uint32_t e, uint32_t *result)
+{
+    if (begin(s, 0x00228B60u) < 0) return -1;
+    UiFrame fr = ui_enter(s, 0x00228B60u, 0x20);
+    uint32_t r = 0;
+    if (sync_poll(s, e) != 0) {
+        uint32_t v;
+        (void)ui_call4(s, SV_00122D10, D_00822010, D_00273960, D_002738E0, ui_lbu(s, e + 0xAu));
+        (void)em_save_001FE7C0(s, ui_sx(e + 0x64u), port_of(s, e), slot_of(s, e), D_00822010, D_00810700,
+                               EM_SAVE_BLOCK_SIZE, &v);
+        if (ui_lw(s, D_00275C58) != 0)
+            r = 2;
+        else if (v == MINUS1)
+            r = 2;
+        else
+            r = v == 0 ? 0u : 1u;
     }
     put(result, r);
     return ui_leave(s, fr);

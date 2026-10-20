@@ -1456,6 +1456,15 @@ test-options-reference:
 test-save-reference:
 	python3 tools/test_save_reference.py
 
+# The memory-card load side (docs/SAVE_GAME.md section 4): the load
+# enumeration 002283B0 / 00228EB0, LOAD GAME's read 00228B60 and their
+# helpers, em_save_original against the original instructions over the
+# same two recordings, every reachable branch outcome (about 1 s;
+# EM_TEST_FULL=1 the exhaustive sweep, about 6 s).
+.PHONY: test-load-reference
+test-load-reference:
+	python3 tools/test_load_reference.py
+
 # The host memory card's file commands (em_memcard) under the original save
 # writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
 # EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).

@@ -211,7 +211,9 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   screen runs in save mode (00228A90 and its steps) and the card layout it
   writes: SAVE_GAME.md.
 - **A chosen slot and a load** (002267A0, 00227300; r == 2): no recording
-  chooses a slot; both fault.
+  chooses a slot; both fault. The load code below the card screen (the load
+  enumeration 002283B0 and LOAD GAME's read 00228B60 of the slot into the
+  progress block) is translated, not wired (SAVE_GAME.md section 4).
 - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.
 - **The title's OPTIONS entry** (00200A40) and LOAD GAME on the boot's title.
 
