@@ -2631,7 +2631,8 @@ drawing), not this step's.
   lists twice (rows 449..452 and 746..749) where the port shows 14913 and
   14916 again and presents 14914 and 14915 as drawn (all black on both
   sides). In the old demo (decomp `build/video_compare/demo_level/`, port
-  0eea8b5, disc-drive switch on) the black frames at port ticks 1719 and
+  0eea8b5, disc-drive switch on; its frames were removed on 2026-10-20,
+  superseded by demo_level_1019; the tick numbers stay as recorded) the black frames at port ticks 1719 and
   1929 are the first frames of the START and battery entries (1719 / 1929
   + 985 = 2704 / 2914; their 0x1AE040 state goes 1 -> 3 there), and
   segment 12's offset 156 (counter 3002, state 3 after 1 at 3001) is the

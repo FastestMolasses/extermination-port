@@ -288,7 +288,9 @@ What the capture shows, and the model:
      from run to run until the field-paced movies (f8616f9) fixed it on the 220 side. No capture records the driver
      tick's phase; on a PS2 it follows the time since the driver armed its timer (the boot and the title's dwell),
      so one recording fixes it for one run only. Receipts: decomp `build/seg24_trace_1016/` (the fork lane trace),
-     port `build/seg24_bisect/`.
+     port `build/seg24_bisect/` (each commit's run_d1_roger/ results and logs are kept; the per-commit git-archive
+     source trees and binaries were removed on 2026-10-20 because they are byte-identical to the commits;
+     f8616f9_h0's scratch tree is kept whole).
      **Decided 2026-10-17** (user, "Align it for the video"): a comparison-only alignment setting, off by default
      and not a player or launcher option, the developer switch `EM_IOP_TICK_PHASE=N` (STARTUP.md "Developer
      switches"; `em_iop_stream_set_tick_phase`: every driver tick N half-lines earlier against the fields, the
