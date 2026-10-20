@@ -1890,9 +1890,11 @@ and present logs are byte-identical to the build without the change.
   refills one field late); the cause is not proven. `--strict-drive-replay`
   fails on the ten reads; once they are explained it should become this
   harness's gate.
-- **Not reached yet:** AREA00 (the arrival stops at frame 0 in `0022DCD0`'s
-  read `00269400`, LEVEL3_BINDING.md) and the AREA01 revisit (no harness
-  yet, AREA01_REVISIT.md).
+- **Not reached yet:** AREA00 (since the arrival read views of later on
+  2026-10-19 the arrival completes frame 0 and stops at frame 1 in the
+  chain page, at 001E9280's untranslated surface packet `00234FE0`,
+  LEVEL3_BINDING.md) and the AREA01 revisit (no harness yet,
+  AREA01_REVISIT.md).
 
 ### Levels 2-4 toward the drawbridge (2026-10-19, port main 789b4b4)
 
@@ -2018,8 +2020,12 @@ frame-0 fault in `00156620` (`em_area11_boxes.c` `BOX_MAX = 32`, at least
 39 needed); zero AREA00 rows pass; the contract checks pass
 (`build/merge-1019-post/area00-harness.log`). Later the same day the table
 was raised to the actor pool's 256 (LEVEL3_BINDING.md "Owner-view capacity
-(resolved 2026-10-19)"); arrival now stops at frame 0 in `0022DCD0`
+(resolved 2026-10-19)"); arrival then stopped at frame 0 in `0022DCD0`
 (the unexported read `00269400`), every earlier tick record unchanged.
+Since the arrival read views (LEVEL3_BINDING.md "Current state") frame 0
+completes and the arrival stops at frame 1 in the chain page (001E9280's
+surface packet `00234FE0`); every tick record before the arrival frame is
+byte-identical to the build without them.
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

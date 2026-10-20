@@ -59,6 +59,15 @@ static int contains(uint32_t a,uint32_t n,uint32_t base,uint32_t size)
 static int overlaps(uint32_t a,uint32_t n,uint32_t base,uint32_t size)
 { return (uint64_t)a+n>base && (uint64_t)base+size>a; }
 static const uint8_t *resource(void *,uint32_t,uint32_t);
+/* D_00822CF0..D_008234C0: the boot BSS block only 0022DCD0 uses (decomp
+ * NEARMISS C; no other decomp function names an address in it): its
+ * 64-byte matrices at 0x00822CF0, the colour rows at 0x008230F0, eleven
+ * word tables up to 0x008233F0 + 64, and the 0x90-byte request record at
+ * 0x00823430 that 001D0400 rewrites. Boot BSS starts zero and is never
+ * reset by an area change, so it is one process-lifetime block. */
+#define D822CF0_BASE 0x00822CF0u
+#define D822CF0_SIZE 0x7D0u
+static uint8_t s_d822CF0[D822CF0_SIZE];
 static EmActor *actor(EmArea01Live *l,uint32_t a)
 {
     if(a<EM_ACTOR_POOL_BASE)return NULL;
@@ -184,6 +193,8 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return block && contains(a,n,0x002821B0u,(uint32_t)sizeof *block)
             ? (uint8_t *)(void *)block+a-0x002821B0u : NULL;
     }
+    if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
+        return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
     if(overlaps(a,n,0x00275C00u,4))
         return l->active && contains(a,n,0x00275C00u,4)
             ? (uint8_t *)&l->d275C00+a-0x00275C00u : NULL;
@@ -465,6 +476,35 @@ static int sdf_001B1B70(void *ctx)
     EmArea01Call c={.function=0x001B1B70u,.a={v->node},.na=1};
     return worker(v->l,&c);
 }
+/* 00121870 block_copy(dst, src, n) (the C library forward copy; decomp
+ * assembly), as em_static_world's translation orders it: with n >= 0x20 and
+ * both addresses 16-aligned, pairs of quadwords while n >= 0x20 (tested
+ * after each pair), then doublewords while n >= 8; then bytes. Each piece is
+ * loaded before it is stored, so a forward overlap behaves as the original's.
+ * a3 is not read; v0 is not set (no caller reads it). 001D0400 (via
+ * 0022DCD0 in AREA00) is the caller here. */
+static int block_copy_00121870(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<3)return worker_result(l,-1,c->function);
+    uint32_t dst=(uint32_t)c->a[0],src=(uint32_t)c->a[1],n=(uint32_t)c->a[2];
+    uint8_t piece[16];
+#define PIECE(size) do { \
+    const uint8_t *from_=bytes(l,src,(size),0); \
+    if(!from_)return worker_result(l,-1,src); \
+    memcpy(piece,from_,(size)); \
+    uint8_t *to_=bytes(l,dst,(size),1); \
+    if(!to_)return worker_result(l,-1,dst); \
+    memcpy(to_,piece,(size)); \
+    src+=(size);dst+=(size); \
+} while(0)
+    if(n>=0x20u && ((src|dst)&15u)==0) {
+        do { PIECE(16u);PIECE(16u);n-=0x20u; } while(n>=0x20u);
+        while(n>=8u) { PIECE(8u);n-=8u; }
+    }
+    while(n--!=0u)PIECE(1u);
+#undef PIECE
+    return 0;
+}
 static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
@@ -482,6 +522,7 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_transition_call(&host,c,&fault);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x00121870u)return block_copy_00121870(l,c);
     if(c->function==0x001B0C60u) {
         if(c->na!=3 || c->nf)return worker_result(l,-1,c->function);
         if(em_area01_live_suspend(l)<0)return -1;
@@ -533,6 +574,26 @@ static int worker(void *ctx,EmArea01Call *c)
         rc=em_area01_matrix_service_invoke(&service,c);
         if(em_area01_live_resume(l)<0)return -1;
         return worker_result(l,rc,c->function);
+    }
+    if(c->function==0x001CFB50u) {
+        /* 001CFB50(block, index, matrix; f12..f16): the transform block
+         * from the 64-byte matrix (em_effect_kinds' translation through
+         * em_effects_live). 0022DCD0 (AREA00) passes its stack block and a
+         * matrix of the 0x00822CF0 table. */
+        if(c->na<3 || c->nf<5)return worker_result(l,-1,c->function);
+        const uint8_t *m=bytes(l,(uint32_t)c->a[2],64,0);
+        if(!m)return worker_result(l,-1,(uint32_t)c->a[2]);
+        uint8_t *view=bytes(l,(uint32_t)c->a[0],0x60,1);
+        if(!view)return worker_result(l,-1,(uint32_t)c->a[0]);
+        float matrix[16];uint8_t block[0x60];
+        memcpy(matrix,m,64);memcpy(block,view,0x60);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_effects_live_001CFB50(block,(int32_t)c->a[1],matrix,c->f);
+        if(em_area01_live_resume(l)<0)return -1;
+        if(rc<0)return worker_result(l,rc,em_effects_live_fault());
+        if(!(view=bytes(l,(uint32_t)c->a[0],0x60,1)))return worker_result(l,-1,(uint32_t)c->a[0]);
+        memcpy(view,block,0x60);
+        return 0;
     }
     if(c->function==0x001CFBE0u) {
         const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
@@ -751,7 +812,7 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
-    case 0x001A5C30u: {
+    case 0x001A5C30u: case 0x0019AD00u: {
         /* Native lists need committed actors. The collision adapter then
          * reads vector operands through fresh actor/player byte views. */
         if(em_area01_live_suspend(l)<0)return -1;

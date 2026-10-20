@@ -1853,6 +1853,15 @@ test-level2-kind6-vu-reference:
 test-world-textures-reference:
 	python3 tools/test_world_textures_reference.py
 
+# test-area00-arrival-bindings: the AREA00 arrival's added read views
+# (0022DCD0's D_00269400 / D_0026A900, 0015A2C0's config rows 3 and 4)
+# against the pinned ELF and the retained AREA00 snapshots, the BSS block
+# D_00822CF0..D_008234C0's single decomp user, and the production loader's
+# slices and refusals under ASan/UBSan (about 5 s; opt-in).
+.PHONY: test-area00-arrival-bindings
+test-area00-arrival-bindings:
+	python3 tools/test_area00_arrival_bindings.py
+
 .PHONY: test-area01-collision-view-reference test-area01-shadow-live-reference test-area01-scratch-views
 test-area01-collision-view-reference:
 	python3 tools/test_area01_collision_view_reference.py

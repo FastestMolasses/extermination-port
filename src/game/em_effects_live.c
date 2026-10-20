@@ -1878,9 +1878,17 @@ int em_effects_live_001F0360(void)
 {
     READY();
     const int key = (S.scene->d810700 << 8) | S.scene->d810701;
-    /* 001F6BB0 reads the latch bytes D_0081075D / 778 / 77B / 79E for keys
-     * 0 and 0x1301 only; the port keeps no canonical copy of them. */
-    if (key == 0 || key == 0x1301) return fail(0x001F6BB0u, "the selector's latch bytes are not canonical");
+    /* 001F6BB0 reads latch bytes for keys 0 and 0x1301 only. Key 0 reads
+     * D_0081075D (event 5, canonical in the progress region since A01;
+     * 0 at the AREA00 arrival, 0xFF from the a00_08 switch in the fork
+     * captures). Key 0x1301's D_00810778 / 77B / 79E have no canonical
+     * copy yet. */
+    if (key == 0x1301) return fail(0x001F6BB0u, "the selector's latch bytes are not canonical");
+    if (key == 0) {
+        const uint8_t *latch = em_scene_progress_at(S.scene, 0x0081075Du, 1);
+        if (!latch) return fail(0x0081075Du, "the selector's latch byte has no canonical owner");
+        S.mglobals.d81075D = *latch;
+    }
     if (view_refresh() < 0) return -1;
     globals_refresh();
     /* The particle records' +0x80 / +0x82 halfwords (001F3FA0's, the one

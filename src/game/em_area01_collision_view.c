@@ -74,6 +74,34 @@ static int import_move(EmArea01CollisionView *v)
     f->hull_word_1c=m->cell_word_1c;f->hull_word_20=m->cell_word_20;
     v->host.shared->move_last=0;return 0;
 }
+/* The inverse of import_move, for a move walker (0019AD00) called through
+ * this view: the probe representation (the last writer, just committed)
+ * becomes the move scratch, field for field, so every scratchpad field the
+ * walker does not write keeps its last value as in the original. The lanes
+ * both representations share at one address (0x700031CC, 0x7000368C) are
+ * already canonical in the move scratch. */
+static int export_move(EmArea01CollisionView *v,const EmCollMoveWorld *mw)
+{
+    EmCollMoveScratch *m=v->host.move;const EmCollProbeState *s=v->host.segment->state;
+    const EmCollSegmentFaceScratch *f=v->host.segment->face;
+    if(!mw->cells||mw->grid!=grid(v))return fail(v,0x0019AD00u,1);
+    const void *record=NULL;
+    if(s->record==EM_COLL_PROBE_RECORD_CELL)record=EM_COLL_MOVE_CELL_RECORD;
+    else if(s->record==EM_COLL_PROBE_RECORD_GRID){
+        if(s->node<0||(uint32_t)s->node>=grid(v)->count||!grid(v)->words)return fail(v,0x700031D0,3);
+        record=grid(v)->words+12*(size_t)s->node;
+    }else if(s->record!=EM_COLL_PROBE_RECORD_NONE)return fail(v,0x700031D0,3);
+    memcpy(m->start,s->start,16);memcpy(m->end,s->end,16);
+    memcpy(m->point,s->point,12);memcpy(&m->point[3],&v->host.shared->word_31BC,4);
+    memcpy(m->delta,s->delta,12);
+    m->record=record;m->entity=s->entity;m->mode=s->kind;
+    m->cell_class=s->cell_class;memcpy(m->cell_normal,s->cell_normal,12);
+    m->query_class=s->query_class;m->self=s->self;memcpy(m->rank,s->rank,12);
+    m->span_lo=s->span_lo;m->kind=s->span_hi;
+    memcpy(m->work,&s->ratio,4);memcpy(m->work+1,f->cross,8);
+    m->cell_word_1c=f->hull_word_1c;m->cell_word_20=f->hull_word_20;
+    return 0;
+}
 int em_area01_collision_view_bind(EmArea01CollisionView *v,const EmArea01CollisionHost *h)
 {
     if(!v||!h)return -1;
@@ -231,6 +259,7 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
     if(em_area01_collision_view_begin(v)<0)return -1;
     float a[3],b[3],feet=0;const uint8_t *prim=NULL;int node=-1,r=-1;
     EmActorCollisionQuery query={0};uint8_t *feet_out=NULL;
+    EmCollMoveActor mover;memset(&mover,0,sizeof mover);uint8_t *mover_x=NULL,*mover_z=NULL;
     switch(c->function){
     case 0x19A570:case 0x19A910:case 0x19B6C0:
         if(c->na<(c->function==0x19A570?4u:c->function==0x19A910?3u:2u)||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
@@ -245,6 +274,18 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
             feet_out=v->host.bytes(v->host.ctx,(uint32_t)c->a[0]+0xB4,4,1);
             if(!feet_out)return fail(v,(uint32_t)c->a[0]+0xB4,1);
             memcpy(&feet,feet_out,4);query.feet_y=&feet;
+        }break;}
+    case 0x19AD00:{
+        /* 0019AD00(actor, target, flags): the actor's +0x00, +0x02, +0x52,
+         * +0x14 (its self word) and +0xB0..+0xB8, the target's x, y, z. */
+        uint32_t self,at=(uint32_t)c->a[0];
+        if(c->na<3||get(v,at,&mover.status,1)<0||get(v,at+2,&mover.cls,1)<0||get(v,at+0x52,&mover.h52,2)<0||
+           get(v,at+0x14,&self,4)<0||get(v,at+0xB0,mover.position,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
+        mover.self=decode(v,self);
+        if(self&&(!mover.self||encode(v,mover.self)!=self))return fail(v,self,3);
+        if(c->a[2]&0x80000000u){
+            mover_x=v->host.bytes(v->host.ctx,at+0xB0,4,1);mover_z=v->host.bytes(v->host.ctx,at+0xB8,4,1);
+            if(!mover_x||!mover_z)return fail(v,at+0xB0,1);
         }break;}
     case 0x19F1A0:
         if(c->na<2||get(v,(uint32_t)c->a[0],a,12)<0)return -1;break;
@@ -262,6 +303,18 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
     case 0x19A910:r=em_coll_segment_0019A910(seg,a,b,(uint32_t)c->a[2]);break;
     case 0x19B6C0:{EmCollProbeWorkers w={(void *)seg,em_coll_segment_face_worker,em_coll_segment_round_worker};r=em_coll_probe_0019B6C0(seg->world,&w,s,a,b);break;}
     case 0x19AB20:{EmActorCollisionHit hit;r=em_actor_collision_ground_state_0019AB20(seg->world->cells,&query,a,b,(uint32_t)c->a[3],&hit,s);if(r>=0&&feet_out)memcpy(feet_out,&feet,4);break;}
+    case 0x19AD00:{
+        /* The move walkers' world is the segment's own (em_collision_world
+         * builds both from one directory, grid, hull world and SDK math). */
+        const EmCollMoveWorld mw={seg->world->cells,seg->world->grid,seg->hulls,seg->math};
+        if(export_move(v,&mw)<0)return -1;
+        r=em_coll_move_0019AD00(&mw,v->host.move,&mover,b,(uint32_t)c->a[2]);
+        if(r<0)break;
+        /* The move scratch is now the last writer (the next begin imports
+         * it); bit 31 added the hit delta to the actor's x and z. */
+        v->host.shared->move_last=1;
+        if(mover_x){memcpy(mover_x,&mover.position[0],4);memcpy(mover_z,&mover.position[2],4);}
+        break;}
     case 0x19F1A0:r=em_coll_probe_0019F1A0(grid(v),s,a,(uint32_t)c->a[1]);break;
     case 0x19ED80:r=em_coll_probe_0019ED80(grid(v),s,node);break;
     case 0x1A4030:r=em_coll_probe_001A4030(prim,s);break;

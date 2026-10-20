@@ -47,7 +47,7 @@ def main():
     # AREA11 helper predates EE uncached-mirror directory words.
     directory=(ROOT/'assets/area01/area01_cells.bin').read_bytes()
     P.directory_size=lambda ram,base:len(directory)
-    count=0;hits={};contracts=0
+    count=0;hits={};contracts=0;moves=0
     rng=random.Random(0xA01C011)
     beats=[];outside=[]
     for capture in sorted(S.ROUTE.glob('a01_*/eeMemory.bin')):
@@ -95,6 +95,11 @@ def main():
             result=C.c_uint32()
             dispatch=n.cv_sys if fn==0x19B4C0 else n.cv_call
             assert dispatch(fn,*(list(args)+[0]*(4-len(args))),C.byref(result))==0,(beat,hex(fn),args,n.cv_fault(),hex(n.cv_fault_address()))
+            if fn==0x19AD00:
+                # The move walker's scratch is the last writer: the next
+                # borrow imports it into the probe representation, as the
+                # live composition's next begin does.
+                assert n.cv_begin()==0 and n.cv_commit()==0,(beat,'move import',n.cv_fault(),hex(n.cv_fault_address()))
             n.cv_state(C.byref(st))
             actual=Q.native_state(st);want=Q.ee_state(ee,w)
             assert actual==want,(beat,hex(fn),[(k,want[k],actual[k]) for k in want if want[k]!=actual[k]])
@@ -103,6 +108,8 @@ def main():
             for i in range(4):assert n.cv_quad_w(i)==ee.load(0x7000360C+16*i),(beat,hex(fn),'preserved W',i)
             if fn==0x19AB20 and args[3]&0x80000000:
                 assert w.ram[args[0]+0xB4:args[0]+0xB8]==ee.mem[args[0]+0xB4:args[0]+0xB8]
+            if fn==0x19AD00:
+                assert w.ram[args[0]+0xB0:args[0]+0xBC]==ee.mem[args[0]+0xB0:args[0]+0xBC],(beat,'mover position',hex(args[2]))
             for address,data in saved:w.ram[address:address+len(data)]=data
             count+=1;hits[(fn,result.value)]=hits.get((fn,result.value),0)+1
         pos=struct.unpack_from('<3f',w.ram,P.PLAYER+0xB0)
@@ -120,6 +127,15 @@ def main():
             ground_stage=[(a,struct.pack('<4f',*p,0)+struct.pack('<4f',0,80,0,0)),(P.PLAYER,bytes(actor))]
             for mask in (0,2,4,6,0x80000006):check(0x19AB20,(P.PLAYER,a,a+16,mask),case,ground_stage)
             check(0x19B4C0,(P.PLAYER,a,a+16,6),case,ground_stage)
+            # 0019AD00 (the move probe 00129780's selectors 2 / 7 call in
+            # AREA00): segment (actor +0xB0.x, target.y, actor +0xB8.z) ->
+            # target through the view's move adapter (export, walk, import).
+            # Its own generator: the earlier cases keep their sequence.
+            mrng=random.Random(0x19AD00+trial*0x101+len(beat))
+            target=(pos[0]+mrng.uniform(-15,15),pos[1]+mrng.uniform(0,3),pos[2]+mrng.uniform(-15,15))
+            move_stage=[(a,struct.pack('<4f',*target,0)),(P.PLAYER,bytes(actor))]
+            for mask in (2,4,6,0x80000006):
+                check(0x19AD00,(P.PLAYER,a,mask),case,move_stage);moves+=1
         # Leaf tests use actual captured prim records and grid nodes, with a
         # staged segment. No collision callee is replaced by a return stub.
         segment={0x70003190+4*k:Q.bits(pos[k]+(10 if k==1 else 0)) for k in range(3)}
@@ -236,7 +252,8 @@ def main():
         n.bridge_free(b)
     for fn in (0x19ED80,0x1A4030,0x1A50A0,0x1A5C30):assert hits.get((fn,1),0)>0
     assert hits.get((0x19AB20,4),0)>0 and hits.get((0x19B4C0,4),0)>0
-    print(f'PASS: {count} original collision calls on {len(beats)} AREA01 snapshots; {contracts} canonical aliases, pointer commits, metadata and refusal checks')
+    assert moves>0 and any(fn==0x19AD00 for fn,_ in hits)
+    print(f'PASS: {count} original collision calls on {len(beats)} AREA01 snapshots ({moves} 0019AD00 move probes); {contracts} canonical aliases, pointer commits, metadata and refusal checks')
     print('Different-area end snapshot excluded:',outside)
     print('results:',{hex(fn)+':'+str(value):number for (fn,value),number in sorted(hits.items())})
 

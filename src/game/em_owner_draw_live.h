@@ -54,7 +54,13 @@
 extern "C" {
 #endif
 
-#define EM_OWNER_DRAW_LIVE_UNITS 64u              /* units kept per frame */
+/* Units kept per frame, and 001CAA00 calls logged per frame: host
+ * bookkeeping for the flush and the tick log, not an original limit (the
+ * original bounds a frame's draws only by the channel-0 packet arena, which
+ * channel_open / channel_store check). 64 refused the AREA00 arrival's
+ * frame 1 (2026-10-19); 512 is two units (the owner's and 001CB3C0's face
+ * unit) for every record of the 256-slot actor pool. */
+#define EM_OWNER_DRAW_LIVE_UNITS 512u
 #define EM_OWNER_DRAW_LIVE_TEXTURES "assets/scene_snow/object_textures.emot"
 
 /* 001CAA00(owner). `bank` is the model bank the owner's +0x44 points into

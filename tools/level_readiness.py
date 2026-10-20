@@ -594,9 +594,11 @@ def markdown(report):
         'Record displayed fields and missing boundary counters where needed; use the shared run lock.',
         '5. AREA00 surface dimensions, pickup library models and crate roots now pass delivery/oracle checks. '
         'Arrival aligns; the shared owner-view table now holds the actor pool\'s 256 views (the original AREA00 '
-        'crates/drums alone require 39; raised 2026-10-19), and arrival fails at frame 0 in `0022DCD0`, which '
-        'reads the unexported `00269400`. Supply that read before neutral frames, movement, camera, drawing, '
-        'interactions and both returns. The AREA01 prerequisite passes: with the comparison-only drive replay '
+        'crates/drums alone require 39; raised 2026-10-19). Since the arrival read views (2026-10-19: 0022DCD0\'s '
+        'tables, 0015A2C0\'s config rows, the 001F6BB0 latch, 0019AD00 through the collision view) frame 0 '
+        'completes and arrival stops at frame 1 in the chain page: 001E9280\'s surface packet `00234FE0` and '
+        'its VU1 program have no export and no native translation yet. Supply them before neutral frames, '
+        'movement, camera, drawing, interactions and both returns. The AREA01 prerequisite passes: with the comparison-only drive replay '
         '(the user\'s decision of 2026-10-19; EM_PS2_DRIVE_REPLAY) a01_00..a01_07 pass row for row through the AREA00 '
         'arrival. Preserve every first divergent row. See ' + link('docs/LEVEL3_BINDING.md') + ' and ' + link('docs/LEVEL2_BINDING.md') + '.', '',
         '## Route coverage and function counts', '',
@@ -700,8 +702,9 @@ def markdown(report):
               '3960, a01_06 2647 rows and a01_07 through the AREA00 arrival state 0 (LEVEL2_BINDING.md). Open: ten stream '
               'reads in a01_05 are issued off the recording\'s time, so its stream and audio timing is not yet counted as '
               'original (only its compared rows). With the replay the side beats a01_s0, a01_s3, a01_s4, a01_s6 and '
-              'a01_s7 pass; a01_s1, a01_s2 and a01_s5 stop at their pickup page request. AREA00 fault-stops at arrival frame 0 (since the '
-              'owner-view raise, in 0022DCD0 at the unexported read 00269400; LEVEL3_BINDING.md); a00_00..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the '
+              'a01_s7 pass; a01_s1, a01_s2 and a01_s5 stop at their pickup page request. AREA00 fault-stops at arrival frame 1 (since the '
+              'arrival read views, in the chain page at 001E9280\'s surface packet 00234FE0, whose VU1 program is '
+              'not translated; LEVEL3_BINDING.md); a00_00..a00_10, a00_s0 and the AREA01 revisit a01r_00..a01r_02 (the '
               'bugs\' attack on Roger and the bridge, AREA01_REVISIT.md) are not reached, and the revisit has no harness yet.', '',
               '## Complete function index', '',
               'Every retained function has one row below; the level column is its membership set. '

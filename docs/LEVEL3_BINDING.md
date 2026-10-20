@@ -14,6 +14,67 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-19, later (port main ffd515c plus the arrival read views): frame
+0 of the arrival completes; the stop moved to frame 1's chain page.** One
+change supplied every read and worker the arrival's frames 0 and 1 reached
+(each in the order the run met it):
+
+- `0022DCD0` (`em_area01_exita`, NEARMISS C; oracle
+  `tools/test_area01_exita_reference.py`, which covers its key-0 fill): its
+  AREA00 record list `D_00269400` (six 64-byte records and the terminator
+  word) and the 0x90-byte record `D_0026A900` that `001D0400` scales are
+  exported from the pinned ELF into the effect export
+  (`tools/export_area00_runtime_tables.py` `LIGHT_WINDOWS`, checked against
+  the ELF and all 13 retained AREA00 snapshots); its tables live in the
+  boot BSS `D_00822CF0..D_008234C0`, which no other decomp function names,
+  now one process-lifetime block in `em_area01_live.c`; `001D0400`'s
+  `00121870` block copy (assembly in the decomp) is a live worker with
+  `em_static_world`'s piece order; `001CFB50` goes to
+  `em_effects_live_001CFB50` over the stack block (its `001CFBE0` kinds 1
+  and 6 were already live).
+- `0015A2C0` (`em_area01_sys`, NEARMISS C): AREA00's floor fields use config
+  rows 3 and 4 of `D_00248120` besides AREA01's 0, 1 and 5; rows 3 and 4 are
+  exported (`FIELD_WINDOWS`; every retained owner names an exported row).
+- `001F6BB0` (`em_effect_manager`, NEARMISS C): key 0 reads `D_0081075D`,
+  canonical in the progress region since A01 (0 at the arrival, 0xFF from
+  `a00_08`'s switch in the fork snapshots); `em_effects_live` refused key 0
+  as if it had no owner. Key 0x1301 still refuses (no canonical copy of
+  `D_00810778 / 77B / 79E`). Key 0's 0xFF path (`001F6760`, `001F66F0`) has
+  no worker yet and fail-stops when `a00_08` reaches it.
+- `0019AD00` (`em_coll_move_original`, NEARMISS C), called by `00129780`
+  (00128C10's selectors 2 / 7): bound through `em_area01_collision_view`,
+  which hands the walker the probe representation of the one scratchpad
+  (`export_move`, the inverse of the existing `import_move`), marks the
+  move scratch the last writer and writes bit 31's x / z back. Oracle:
+  `tools/test_area01_collision_view_reference.py` now runs 120 original
+  `0019AD00` calls (masks 2, 4, 6, 0x80000006) on the 15 AREA01 snapshots
+  through the view and compares the scratchpad and the mover's position.
+- `em_owner_draw_live`: `EM_OWNER_DRAW_LIVE_UNITS` 64 refused frame 1's
+  draws; it is host bookkeeping (the original is bounded by the packet
+  arena, which the module checks) and is now 512.
+
+The arrival now stops at frame 1 in the chain page: `001E9280` (the
+surface owner `0015AB00`'s packet, NEARMISS C) CALLs the program packet
+`00234FE0`, which is neither exported nor translated (`chain page:
+unmapped address fault at 00234FE0`). It uploads one MPG of 142
+instructions (ELF 0x00235010; `tools/level_texture_page.py` already
+replays it on the original microcode for the texture export) and runs six
+batches like the floor program `D_002345E0`. Next AREA00 unit: export the
+packet and translate that VU1 program into `em_vu1_page_programs.h` with
+an original-microcode reference test like
+`tools/test_level2_floor_vu_reference.py`. Proof of this step (receipts in
+ignored `build/frontier2_i3_20261019_144851/`): against the build without
+it (port main ffd515c, binary 2da192b5...), the first-level smokes' tick
+and present logs are byte-identical and their RNG draws equal in frame and
+value (EM_TEST_FULL main line 273,855 draws; the drive switch 274,032);
+`make test-level-smoke-full` and `make test-level-smoke-ps2-drive` pass;
+newgame-control 9.599849; the AREA00 harness run (`--run --until a00_00`,
+drive replay) passes a01_arrival..a01_07 again and its first 25,669 tick
+records equal the old build's, up to the record where the old build
+fault-stopped (counter 26926). `make test-area00-arrival-bindings` checks
+the added windows (30,836 slices, 8 refusals, 6 corruptions refused);
+`make test-area01-collision-view-reference` the 0019AD00 binding.
+
 **2026-10-19 (port main 479f387 plus the owner-view raise): AREA00 does
 not play yet; the stop moved.** `em_area11_boxes.c`'s owner-view table now
 holds `BOX_MAX = EM_ACTOR_POOL_CAPACITY` (256) views, one per record of the
@@ -350,7 +411,7 @@ nice -n 15 python3 tools/test_area01_sfx_registry.py
 nice -n 15 python3 tools/test_world_textures_reference.py
 nice -n 15 python3 tools/test_scene_no_shadow.py
 nice -n 15 env EM_HEADLESS=1 EM_STARTUP_TEST=newgame-control build/extermination
-# Long diagnostic: currently expected to fail at frame 0 in 0022DCD0 (the unexported read 00269400).
+# Long diagnostic: currently expected to fail at frame 1 in the chain page (001E9280's surface packet 00234FE0).
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/live-arrival-1
 # Later full-route and independent side-return checks:
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
@@ -411,9 +472,10 @@ written through. `data/memcard/slot1`, `slot2` and `data/save` are private.
 
 ## Remaining differences and next step
 
-The current reproducible stop (2026-10-19) is `0022DCD0` at arrival frame
-0, reading the unexported `00269400`; the earlier `00156620` stop (the
-32-view owner table) is resolved. Surface dimensions, retained pickup
+The current reproducible stop (2026-10-19, later) is the chain page at
+arrival frame 1 (001E9280's surface packet `00234FE0`); the earlier
+`0022DCD0` read `00269400` (frame 0) and `00156620` stop (the 32-view owner
+table) are resolved. Surface dimensions, retained pickup
 models and crate roots are now supplied exactly, with no native game-code
 changes. Arrival aligns, but still has zero certified rows. Movement,
 camera, interactions, drawing and both returns remain uncertified.
@@ -422,8 +484,9 @@ missing workers. The inherited AREA01 a01_03 row-957 difference also
 remains; since 2026-10-19 it is traced to the disc drive's per-read seek
 time and waits for a user decision (LEVEL2_BINDING.md "State (2026-10-19)").
 
-With the owner-view capacity resolved, supply the `00269400` read and rerun arrival before
-expanding downstream phases. Preserve the first fault and bind remaining
+With the owner-view capacity and the arrival read views resolved (frame 0
+completes), supply 001E9280's surface packet `00234FE0` and its VU1
+program and rerun arrival before expanding downstream phases. Preserve the first fault and bind remaining
 workers to their existing owners. Then compare all
 4,017 arrival/neutral rows and the ending camera memory, followed by each
 route phase and the independent side return. Drawing still requires
