@@ -17,6 +17,9 @@
  *   - an unanchored counter takes nothing and counts no miss;
  *   - the table is refused on the host drive, out of counter order and
  *     over EM_MODULE_LOADER_REPLAY_BUSY_MAX.
+ *   - a read inside a resident region keeps the untouched prefix's storage
+ *     and bytes (MODULE_LOADER.md: the collision view's file below module
+ *     0x1D).
  * Mutations of the window, the count match or the served flag fail it. */
 #include <stdint.h>
 #include <stdio.h>
@@ -266,6 +269,44 @@ int main(int argc, char **argv)
           g.header_fields, served, missed);
     s_anchored = 1;
 
+    /* A read inside a resident region (a sub-area bank inside the area's
+     * delivery, as module 0x1D lands at D_0028A5A0 inside AREA00 room 0's
+     * region): the untouched prefix keeps its storage and its bytes, a
+     * reader's pointer into it stays valid (ASan rejects a freed one), and
+     * the prefix's rest ends at the new read. */
+    {
+        EmModuleLoader *ml = open_loader(pack, EM_MODULE_LOADER_DRIVE_HOST);
+        const EmModuleLoaderSdk *sdk = ml ? em_module_loader_sdk(ml) : NULL;
+        CHECK(sdk != NULL, "split: loader / sdk");
+        if (sdk) {
+            const uint32_t base = 0x01500000u, data[2] = {DATA_LSN, 0x40u * SECTOR},
+                           index[2] = {INDEX_LSN, 0x40u * SECTOR};
+            int32_t bytes = 0;
+            EmStatusSceneFault fault;
+            memset(&fault, 0, sizeof fault);
+            CHECK(em_module_loader_read_00200780(sdk, data, base, (int32_t)(PAYLOAD_SECTOR * SECTOR),
+                                                 (int32_t)(PAYLOAD_SECTORS * SECTOR), &bytes, &fault) == 0,
+                  "split: payload read");
+            uint32_t rest = 0;
+            const uint8_t *p = em_module_loader_memory_rest(ml, base, &rest);
+            CHECK(p && rest == PAYLOAD_SECTORS * SECTOR, "split: payload region (rest %u)", rest);
+            uint8_t before[SECTOR];
+            if (p)
+                memcpy(before, p, SECTOR);
+            CHECK(em_module_loader_read_00200780(sdk, index, base + SECTOR, (int32_t)(MODULE * SECTOR),
+                                                 (int32_t)SECTOR, &bytes, &fault) == 0,
+                  "split: header read into the region's second sector");
+            uint32_t rest2 = 0;
+            const uint8_t *q = em_module_loader_memory_rest(ml, base, &rest2);
+            CHECK(q == p && rest2 == SECTOR, "split: prefix storage %s, rest %u (want same, %u)",
+                  q == p ? "kept" : "moved", rest2, SECTOR);
+            CHECK(p && memcmp(p, before, SECTOR) == 0, "split: prefix bytes changed");
+            const uint8_t *h = em_module_loader_memory(ml, base + SECTOR, 4);
+            CHECK(h && h[0] == MODULE && h[1] == 0, "split: the new read's bytes");
+        }
+        em_module_loader_close(ml);
+    }
+
     /* Refusals. */
     {
         EmModuleLoaderReplayRead ok[2] = {{50, 0, MODULE, 1, 6, 0}, {59, 1, 8, 2, 75, 0}};
@@ -291,6 +332,6 @@ int main(int argc, char **argv)
     }
     printf("module loader replay test: PASS (host speed 1/1 poll fields; replayed 7/76; window +-2 "
            "taken, +-3 not; count / sector / file mismatches not taken; served once; unanchored "
-           "nothing; 4 refusals)\n");
+           "nothing; 4 refusals; a split keeps its prefix storage)\n");
     return 0;
 }

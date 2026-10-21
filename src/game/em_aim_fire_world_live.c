@@ -306,6 +306,17 @@ static int refresh(Bridge *b)
             const uint32_t node=(uint32_t)word[0]|(uint32_t)word[1]<<8|(uint32_t)word[2]<<16|(uint32_t)word[3]<<24;
             const uint8_t *bytes=node && w->grid_bytes ? w->grid_bytes(w->context,node,64) : NULL;
             if(bytes)APPEND_OPTIONAL(append(b,node,64,(void *)(uintptr_t)bytes,0));
+            /* The cell record D_700030B0 (an entity or cell hit): its words
+             * +0x1C / +0x20 (0x700030CC / 0x700030D0, the hull walkers'),
+             * read only; 00189FE0 (byte-matched decomp C) passes the word
+             * at record +0x1C to 001B41F0. */
+            if(node==0x700030B0u) {
+                static const uint32_t record_words[]={0x700030CCu,0x700030D0u};
+                for(unsigned k=0;k<2;++k) {
+                    void *q=collision_map(w,record_words[k],4,0);
+                    if(q)APPEND_OPTIONAL(append(b,record_words[k],4,q,0));
+                }
+            }
         }
         /* 001B41F0's spray rewrites the collision ratio and cross lanes
          * before reading them. The region-only hit owner borrows those

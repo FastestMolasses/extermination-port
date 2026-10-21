@@ -108,11 +108,16 @@ DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # Each span is one region, from its first model's header to its last model's
 # skeleton end (the file bytes between are exported too and checked like the
 # rest).
-EQUIPMENT_SPANS = ((0x07, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x7A))
+# The span 0x06..0x0F also holds model 0x06, the debris piece of D_0025A350
+# rows 2, 10, 19 and 23 (table 0x37, +0x54 = +0x58 = 6; 001F3E30 binds it
+# through 001C6120(D_0028A56C, 6)): AREA00 a00_09's first bug, killed by
+# the knife (effect node 001F2BA0). It precedes 0x07 in file order, so the
+# span grows by that one model and the region count stays 16.
+EQUIPMENT_SPANS = ((0x06, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x7A))
 # The shot's spans carry the region header's word +0x0C = 1: library model
 # spans no pose host reads (em_area11_roger_regions leaves them out, so the
 # record pose hosts that map the other regions keep their count).
-SHOT_SPANS = ((0x07, 0x0F), (0x19, 0x19))
+SHOT_SPANS = ((0x06, 0x0F), (0x19, 0x19))
 # A model-6 box's damage break (001551B0; BRANCH br_04 / br_06): the husk 0x22
 # and the subtype-0 debris pieces 0x1C / 0x1E (D_0025A350 row 0's +0x54 /
 # +0x58); a model 0x1C / 0x50 box's break (AREA00 a00_09's barricade crate:

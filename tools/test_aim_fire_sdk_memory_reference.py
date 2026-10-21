@@ -116,6 +116,55 @@ def run(lib,e,fn,offset,seed,missing=None,source_offset=0,third_offset=0):
     if fn==0x102738 and expected==0:assert frame.f0==e.f[0],(context,'return',hex(frame.f0),hex(e.f[0]))
     return len(events)
 
+SPAD3600=0x70003600
+
+def look_at(lib,e,v,seed,out_offset=0):
+    """001CD390(out, v) against the original instructions: the final out
+    matrix (BASE region) and the sixteen scratchpad words 0x70003600..3F
+    it builds the rows in, after poisoned starts. v.xyz are the words
+    given (bit patterns, signed zeros included)."""
+    rng=random.Random(seed)
+    data=bytearray(rng.getrandbits(8) for _ in range(SIZE))
+    spad=bytearray(rng.getrandbits(8) for _ in range(64))
+    a,b=BASE+0x80+out_offset,BASE+0x140
+    data[b-BASE:b-BASE+12]=b''.join(w.to_bytes(4,'little') for w in v)
+    e.write(BASE,data);e.write(SPAD3600,spad);e.events=[];e.missing=None
+    e.r[4:6]=[a,b];e.r[31]=S.RETURN
+    e.run(0x1CD390)
+    n=bytearray(data);array=(C.c_uint8*len(n)).from_buffer(n)
+    sp=bytearray(spad);sarray=(C.c_uint8*64).from_buffer(sp)
+    errors=[]
+    def mapping(_,address,size,write):
+        if BASE<=address and address+size<=BASE+SIZE:return C.addressof(array)+address-BASE
+        if SPAD3600<=address and address+size<=SPAD3600+64:return C.addressof(sarray)+address-SPAD3600
+        errors.append(('unexpected map',hex(address),size));return None
+    cb=MAP(mapping);frame=T.Call();frame.function=0x1CD390;frame.a[0:2]=[a,b]
+    status=lib.em_aim_fire_sdk_memory_call(None,cb,C.byref(frame))
+    context=('001CD390',[hex(w) for w in v],seed)
+    assert not errors and status==0,(context,errors,status)
+    assert bytes(n)==e.read(BASE,SIZE),(context,'final memory')
+    assert bytes(sp)==e.read(SPAD3600,64),(context,'scratchpad 0x70003600')
+
+def look_at_cases(lib,e):
+    zero,neg=0,0x80000000
+    special=[(zero,zero,zero),(zero,S.bits(2.5),zero),(neg,S.bits(-1.0),zero),(zero,S.bits(3.0),neg),
+             (neg,zero,neg),(S.bits(1e-30),S.bits(4.0),zero),(zero,S.bits(4.0),S.bits(-2.0)),
+             (S.bits(1.0),zero,zero)]
+    count=0
+    for i,v in enumerate(special):
+        look_at(lib,e,v,i);count+=1
+    rng=random.Random(0x1CD390)
+    for i in range(64):
+        v=tuple(S.bits(rng.uniform(-500,500)) for _ in range(3))
+        look_at(lib,e,v,100+i);count+=1
+    # Refusals: an unaligned out, an out or a v inside 0x70003600..3F.
+    for a,b in ((BASE+0x84,BASE+0x140),(SPAD3600,BASE+0x140),(BASE+0x80,SPAD3600+0x30)):
+        frame=T.Call();frame.function=0x1CD390;frame.a[0:2]=[a,b]
+        cb=MAP(lambda *_:None)
+        assert lib.em_aim_fire_sdk_memory_call(None,cb,C.byref(frame))==-1,('refusal',hex(a),hex(b))
+        count+=1
+    return count
+
 def targeted_mutations(elf):
     source=(ROOT/'src/game/em_aim_fire_sdk_memory.c').read_text()
     receipt=[]
@@ -154,7 +203,8 @@ def main():
         # Missing first/late source and destination rows, with disjoint ranges.
         for absent in (BASE+0x80,BASE+0xA0,BASE+0xE0,BASE+0x100):
             events+=run(lib,e,fn,96,2,absent);cuts+=1
-    print(f'PASS: {count} copy/matrix/vector overlap cases across {len(ENTRIES)+len(VECTORS)} entries; {cuts} missing-view cases; {events} ordered access bytes; {time.monotonic()-started:.2f}s')
+    looks=look_at_cases(lib,e)
+    print(f'PASS: {count} copy/matrix/vector overlap cases across {len(ENTRIES)+len(VECTORS)} entries; {cuts} missing-view cases; {events} ordered access bytes; 001CD390: {looks} look-at cases (out and 0x70003600..3F, 3 refusals); {time.monotonic()-started:.2f}s')
     if '--targeted-mutations' in sys.argv:targeted_mutations(S.read_elf())
 
 if __name__=='__main__':main()

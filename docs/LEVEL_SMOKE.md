@@ -2128,6 +2128,17 @@ debris models 0x1F / 0x21, the bug's sub-state machines and `001027E0`)
 `0019ED80` over a static cell record. The first-level smokes' tick, RNG
 and present logs are byte-identical to port main c40818b's (receipts in
 ignored `build/frontier2_i12_20261020_212528/`).
+Since the bug probe and the knife strike (2026-10-21, iteration 13;
+LEVEL3_BINDING.md "Current state": the frame-12884 stop was the collision
+view reading freed loader storage after module 0x1D's load, fixed in the
+loader and the view; the strike's 0x700030CC view, the debris model 0x06,
+`001CD390`) `--run --until a00_10` plays 472 rows of a00_09 and
+fault-stops at frame 13023 (the bug's read of D_00281F50). Rows 0..461
+are exact apart from `lock_r54` and `progress`; from row 462 the
+recording's player is attacked (state 11) and the native's is not. The
+first-level smokes' tick, RNG and present logs are byte-identical to port
+main bb4f5e9's (receipts in ignored
+`build/frontier2_i13_20261021_001202/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

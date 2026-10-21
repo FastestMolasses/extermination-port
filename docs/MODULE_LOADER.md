@@ -175,7 +175,18 @@ This is the platform side, not game code. It is one implementation of
 Destinations:
 - D_00289BC0 (the 0x800-byte header) is the loader's own `ld.header`.
 - Every other destination is a host region keyed by its original address.
-  A later read that overlaps a region replaces it.
+  A later read that overlaps a region replaces its overlapped interval
+  only: the untouched suffix is copied into a region of its own and the
+  untouched prefix keeps its storage (2026-10-21), so a reader's pointer
+  into it stays the same bytes, as the original's memory does. Before
+  that the prefix was copied too and its old storage freed: module 0x1D
+  (AREA00 sub 1's static-object bank at D_0028A5A0, inside room 0's
+  resident region) left the collision view reading freed memory, and
+  a00_09's first bug probed a garbage face (LEVEL3_BINDING.md "Current
+  state", iteration 13). A reader that keeps a region's extent (the
+  collision view's file, `EmArea01CollisionHost.file_rest`) re-resolves
+  it from the loader on each access. `make test-module-loader-replay`
+  checks the split (the old behaviour fails it under ASan).
 
 **The measured option** (the PS2 disc-drive timing switch,
 `EM_PS2_DISC_DRIVE_TIMING=1`; `em_settings`). The file names include the

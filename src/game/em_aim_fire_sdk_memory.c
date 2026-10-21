@@ -155,6 +155,26 @@ int em_aim_fire_sdk_memory_call(void *context,
         if (em_sdk_vu0_00102900(result,source,f->f[0])!=EM_EE_FLOAT_OK) return -1;
         return write_bytes(m,a,result,16);
     }
+    case 0x1CD390: {
+        /* 001CD390(out, v) (NEARMISS decomp C; em_effect_original's
+         * translation, read from the .s): the look-at rows of v.xyz into
+         * the 4x4 out, built in the scratchpad 0x70003600..0x7000363F (all
+         * sixteen words written). The debris piece's 001F3620 state 2 calls
+         * it on (0x700036A0, piece + 0x50). Refused: an unaligned out (its
+         * identity is a quadword store) and a v or out inside the block
+         * (the original's word order would then matter). */
+        if (a&15u || (a<0x70003640u && a+64u>0x70003600u) || (b<0x70003640u && b+12u>0x70003600u))
+            return -1;
+        uint32_t words[3];
+        TRY(read_bytes(m,b,words,12));
+        float x[4]={0};memcpy(x,words,12);
+        EmEffectOriginalGlobals g;memset(&g,0,sizeof g);
+        EmEffectOriginal e;memset(&e,0,sizeof e);e.globals=&g;
+        if (em_effect_original_001CD390(&e,out,x)<0) return -1;
+        for (unsigned i=0;i<4;++i) TRY(write_bytes(m,0x70003600u+16u*i,g.spad3600+4*i,16));
+        for (unsigned i=0;i<4;++i) TRY(write_bytes(m,a+16*i,out+4*i,16));
+        return 0;
+    }
     default:return 1;
     }
 }

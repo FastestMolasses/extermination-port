@@ -82,7 +82,7 @@ void *em_aim_fire_live_map(void *ctx,uint32_t a,size_t n,int write)
 /* 001AA840's 001AA7A0 callee (a test worker inside the composition call):
  * probes the running call's owner memory for the freed class-4 record at
  * 0x5800 (actors[2]) and re-enters the composition once. */
-static int reach_probe,reach_calls;
+static int reach_probe,reach_calls,sdk_vectors,sdk_calls;
 static uint8_t victim2[0x320];
 static void reach(EmAimFireLive *h,EmAimFireTargetCall *c);
 int em_aim_fire_live_call(EmAimFireLive *h,EmAimFireTargetCall *c)
@@ -100,6 +100,17 @@ int em_aim_fire_live_call(EmAimFireLive *h,EmAimFireTargetCall *c)
         memcpy(to,from,n);return 0;
     }
     if(c->function==0xEF9D0 || c->function==0x1EF9D0){allocated=1;c->v0=0x9000;return 0;}
+    if(sdk_vectors && (c->function==0x1028D0 || c->function==0x102760)){
+        /* test leaves: 001028D0 out = a - b (4 lanes), 00102760 a copy */
+        ++sdk_calls;--calls;
+        float *o=em_aim_fire_live_map(h,(uint32_t)c->a[0],16,1),x[4],y[4];
+        const float *p=em_aim_fire_live_map(h,(uint32_t)c->a[1],16,0);
+        const float *q=c->function==0x1028D0?em_aim_fire_live_map(h,(uint32_t)c->a[2],16,0):NULL;
+        if(!o||!p||(c->function==0x1028D0&&!q))return -1;
+        memcpy(x,p,16);if(q)memcpy(y,q,16);
+        for(int i=0;i<4;++i)o[i]=q?x[i]-y[i]:x[i];
+        return 0;
+    }
     if(c->function==0x1AA7A0 && reach_probe){reach(h,c);c->v0=0;return 0;}
     h->fault_function=c->function;return -1;
 }
@@ -172,6 +183,26 @@ int main(void)
     c=(EmAimFireTargetCall){.function=0x1B41F0,.a={0x5000,0x6000,0x7000,1,0x1000,5},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(c.v0==1);CHECK(victim[0]==3);
     CHECK(!memcmp(victim+0x70,point,12));CHECK(victim[0x36]==25&&victim[0x37]==0x90);CHECK(calls==1);
+    /* The knife's strike 00189FE0 on a kind-2 entity after a cell / entity
+     * hit (0x700031D0 = D_700030B0): it passes the word at record +0x1C,
+     * 0x700030CC (the hull walkers' word), to 001B41F0 (a00_09's first
+     * bug). Read only; without that view the read faulted at 700030CC. */
+    reset(&h);victim[0]=1;victim[2]=2;victim[3]=19;probe.record=EM_COLL_PROBE_RECORD_CELL;probe.entity=actors;
+    face.hull_word_1c=1;face.hull_word_20=0x12345678u;
+    {float a1[3]={4,5,6},a2[3]={1,2,3};memcpy(point,a1,12);memcpy(direction,a2,12);}
+    sdk_vectors=1;sdk_calls=0;
+    c=(EmAimFireTargetCall){.function=0x189FE0,.a={0x5000,0x6000,0x7000},.sp=0x7F001400};
+    CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(!h.fault_address&&!h.fault_function);
+    sdk_vectors=0;CHECK(sdk_calls==2);CHECK(victim[0]==3);CHECK(calls==1);
+    CHECK(victim[0x36]==0&&victim[0x37]==0x90); /* type 19, word 1: p5 | p6 * 5 | 0x8000 */
+    /* With another word at record +0x1C the strike differs (001B41F0's
+     * fourth argument): the word is read, not assumed. */
+    reset(&h);victim[0]=1;victim[2]=2;victim[3]=19;probe.record=EM_COLL_PROBE_RECORD_CELL;probe.entity=actors;
+    face.hull_word_1c=0;sdk_vectors=1;
+    {float a1[3]={4,5,6},a2[3]={1,2,3};memcpy(point,a1,12);memcpy(direction,a2,12);}
+    c=(EmAimFireTargetCall){.function=0x189FE0,.a={0x5000,0x6000,0x7000},.sp=0x7F001400};
+    {int rc=em_aim_fire_world_live_call(&world,&h,&c);sdk_vectors=0;CHECK(rc==0);}
+    CHECK(victim[0]==3&&victim[0x36]==0&&victim[0x37]==0x10); /* word 0: p6 | p5 */
     reset(&h);victim[3]=19;fail_call=1;
     c=(EmAimFireTargetCall){.function=0x1B41F0,.a={0x5000,0x6000,0x7000,1,0,5},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(victim[0]==3);CHECK(victim[0x36]==0);CHECK(h.fault_function==0x1031E0);

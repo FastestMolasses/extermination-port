@@ -34,6 +34,7 @@ def build():
     n.cv_quad_w_seed.argtypes=[C.POINTER(C.c_uint32)]
     n.cv_fault_address.restype=C.c_uint32
     n.cv_owns.argtypes=[C.c_uint32,C.c_uint32]
+    n.cv_remap.argtypes=[C.c_void_p,C.c_uint32]
     n.cv_call.argtypes=[C.c_uint32]*5+[C.POINTER(C.c_uint32)]
     n.cv_sys.argtypes=n.cv_call.argtypes
     return n
@@ -234,6 +235,16 @@ def main():
         for address,size in ((w.table,16),(w.table+0x20000000,16),(w.table-4,8),(0x700031B0,16),(0x70003600,16)):
             assert not n.cv_bytes(address,size,0) and not n.cv_bytes(address,size,1)
         contracts+=7
+        # A later delivery re-maps the file (module 0x1D inside AREA00 room
+        # 0's region): every access uses the loader's current mapping, and
+        # no mapping refuses the file instead of reading the old one.
+        setup(case);assert n.cv_begin()==0 and n.cv_commit()==0
+        copy=bytearray(ee.read(file,at+16-file));copy[at-file]^=0xFF
+        remap=(C.c_uint8*len(copy)).from_buffer(copy);n.cv_remap(C.addressof(remap),len(copy))
+        ptr=n.cv_bytes(at,16,0);assert ptr==C.addressof(remap)+at-file and C.string_at(ptr,16)==bytes(copy[at-file:at-file+16])
+        assert n.cv_owns(at,16) and not n.cv_owns(file+len(copy),1) or file+len(copy)>=w.table
+        n.cv_remap(None,0);assert not n.cv_bytes(at,16,0)
+        contracts+=3
         setup(case);n.cv_move_seed();assert n.cv_begin()==0 and n.cv_commit()==0
         st=Q.BState();n.cv_state(C.byref(st));assert Q.native_state(st)==Q.native_state(case.native(w));contracts+=1
         # Original reset proves all six list bases, including class 7 AC30.

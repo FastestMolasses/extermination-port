@@ -22,6 +22,13 @@ int cv_setup(Bridge *b,BState *st,uint32_t file,uint32_t file_size,uint32_t tabl
         .ctx=b,.address=cv_address,.identity=cv_identity,.generation=cv_generation,.bytes=cv_fallback};
     return em_area01_collision_view_bind(&CV.view,&h);
 }
+/* A loader re-mapping of the file after bind (a sub-area bank delivery
+ * splits the region holding it): the resolver serves `remap` (or nothing),
+ * and the view must use it, not the mapping cached at bind. */
+static const uint8_t *cv_remap_bytes;static uint32_t cv_remap_size;
+static const uint8_t *cv_file_rest(void *ctx,uint32_t a,uint32_t *n)
+{ (void)ctx;if(!cv_remap_bytes||a!=CV.view.host.file.address)return NULL;*n=cv_remap_size;return cv_remap_bytes; }
+void cv_remap(const uint8_t *bytes,uint32_t size){cv_remap_bytes=bytes;cv_remap_size=size;CV.view.host.file_rest=cv_file_rest;}
 int cv_begin(void){return em_area01_collision_view_begin(&CV.view);}
 int cv_commit(void){return em_area01_collision_view_commit(&CV.view);}
 uint8_t *cv_bytes(uint32_t a,uint32_t n,int w){return em_area01_collision_view_bytes(&CV.view,a,n,w);}

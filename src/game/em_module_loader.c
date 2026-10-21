@@ -311,6 +311,13 @@ static uint8_t *region_for(EmModuleLoader *ml, uint32_t buf, uint32_t size)
         for (unsigned part = 0; part < 2; ++part) {
             if (!lengths[part]) continue;
             if (count == MAX_REGIONS) goto failed;
+            /* The untouched prefix keeps its storage: a resident reader's
+             * pointer into it (the collision file below a sub-area bank)
+             * stays the same bytes, as the original's memory does. */
+            if (part == 0) {
+                next[count++] = (Region){starts[0], lengths[0], r->bytes};
+                continue;
+            }
             uint8_t *bytes = malloc(lengths[part]);
             if (!bytes) goto failed;
             memcpy(bytes, r->bytes + (starts[part] - r->address), lengths[part]);
@@ -323,7 +330,11 @@ static uint8_t *region_for(EmModuleLoader *ml, uint32_t buf, uint32_t size)
     next[count++] = (Region){buf, size, dst};
     for (int i = 0; i < MAX_REGIONS; ++i) {
         Region *r = &ml->regions[i];
-        if (r->bytes && overlaps(buf, size, r->address, r->size)) free(r->bytes);
+        if (!r->bytes || !overlaps(buf, size, r->address, r->size)) continue;
+        int kept = 0;
+        for (unsigned j = 0; j < count; ++j)
+            if (next[j].bytes == r->bytes) kept = 1;
+        if (!kept) free(r->bytes);
     }
     memcpy(ml->regions, next, sizeof next);
     return dst;

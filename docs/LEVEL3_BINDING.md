@@ -14,6 +14,83 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-21, iteration 13 (port main bb4f5e9 plus the bug probe and the
+knife strike): the C side plays 472 rows of a00_09 and stops at frame
+13023; rows 0..461 are exact (ignoring `lock_r54` and `progress`), rows
+462..471 are not.** Not a capture pass. In the order the run met them:
+
+- **The stop at frame 12884 was a use-after-free, not a missing
+  worker.** The bug 0012A5D0's probe (0019B4C0 flags 4 -> 0019CF50,
+  NEARMISS decomp C; `em_area01_sys.c` `f_19CF50`) read its face list
+  tables 0x70003210.. (in the collision file at 0x01512554..) as
+  garbage (face index -4795, then 0x2C9E: the face 0x015C94EC). The
+  original's tables there hold indices 0..768 in every AREA00 snapshot.
+  Cause: the module loader's read of module 0x1D (sub 1's static bank, at
+  D_0028A5A0 = 0x015CE380, inside room 0's resident region) copied the
+  region's untouched prefix to new storage and freed the old one, which
+  the collision view (bound at the arrival) still read. A diagnostic run
+  dumped the view's file bytes: 112,917 of 137,216 bytes differed from
+  the original's RAM. Two changes: `em_module_loader.c` `region_for`
+  keeps the untouched prefix's storage (the bytes are unchanged); the
+  collision view re-resolves its file mapping from the loader on every
+  access (`EmArea01CollisionHost.file_rest`, bound in
+  `em_area01_live.c`), so its extent ends where the bank begins. Checks:
+  `make test-module-loader-replay` (a read inside a region: the prefix
+  keeps its storage and bytes; the old loader fails it with an ASan
+  heap-use-after-free), `make test-area01-collision-view-reference` (a
+  re-mapped file is read through the current mapping, an absent mapping
+  refuses; a view that keeps the bind-time mapping fails it).
+- **The knife strike `00189FE0` (byte-matched decomp C) on the first
+  bug** (a00_09 row 395, after the Square at row 383): kind 2 passes the word at
+  (word 0x700031D0) + 0x1C to 001B41F0. After an entity hit the record is
+  D_700030B0, so the word is 0x700030CC (the hull walkers' word). The
+  aim / fire composition's views now include 0x700030CC and 0x700030D0,
+  read only, when the record word is 0x700030B0
+  (`em_aim_fire_world_live.c` `refresh`; `make
+  test-aim-fire-world-live`: the strike's +0x36 follows the word (0x9000
+  with 1, 0x1000 with 0); the old binding faults at 700030CC).
+- **The bug's debris, model 0x06** (effect node 001F2BA0 -> 001F3E30:
+  `D_0025A350` rows 2 / 10 / 19 / 23 have table 0x37, +0x54 = +0x58 = 6;
+  the run's model handle 0x00BCB340 is entry 6 of D_0028A56C):
+  `export_roger_banks.py` grows the span 0x07..0x0F to 0x06..0x0F (model
+  0x06 precedes 0x07 in file order; the region count stays 16; the
+  non-library regions are unchanged). The region equals RAM in all 16
+  AREA11, 16 AREA01 and 12 AREA00 captures; `export_area00_library.py`
+  re-applied after it.
+- **`001CD390` (NEARMISS decomp C) from the piece's 001F3620 state 2**
+  (001CD390(0x700036A0, piece + 0x50)): `em_aim_fire_sdk_memory.c` runs
+  em_effect_original's translation (read from the .s) over the out matrix
+  and the scratchpad 0x70003600..0x7000363F it builds the rows in;
+  refused for an unaligned out or an out / v inside that block.
+  `test_aim_fire_sdk_memory_reference.py`: 72 cases (8 with signed zeros
+  and the x = z = 0 branch, 64 random) against the original instructions,
+  the out matrix and all 16 scratchpad words, poisoned starts, 3
+  refusals; a mutant that skips the last scratch quadword and one that
+  tests v.y instead of v.z are both rejected. No dispatcher handled
+  0x1CD390 before (every caller faulted), so no earlier path changes.
+- **Rows 462..471 differ: the recording's player enters state 11 at row
+  462 (a bug's attack: `player` (11, 59, ..) and `req` byte 3 = 1); the
+  native player does not** and the positions drift from there. Not
+  established: the likely cause is the kept divergence below (the
+  recording's bug at record 49 dies at row 152, the native's at record
+  50 at row 244), so the attacking bug's state differs; that needs the
+  fork trace of the two bugs before any change.
+- **The stop: a00_09 frame 13023** (row 472), "owner 0012A5D0 node
+  007BD710 failed at 00281F50": the bug's runtime reads D_00281F30 + 0x20
+  (the stream cue table, mapped for the aim / fire target sound but not in
+  the AREA00 / AREA01 runtime's bytes). It lies after the row-462
+  divergence, so it is not the next unit by itself.
+- **Next unit on front B:** a00_09 row 152 (the taken bit 0x71: why the
+  original's bug at record 49 dies there and the native's does not),
+  from a fork trace of records 49 / 50 over rows 100..160; then rows 462+.
+
+Windowed against route_a00 ignoring `lock_r54` and `progress`,
+a00_00..a00_03 and a00_05..a00_08 stay exact, a00_04 differs only in the
+shake rows 1546..1553, and a00_09's rows 0..461 are exact. The first-level
+smokes' tick, RNG and present logs equal port main bb4f5e9's (identical
+SHA-256 to iteration 12's receipts); newgame-control 9.599849. Receipts in
+ignored `build/frontier2_i13_20261021_001202/`.
+
 **2026-10-20, iteration 12 (port main c40818b plus the barricade crate's
 break): the C side plays 333 rows of a00_09 and stops at frame 12884, in
 the second crate child's collision probe.** Not a capture pass. In the

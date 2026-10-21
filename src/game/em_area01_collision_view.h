@@ -12,6 +12,12 @@ typedef struct {
     /* Actual loader resource, and the address of the existing mutable cells.
      * The original 00199C50 derives immutable pointer metadata from this. */
     EmSlgCollFile file;
+    /* Optional: the loader's current mapping of file.address (its bytes and
+     * the rest of the region holding it). A later delivery inside that
+     * region (a sub-area bank) re-maps it: with this resolver every access
+     * uses the current mapping, never the one cached at bind. NULL keeps
+     * file.bytes / file.size (a fixed test buffer). */
+    const uint8_t *(*file_rest)(void *, uint32_t address, uint32_t *size);
     /* Optional canonical identity defaults, and exact per-borrow pool lifetime
      * guards. A pool slot retains its EE identity while free. */
     const EmActorPool *pool;

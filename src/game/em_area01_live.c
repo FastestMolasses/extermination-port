@@ -304,6 +304,10 @@ static const uint8_t *resource_rest(void *ctx,uint32_t a,uint32_t *n)
     p=em_area11_roger_library_rest(a,n);
     return p ? p : em_area11_roger_door_bank_rest(a,n);
 }
+/* The collision view's file: the loader's current mapping, re-resolved on
+ * each access (a sub-area bank delivery splits the region holding it). */
+static const uint8_t *collision_file_rest(void *ctx,uint32_t a,uint32_t *n)
+{ return em_module_loader_memory_rest(((EmArea01Live *)ctx)->host.loader,a,n); }
 static uint32_t random_value(void *ctx) { (void)ctx;return em_random_next(); }
 static int hull_record(void *ctx,const EmActor *body,uint8_t out[EM_ACTOR_RECORD_SIZE])
 {
@@ -1148,6 +1152,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
     collision.bytes=bytes;collision.generation=resource_epoch;
     collision.file.address=ld->d28A490[0x42];collision.file.d28A5A8=ld->d28A490[0x46];
     collision.file.bytes=em_module_loader_memory_rest(h->loader,collision.file.address,&collision.file.size);
+    collision.file_rest=collision_file_rest;
     const uint8_t *count=em_module_loader_memory(h->loader,collision.file.d28A5A8,2);
     if(!count)return fail(l,0x0028A5A8u);
     memcpy(&collision.file.d28A5A8_value,count,2);

@@ -11,6 +11,15 @@ static int fail(EmArea01CollisionView *v,uint32_t a,int reason)
 { if(v&&!v->fault){v->fault=reason;v->fault_address=a;}return -1; }
 static uint8_t *span(uint32_t a,uint32_t n,uint32_t base,uint32_t size,void *p)
 { return p&&n&&a>=base&&(uint64_t)a+n<=(uint64_t)base+size?(uint8_t *)p+(a-base):NULL; }
+/* The delivered file's current bytes and the rest of their region (see
+ * EmArea01CollisionHost.file_rest): never a mapping a later delivery
+ * replaced. */
+static const uint8_t *file_map(const EmArea01CollisionView *v,uint32_t *size)
+{
+    if(!v->host.file_rest){*size=v->host.file.size;return v->host.file.bytes;}
+    uint32_t n=0;const uint8_t *p=v->host.file_rest(v->host.ctx,v->host.file.address,&n);
+    *size=p?n:0;return p;
+}
 static const EmCollProbeGrid *grid(const EmArea01CollisionView *v)
 { return v->host.segment->world->grid; }
 static EmActorCellTable *cells(const EmArea01CollisionView *v)
@@ -106,6 +115,8 @@ int em_area01_collision_view_bind(EmArea01CollisionView *v,const EmArea01Collisi
 {
     if(!v||!h)return -1;
     memset(v,0,sizeof *v);v->host=*h;
+    if(h->file_rest){v->host.file.bytes=file_map(v,&v->host.file.size);if(!v->host.file.bytes)return fail(v,h->file.address,1);}
+    h=&v->host;
     if(!h->shared||!h->segment||!h->segment->state||!h->segment->face||!h->segment->world||
        !h->segment->world->cells||!h->segment->world->grid||!h->move||(!h->pool&&(!h->address||!h->identity))||!h->generation||!h->bytes)
         return fail(v,0,1);
@@ -159,12 +170,13 @@ int em_area01_collision_view_begin(EmArea01CollisionView *v)
  * 001A7870 reads a listed owner's +0x58 hull record in that file. */
 static uint8_t *file_bytes(EmArea01CollisionView *v,uint32_t a,uint32_t n)
 {
-    if(!n||(uint64_t)a+n>UINT64_C(0x100000000)||!v->host.file.bytes)return NULL;
+    uint32_t size=0;const uint8_t *file=file_map(v,&size);
+    if(!n||(uint64_t)a+n>UINT64_C(0x100000000)||!file)return NULL;
     if(v->host.generation(v->host.ctx)!=v->generation)return NULL;
     const EmActorCellTable *t=cells(v);
     uint32_t alias=a>=0x20000000u&&a<0x22000000u ? a-0x20000000u : a;
     if(!t||((uint64_t)alias+n>v->host.file.d28A5A8&&(uint64_t)v->host.file.d28A5A8+t->size>alias))return NULL;
-    return span(a,n,v->host.file.address,v->host.file.size,(void *)v->host.file.bytes);
+    return span(a,n,v->host.file.address,size,(void *)file);
 }
 uint8_t *em_area01_collision_view_bytes(EmArea01CollisionView *v,uint32_t a,uint32_t n,int write)
 {
@@ -198,7 +210,8 @@ uint8_t *em_area01_collision_view_bytes(EmArea01CollisionView *v,uint32_t a,uint
     p=span(a,n,0x700031F8,0x48,v->metadata);if(p)return p;
     p=span(a,n,0x7000324C,2,&t->count);if(p)return p;
     p=span(a,n,0x70003250,4,&v->host.file.d28A5A8);if(p)return p;
-    p=span(a,n,v->host.file.address,v->host.file.size,(void *)v->host.file.bytes);if(p)return p;
+    {uint32_t size=0;const uint8_t *file=file_map(v,&size);
+     p=span(a,n,v->host.file.address,size,(void *)file);if(p)return p;}
     const EmActorClassLists *ls=lists(v);
     static const uint32_t base[]={0x28B020,0x28AFF0,0x28AF30,0x28AE30,0x28AC30,0x28AB30};
     static const uint32_t vars[]={0x275BAC,0x275B9C,0x275B8C,0x275B7C,0x275B6C,0x275B5C};
@@ -241,7 +254,8 @@ int em_area01_collision_view_owns(const EmArea01CollisionView *v,uint32_t a,uint
     for(unsigned i=0;i<sizeof spans/sizeof spans[0];i++)
         if((uint64_t)a+n>spans[i][0]&&(uint64_t)spans[i][0]+spans[i][1]>a)return 1;
     uint32_t bases[]={v->host.file.address,v->host.file.d28A5A8,v->host.file.d28A5A8+0x20000000u};
-    uint32_t sizes[]={v->host.file.size,cells(v)->size,cells(v)->size};
+    uint32_t file_size=0;(void)file_map(v,&file_size);
+    uint32_t sizes[]={file_size,cells(v)->size,cells(v)->size};
     for(unsigned i=0;i<3;i++)if((uint64_t)a+n>bases[i]&&(uint64_t)bases[i]+sizes[i]>a)return 1;
     return 0;
 }
