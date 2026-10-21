@@ -80,6 +80,12 @@ int em_gfx_gs_frame(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs
     (void)gfx; (void)prims; (void)envs; (void)count; (void)display_frame; (void)display_scissor;
     return -1;
 }
+int em_gfx_gs_gif_frame(EmGfx *gfx, const void *gif, size_t bytes, uint64_t display_frame,
+                        uint64_t display_scissor)
+{
+    (void)gfx; (void)gif; (void)bytes; (void)display_frame; (void)display_scissor;
+    return -1;
+}
 int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t height, uint8_t *rgba)
 { (void)gfx; (void)fbp; (void)fbw; (void)height; (void)rgba; return -1; }
 

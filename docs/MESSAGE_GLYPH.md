@@ -132,6 +132,14 @@ only). The AREA01 title at fb2 point 15 is exact since (it was a row off
 on either half line and 240 against 225 under the fade before). The skewed
 kind (markup tag 3, a triangle strip) keeps the host quad.
 
+**In the BATTERY page's GS field (2026-10-20, STATUS_FIELD.md 3d).** In a
+status frame the Original profile draws as the GS field (the BATTERY
+page), the strips are the list's own packets (em_status_gs_page's glyph
+sink: 001CC8A0's uploads to block 0x1B00 and 001CC3B0's passes, skewed ones
+included) and the CPU GS model draws them; em_message_live_render draws no
+GPU strip over such a frame. The CLUT they read is 001CCB10's, which the
+port's boot now uploads into the model (em_sgp_001CCB10).
+
 Not modelled at the boundary (renderer work, WP for the Original profile's GS
 path): the TEST and ALPHA registers, and the skewed kind's GS rasterisation.
 The fb2 set shows message text at 09_fence_door and 15_level_exit (the area

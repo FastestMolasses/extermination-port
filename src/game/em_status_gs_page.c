@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "em_gfx.h"
+#include "em_settings.h"
 #include "game/em_battery_ui.h"
 #include "game/em_frame.h"
 #include "game/em_message_glyph_original.h"
@@ -14,6 +16,7 @@
 #include "game/em_status_background.h"
 #include "game/em_ui_font_raw.h"
 #include "game/em_ui_packet_original.h"
+#include "gs/em_gs_world.h"
 
 #define D_00275670 0x00275670u
 #define D_00275674 0x00275674u
@@ -34,6 +37,11 @@ static struct {
     int frame_page, frame_any;
     FILE *dump;
     unsigned dumped;
+    /* the GS field of the bound pages (Original profile) */
+    int field_on;          /* the GS frame draws the bound pages */
+    int field;             /* this frame is drawn by the GS model */
+    uint8_t *vif, *gif;    /* the kicked list's VIF stream and its GIF data */
+    size_t vif_cap, gif_cap;
 } G;
 
 static uint32_t rd32(const uint8_t *p)
@@ -245,6 +253,137 @@ static int s_text(void *ctx, int proportional, int32_t x, int32_t y, int32_t w, 
 static const EmBatteryUISink k_battery_sink = {NULL,     s_background, s_draw_background, s_blend,
                                                s_sprite, s_rectangle,  s_text};
 
+/* ---- 001CCB10: the glyph strip page and its CLUT ----------------------------
+ * The boot's 001CCB10 (decomp src/func_001CCB10.c, func_001CCBD0.c,
+ * func_001CCE80.c): 001CCBD0(0x1B00, 0x1B80, 0) sends one 8 x 8 PSMCT32
+ * transfer of colour 0 to each GS block 0x1B00..0x1B80, then one of the grey
+ * ramp to block 0x1B67 (em_uip_001CCB10_chain builds the kicks). The
+ * Original profile's GS model takes them as one upload chain
+ * (em_gfx_gs_upload), which writes the same local memory. */
+int em_sgp_001CCB10(EmGfx *gfx)
+{
+    uint8_t *chain = malloc(EM_UIP_001CCB10_CHAIN_BYTES);
+    if (!chain) return -1;
+    const size_t n = em_uip_001CCB10_chain(chain, EM_UIP_001CCB10_CHAIN_BYTES);
+    const int rc = n ? em_gfx_gs_upload(gfx, chain, n) : -1;
+    free(chain);
+    return rc < 0 ? -1 : 0;
+}
+
+/* ---- the bound pages in the GS field (STATUS_FIELD.md section 3d) --------- */
+
+int em_sgp_field_claim(void)
+{
+    if (!G.field_on || G.fault) return 0;
+    if (!G.frame_page) {
+        fault("a BATTERY frame whose page built no slot-1 packets", NULL);
+        return -1;
+    }
+    G.field = 1;
+    return 1;
+}
+
+int em_sgp_field_frame(void)
+{
+    return G.field;
+}
+
+/* fault() for the callers that return -1. */
+static int refuse(const char *why, const char *detail)
+{
+    fault(why, detail);
+    return -1;
+}
+
+static int grow(uint8_t **buf, size_t *cap, size_t need)
+{
+    if (need <= *cap) return 1;
+    size_t c = *cap ? *cap : 0x40000u;
+    while (c < need) c *= 2u;
+    if (c > (16u << 20)) return 0;
+    uint8_t *p = realloc(*buf, c);
+    if (!p) return 0;
+    *buf = p;
+    *cap = c;
+    return 1;
+}
+
+/* The VIF stream the kicked list sends from tag `chain` (VIF1 source chain,
+ * TTE off: CNT, NEXT, REF, REFS, CALL, RET, END; the data at original
+ * addresses in the render context's storage), then its GIF data (VIF NOP /
+ * FLUSHE / FLUSH / FLUSHA pass, DIRECT / DIRECTHL kept; any other VIF code
+ * is not a status page's list). 0, or -1 (reported). */
+static int list_gif(uint32_t chain, size_t *gif_bytes)
+{
+    char at[64];
+    uint32_t t = chain, stack[2];
+    unsigned depth = 0;
+    size_t vn = 0;
+    for (unsigned tags = 0;; ++tags) {
+        snprintf(at, sizeof at, "tag %08X", (unsigned)t);
+        if (tags >= 0x10000u) return refuse("the kicked list does not end", at);
+        const uint8_t *tag = em_rcl_bytes(t, 16);
+        if (!tag) return refuse("a DMA tag of the kicked list is not in the render context's storage", at);
+        const uint64_t lo = (uint64_t)rd32(tag) | (uint64_t)rd32(tag + 4) << 32;
+        const uint32_t qwc = (uint32_t)lo & 0xFFFFu, id = (uint32_t)(lo >> 28) & 7u;
+        const uint32_t addr = (uint32_t)(lo >> 32) & 0x7FFFFFFFu;
+        if (lo >> 63) return refuse("a DMA tag of the kicked list names scratchpad memory", at);
+        uint32_t data, next = 0;
+        int end = 0;
+        switch (id) {
+        case 1: data = t + 16u; next = t + 16u + 16u * qwc; break;                 /* CNT */
+        case 2: data = t + 16u; next = addr; break;                                /* NEXT */
+        case 3: case 4: data = addr; next = t + 16u; break;                        /* REF, REFS */
+        case 5:                                                                    /* CALL */
+            if (depth >= 2u) return refuse("the kicked list CALLs deeper than two", at);
+            stack[depth++] = t + 16u + 16u * qwc;
+            data = t + 16u;
+            next = addr;
+            break;
+        case 6:                                                                    /* RET */
+            data = t + 16u;
+            if (depth) next = stack[--depth]; else end = 1;
+            break;
+        case 7: data = t + 16u; end = 1; break;                                    /* END */
+        default: return refuse("a DMA tag of the kicked list is REFE", at);
+        }
+        if (qwc) {
+            const uint8_t *p = em_rcl_bytes(data, 16u * qwc);
+            if (!p) return refuse("data the kicked list sends is not in the render context's storage", at);
+            if (!grow(&G.vif, &G.vif_cap, vn + 16u * qwc)) return refuse("the kicked list is too long", at);
+            memcpy(G.vif + vn, p, 16u * qwc);
+            vn += 16u * qwc;
+        }
+        if (end) break;
+        t = next;
+    }
+    size_t used = 0;
+    if (!grow(&G.gif, &G.gif_cap, vn ? vn : 16u) || em_gs_vif_direct(G.vif, vn, 0, G.gif, G.gif_cap, &used) < 0)
+        return refuse("the kicked list sends VIF codes other than NOP / FLUSH / DIRECT (VU1 code)", NULL);
+    *gif_bytes = used;
+    return 0;
+}
+
+int em_sgp_kick(EmGfx *gfx)
+{
+    if (!G.field) return 0;
+    G.field = 0;
+    if (G.fault) return -1;
+    uint32_t chain = 0, kicks = 0, bank = 0, slot = 0;
+    uint64_t frame = 0, scissor = 0;
+    int called = 0;
+    if (em_rcl_kick(&chain, &kicks) < 0) return refuse("no kicked list (001D2300)", NULL);
+    if (em_rcl_kick_called_001E0DF0(&called) < 0 || called)
+        return refuse("a status page's list that CALLs the background (001E0DF0)", NULL);
+    if (em_rcl_draw_env(&bank, &slot, &frame, &scissor) < 0)
+        return refuse("no draw environment for the kicked buffer", NULL);
+    size_t bytes = 0;
+    if (list_gif(chain, &bytes) < 0) return -1;
+    if (em_gfx_gs_gif_frame(gfx, G.gif, bytes, frame, scissor) < 0)
+        return refuse("the GS frame refused the status page's list", em_gfx_gs_world_fault(gfx));
+    return 0;
+}
+
 /* ---- install, frame hooks ------------------------------------------------- */
 
 int em_sgp_install(const char *font_path)
@@ -269,6 +408,15 @@ int em_sgp_install(const char *font_path)
             return -1;
         }
     }
+    /* The Original profile's GS frame draws the bound pages; the boot's
+     * 001CCB10 then reaches its local memory too. */
+    EmGfx *gfx = em_frame_gfx();
+    G.field_on = gfx && em_gfx_gs_world_enabled(gfx) && !em_settings()->gpu_renderer;
+    if (G.field_on && em_sgp_001CCB10(gfx) != 0) {
+        fprintf(stderr, "status GS page: the GS model refused 001CCB10's uploads: %s\n",
+                em_gfx_gs_world_fault(gfx) ? em_gfx_gs_world_fault(gfx) : "?");
+        return -1;
+    }
     G.installed = 1;
     em_battery_ui_set_sink(&k_battery_sink);
     em_message_live_set_glyph_sink(&k_glyph_sink);
@@ -284,6 +432,7 @@ static int slot1_cursor(uint32_t *cursor)
 void em_sgp_frame_begin(void)
 {
     G.frame_page = G.frame_any = 0;
+    G.field = 0;
     if (!G.installed || !em_rcl_bound() || !slot1_cursor(&G.frame_start)) G.frame_start = 0;
 }
 

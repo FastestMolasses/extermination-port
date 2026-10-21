@@ -305,6 +305,9 @@ static int rcl_step_v(void *context)
     em_sgp_frame_end(); /* EM_STATUS_GS_DUMP's record, before the close */
     if (em_rcl_001D2300() < 0) return -1;
     if (em_load_veil_live_draw((EmGfx *)context) < 0) return -1;
+    /* A status page frame claimed for the GS model (em_status_gs_page): its
+     * kicked list through the model, which presents the field. */
+    if (em_sgp_kick((EmGfx *)context) < 0) return -1;
     /* A list that CALLs channel 3 in an iteration without a world frame
      * (the options screen's close): the background it draws. After the
      * veil, so that it can see the veil's frame: the original sends the

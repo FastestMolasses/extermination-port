@@ -62,4 +62,11 @@ unsigned em_gs_texture_windows(const EmGsTexture *gs, const EmGsDataWindow **win
  * the relocated address. 1, or 0 when the file relocates no such word. */
 int em_gs_texture_word(const EmGsTexture *gs, uint32_t address, uint32_t *value);
 
+/* The upload chain that writes exactly step's blocks with their bytes (the
+ * port's own packets for em_gfx_gs_upload, the Original profile's GS model:
+ * one 8 x 8 PSMCT32 host-to-local transfer per block, at DBP = the block,
+ * DBW 1, in 001CCE80's packet shape; DMA tags CNT, the last END). *chain is
+ * malloc'd (the caller frees it). 1, or 0 (no such step, no memory). */
+int em_gs_texture_step_chain(const EmGsTexture *gs, unsigned step, uint8_t **chain, size_t *size);
+
 #endif

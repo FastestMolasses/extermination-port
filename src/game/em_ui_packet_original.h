@@ -54,6 +54,7 @@
 #ifndef EM_UI_PACKET_ORIGINAL_H
 #define EM_UI_PACKET_ORIGINAL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "game/em_message_draw_original.h"
@@ -145,6 +146,18 @@ int em_uip_001CC3B0(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t u_end,
  * nothing. */
 int em_uip_001CBA50(EmUip *u, int32_t slot, int32_t x, int32_t y, int32_t advance, int32_t height,
                     const uint8_t *text, uint32_t avail, const EmMessageTextStyle *style);
+
+/* 001CCB10's GS uploads (the boot's glyph strip page and its CLUT: GS blocks
+ * 0x1B00..0x1B80 cleared, the grey ramp at 0x1B67) as one upload chain for
+ * em_gfx_gs_upload: its 130 kicks, each 001CCE80's packet and 64 entries
+ * (0x17 quadwords) behind a DMA tag (CNT, the last END). Writes
+ * EM_UIP_001CCB10_CHAIN_BYTES bytes and returns that, or 0 (cap too small). */
+enum {
+    EM_UIP_001CCB10_KICKS = 0x1B80 - 0x1B00 + 2,
+    EM_UIP_001CCB10_KICK_BYTES = 16 + 0x170,
+    EM_UIP_001CCB10_CHAIN_BYTES = EM_UIP_001CCB10_KICKS * EM_UIP_001CCB10_KICK_BYTES
+};
+size_t em_uip_001CCB10_chain(uint8_t *out, size_t cap);
 
 #ifdef __cplusplus
 }

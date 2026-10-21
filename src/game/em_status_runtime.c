@@ -3,9 +3,15 @@
 #include "game/em_item_ui.h"
 #include "game/em_status_background.h"
 #include "game/em_module_loader.h"
+#include "game/em_frame.h"
+#include "game/em_gs_texture.h"
+#include "game/em_status_gs_page.h"
+#include "em_gfx.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+static int restore_gs(EmStatusRuntime *runtime);
 
 typedef struct {
     int32_t xy[3][2];
@@ -441,8 +447,7 @@ static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent even
     case EM_STATUS_PAGE_PLAYER_TEXTURE:
         /* 00200970(1): the library slot 0x35 and the player texture packet
          * go back into the GS memory a page module overwrote. */
-        if (runtime->pages &&
-            !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), EM_GS_TEXTURE_RESTORE))
+        if (!restore_gs(runtime))
             return 0;
         return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
     case EM_STATUS_PAGE_HUB_TICK:
@@ -561,6 +566,30 @@ void em_status_runtime_bind_busy(EmStatusRuntime *runtime, uint8_t *d275BD8)
         runtime->d275BD8 = d275BD8;
 }
 
+/* 00200970(1): the status pages' GS memory gets the restore step (library
+ * slot 0x35 and the player texture packet), and so does the Original
+ * profile's GS model (the step's blocks as an upload chain,
+ * em_gs_texture_step_chain; em_gfx_gs_upload does nothing without the GS
+ * frame). 1, or 0. */
+static int restore_gs(EmStatusRuntime *runtime)
+{
+    if (!runtime->pages)
+        return 1;
+    EmGsTexture *gs = em_status_pages_live_gs(runtime->pages);
+    if (!em_gs_texture_apply(gs, EM_GS_TEXTURE_RESTORE))
+        return 0;
+    EmGfx *gfx = em_frame_gfx();
+    if (!gfx || !em_gfx_gs_world_enabled(gfx))
+        return 1;
+    uint8_t *chain = NULL;
+    size_t size = 0;
+    if (!em_gs_texture_step_chain(gs, EM_GS_TEXTURE_RESTORE, &chain, &size))
+        return 0;
+    const int rc = em_gfx_gs_upload(gfx, chain, size);
+    free(chain);
+    return rc == 0;
+}
+
 static uint32_t le32(const uint8_t *p)
 {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
@@ -611,7 +640,10 @@ static int loader_chain(void *context, uint32_t chain, const uint8_t *bytes, uin
     if (runtime->pages &&
         !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), record->user[6]))
         return -1;
-    return 0;
+    /* The chunk itself (the original's upload bytes) reaches the Original
+     * profile's GS model as the area load's uploads do (nothing without the
+     * GS frame): the status pages' GS field reads its texels there. */
+    return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
 }
 
 int em_status_runtime_bind_loader(EmStatusRuntime *runtime, EmModuleLoader *loader)
@@ -643,8 +675,7 @@ int em_status_runtime_restore(EmStatusRuntime *runtime)
 {
     if (!runtime || runtime->failed)
         return 0;
-    if (runtime->pages &&
-        !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), EM_GS_TEXTURE_RESTORE))
+    if (!restore_gs(runtime))
         return 0;
     return runtime->hooks.page_event(runtime->hooks.context, EM_STATUS_PAGE_PLAYER_TEXTURE, 0) == 1;
 }
@@ -884,9 +915,13 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
         result = result && em_status_hub_ui_render(runtime->hub, gfx, runtime->draw_help);
         break;
     }
-    case DRAW_BATTERY:
-        result = em_battery_ui_render(runtime->battery, gfx);
+    case DRAW_BATTERY: {
+        /* The Original profile's GS frame draws the page from its list at
+         * step V (em_status_gs_page, STATUS_FIELD.md section 3d). */
+        const int field = em_sgp_field_claim();
+        result = field < 0 ? 0 : field ? 1 : em_battery_ui_render(runtime->battery, gfx);
         break;
+    }
     case DRAW_ITEM:
         result = em_item_ui_render(runtime->item, gfx, runtime->draw_hover, runtime->draw_help,
                                    render_trail, runtime);

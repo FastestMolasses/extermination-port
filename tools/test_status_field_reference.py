@@ -66,7 +66,8 @@ QUICK = [('01_battery', 300)]
 FRAMES = [('01_battery', 230), ('01_battery', 300), ('01_battery', 400),
           ('03_panel_power', 440), ('03_panel_power', 500)]
 # The column probes (B), each a batch folder under CAP.
-PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout']
+PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout',
+          'probe_open/p14_rows', 'probe_open/p15_rows_holdout']
 SOURCES = ['tests/status_field_reference_bridge.c', 'src/gs/em_gs_raster.c']
 # the state registers list T may inherit from list T - 1 (PRIM and the vertex
 # registers excluded: list T sets them before every primitive)

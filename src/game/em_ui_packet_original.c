@@ -229,6 +229,32 @@ static void transfer_header(uint8_t *p, uint32_t at, uint32_t dbp, uint32_t dbw,
     w64(p, at + 0x68, 0u);
 }
 
+/* 001CCB10 (decomp src/func_001CCB10.c, func_001CCBD0.c): 001CCBD0(0x1B00,
+ * 0x1B80, 0), one kick per block of 001CCE80(pkt, blk, 1, 0, 0, 0, 8, 8,
+ * 0x10) and 64 entries of colour 0, then one kick of 001CCE80(pkt, 0x1B67,
+ * 1, 0, 0, 0, 8, 8, 0x10) and the grey ramp (v = 0; per entry: store v, v +=
+ * 0x101010, v |= 0x80000000). Each kick is 0x17 quadwords on channel 1 in
+ * normal mode; here each is behind a DMA tag (CNT, the last END). */
+size_t em_uip_001CCB10_chain(uint8_t *out, size_t cap)
+{
+    if (!out || cap < EM_UIP_001CCB10_CHAIN_BYTES) return 0;
+    size_t at = 0;
+    for (uint32_t k = 0; k < EM_UIP_001CCB10_KICKS; ++k, at += EM_UIP_001CCB10_KICK_BYTES) {
+        const int last = k + 1u == EM_UIP_001CCB10_KICKS;
+        const uint32_t blk = last ? 0x1B67u : 0x1B00u + k;
+        memset(out + at, 0, 16);
+        w32(out, (uint32_t)at, 0x17u | (last ? 7u : 1u) << 28);
+        transfer_header(out + at + 16u, 0, blk, 1u, 0u, 0, 0, 8u, 8u, 0x10u);
+        uint32_t v = 0;
+        for (uint32_t i = 0; i < 0x100u; i += 4u) {
+            w32(out + at + 16u + 0x70u, i, last ? v : 0u);
+            v += 0x101010u;
+            v |= 0x80000000u;
+        }
+    }
+    return at;
+}
+
 /* 001CC8A0(mode, x, y, offset). Each font byte gives two halfwords of four
  * 4-bit texels through D_0026E350 (its low nibble first). */
 int em_uip_001CC8A0(EmUip *u, int32_t mode, int32_t x, int32_t y, int32_t offset)

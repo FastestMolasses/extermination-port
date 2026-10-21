@@ -10,8 +10,11 @@ letterbox bars, the fade) stays as it is.
 
 ## 1. What the port draws today
 
-A status frame has no GS field in the port: the hub, the ITEM / BATTERY
-page and the other pages are drawn whole by the GPU renderer
+Since step 3d (section 3d) the Original profile draws the BATTERY page's
+frames as the original's GS field. The rest of this section is the state
+before it, which still holds for the hub, the ITEM root and the other
+pages. Those status frames have no GS field in the port: they are drawn
+whole by the GPU renderer
 (em_status_runtime_render: em_battery_ui, em_item_ui, em_status_hub_ui,
 em_page_draw, em_status_models), at host resolution, from the leaf calls
 the translated page code records (00207D00 / 00207E40 / 00207F80, 0020A7A0,
@@ -59,7 +62,8 @@ drawn field equals the field the display showed two loop tops later.
 Strict mode (the Original profile's) still refused part of these pages
 after this step (12 sprites on four frames, 9 on 03 f500): the probe left
 19 of its columns open. Step 1 of section 5 settled that (section 3c):
-strict mode now draws all five pages exactly.
+strict mode now draws all five pages exactly. The live page frames met
+the row rule's open variants too; step 3d settled those (section 3d).
 
 Unchanged elsewhere: no UV sprite of the first level's world frames has a
 non-dyadic column step (a scratch build counting them over the level smoke
@@ -90,9 +94,9 @@ columns were a start offset per x mod 4 and per sub-pixel start); the
 fourth was captured after it was written down and every one of its columns
 is predicted (random sprites of every kind, starts whose binary32
 association matters, XYOFFSET X at 1025 and 1024.5 pixels). em_gs_raster
-draws by it (`uv_cols_init` / `uv_cols_u16`); strict mode refuses only
-where the start's sum order, which no probe tells apart, would change a
-drawn column (`uv_col_settled`; GS_EXACT.md 8.8).
+draws by it (`uv_cols_init` / `uv_cols_u16`); strict mode then refused
+only where the start's sum order, which no probe told apart, would change
+a drawn column. Step 3d's held-out probe settled that order (section 3d).
 
 Proof:
 - `make test-status-field-reference` (extended): the five captured BATTERY
@@ -204,8 +208,8 @@ the same logic):
   Without the export the game does not start (fail-stop, as without
   `assets/gs_library.emgm`).
 
-Nothing presents the packets yet: the GPU renderer still draws the page
-(section 1). EM_STATUS_GS_DUMP=<file> records each frame's slot-1 bytes
+The GPU renderer still drew the page after this part; section 3d presents
+the BATTERY page's packets as the field. EM_STATUS_GS_DUMP=<file> records each frame's slot-1 bytes
 between the frame head and step V (em_status_gs_page.h).
 
 Proof:
@@ -260,6 +264,106 @@ Proof:
   notice at port frame 2982, the list) are byte-identical to that build's.
   `make all` 0 warnings.
 
+## 3d. Step 3, second part: the BATTERY page in the GS field (2026-10-20)
+
+The Original profile now draws every BATTERY page frame (the battery take's
+ITEM / BATTERY page with its notice, the panel's BATTERY page) as the
+original's GS draws it, and presents that field. Four pieces:
+
+- **The frame** (`em_status_gs_page`): em_status_runtime_render's BATTERY
+  draw asks `em_sgp_field_claim`; with the GS frame enabled the GPU draws
+  nothing for the page (em_battery_ui_render is not called) and the message
+  service's GPU glyph strips are not drawn over it (em_message_live_render:
+  their packets are in the list). At step V, after 001D2300's kick and the
+  load veil's frame, `em_sgp_kick` walks the kicked list (em_rcl_kick; DMA
+  tags CNT, NEXT, REF, REFS, CALL, RET, END, TTE off; the data at original
+  addresses in the render context's storage) into its VIF stream, keeps the
+  DIRECT data (any other VIF code faults: a status page's list has no VU1
+  code), and hands the GIF data, the head included, to
+  `em_gfx_gs_gif_frame` with the slot's draw environment's FRAME_1 /
+  SCISSOR_1 (em_rcl_draw_env). A BATTERY draw whose page built no packets,
+  a list that CALLs the background, or any refusal faults.
+- **The model** (`em_gs_world_gif_frame`, src/gs/em_gs_world.h): the
+  recorder's checks over the stream (every textured kick's TEX0 known and
+  reading resident or drawn memory; a host-to-local transfer's blocks
+  resident from the transfer on: the glyph uploads to block 0x1B00 are in
+  the list), then the stream whole through the model that holds the GS
+  registers (the parser, or the direct worker), strict mode, on the game's
+  thread while the workers wait (the parser with a decoded texture cache of
+  its own for that frame: p95 8.6 ms a page frame on this Mac; without it
+  about 20 ms), presented as a list frame (its XYOFFSET_1, the half line,
+  is the one the stream leaves). The original's lists set every state
+  register their predecessor set (the five captures run from a reset model
+  give the same field), so the frame does not depend on the world frames
+  before it.
+- **The memory the list reads.** The page module's chunk (module 0x21, the
+  BATTERY atlas, and every page module: one VIF1 chain of whole-page
+  PSMCT32 transfers, MODULE_LOADER.md) reaches the model as the area
+  load's uploads do (em_status_runtime's loader_chain, em_gfx_gs_upload);
+  00200970(1)'s restore (library slot 0x35 and the player texture packet)
+  does too, as em_gs_texture's restore step blocks (em_gs_texture_step_chain:
+  one 8 x 8 PSMCT32 transfer per block, the same bytes); the boot's
+  001CCB10 (decomp func_001CCB10.c / func_001CCBD0.c, both byte-matched)
+  clears blocks 0x1B00..0x1B80 (the glyph strip page) and uploads the grey
+  ramp CLUT to 0x1B67 (em_uip_001CCB10_chain, its 001CCE80 header the
+  oracle-tested transfer_header; em_sgp_install sends it). Every block the
+  five captured lists read comes from module 0x21's step, the list's own
+  glyph transfers, or 001CCB10.
+- **The row rule.** In 19 + 26 of the port's 369 page frames the
+  background's wide layer (corners bottom to top, from above the field)
+  drew a row that the row rule's open variants read differently, and strict
+  mode refused it. Two designed fork probes (decomp
+  `build/status_field_capture/probe_rows.py` p14_rows and the held-out
+  `probe_rows2.py` p15_rows_holdout, hidden, under the run lock, about 2 s
+  each; GS_EXACT.md 3.4) measured the rule: binary32 accumulation from the
+  TOP corner at the first row DRAWN of V - h (h = 0.5 bilinear), the start
+  (vT - h) + p d, and the same sum order for the columns. Every pixel of the
+  832 probe sprites fits; the rule before fits 226 of p14's 448, and the
+  other sum orders leave 512 / 72 pixels of p15 off. Strict mode no longer
+  refuses UV sprites (GS_EXACT.md section 6).
+
+Proof:
+
+- `make test-status-gs-page` (extended; about 17 s, EM_TEST_FULL=1 about
+  76 s): with EM_PRESENT_LOG, all 261 BATTERY frames to the battery take
+  (369 through the panel, EM_TEST_FULL=1) are presented as GS fields; the
+  fields of port frames 2983 and 3083 (route 01's f300 and f400 by the
+  counts of section 3b) hash equal to the fields the original displayed;
+  001CCB10's CLUT kick equals GS block 0x1B67 in every capture (3; 5 with
+  EM_TEST_FULL=1). EM_TEST_FULL=1 runs the game again with frame captures at
+  those two frames: the presented picture, the overlay pass included, at
+  every field pixel's place (test_fb2_pixels.shown_field) is the displayed
+  field, 0 of 114,688 pixels off at both. Route 03's f440 / f500 are not
+  compared by pixels: their backgrounds are the shared D_002655A0 at
+  another step count (section 3b).
+- `make test-status-field-reference`: the five captured lists and all six
+  probes (p10 .. p15) bit-exact in both modes, nothing refused.
+- `make test-gs-raster-reference`: 703 of 906 bit-exact as before (931 of
+  1,158 with EM_TEST_FULL=1), its output line for line the same as the
+  branch head's but for the timings; its three UV strict cases are now
+  controls.
+- `make test-dof-pass-reference` (EM_TEST_FULL=1): the 8 captures bit-exact.
+- `make test-gs-world` (thread sanitizer): new GIF frames (a transfer and
+  the sprites reading it in the stream) draw the field one EmGs draws from
+  the same memory, with the same fields and memory under 1, 2, 3 and 8
+  workers; a read of unwritten memory and a GIF frame inside a recording
+  fault.
+- **Unchanged elsewhere.** `make test-level-smoke EM_TEST_FULL=1` passes
+  whole (the main route through the AREA01 arrival, present-again with its
+  3 status entries, and the side, aim, damage, branch, options and audio
+  runs; the status_pages side run's page module loads now reach the model
+  too). Against a build of the branch head over the same main-route run:
+  the 13,813-tick log is identical line for line, and of the 15,466
+  committed frames (EM_PRESENT_LOG) exactly the 369 BATTERY page frames
+  differ (GPU frames before, GS fields now); every other frame's kind and
+  field hash is the same, so the world fields, and with them the fb2
+  harness's points, are unchanged (its quick point passes as before).
+  `make test-ui-packet-reference` passes; `make all` 0 warnings.
+- The GPU renderer (EM_GPU_RENDERER=1, the Enhanced profile's path) is
+  unchanged: no field is claimed, em_battery_ui_render and the GPU glyph
+  strips draw the page as before (the d3d12 / Vulkan backends refuse a
+  GIF frame and never get one: their GS frame is off).
+
 ## 4. The captures (decomp, ignored)
 
 - `build/status_field_capture/capture.py <beat> <T> ...` (and
@@ -277,6 +381,11 @@ Proof:
   `probe_holdout.py` (`list | capture | decode`, same harness): p11_open,
   p12_open and p13_holdout under `build/status_field_capture/probe_open`
   (section 3c).
+- `build/status_field_capture/probe_rows.py` and `probe_rows2.py` (`list |
+  capture | decode`, same harness): p14_rows (its live set from the port's
+  dump of the BATTERY frames, written by the lane's scratch script) and
+  p15_rows_holdout under `build/status_field_capture/probe_open` (section
+  3d).
 - The status hub (`state:slot14_status_hub`) and the ITEM root
   (`state:slot12_status_root`) lists hold VU1 code (the models): their GS
   stream is the fork's GS dump, which `capture.py` records in its third
@@ -296,18 +405,17 @@ not commit to the decomp).
    channel); its 64 entries are the grey ramp em_hud's GLYPH_INK reads.
 3. Bind the page code's leaf workers to these builders over
    em_render_context_live's arena: (done, section 3b) the BATTERY page and
-   the message service's glyph runs; still to bind: em_status_pages_live
-   (its 00207D00 / 00207E40 / 00207D90 / 00208040 / 001CBA50 / 0020A7A0
-   dispatch cases, em_page_draw's recorder), the ITEM root (em_item_ui) and
-   the hub's 2D layer (em_status_hub_ui), each with its 0020A7A0 at call
-   time. Then draw a status frame in the Original profile as a GS frame
-   through em_gs_world from the chain step V builds, the REF targets
-   resolved to em_gs_blocks_original's blocks and the ELF's glyph packets
-   (D_00250F30..D_0025316F are already in em_rcl's storage), with the page
-   textures in the model's local memory (the uploads the page modules send:
-   em_gs_texture's steps), presented like a world field; then compare the
-   presented frames with the fork's fields and the video comparison's
-   segments 8 and 14.
+   the message service's glyph runs; (done, section 3d) the BATTERY page's
+   frames drawn and presented as the GS field, with the page module
+   uploads, the restore and 001CCB10 in the model's memory. Still to bind:
+   em_status_pages_live (its 00207D00 / 00207E40 / 00207D90 / 00208040 /
+   001CBA50 / 0020A7A0 dispatch cases, em_page_draw's recorder), the ITEM
+   root (em_item_ui) and the hub's 2D layer (em_status_hub_ui), each with
+   its 0020A7A0 at call time; then em_status_runtime_render's DRAW_ITEM /
+   DRAW_PAGE / DRAW_OTHER cases claim the field as DRAW_BATTERY does (their
+   lists are DIRECT only too: the ITEM root's picture is a sprite; check
+   with a capture), and the video comparison's segments 8 and 14 are
+   compared again.
 4. The hub and the pages with models (001B0000's units through the object
    kernel's GS output, as the world frames draw them), with GS-dump
    captures; segment 5.

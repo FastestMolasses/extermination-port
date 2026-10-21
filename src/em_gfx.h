@@ -1064,6 +1064,17 @@ int em_gfx_gs_world_recording(EmGfx *gfx);
 int em_gfx_gs_page_pass(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
                         const uint32_t *again, uint32_t again_count, uint64_t field_frame,
                         uint64_t field_scissor);
+/* A list frame given as the GIF data of the whole kicked list, transfers
+ * included (the status pages' frames: their lists are VIF DIRECT data only,
+ * the glyph texel uploads in the list; docs/STATUS_FIELD.md section 3d), in
+ * the Original profile's GS frame: em_gs_world_gif_frame (checked as a world
+ * frame's draws are, run whole through the model, strict mode), its field
+ * (display_frame's FBP, FBW; display_scissor's height) presented as a list
+ * frame's, with the overlay pass over it at end_frame. Not inside a recorded
+ * world frame. 0, or -1 (a fault, reported; also without the GS frame: the
+ * GPU renderer and the d3d12 / Vulkan backends draw the pages themselves). */
+int em_gfx_gs_gif_frame(EmGfx *gfx, const void *gif, size_t bytes, uint64_t display_frame,
+                        uint64_t display_scissor);
 /* The recorded world frame is never kicked: the blocking movie 00203350
  * took the main iteration (001AAE40 with D_00821058 == 1), and after it
  * returns 001D1C10 runs 001D1AE0, which restarts the frame's list before

@@ -1,6 +1,7 @@
 /* The live message service (WP-8). See em_message_live.h and
  * docs/MESSAGE_SERVICE.md "Binding". */
 #include "game/em_message_live.h"
+#include "game/em_status_gs_page.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -359,6 +360,12 @@ int em_message_live_tick(void)
 
 void em_message_live_render(EmGfx *gfx)
 {
+    /* A status page frame the GS model draws has these strips in its list
+     * (em_status_gs_page's glyph sink): the GPU does not draw them again. */
+    if (em_sgp_field_frame()) {
+        s.task.flush_count = s.task.upload_count = 0;
+        return;
+    }
     for (uint32_t i = 0; i < s.task.flush_count; i++)
         em_hud_glyph_strip(gfx, &s.task.flushes[i]);
     for (uint32_t i = 0; i < s.step.flush_count; i++)

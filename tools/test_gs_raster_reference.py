@@ -588,15 +588,15 @@ def check_strict(lib) -> int:
                           + strip(100, [0x200, 0x300, 0x400, 0x500, 0x600, 0x700]), None),
         'dithered_point': ([(0x4C, 0 | 4 << 16 | 2 << 24), (0x45, 1), (0x44, 0x1234567), (0x00, 0x00)]
                            + [(0x01, 0x80406020), (0x05, 5 * 16 | 5 * 16 << 16 | 0x100 << 32)], None),
-        # UV sprites (section 3.4): the measured row rule's unsettled
-        # variants and what the column rule leaves open: an accumulation
-        # started at the scissor's first row would read other rows, so would
-        # one started from the top corner of an upward sprite; the column
-        # start's sum taken as uL + (p d - h) (W0 one unit higher here,
-        # column 107 one 1/16 texel higher; the probes fit both orders)
-        'uv_rows_clipped': (uv_sprite(8, 8, 0, -40, 264, 906, 4096, 3208, rows=(10, 199)), 'UV sprite'),
-        'uv_rows_upward': (uv_sprite(8, 8, 0, 3208, 264, 1144, 4096, 8, rows=(0, 199)), 'UV sprite'),
-        'uv_columns_sum_order': (uv_sprite(739, 8, -799, 0, 93, 264, 3339, 256, rows=(0, 199)), 'UV sprite'),
+        # controls: UV sprites (section 3.4) whose coordinates the rules
+        # before left open, settled since by the fork's probes p14_rows and
+        # p15_rows_holdout (the row rule: from the top corner, at the first
+        # row drawn; both axes' start sums (t - h) + p d), so strict mode
+        # draws them: a sprite starting above the scissor, an upward one,
+        # and one whose column start's sum order changes column 107
+        'uv_rows_clipped': (uv_sprite(8, 8, 0, -40, 264, 906, 4096, 3208, rows=(10, 199)), None),
+        'uv_rows_upward': (uv_sprite(8, 8, 0, 3208, 264, 1144, 4096, 8, rows=(0, 199)), None),
+        'uv_columns_sum_order': (uv_sprite(739, 8, -799, 0, 93, 264, 3339, 256, rows=(0, 199)), None),
         # controls: the decomp's column probe p10_cols in_bil row 39 (the
         # old rule's open class, which the fork's probes settled: the fork
         # keeps the exact value 3 columns in and drops it 9 in, as the rule

@@ -104,10 +104,13 @@ fault (section 6).
 - alpha test, destination alpha test, Z test, all blend equations,
   COLCLAMP, PABE, FBA, FBMSK, CT16 conversion and dithering (triangles,
   lines and points; not sprites);
-- the row coordinate of UV sprites, accumulated in binary32 (3.4, since
-  2026-10-10), and with it 001DDE10's depth-of-field pass: bit-exact on all
-  7 captured frames of the original (all of local memory; section 7,
-  `test_dof_pass_reference`);
+- the row coordinate of UV sprites, accumulated in binary32 from the top
+  corner at the first row drawn (3.4, since 2026-10-10; its corner order,
+  start row, half-texel shift and sum order measured 2026-10-20), and with
+  it 001DDE10's depth-of-field pass: bit-exact on all 7 captured frames of
+  the original (all of local memory; section 7,
+  `test_dof_pass_reference`), and every pixel of the two designed row
+  probes (896 sprites, one probe held out);
 - the column coordinate of UV sprites, 16.16 fixed point set up in
   binary32 from the left corner, four columns a step (3.4, since
   2026-10-20), and with it the status pages' whole GS lists: bit-exact on
@@ -337,16 +340,22 @@ Evidence:
 - **Coverage:** x0 <= x < x1 and y0 <= y < y1 on the sorted corners.
 - **Colour, Z and F** come from the second vertex.
 - **Texture coordinates:**
-  - UV, the row coordinate V (measured 2026-10-10, below): accumulated in
-    binary32, one step a row, from the sprite's first covered row. In
-    texel units (V / 16 and Y / 16, both exact): step = (v1 - v0) / (y1 -
-    y0), rounded once; at the first covered row v = v0 + (row - y0) *
-    step, the product and the sum each rounded; at every next row v +=
-    step, rounded; the coordinate is floor(16 v) in 1/16 texel. Scaling by
-    powers of two is exact, so the same holds in 1/16 units. Where the
-    gradient is dyadic every value is exact and this is the floor of the
-    exact value; where it is not, the accumulated rounding leaves some rows
-    one 1/16 texel below an exact integer value.
+  - UV, the row coordinate V (measured 2026-10-10 and 2026-10-20, below):
+    accumulated in binary32, one step a row, from the TOP corner (the
+    lower Y, with its V, whatever the order the corners are given in),
+    starting at the first row drawn (the first covered row, or the
+    scissor's top row when the sprite starts above it). For bilinear
+    sampling the value accumulated is the coordinate the filter reads, V -
+    0.5 texel (h = 0.5; nearest: h = 0), as the column rule's W. In texels
+    and pixels (V / 16 and Y / 16, both exact), each operation rounded to
+    binary32: d = (vB - vT) / (yB - yT); at ys, the first row drawn, v =
+    (vT - h) + (ys - yT) d, the product and the sum each rounded; at every
+    next row v += d, rounded; the coordinate is floor(16 v) in 1/16 texel,
+    plus 8 for bilinear, which the filter takes off again (section 4.2).
+    Scaling by powers of two is exact, so the same holds in 1/16 units.
+    Where the gradient is dyadic every value is exact and this is the floor
+    of the exact value; where it is not, the accumulated rounding leaves
+    some rows one 1/16 texel off the floor of the exact value.
   - UV, the column coordinate U (measured 2026-10-20, below): 16.16 fixed
     point, W in 2^-16 texel, set up in binary32 from the LEFT corner (the
     lower X, with its U, whatever the order the corners are given in). For
@@ -399,15 +408,46 @@ Evidence:
     GSCAP `mag_a_bil_frac`'s row of exact value 65 at the non-dyadic
     gradient 8/21, where the reference reads 65) the accumulation gives the
     floor of the exact value, so the 906 tests are unchanged.
-  - Not settled by these captures: the accumulation's start when the
-    sprite's first covered row lies above the scissor (from that row or from
-    the scissor's), its start as one fused multiply-add, and corners given
-    bottom to top; the column start's sum taken as uL + ((xs - xL) d - h)
-    (8.8). Strict mode refuses a sprite where any of these would change a
-    coordinate it draws (section 6). None occurs in the first level's world frames: in an instrumented
-    run of the level smoke through the AREA01 arrival (a scratch build
-    counting every UV sprite drawn, 2026-10-10) the only UV sprites with a
-    non-dyadic gradient were the depth-of-field blends (52,764 of 105,808
+  - The row rule's corner, start row, shift and sum order (2026-10-20).
+    The depth-of-field blend has its corners top to bottom and its first
+    covered row drawn, so it could not tell these apart. The status pages'
+    live frames could: the BATTERY page background's wide layer (0020A7A0:
+    V 0..64 over 250 to 286 rows from above the field, corners given
+    bottom to top) drew under the rule before in 19 + 26 of the port's 369
+    page frames a row that the alternatives read differently, and strict
+    mode refused it. Two designed probes in the fork measured them (decomp
+    `build/status_field_capture`, the lane's own scripts in an ignored
+    folder, gs_conformance's harness, the software renderer; 8-pixel-wide
+    sprites, U constant, over a 64 x 256 texture whose row r is (16 r &
+    0xFF, r, ...), so every drawn pixel names its 1/16-texel row):
+    - `probe_rows.py` p14_rows: 448 sprites: those 45 live sprites (window
+      rows and V as the port built them) and 19 settled ones, corners
+      bottom to top inside the scissor, top to bottom and bottom to top
+      starting above a scissor at 24, sprites whose fused start differs,
+      and random controls. Every one of 12 binary32 candidates (from the
+      corner given first, the top or the bottom one; at the first covered
+      row or the first drawn row; fused or not) misses: the rule before
+      fits 226 sprites, the best (top corner, first drawn row) 388, its
+      misses one 1/16 texel at isolated rows; fixed point (the column
+      rule's shape, 16- to 24-bit steps, lanes of 1 to 8 rows) at most
+      223. With V - 0.5 accumulated (the filter's coordinate, as the
+      column rule's W) every pixel of all 448 sprites fits.
+    - `probe_rows2.py` p15_rows_holdout (captured after the rule was
+      written down): random sprites of every kind, bilinear and nearest;
+      sprites with U and V both non-dyadic, any corner order, above and
+      left of the scissor; 64 sprites found by search whose row start's sum
+      order ((vT - h) + p d against vT + (p d - h)) changes a drawn row,
+      and 64 whose column start's sum order changes a drawn column. Every
+      pixel of the six tests is the rule's; the other sum orders leave 512
+      (rows) and 72 (columns) pixels off. So both axes take (t - h) + p d.
+    The level smoke through the AREA01 arrival with this rule (2026-10-20)
+    presents every world frame as before: of its 15,466 committed frames
+    only the 369 BATTERY page frames differ from the branch head's (now GS
+    fields, STATUS_FIELD.md 3d); every other field hash, and the 13,813-tick
+    log, is the same. Before (2026-10-10, an instrumented run): the only UV
+    sprites with a non-dyadic gradient in the first level's world frames
+    were the depth-of-field blends (a scratch build counting every UV sprite
+    drawn: 52,764 of 105,808
     UV sprites, all on the row axis, none starting above the scissor or
     upward, no column gradient non-dyadic), and the level smoke with the
     check in place refuses nothing. The same run with the column rule
@@ -975,19 +1015,13 @@ has settled:
 - textured lines;
 - SCANMSK, CT16S / CT24 frames, Z16S;
 - DATE on a 16-bit frame, ZTE 0;
-- LOCAL -> LOCAL and LOCAL -> HOST transfers;
-- a UV sprite whose drawn texel coordinates depend on what section 3.4
-  leaves unsettled (since 2026-10-10): its rows under the accumulation
-  started at the scissor's first row (when the sprite starts above it),
-  started as one fused multiply-add, or started from the top corner's value
-  (corners given bottom to top); its columns, whose exact value the model
-  uses, under the same accumulation and those variants. The check runs at
-  the sprite's kick (`sprite_uv_settled`) and refuses only where one of
-  them would read another 1/16 texel at a pixel the sprite draws. Since
-  2026-10-20 the columns follow the measured rule of 3.4; the check refuses
-  a sprite whose drawn columns read another coordinate with the start's sum
-  taken as uL + (p d - h), the one variant the probes do not tell apart
-  (8.8; about 5 sprites in 3 million random ones).
+- LOCAL -> LOCAL and LOCAL -> HOST transfers.
+
+From 2026-10-10 to 2026-10-20 strict mode also refused a UV sprite whose
+drawn texel coordinates depended on what section 3.4 then left open (the
+row rule's start corner, start row and fused start; both axes' start sum
+order; `sprite_uv_settled`). The fork's probes p14_rows and
+p15_rows_holdout settled all of them (3.4), and the check is gone.
 
 In every mode, a primitive is also refused when the model has no memory for
 its address tables (section 2.0, `EM_GS_REFUSE_MEMORY`, since 2026-10-12);
@@ -1025,18 +1059,19 @@ span fault, as the port's fail-stop rule requires.
   be byte-identical to the same writes sent as an A+D packet, and
   `em_gs_read_frame_rgba` must equal the measured decode.
 - **E.** Strict mode itself: eighteen synthetic packets. AA1, MXL > 0,
-  PRMODECONT.AC 0, a textured line, LOCAL -> LOCAL, LOCAL -> HOST, a
+  PRMODECONT.AC 0, a textured line, LOCAL -> LOCAL, LOCAL -> HOST and a
   constant-Z / varying-Z split at an unmeasured boundary (a TEX0 TW change)
-  and three UV sprites of section 3.4's unsettled cases (rows starting above
-  the scissor, rows given bottom to top, and since 2026-10-20 a column start
-  whose sum order changes column 107, 8.8) must each be refused in strict
-  mode with that reason and draw in the default mode. Eight controls must
-  draw with no refusal in both modes: the same split with one Z, the split
-  at a measured boundary (TFX), a dithered point, 001DDE10's blend sprite
-  (the measured row rule) and, since 2026-10-20, the status background's
-  wide layer and the column probe's in_bil row 39 (the measured column
-  rule; the old rule's open class), the latter also under XYOFFSET X 1 and
-  4 pixels off a multiple of 4 (the lane groups follow window x).
+  must each be refused in strict mode with that reason and draw in the
+  default mode. Eleven controls must draw with no refusal in both modes:
+  the same split with one Z, the split at a measured boundary (TFX), a
+  dithered point, 001DDE10's blend sprite (the measured row rule), the
+  status background's wide layer and the column probe's in_bil row 39 (the
+  measured column rule; the old rule's open class), the latter also under
+  XYOFFSET X 1 and 4 pixels off a multiple of 4 (the lane groups follow
+  window x), and since 2026-10-20 (evening) the three UV sprites strict
+  mode refused before the row probes (rows starting above the scissor,
+  rows given bottom to top, a column start whose sum order changes column
+  107: 3.4).
 - **G.** The half-pixel scissor edge (section 3.8, since 2026-10-10): the
   fork's probe-9 capture (`fork_refs/pixels/b16/gscap9`, 45 tests, read in
   both `EM_REFERENCE` modes because it is the rule's reference) must be
@@ -1276,30 +1311,16 @@ these counts. A lead not yet tried (2026-10-10): a UV sprite's row
 coordinate is accumulated in binary32 one row at a time (3.4); the same
 kind of accumulation along a triangle's edges or across its spans.
 
-### 8.8 UV sprites: the row rule's variants and the column start's sum order
+### 8.8 UV sprites: a whole-line field's blend
 
-Section 3.4's row rule is measured on 001DDE10's blend sprite: corners
-given top to bottom, the first covered row drawn (not above the scissor),
-a start offset of half a row, the half-line field. Not measured, and
-refused in strict mode where they would change a drawn coordinate
-(section 6): the start when the sprite begins above the scissor, a fused
-start, corners given bottom to top. None of these occurs in the first
-level's world frames (3.4).
-
-The column rule (3.4) is settled by four designed probes, one of them held
-out (2,048 sprites, every column equal; 2026-10-20). Left open: the
-start's sum taken as (uL - h) + p d (the rule) or uL + (p d - h): every
-probe column fits both; they differ in W0 for about 270 and in a drawn
-coordinate for about 5 of 3 million random sprites, and strict mode
-refuses a sprite where they do (`uv_col_settled`; the strict case
-`uv_columns_sum_order`). None of the captured status frames or the first
-level's world frames meets it. A probe of such sprites would settle it.
-Also not
-captured: a blend that passes its Z test in a whole-line field (OFY
-1936.0; open_wide_t0720 is one, but no blend reaches a pixel there). The
-row rule predicts it (a start offset of 0: every row y = 0 mod 7, y > 0,
-can fall one 1/16 texel below its exact value); a capture of such a frame
-(a cutscene frame of the other field parity) would confirm it.
+The row rule (3.4) is measured for corners in either order, starts above
+the scissor or not, bilinear and nearest, both axes non-dyadic, and both
+axes' start sum order (the fork's probes p10 .. p15, 2026-10-20: every
+pixel of 2,880 designed sprites, two probes held out). Not captured: a
+blend that passes its Z test in a whole-line field (OFY 1936.0;
+open_wide_t0720 is one, but no blend reaches a pixel there). The rule
+predicts it; a capture of such a frame (a cutscene frame of the other
+field parity) would confirm it.
 
 ## 9. Binding: how the Original profile renders through the model
 
@@ -1589,6 +1610,16 @@ GPU as before. (001DDE10's depth-of-field pass, walked over until step DOF,
 is drawn since: above.)
 
 **Frame cost.** Section 10.2.
+
+**GIF frames: the BATTERY page (2026-10-20, STATUS_FIELD.md 3d).** A
+status frame whose list is VIF DIRECT data only goes to the model whole:
+`em_gs_world_gif_frame` (em_gfx_gs_gif_frame in the backend) takes the GIF
+data of the kicked list, the head included, checks it as the recorder
+checks a world frame (a host-to-local transfer in the stream, the glyph
+uploads, makes its blocks resident), runs it on the model that holds the GS
+registers on the game's thread, and presents its field as a list frame's.
+The BATTERY page's frames take this path (em_status_gs_page); the hub and
+the other pages are still drawn by the GPU renderer.
 
 ## 10. The fb2 reference frames and the pixel harness
 

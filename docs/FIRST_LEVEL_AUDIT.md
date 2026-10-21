@@ -2050,15 +2050,17 @@ pool's free list (item 5): those are port work that needs no new recording
      since 2026-10-20 (side lane "status", STATUS_FIELD.md) the CPU GS model
      draws the original's own BATTERY page lists bit-exact (five fork
      captures, all of local memory; the UV sprite column rule measured,
-     GS_EXACT.md 3.4), but strict mode still refuses part of them (the
-     column rule's open class, 8.8); the page packets' builders are
-     translated byte for byte (em_ui_packet_original, STATUS_FIELD.md 3a:
-     the five captured slot-1 chains rebuilt and drawn to the displayed
-     field); since step 3's first part (STATUS_FIELD.md 3b) the live game
-     builds the BATTERY page's and the glyph runs' packets in the slot-1
-     arena (route 01's f300 / f400 byte for byte, drawn to the displayed
-     field), but nothing presents them yet and the other pages are not
-     bound;
+     GS_EXACT.md 3.4); the page packets' builders are translated byte for
+     byte (em_ui_packet_original, STATUS_FIELD.md 3a: the five captured
+     slot-1 chains rebuilt and drawn to the displayed field); since step
+     3's first part (STATUS_FIELD.md 3b) the live game builds the BATTERY
+     page's and the glyph runs' packets in the slot-1 arena (route 01's
+     f300 / f400 byte for byte); since step 3d (STATUS_FIELD.md 3d) the
+     Original profile draws every BATTERY page frame as the GS field from
+     the kicked list and presents it (route 01's f300 / f400 presented
+     exactly, 0 pixels off; the UV row rule measured by two fork probes,
+     strict mode refuses no UV sprite); the hub, the ITEM root and the other
+     pages still draw with the GPU renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make

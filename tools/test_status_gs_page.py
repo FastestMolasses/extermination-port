@@ -37,7 +37,19 @@ FRAMES) and the user's font export.
    field equals the field the original displayed (f300; EM_TEST_FULL=1 f400
    too).
 
-About 16 s (the game run; EM_TEST_FULL=1 about 25 s); --dump FILE --run-log FILE reuse a run.
+5. The GS field (STATUS_FIELD.md section 3d): the run's EM_PRESENT_LOG
+   presents every BATTERY page frame as a GS field (the Original profile:
+   the kicked list through the CPU GS model) and nothing else of the run
+   differently; the fields of the port frames that equal f300 and f400 (3)
+   hash equal to the field the original displayed (fnv64 of the 512 x 224 x 4
+   bytes); 001CCB10's CLUT kick (em_uip_001CCB10_chain, the boot upload that
+   the glyph strips read) writes the bytes every capture holds at GS block
+   0x1B67. EM_TEST_FULL=1 also runs the game again to the battery take with
+   frame captures at those two frames (EM_FB_CAPTURE_TICKS) and checks the
+   presented picture, the overlay pass included, at every field pixel's place
+   (test_fb2_pixels.shown_field) equal to the original's displayed field.
+
+About 16 s (the game run; EM_TEST_FULL=1 about 45 s); --dump FILE --run-log FILE reuse a run.
 """
 from __future__ import annotations
 
@@ -74,17 +86,72 @@ def fail(msg: str) -> None:
     print(f'  FAIL: {msg}')
 
 
-def run_game(dump: Path) -> None:
-    env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level', EM_LEVEL_SMOKE_UNTIL=UNTIL,
-               EM_STATUS_GS_DUMP=str(dump), EM_AREA_CHANGE_LOG=str(OUT / 'ticks.jsonl'))
-    log = OUT / 'run.log'
+def run_game(dump: Path, until: str = UNTIL, extra: dict | None = None, tag: str = 'run') -> None:
+    env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level', EM_LEVEL_SMOKE_UNTIL=until,
+               EM_STATUS_GS_DUMP=str(dump), EM_AREA_CHANGE_LOG=str(OUT / 'ticks.jsonl'),
+               EM_PRESENT_LOG=str(OUT / 'present.log'))
+    env.update(extra or {})
+    log = OUT / f'{tag}.log'
     with log.open('w') as f:
         rc = subprocess.run([str(BIN)], cwd=ROOT, env=env, stdout=f, stderr=subprocess.STDOUT).returncode
     text = log.read_text(errors='replace')
     if rc != 0 or 'level smoke: PASS' not in text:
         tail = '\n'.join(text.splitlines()[-8:])
         raise SystemExit(f'test_status_gs_page: FAIL (the game run ended {rc}):\n{tail}')
-    (OUT / 'ticks.jsonl').unlink(missing_ok=True)
+
+
+def fnv64(b: bytes) -> int:
+    """em_gfx_metal.m's fnv64 (EM_PRESENT_LOG's field hash): 8-byte words, then the tail bytes."""
+    h, m = 0xCBF29CE484222325, (1 << 64) - 1
+    w = np.frombuffer(b[:len(b) // 8 * 8], '<u8')
+    for v in w.tolist():
+        h = ((h ^ v) * 0x100000001B3) & m
+    for c in b[len(b) // 8 * 8:]:
+        h = ((h ^ c) * 0x100000001B3) & m
+    return h
+
+
+def present_log(path: Path) -> dict[int, tuple]:
+    """{tag (the frame counter): (kind, FRAME_1, XYOFFSET_1, field hash)} of the committed frames."""
+    out = {}
+    for line in path.read_text().splitlines():
+        p = line.split()
+        if len(p) >= 3:
+            out[int(p[1])] = (p[2], int(p[3], 16), int(p[4], 16), int(p[5], 16)) if p[2] == 'field' else (p[2],)
+    return out
+
+
+def check_clut(lib, rlib, caps) -> int:
+    """001CCB10's CLUT kick against the captures' GS block 0x1B67."""
+    import ctypes as C
+    lib.em_uip_001CCB10_chain.restype = C.c_size_t
+    lib.em_uip_001CCB10_chain.argtypes = [C.c_void_p, C.c_size_t]
+    kicks, kick = 0x1B80 - 0x1B00 + 2, 16 + 0x170
+    buf = (C.c_uint8 * (kicks * kick))()
+    if lib.em_uip_001CCB10_chain(C.addressof(buf), len(buf)) != len(buf):
+        fail('001CCB10: em_uip_001CCB10_chain wrote no chain')
+        return 0
+    chain = bytes(buf)
+    blocks = []
+    for k in range(kicks):
+        tag = struct.unpack_from('<Q', chain, k * kick)[0]
+        bb = struct.unpack_from('<Q', chain, k * kick + 16 + 0x20)[0]
+        if tag & 0xFFFF != 0x17 or (tag >> 28) & 7 != (7 if k == kicks - 1 else 1):
+            fail(f'001CCB10: kick {k} is not behind a 0x17-quadword CNT / END tag')
+        blocks.append((bb >> 32) & 0x3FFF)
+    if blocks != list(range(0x1B00, 0x1B81)) + [0x1B67]:
+        fail('001CCB10: the kicks are not blocks 0x1B00..0x1B80, then 0x1B67')
+    entries = np.frombuffer(chain[(kicks - 1) * kick + 16 + 0x70:kicks * kick], '<u4')
+    words = np.zeros(64, dtype=np.uint32)
+    rlib.sf_map32(0x1B67, 1, 8, 8, words.ctypes.data)
+    equal = 0
+    for key, c in caps.items():
+        vram = np.frombuffer((c['d'] / 'vram_before.bin').read_bytes(), '<u4')
+        if (vram[words] == entries).all():
+            equal += 1
+        else:
+            fail(f'{key[0]} f{key[1]:04d}: GS block 0x1B67 is not 001CCB10\'s CLUT')
+    return equal
 
 
 def records(dump: Path) -> list[tuple[int, int, int, int, bytes]]:
@@ -282,6 +349,61 @@ def main() -> int:
                            f'{key[0]} f{key[1]:04d} (port frame {p[0]})')
         report['matched'][f'{key[0]} f{key[1]:04d}']['raster'] = r
 
+    # 5. the GS field
+    plog_path = OUT / 'present.log'
+    if args.dump is None:
+        plog = present_log(plog_path)
+        bat = {p[0] for p in pages}
+        kinds: dict[str, int] = {}
+        for fc in bat:
+            kinds[plog.get(fc, ('none',))[0]] = kinds.get(plog.get(fc, ('none',))[0], 0) + 1
+        if kinds != {'field': len(bat)}:
+            fail(f'5: the BATTERY frames are presented as {kinds}, not all as GS fields')
+        hashed = {}
+        for key in EXACT:
+            if key not in matched:
+                continue
+            fc = matched[key][0][0]
+            disp = (caps[key]['d'] / 'displayed_field_T2.rgba').read_bytes()
+            got = plog.get(fc, ('none',))
+            ok = got[0] == 'field' and got[3] == fnv64(disp)
+            hashed[f'{key[0]} f{key[1]:04d}'] = {'frame': fc, 'equal': ok}
+            if not ok:
+                fail(f'5: {key[0]} f{key[1]:04d}: port frame {fc}\'s presented field is not the displayed field')
+        clut = check_clut(lib, rlib, caps)
+        same = ', '.join(f'{k} (port frame {v["frame"]})' for k, v in hashed.items() if v['equal'])
+        print(f'  5: {kinds.get("field", 0)} of {len(bat)} BATTERY frames presented as GS fields; the fields of '
+              f'{same} equal the displayed field; 001CCB10\'s CLUT equals GS block 0x1B67 in {clut} captures')
+        report['field'] = {'presented': kinds, 'equal': hashed, 'clut_captures': clut}
+        if FULL and all(k in matched for k in EXACT):
+            # the presented pictures: frame captures at those frames, the overlay pass included
+            import test_fb2_pixels as F
+            lines = [json.loads(x) for x in (OUT / 'ticks.jsonl').open()]
+            tick_of = {x['counter']: x['tick'] for x in lines if 'tick' in x}
+            spec, shots = [], {}
+            for key in EXACT:
+                fc = matched[key][0][0]
+                shot = OUT / f'present_{key[1]:04d}.bmp'
+                spec.append(f'{tick_of[fc]}:{shot}')
+                shots[key] = shot
+            run_game(OUT / 'chains2.bin', 'battery', {'EM_FB_CAPTURE_TICKS': ';'.join(spec)}, 'run2')
+            (OUT / 'chains2.bin').unlink(missing_ok=True)
+            for key, shot in shots.items():
+                port = F.read_bmp(shot)
+                shown, _ = F.shown_field(port, shot)
+                disp = np.frombuffer((caps[key]['d'] / 'displayed_field_T2.rgba').read_bytes(),
+                                     np.uint8).reshape(224, 512, 4)
+                off = int((shown[..., :3] != disp[..., :3]).any(axis=2).sum())
+                print(f'  5: {key[0]} f{key[1]:04d}: the presented picture at every field pixel\'s place: '
+                      f'{off} of {512 * 224} pixels off the displayed field')
+                if off:
+                    fail(f'5: {key[0]} f{key[1]:04d}: the presented picture differs from the displayed field '
+                         f'in {off} pixels')
+                for ext in ('', '.gsfield', '.present'):
+                    Path(str(shot) + ext).unlink(missing_ok=True)
+    (OUT / 'ticks.jsonl').unlink(missing_ok=True)
+    plog_path.unlink(missing_ok=True)
+
     (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     dt = time.monotonic() - t0
     if args.dump is None:
@@ -290,7 +412,7 @@ def main() -> int:
         print(f'test_status_gs_page: FAIL ({len(FAILS)} failures; {dt:.1f} s)')
         return 1
     print(f'test_status_gs_page: PASS ({len(recs)} live frames decode into the builders\' packets; route 01 '
-          f'f300 / f400 built byte for byte by the live page, drawn to the displayed field; {dt:.1f} s)')
+          f'f300 / f400 built byte for byte by the live page and presented as the displayed field; {dt:.1f} s)')
     return 0
 
 

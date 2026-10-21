@@ -4757,6 +4757,22 @@ static int gsw_list_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *
     return 0;
 }
 
+/* em_gfx_gs_gif_frame: a list frame given as its GIF data (the status
+ * pages), through the model (em_gs_world_gif_frame). */
+int em_gfx_gs_gif_frame(EmGfx *g, const void *gif, size_t bytes, uint64_t display_frame,
+                        uint64_t display_scissor)
+{
+    if (!g || !g->gswOn) return -1;
+    if (!g->enc) return gsw_fail(g, "a GIF frame outside a frame");
+    if (g->gswFrame) return gsw_fail(g, "a GIF frame in a recorded world frame");
+    gsw_complete(g);
+    if (g->gswWhy[0]) return -1;
+    if (gsw_slot(g) < 0) return -1;
+    if (em_gs_world_gif_frame(g->gsw, gif, bytes, display_frame, display_scissor) < 0) return gsw_check(g);
+    g->gswShow = true;
+    return 0;
+}
+
 /* This frame's field texture: the next of the three, once the GPU no longer
  * reads it (its last command buffer has completed). */
 static int gsw_slot(EmGfx *g)
