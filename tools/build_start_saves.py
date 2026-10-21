@@ -6,7 +6,12 @@ A start-point save is a memory card holding one saved game made by the
 ORIGINAL save writer from the state the fork recordings start an area from:
 the progress block D_00810700 as it is at that area's arrival, written with
 the original's own code into the original's card layout (docs/SAVE_GAME.md
-section 2). Nothing is synthesized by hand: the writer 00228A90 runs in the
+section 2). Before the save, the save terminal's own step runs over the
+arrival frame (00159B90's two quadword copies 00102948, original code in the
+reference interpreter): the player record's +0xA0 / +0xC0 into the load pose
+D_00810710 / D_00810720, which a loaded game places the player from (a tool
+choice like the arrival frame: the original saves only at a terminal).
+Nothing is synthesized by hand: the writer 00228A90 runs in the
 reference interpreter over the recording's RAM, the card answered by the
 port's host card em_memcard on a folder, and the port's translation
 em_save_00228A90 runs the same save on a second folder, which must be
@@ -18,8 +23,8 @@ recording's RAM (c10 opt_07, the options' load row): the load enumeration
 read 00228B60 must put the slot's 0x640 bytes into D_00810700; the
 translations em_save_002283B0 / em_save_00228B60 run the same reads and
 must equal the original at every callee entry. The block read back is the
-arrival's block with +0xF = 1 and the check byte +0x63F (the two bytes the
-writer sets), and nothing else changed. A card failing any check is not
+arrival's block with the load pose, +0xF = 1 and the check byte +0x63F (the
+two bytes the writer sets), and nothing else changed. A card failing any check is not
 written.
 
 The start points (the state each route recording starts from, named by the
@@ -35,7 +40,8 @@ route's manifest: its first beat's source state):
 Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
 host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
 makes, the save in EX_DATA.00 on port 0; slot2/ empty) and start.json (the
-source state, its SHA-256, the block's area bytes, each file's SHA-256).
+source state, its SHA-256, the block's area bytes, the load pose, each file's
+SHA-256).
 The folder is git-ignored (build/). An existing card is overwritten file by
 file only when it differs; a folder holding anything else is refused.
 
@@ -64,6 +70,7 @@ import test_save_reference as S  # noqa: E402
 import test_load_reference as L  # noqa: E402
 import test_memcard_host as MH  # noqa: E402
 import test_area01_render_reference as R  # noqa: E402
+from test_player_slide_reference import EE, RETURN, STACK_TOP, read_elf  # noqa: E402
 
 MASK = 0xFFFFFFFF
 MC, BLOCK, SIZE = S.MC, S.BLOCK, 0x640
@@ -73,6 +80,13 @@ LOAD_BEAT = 'o7'                   # the RAM the load runs over (c10 opt_07, the
 OUT = ROOT / 'build' / 'start_saves'
 FILES = [DIR + '/' + f for f in (DIR, 'EX.ico', 'icon.sys')] + MH.SLOTS
 WRITTEN = (0xF, 0x63F)             # the bytes the writer sets in the chosen slot (docs/SAVE_GAME.md 2.1)
+# The save terminal's step before a save (00159B90 state 1 / sub-state 0, when
+# its Use 00157CE0 answers nonzero): two quadword copies 00102948, the player
+# record's position +0xA0 (D_00810350) into the load pose D_00810710 and its
+# rotation +0xC0 (D_00810370) into D_00810720 (docs/SAVE_GAME.md section 7).
+QCOPY = 0x102948
+POSE_COPIES = ((0x810710, 0x810350), (0x810720, 0x810370))
+POSE = range(0x10, 0x30)           # D_00810710..72F: the block's bytes the two copies write
 
 START_POINTS = {
     'area01': {'route': 's87/route_a01', 'first': 'a01_00_', 'area': 1},
@@ -135,6 +149,32 @@ def arrival(name, points=None):
                       f'the state {block[:4].hex()}')
     return {'name': name, 'folder': folder, 'beat': first[0], 'ram': ram, 'spad': spad.read_bytes(),
             'ee_sha256': want, 'block': bytes(block)}
+
+
+def at_terminal(a):
+    """The arrival at a save terminal: 00159B90's two copies before its save,
+    run as the original 00102948 in the reference interpreter over the
+    arrival RAM. Returns the arrival with that RAM and block, and refuses
+    when the copies wrote anything but the load pose or a pose other than
+    the player record's +0xA0 / +0xC0 quadwords, or when the pose is not a
+    placed player (the w lanes 1.0)."""
+    ee = EE(read_elf(), a['ram'], a['spad'])
+    for dst, src in POSE_COPIES:
+        ee.r[4], ee.r[5], ee.r[29], ee.r[31] = dst, src, STACK_TOP, RETURN
+        ee.run(QCOPY)
+    ram = bytes(ee.mem)
+    block = ram[BLOCK:BLOCK + SIZE]
+    lo, hi = BLOCK + POSE.start, BLOCK + POSE.stop
+    if len(ram) != len(a['ram']) or ram[:lo] != a['ram'][:lo] or ram[hi:] != a['ram'][hi:]:
+        raise Refused(f'{a["name"]}: the terminal\'s copies wrote outside the load pose')
+    if any(block[0x10 + 0x10 * k:0x20 + 0x10 * k] != a['ram'][src:src + 0x10]
+           for k, (_dst, src) in enumerate(POSE_COPIES)):
+        raise Refused(f'{a["name"]}: the load pose is not the player record\'s +0xA0 / +0xC0')
+    pos, rot = struct.unpack_from('<4f', block, 0x10), struct.unpack_from('<4f', block, 0x20)
+    if pos[3] != 1.0 or rot[3] != 1.0:
+        raise Refused(f'{a["name"]}: the player record at the arrival is not placed '
+                      f'(+0xAC {pos[3]}, +0xCC {rot[3]})')
+    return dict(a, ram=ram, block=bytes(block), arrival_block=a['block'], pose=(pos[:3], rot[:3]))
 
 
 def register(arrivals):
@@ -215,7 +255,7 @@ def load(root, files, name):
 def setup(names, points=None):
     """Every requested arrival (refusing before anything runs), then the
     save harness over them. Returns the arrivals."""
-    arrivals = [arrival(n, points) for n in names]
+    arrivals = [at_terminal(arrival(n, points)) for n in names]
     MH.LIB = MH.build_lib()
     register(arrivals)
     S.setup()
@@ -259,6 +299,8 @@ def manifest(a, files):
         'route_beat': a['beat'],
         'ee_sha256': a['ee_sha256'],
         'block_head': a['block'][:16].hex(),
+        'load_pose': {'position': list(a['pose'][0]), 'rotation': list(a['pose'][1]),
+                      'by': "00159B90's two copies 00102948 at the arrival frame (the save terminal's step)"},
         'card': {'port': PORT, 'slot': SLOT, 'folder': 'slot%d' % (PORT + 1)},
         'files': {k: sha256(v) for k, v in sorted(files.items())},
     }

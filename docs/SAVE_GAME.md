@@ -21,8 +21,8 @@ instruction of the original is reproduced here.
 | LOAD GAME after the read: the options | 0022A650's r == 2 (001AEBA0, 001AF150, 001D2610, D_00275BE0 = 1, the game task to 3 / 5) | not bound: 001D2610 fail-stops | - |
 | The host card | em_memcard: GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
 | The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
-| Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
-| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8); the start-point saves' load pose is zero (section 6.3) | - |
+| Start-point saves | the save terminal's pose step (00159B90's two copies 00102948) and the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6; the load pose since save2 round 4) | test-start-saves, dmg_load_game |
+| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
 
 Next steps: section 8.
 
@@ -644,12 +644,12 @@ port runs it (save2 round 3):
 The load pose is what the terminal's 00159B90 copies there from the
 player's +0xA0 / +0xC0 when its Use (00157CE0) returns nonzero, just before
 a save; every save the original makes holds the pose at a save terminal.
-**The start-point saves of section 7 hold a zero load pose**: their
-arrival blocks were never at a terminal (D_00810710..72F are 0 in all
-three), so the original code loading one places the player at (0, 0, 0)
-with heading 0, not at the arrival (AREA01 entry 4's record places at
-(41.0, 0, -565.6), heading -1.43411). `EM_START_AT` needs that resolved
-first (section 8).
+The arrival blocks the start-point saves of section 7 are made from were
+never at a terminal (D_00810710..72F are 0 in all three); loaded as they
+were, the original code placed the player at (0, 0, 0) with heading 0, not
+at the arrival. Since save2 round 4 the builder runs the terminal's own
+step over the arrival frame before the save (section 7), so each card's
+load pose is the player's pose at its arrival.
 
 The side run **dmg_load_game** (`make test-level-smoke-damage`,
 em_level_smoke_test.c, checked by tools/level_smoke_damage.py
@@ -666,11 +666,20 @@ the game task after the handoff 0 -> 2 -> 3 / 5 -> 3 / 1 (never 1 or 3 / 0);
 the area bytes after the handoff equal the slot's every tick; the settings
 after 001AF150 equal the slot's; the placement equals the slot's load pose
 and health; control in the loaded area; the card folder unchanged by the
-load. Run 2026-10-21: PASS (AREA01 01 00 04, placed at (0, 0, 0) heading
-0, health 100; about 7 minutes alone). Mutants: the pose not passed
-(D_00275BE0 0 to the placement) places at entry 4's record (41.0, 0,
--565.6) and fails the placement check. Equivalent on this card: a skipped
-001AF150 (the card's settings are the defaults the run already has).
+load. Run 2026-10-21 on the round-3 card (zero load pose): PASS (AREA01
+01 00 04, placed at (0, 0, 0) heading 0, health 100; about 7 minutes
+alone); the mutant D_00275BE0 0 to the placement placed at entry 4's
+record and failed. Run 2026-10-21 on the
+round-4 card (the arrival's pose, section 7): PASS (AREA01 01 00 04, placed
+at (41.0, 0.0, -565.6) heading -1.43411, health 100). Mutants: the load
+pose not passed to em_spawn_001B07C0 (the binding's two copies dropped)
+places at (0, 0, 0) and fails the placement check. Not rerun on this card:
+D_00275BE0 0 to the placement, which would place at entry 4's record, the
+same pose with walk-out byte 0, so the placement check cannot see it (its
+other effect, the New Game weapon fixtures, is not checked by this run;
+test-spawn-place-reference covers both arms of 001B07C0). Equivalent: a
+skipped 001AF150 (the card's settings are the defaults the run already
+has).
 
 ## 7. Start-point saves (round 6)
 
@@ -695,6 +704,29 @@ when a check fails):
   own `snapshot.json` records, the block's byte +0 must be the area the name
   says, and the block's bytes +0..+3 must equal the first beat's first
   trace row (`area4`).
+- The load pose (save2 round 4, a tool choice like the arrival frame): the
+  save terminal's step before its save, 00159B90 state 1 / sub-state 0
+  when its Use 00157CE0 answers nonzero, run as the original's own two
+  quadword copies 00102948 in the reference interpreter over the arrival
+  RAM: the player record's position +0xA0 (D_00810350) into D_00810710 and
+  its rotation +0xC0 (D_00810370) into D_00810720. The builder refuses when
+  the copies change any other byte, when the pose is not those two
+  quadwords, or when the player is not placed (+0xAC or +0xCC not 1.0).
+  The block saved is the arrival's with that pose; a loaded card then
+  places the player where the arrival frame has him, as a save made at a
+  terminal places him at the terminal (001B07C0 with D_00275BE0 == 1, section
+  6.3), standing (001B07C0 forces +0xE = 0). The poses:
+
+  | Name | Position (D_00810710..718) | Heading (D_00810724) | The area's spawn record (D_0024D650) |
+  |---|---|---|---|
+  | `area01` | (41.0, 0.0, -565.6) | -1.43411 | entry 4: the same, walk-out byte 0 |
+  | `area00` | (-40.347, -35.0, -1340.620) | -2.09440 | room 0 entry 0: (-40, -35, -1290), heading pi, walk-out 1 |
+  | `area01-revisit` | (-40.0, -35.0, -1261.887) | 0.0 | room 0 entry 0: (-40, -35, -1275), heading 0, walk-out 1 |
+
+  For `area00` and `area01-revisit` the arrival frame is after the area
+  entry's walk-out (the route's first rows already steer from there), so
+  the card starts the player where that recording's control begins, not
+  at the spawn record.
 - The save: 00228A90 frame by frame from its first call over that RAM and
   scratchpad (chosen slot 0, port 0, a card without the game's directory),
   test_memcard_host's `save_both`: the original in the reference interpreter
@@ -712,8 +744,9 @@ when a check fails):
   per start point). Only slot 0 is listed, with its record (bytes 0..5, 0xA
   and the word at 0x50); after the read D_00810700 holds the slot's 0x640
   bytes.
-- The slot is the arrival's block with +0xF = 1 and the check byte +0x63F
-  that makes all 0x640 bytes sum to zero; no other byte differs.
+- The slot is the arrival's block with the load pose above, +0xF = 1 and
+  the check byte +0x63F that makes all 0x640 bytes sum to zero; no other
+  byte differs. `start.json` records the pose (`load_pose`).
 
 Output, a host card root em_memcard can serve: `slot1/BASCUS-97112-DS00-00/`
 (the eight files of section 2, the save in `EX_DATA.00`), an empty `slot2/`,
@@ -724,36 +757,34 @@ refused.
 
 What this is and is not. The original saves only at a save terminal
 (00225AC0(1), docs/OPTIONS.md section 7). A start-point save holds what the
-writer's code makes of the block at the arrival frame, a frame the tool
-chooses; it is not a save the original made. Loading one through the
-title's LOAD GAME enters its area (section 6.3, the side run
-dmg_load_game on the area01 card), but at the zero load pose these blocks
-hold, not at the recorded arrival: that has to be settled before
-`EM_START_AT` (section 8).
+terminal's pose step and the writer's code make of the block at the
+arrival frame, a frame the tool chooses; it is not a save the original
+made, and the original never saves at these places. Loading one through
+the title's LOAD GAME enters its area at the arrival's pose (section 6.3,
+the side run dmg_load_game on the area01 card).
 
 `make test-start-saves` (`tools/test_start_saves.py`) builds all three into
 a temporary folder and checks each card again from the recording files
 alone (the slot from the arrival's `eeMemory.bin`, the four New Game slots
 one block with +0xF = 0 and the area bytes zero, `start.json`'s hashes, the
-three slots distinct); negative controls: a slot byte flipped and EX.ico
-removed make the original enumeration refuse the card (3); an unknown name,
-a wrong area byte, a missing recording and a manifest without the beat are
-refused before anything runs; a card folder with a foreign file or a
+three slots distinct; the slot's load pose the arrival's player record
++0xA0 / +0xC0 quadwords, also in `start.json`); negative controls: a slot
+byte flipped and EX.ico removed make the original enumeration refuse the
+card (3); an unknown name, a wrong area byte, a missing recording, a
+manifest without the beat and an arrival whose player record is not placed
+are refused before anything runs; a card folder with a foreign file or a
 symlink is refused, a second write changes nothing and a changed file is
 rewritten. An existing `build/start_saves/<name>` must equal the fresh build
-(a stale card fails). Run 2026-10-20: PASS, 2.8 s warm (6.3 s when it builds
-its libraries). Mutants (the writer's
-bytes reduced to +0xF, the listed slot, the restored block, the area check
-dropped): all fail it; the record's byte 0xA read as 0xB survives, since
-both are 0 in every arrival block.
+(a stale card fails). Run 2026-10-21 (save2 round 4): PASS, 5.3 s. Mutants
+(the writer's bytes reduced to +0xF, the listed slot, the restored block,
+the area check dropped; round 4: the terminal's pose step skipped): all
+fail it; the record's byte 0xA read as 0xB survives, since both are 0 in
+every arrival block.
 
 ## 8. Next steps
 
-In order (the title's loaded game is done, section 6.3): the start-point
-saves' load pose (section 6.3: zero in all three; a decision is needed on
-what the builder writes there, for example 00159B90's copy of the arrival
-frame's +0xA0 / +0xC0, the terminal's own step, as a documented tool
-choice like the arrival frame itself); 0022A650's r == 2 (001D2610,
+In order (the title's loaded game is done, section 6.3; the start-point
+saves' load pose, section 7, since save2 round 4): 0022A650's r == 2 (001D2610,
 unbound); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
 em_memcard on `build/start_saves/<name>` and the title's LOAD GAME on slot
 0 of port 0 (at the boot's title, which has no AREA11 binding for the load
