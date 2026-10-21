@@ -14,6 +14,59 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20, iteration 10 (port main b804f8c plus AREA00's switch movie):
+the C side plays a00_08's movie and stops three frames after it, at the
+area script host's op 0x11.** Not a capture pass.
+
+- **`\MOVIE\E006S1.PSS`, selector 2** (the ELF's name table
+  D_00264FB0[2], read locally: E900 / E001 / E006S1 / E007 at entries
+  0..3). Exported from the user's disc with `tools/export_movie.py
+  --disc-path /MOVIE/E006S1.PSS --out assets/movies/e006s1.mov` (STARTUP.md
+  step 70; ignored, never committed): 741 pictures 640 x 480, 24.7 s of
+  video, 27.7 s of 48 kHz PCM. `em_frontend.c`'s `k_movies[2]` names it.
+- **Its field-clock facts, measured on the fork** (decomp
+  `build/fork_refs/probes_1020_e006s1/`, its `tools/probe_e006s1.py` and
+  `analyze_e006s1.py`; hidden, run-locked, the a00_08 beat replayed from
+  a00_07's end state with the recorded inputs and pad correction, all 363
+  replayed rows equal to the recording): 741 field-0 / field-1 send pairs,
+  none repeated; the first wait's field 0; 002036E0's entry at vblank 359,
+  the gate at 372; the last regular field-1 send 1,851; the feed loop's end
+  1,976 (`feed_end` 1,604); the 2 held pictures sent from 1,978 after a
+  127-vblank stall (D_007A55F8 125); the play loop's end 1,981; the closing
+  waits on fields 0 and 1 (1,982 / 1,983). `k_movies[2]` = {741, 2, 1604};
+  `tests/movie_field_test.c` reproduces every one of those offsets from the
+  gate (`make test-movie-field`, which also decodes the export's 741
+  pictures in order).
+- **The level smoke skips it** after 2 s (the frontend's test skip, 63
+  pictures, as for E900 and E001; the fork recording played it whole). The
+  game sees one main-loop step either way: a00_08 rows 356 -> 357 and the
+  rows after it compare exact.
+- **The stop: op 0x11 (`001B7700`, NEARMISS decomp C) at a00_08 frame
+  12515**, "001BA1F0 of 00825920 faulted at 0024D8C4 (record 0082A600)":
+  the dispatch read of `ftab_0024D880[0x11]`; `em_area_script.c`'s
+  `execute` has no case for it. Its translation `em_area00_low_001B7700`
+  and the AREA01 / AREA00 script worker for it already exist (the binding
+  admits `001B7700`). Record 0082A600 (a00_07's end snapshot): mode word 2,
+  byte +0x14 = 1, so the command sets D_008106CE = 2, D_008106CF = 0x81 and
+  D_00275BD8 = 1, then waits for D_00275BD8 == 0. The game task's
+  classifier `001AE7E0` (byte-matched) then returns 3 and the frame machine
+  enters state 6 (`em_scene_frame.c`, the unported arm): `001FF030(0x81)`
+  (em_area00_low's checked translation: D_00810730[area] = 0x81,
+  D_00810701 = 1, D_00275BD8 = 1, then 001FF080(0, 0x1D)). The recording
+  shows the result: the area bytes become 00 / 01 at a00_08 row 363
+  (counter 40082), six rows after the movie, AREA00 sub 1. Next unit: the
+  op 0x11 dispatch, state 6's `w_001FF030` / `w_001FEFE0` and the sub-1
+  load they start (module 0x1D through the loader task).
+
+Windowed against route_a00 (owners included), the counts before the movie
+are unchanged from iteration 9 (a00_00 242/363 .. a00_05 655/1,160) and
+a00_08 now compares 360 rows (to the stop); ignoring `lock_r54` and
+`progress`, a00_00..a00_03 and a00_05..a00_08 are exact row for row and
+a00_04 differs only in the shake rows 1546..1553. The first-level smokes'
+tick, RNG and present logs equal port main b804f8c's (sha256 2866e0de... /
+f8a37cb8... full, d2cb9bed... / 2fa87dc2... drive switch); newgame-control
+9.599849. Receipts in ignored `build/frontier2_i10_20261020/`.
+
 **2026-10-20, iteration 9 (port main e88dc26 plus the workers a00_05 ..
 a00_07 reach): the C side plays a00_05, a00_06 and a00_07 and aligns
 a00_08; the stop moved to a00_08's movie.** Not a capture pass. In the

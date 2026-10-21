@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static int check_movie(const char *path, uint32_t pictures)
 {
@@ -124,6 +125,13 @@ int main(int argc, const char **argv)
         const char *e900 = argc > 1 ? argv[1] : "assets/startup/intro.mov";
         const char *e001 = argc > 2 ? argv[2] : "assets/movies/e001.mov";
         int bad = check_movie(e900, 4761) | check_movie(e001, 2305);
+        /* E006S1 (selector 2, AREA00's switch movie, a00_08): checked when
+         * exported (STARTUP.md step 70); only the AREA00 route reads it. */
+        const char *e006s1 = argc > 3 ? argv[3] : "assets/movies/e006s1.mov";
+        if (access(e006s1, R_OK) == 0)
+            bad |= check_movie(e006s1, 741);
+        else
+            printf("movie decode: %s not exported (AREA00 only): skipped\n", e006s1);
         printf("movie decode: %s\n", bad ? "FAIL" : "PASS");
         return bad;
     }

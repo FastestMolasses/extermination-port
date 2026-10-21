@@ -2095,6 +2095,17 @@ is exact apart from two observations: the padlock [54]'s slot
 differing row. The first-level smokes' tick, RNG and present logs are
 byte-identical to port main e88dc26's and a01_arrival..a01_07 pass
 (receipts in ignored `build/frontier2_i9_20261020_122303/`).
+Since AREA00's switch movie (2026-10-20, iteration 10; LEVEL3_BINDING.md
+"Current state": selector 2 `\MOVIE\E006S1.PSS` exported, STARTUP.md step
+70, with its field-clock facts measured on the fork) `--run --until a00_10`
+plays a00_08's movie (skipped after 2 s by the frontend's test skip, as E900
+and E001 are) and fault-stops three frames later, at frame 12515, on the
+area script host's op 0x11 (`001B7700`, not dispatched; behind it the frame
+machine's state 6, `001FF030(0x81)`, AREA00's sub-1 load). Windowed,
+a00_08's 360 compared rows are exact apart from `lock_r54` and `progress`.
+The capture check still stops at the arrival's first differing row. The
+first-level smokes' tick, RNG and present logs are byte-identical to port
+main b804f8c's (receipts in ignored `build/frontier2_i10_20261020/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

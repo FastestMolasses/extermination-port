@@ -2000,7 +2000,15 @@ out of the decoder only after 00206BF0 pushes its 4 bytes). They are the
 fork's measurements, not derived: decomp `build/fork_refs/probes_1016/
 movie_end/canon` and `d4` (E001: gate 458 / 5189 and 457 / 5188, the feed
 loop's end 4,731 vblanks after the gate in both) and `newgame/d0` (E900:
-gate 289, end 9,907: 9,618). Why they depend on neither the disc nor the
+gate 289, end 9,907: 9,618). AREA00's switch movie E006S1 (selector 2,
+2026-10-20): decomp `build/fork_refs/probes_1020_e006s1/a00_08`, the
+recorded route_a00 beat a00_08 replayed from its source state with the same
+probes (its 363 rows equal to the recording's): 741 field-0 / field-1
+pairs, none repeated; the gate 372 (002036E0's entry 359, the first wait's
+field 0), the feed loop's end 1,976 (`feed_end` 1,604), the last regular
+field-1 send 1,851, the 2 held pictures sent from 1,978 (a 127-vblank stall,
+D_007A55F8 125), the play loop's end 1,981 and the closing waits' fields 0
+and 1 (1,982, 1,983); `tests/movie_field_test.c` holds all of them. Why they depend on neither the disc nor the
 IPU: the feed loop's last bytes are the trailing sound, which the IOP's
 rings take only as the SPU2 plays it at 48 kHz (the same at host speed),
 and the count starts at the gate, after the opening's set-up, so the disc

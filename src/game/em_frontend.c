@@ -148,15 +148,19 @@ static void draw_texture(unsigned w, unsigned h)
  * (the intro, the title's attract movie and the New Game's 001AD360 step 1),
  * selector 1 \MOVIE\E001.PSS (the departure movie of Roger's script
  * 0x828A10, op0F; the exit capture's D_00821010[1] is E001.PSS's extent,
- * docs/FIRST_LEVEL_EXIT.md). The port decodes the remux of each file
- * (tools/export_movie.py); the other seven selectors are not on the first
- * level's path and are not exported (a request for one fails).
+ * docs/FIRST_LEVEL_EXIT.md), selector 2 \MOVIE\E006S1.PSS (AREA00's switch
+ * movie: the area script host's op 0x0F for the owner 00825920 at route_a00
+ * a00_08; docs/LEVEL3_BINDING.md). The port decodes the remux of each file
+ * (tools/export_movie.py); the other six selectors are not on the route
+ * played so far and are not exported (a request for one fails).
  * Each movie's field-clock facts (em_movie_field.h; GS_EXACT.md 10.4): its
  * pictures (the fork's sends: 4,761 pairs in the New Game movie, 2,305 in
  * E001), the two held pictures (the stream's last coded picture and the
  * reference before it: P8 / P9 of E001's last GOP, B4 / P5 of E900's) and
  * the feed loop's end after the gate (fork New Game run d0: gate 289, end
- * 9907; E001 canon: 458 / 5189, d4: 457 / 5188). */
+ * 9907; E001 canon: 458 / 5189, d4: 457 / 5188; E006S1, decomp
+ * build/fork_refs/probes_1020_e006s1/a00_08: 741 pairs, the last 2 sent
+ * after the feed loop's end and a 127-vblank stall, gate 372, end 1976). */
 static const struct {
     const char *path;
     const char *name;
@@ -164,6 +168,7 @@ static const struct {
 } k_movies[] = {
     {"assets/startup/intro.mov", "E900.PSS", {4761, 2, 9618}},   /* 0: \MOVIE\E900.PSS */
     {"assets/movies/e001.mov", "E001.PSS", {2305, 2, 4731}},     /* 1: \MOVIE\E001.PSS */
+    {"assets/movies/e006s1.mov", "E006S1.PSS", {741, 2, 1604}},  /* 2: \MOVIE\E006S1.PSS */
 };
 
 static void begin_movie(uint32_t serial, int new_game, unsigned selector)

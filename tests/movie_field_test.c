@@ -147,6 +147,27 @@ int main(void)
         printf("movie field: E900: %u steps, gate %u, end %u, P field %d, stall %u\n", r.steps, r.gate, r.end,
                r.final_field, r.no_picture);
     }
+    /* E006S1.PSS (selector 2, AREA00's switch movie at route_a00 a00_08),
+     * the fork's replay of the recorded beat (decomp
+     * build/fork_refs/probes_1020_e006s1/a00_08, every replayed row equal to
+     * the recording): the first wait's field 0, gate 372 (002036E0's entry 359), first
+     * send 374, last regular field-1 send 1851, the feed loop's end 1976,
+     * the held field-0 send 1978 (a 127-vblank stall; D_007A55F8 125), the
+     * play loop's end 1981 and the closing waits' fields 0, 1 (1982, 1983). */
+    const EmMovieFieldConfig e006s1 = {741, 2, 1604};
+    {
+        Run r = run(e006s1, 0, 0);
+        CHECK(r.gate == 2, "E006S1 gate %u", r.gate);
+        CHECK(r.order_ok && r.sends[0] == 741 && r.sends[1] == 741, "E006S1 pictures %u/%u", r.sends[0], r.sends[1]);
+        CHECK(r.regular_last_f1 == r.gate + 1479, "E006S1 last regular %u (gate %u)", r.regular_last_f1, r.gate);
+        CHECK(r.held_first_f0 == r.gate + 1606 && r.held_first_f0 - r.regular_last_f1 == 127,
+              "E006S1 held send %u gap %u", r.held_first_f0, r.held_first_f0 - r.regular_last_f1);
+        CHECK(r.no_picture == 125, "E006S1 no-picture vblanks %u (D_007A55F8)", r.no_picture);
+        CHECK(r.end == r.gate + 1609 && r.steps == r.end + 3 && r.final_field == 1, "E006S1 end %u", r.end);
+        CHECK(r.tail_ok && r.shown_last == 740, "E006S1 tail shows picture %u", r.shown_last);
+        printf("movie field: E006S1: %u steps, gate %u, end %u, P field %d, stall %u\n", r.steps, r.gate, r.end,
+               r.final_field, r.no_picture);
+    }
     /* The skip: START held from the first vblank (EM_NEW_GAME=1, the
      * replay). 002036E0 honours it once the decoder's count is 11, which
      * happens when picture 8's field-1 send frees a slot (picture 10
