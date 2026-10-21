@@ -1925,8 +1925,10 @@ layout.
   slots listed with their places and play times, the cursor and the
   confirmation and LOAD GAME through its read of the slot into the
   progress block (one storage since save2 round 2), the done message and
-  the fade; the game then stops where the loaded game would begin (the
-  title's handoff of a loaded game, the options' 001D2610).
+  the fade; on the title the loaded game then begins (save2 round 3,
+  `SAVE_GAME.md` section 6.3: 001AF150, the game task with D_00275BE0 = 1,
+  the block's area loaded and the player placed at the slot's load pose);
+  from the options it stops at 001D2610.
 - Evidence: `make test-options-reference`: the original routines executed
   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
@@ -1951,8 +1953,10 @@ layout.
   screen position moves the picture since 2026-10-09 (the entry "Each field
   shown at its interlaced height"), in the direction the register meaning
   gives, which no recording shows; choosing a memory-card slot is checked
-  against the original code only (no recording chooses one); loading stops
-  after the card screen's result 2 (the loaded game's entry is not bound);
+  against the original code only (no recording chooses one); a loaded game
+  from the title (the side run dmg_load_game) is checked against the
+  original code's own steps only (no recording loads a game), and from the
+  options loading stops at 001D2610;
   saving (the first level has no save point) and
   quitting with Yes are not recorded and stop the game or are untested; the
   host card's format word (1) follows the code's test, its free count is

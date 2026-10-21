@@ -397,8 +397,8 @@ static int boot_resources(void)
  * the card screen's module 0x2A in the status pages' GS memory, the card
  * I/O em_memcard): 1 (the screen's exit) goes back to the menu, 2 (a game
  * loaded: 00227300's LOAD GAME read the slot into D_00810700, the whole
- * block one storage) hands off to 001AC070 state 4 with id 1, which
- * fail-stops (the load-game service, docs/SAVE_GAME.md section 6.1). The
+ * block one storage) runs 001AF150 and hands off to 001AC070 state 4 with
+ * id 1, the game task for a loaded game (docs/SAVE_GAME.md section 6.3). The
  * boot's title has no AREA11 binding yet: the
  * load entry there faults (no recording; the first level reaches the load
  * screen from the title after a death, decomp CAPTURES_C10.md dmg_05). */
@@ -452,6 +452,13 @@ static void load_frame(void)
         return;
     }
     f.load_drawn = 1;
+    if (r == 2 && em_options_live_001AF150(options, &frame) < 0) {
+        /* 001AC070 state 5's r == 2: 001AF150 (the settings, the button
+         * masks and the screen offset back from the block just read), then
+         * D_00275BE0 = 1 (already 1 since state 2) and state 4. */
+        fail("001AF150 (the settings from the loaded block) faulted");
+        return;
+    }
     if (r != 0) {
         const uint32_t serial = f.load_serial;
         f.load_serial = 0;
@@ -512,11 +519,16 @@ static void notify(void *unused, const EmStartupEvent *event)
         return;
     case EM_STARTUP_NEW_GAME:
         /* 001AC070 state 4: 001AB790(001ACEC0) replaces slot 0 with the game
-         * task; id 1 (a loaded game, D_00275BE0 = 1) needs the unported
-         * load-game service. The intro movie is requested later by the
-         * chain itself, at 001AD360 step 1 (em_frontend_movie_request). */
+         * task; id 1 is a loaded game (D_00275BE0 = 1). The intro movie of
+         * a New Game is requested later by the chain itself, at 001AD360
+         * step 1 (em_frontend_movie_request). */
         if (event->id != 0) {
-            fail("NEW_GAME handoff for a loaded game (load-game service not ported)");
+            /* A loaded game (state 5's 00225AC0(0) returned 2): the same
+             * 001AB790(001ACEC0) with D_00275BE0 = 1, whose chain enters the
+             * block's area (em_game_reinstall_loaded_001AC070). The load
+             * screen runs only on the title after a death (load_begin). */
+            if (!f.reinstalled || em_game_reinstall_loaded_001AC070() != 0)
+                fail("001AC070 state 4: the game task for a loaded game");
             return;
         }
         /* After a death the same handoff replaces this task with the game
@@ -716,6 +728,12 @@ void em_frontend_install(void)
     f.installed = 1;
     f.capture_dir = getenv("EM_STARTUP_CAPTURE_DIR");
     f.test = getenv("EM_STARTUP_TEST");
+    /* Test input only (EM_STARTUP_TEST runs): the host card folder for the
+     * whole run, set before the boot's card check (the level smoke's
+     * dmg_load_game loads a copy of a start-point card). */
+    const char *card = f.test ? getenv("EM_TEST_MEMCARD_ROOT") : NULL;
+    if (card && card[0])
+        em_memcard_set_root(card);
     const char *wait = f.test ? getenv("EM_STARTUP_MENU_WAIT") : NULL;
     f.menu_wait = wait ? (unsigned)strtoul(wait, NULL, 10) : 0;
     if (f.menu_wait > 14)

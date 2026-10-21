@@ -2707,9 +2707,11 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     held ends there without 00182DF0
  *                     (player_pose_takeover_restated)
  * arg0 is 0 in state 0 and 1 in state 4 (S12b, "the room move" below); any
- * other pairing is refused (fault), as is D_00275BE0 == 1 (the load-game
- * pose D_00810710..72F now has canonical storage for terminal 00159B90's
- * copies, but the load-game reader in 0x1AE040 state 2 remains unported).
+ * other pairing is refused (fault), as is D_00275BE0 == 1 with arg0 1
+ * (001B0460 clears the flag at the state-0 placement). A loaded game (the
+ * title's LOAD GAME, D_00275BE0 == 1 at state 0) is placed from the load
+ * pose D_00810710..72F, the block's words the slot read brought (terminal
+ * 00159B90's copies), and 001B0460 clears D_00275BE0.
  * After the state-0 placement the port's
  * placement-dependent fixtures run (em_game_legacy_state0_fixtures).
  * A scene without an original roster keeps its manifest spawn (001AFCA0). */
@@ -2875,7 +2877,7 @@ static int w_001B07C0(void *ctx, int a0)
     if (!world_scene())
         return unmirrored(UM_001B07C0_LEGACY_WORLD);
     if (a0 != (s_entry_state == 4 ? 1 : 0) || (s_entry_state != 0 && s_entry_state != 4) ||
-        s_state.d275BE0 == 1)
+        (s_state.d275BE0 == 1 && a0 != 0))
         return -1;
     if (!s_spawn_table_loaded) {
         if (em_spawn_table_load(&s_spawn_table, EM_SPAWN_TABLE_PATH) != 0) {
@@ -2896,6 +2898,15 @@ static int w_001B07C0(void *ctx, int a0)
     io.d810701 = s_state.d810701;
     io.d810702 = s_state.d810702;
     io.d275BE0 = s_state.d275BE0;
+    /* The load pose (a loaded game, D_00275BE0 == 1): the block's
+     * D_00810710..718 and D_00810720..728, which LOAD GAME's read brought
+     * from the slot (00159B90 copies the player's +0xA0 / +0xC0 there). */
+    const uint8_t *pose = em_scene_progress_at(&s_state, 0x00810710u, 0x1C);
+    if (!pose)
+        return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
+    memcpy(io.d810710, pose, sizeof io.d810710);
+    memcpy(io.d810720, pose + 0x10, sizeof io.d810720);
+    const int loaded = io.d275BE0 == 1;
     uint8_t *e706 = em_scene_progress_at(&s_state, 0x00810706u, 1);
     if (!e706 || !e707)
         return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
@@ -2932,8 +2943,10 @@ static int w_001B07C0(void *ctx, int a0)
     *e706 = io.d810706;   /* 001B07C0: D_00810706 &= 1 */
     if (a0 == 0) {
         /* The port's New Game fixtures (the weapon context); the level
-         * exit's arrival keeps AREA11's state, as the original does. */
-        if (!arrival_scene())
+         * exit's arrival keeps AREA11's state, as the original does, and so
+         * does a loaded game (its weapon bytes C61 / C62 / CB4 / D3C are
+         * the block's). */
+        if (!arrival_scene() && !loaded)
             em_game_legacy_state0_fixtures();
         return 0;
     }

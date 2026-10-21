@@ -24,7 +24,7 @@ original's; no instruction of the original is reproduced here.
 | Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1) and LOAD GAME through its read into the progress block (one storage since save2 round 2) to the result 2; r == 2 then faults at 001D2610 (not bound) | test-options-reference; opt_07; test-options-card-live |
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
-| The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
+| The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick, its r == 2: 001AF150 and state 4's loaded game | live (section 4.3; the loaded game: SAVE_GAME.md section 6.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load, dmg_load_game |
 | Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated and dispatched, but its callers are not wired and its save mode stops at the free count, Format, the New Game block and the full-block Write (SAVE_GAME.md section 6.1) | decomp save_scan.json; test-save-reference |
 
 ## 2. Opening and closing
@@ -152,8 +152,10 @@ EM_STARTUP_LOAD_GAME request; em_frontend load_begin). State 5 then calls
 through the options binding the AREA11 interaction host keeps after the
 death; its draw stream is drawn over the title's black frame. The result 1
 (the screen's exit) completes the request in the same tick and the flow is
-back in state 2 (the menu loads again); 2 cannot occur yet (00227300's
-LOAD GAME fail-stops at its read of D_00810700, SAVE_GAME.md section 6.1). The title flow also does what 001AC070 does at every entry that the
+back in state 2 (the menu loads again); 2 (00227300's LOAD GAME read the
+slot into D_00810700) runs 001AF150 in that tick and the flow goes to state
+4, whose handoff of a loaded game (id 1) enters the slot's area
+(SAVE_GAME.md section 6.3; the side run dmg_load_game). The title flow also does what 001AC070 does at every entry that the
 screen reads: 0x70003B90 = 0 (the game task writes 2) and the pad words
 D_00810E74 / E70 / E50 from the frame's step C (em_frame_scene_input). The
 boot's title has no AREA11 world and no binding: LOAD GAME there fails the
@@ -241,8 +243,9 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   test-options-card-live, SAVE_GAME.md section 6.1) through LOAD GAME's
   read 00228B60 of the slot into the whole progress block D_00810700 (one
   storage since save2 round 2), the done message and the fade, to the
-  result 2; what follows the result (001D2610, the area entry) is not
-  bound.
+  result 2; on the title the loaded game then enters its area
+  (SAVE_GAME.md section 6.3); from the options, what follows the result
+  (001D2610) is not bound.
   002267A0 is dispatched but unreachable on the host card (it runs only
   when GetInfo stops reporting a PS2 card).
 - **The row text and the timeline clock** (open question): the slot rows'

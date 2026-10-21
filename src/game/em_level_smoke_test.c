@@ -322,6 +322,13 @@ static const Phase k_phases[] = {
      "the title after a death: Cross on LOAD GAME (001AC070 state 2's 00225A00, D_00275BE0 = 1), state 5's "
      "memory-card screen 00225AC0(0) (module 0x2A, the slot choice 00226070), Triangle back to the title menu",
      "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
+    {"dmg_load_game", "dmg_00_flame_hit .. dmg_03, dmg_05_load_screen's way in, then LOAD GAME of slot 1 "
+     "(side, from 11; no recording of a load)", 0x00225AC0u,
+     "the title after a death: LOAD GAME (001AC070 state 2's 00225A00, D_00275BE0 = 1), 00225AC0(0)'s load of "
+     "slot 1 on port 0 (00228B60 into D_00810700, 00227010, the fade, 00200970), state 5's 001AF150, state 4's "
+     "001AB790(001ACEC0) with D_00275BE0 = 1: 001ACEC0 state 2, 001ADF50 (the block's area), 0x1AE040 state 0's "
+     "001B07C0(0) from the load pose, control in the block's area",
+     "the save lane (docs/SAVE_GAME.md section 6.3)", dmg_begin, dmg_frame, 0, 1, 0, 0},
     {"dmg_crevice_fall", "dmg_06_crevice_fall (side, from 11; decomp CAPTURES_C10.md DAMAGE)", 0,
      "a walking jump short of the north block: the landing hit 0017C580 / 00163E90 (+6 = 3), 0021C350",
      "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
@@ -2975,7 +2982,7 @@ enum {
     DS_PRESS_CROSS_NEW_GAME, DS_UNTIL_FIRST_CONTROL, DS_WALK_PATH, DS_SETTLE, DS_FACE, DS_WALKING_JUMP,
     DS_UNTIL_LANDING_HAND_BACK, DS_GOTO, DS_UNTIL_TRUCK_DOWN, DS_WALK_OFF_TRUCK, DS_PRESS_CROSS_LOAD,
     DS_UNTIL_LOAD_SCREEN, DS_PRESS_TRIANGLE_LEAVE, DS_UNTIL_TITLE_PROMPT, DS_FALL_START_LAG, DS_FAN_ALIGN,
-    DS_FAN_REPLAY
+    DS_FAN_REPLAY, DS_LOAD_SLOT, DS_UNTIL_LOADED_CONTROL
 };
 typedef struct {
     int kind;
@@ -3020,6 +3027,30 @@ static const DmgStep k_dmg_load[] = {
     {DS_UNTIL_LOAD_SCREEN, 0, 0, 0, 0, "dmg_05: the load screen with the fade idle"}, DMG_IDLE(60),
     {DS_PRESS_TRIANGLE_LEAVE, 0, 0, 0, 0, "dmg_05: Triangle (the screen's exit)"},
     {DS_UNTIL_TITLE_PROMPT, 0, 0, 0, 0, "dmg_05: the title menu again"}, DMG_IDLE(30),
+    {DS_END, 0, 0, 0, 0, NULL}};
+/* dmg_load_game: dmg_load to the load screen, then LOAD GAME of slot 1
+ * (the card the run's EM_TEST_MEMCARD_ROOT names, tools/test_level_smoke_
+ * damage.py: a start-point card, docs/SAVE_GAME.md section 7) with the
+ * card screen's policy of tools/test_card_screen_reference.py (slot 0 on
+ * port 0, Yes), until state 5 is left with the result 2; then until
+ * control in the block's area (DS_UNTIL_LOADED_CONTROL), 60 ticks. No
+ * recording of a load exists: the run checks the chain's states and the
+ * placement from the block, not a capture. */
+static const DmgStep k_dmg_load_game[] = {
+    DMG_IDLE(35), {DS_HITS_TO, 95.0f, 0, 0, 0, "dmg_00: one flame contact"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_00: retreat"}, DMG_IDLE(30),
+    DMG_IDLE(35), {DS_HITS_TO, 35.0f, 0, 0, 0, "dmg_01: contacts to 35"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_01: retreat"}, DMG_IDLE(300),
+    DMG_IDLE(35), {DS_HITS_TO, 10.0f, 0, 0, 0, "dmg_02: contacts to 10"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_02: retreat"}, DMG_IDLE(150),
+    {DS_HITS_TO, 0.0f, 0, 0, 0, "dmg_02: contacts to 0"},
+    {DS_DEATH_TO_GAME_OVER, 0, 0, 0, 0, "dmg_02: death to the GAME OVER screen"},
+    {DS_UNTIL_TITLE, 0, 0, 0, 0, "dmg_03: the hold runs out; the title after a death"},
+    DMG_IDLE(30), DMG_IDLE(45), DMG_IDLE(5),
+    {DS_PRESS_CROSS_LOAD, 0, 0, 0, 0, "dmg_05: Cross (LOAD GAME)"},
+    {DS_UNTIL_LOAD_SCREEN, 0, 0, 0, 0, "dmg_05: the load screen with the fade idle"}, DMG_IDLE(60),
+    {DS_LOAD_SLOT, 0, 0, 0, 0, "load: slot 1 on port 0, Yes, to 00225AC0's result 2"},
+    {DS_UNTIL_LOADED_CONTROL, 0, 0, 0, 0, "load: control in the loaded area"}, DMG_IDLE(60),
     {DS_END, 0, 0, 0, 0, NULL}};
 static const float k_dmg_crevice_path[2][2] = {{485.0f, 275.0f}, {477.0f, 262.0f}};
 static const DmgStep k_dmg_crevice[] = {
@@ -3090,6 +3121,7 @@ static struct {
      * DS_FALL_START_LAG. */
     float lag[2][2];
     int frame;   /* dmg_fan: the recording row this tick is aligned to */
+    uint8_t mc[0x18];   /* DS_LOAD_SLOT: the card record D_00810040 at the last press */
 } D;
 
 static void dmg_begin(void)
@@ -3099,6 +3131,7 @@ static void dmg_begin(void)
     const char *name = k_phases[t.current].name;
     D.prog = strcmp(name, "dmg_flame") == 0 ? k_dmg_flame
              : strcmp(name, "dmg_load") == 0 ? k_dmg_load
+             : strcmp(name, "dmg_load_game") == 0 ? k_dmg_load_game
              : strcmp(name, "dmg_crevice_fall") == 0 ? k_dmg_crevice
              : strcmp(name, "dmg_fan") == 0 ? k_dmg_fan : k_dmg_pit;
 }
@@ -3281,6 +3314,91 @@ static int dmg_frame(void)
         em_frontend_title_state(&major, &sub);
         if (major == 5 && em_frame_transition()->substate == 0) return dmg_next();
         (void)dmg_timeout(600, "the load screen");
+        return 0;
+    }
+    case DS_LOAD_SLOT: {
+        /* test_card_screen_reference.policy (goal: slot 0, Yes) over the
+         * card record D_00810040, its game words as pad buttons
+         * (em_pad_swap). A press holds two ticks, then the policy waits
+         * until the record changes (30 ticks at most, 40 tries). Done when
+         * 001AC070 leaves state 5 (its r == 2 goes to state 4). */
+        unsigned major = 0, sub = 0;
+        em_frontend_title_state(&major, &sub);
+        const uint8_t *mc = em_scene_state()->d810040;
+        if (major != 5) {
+            if (D.hits == 0) { fail("the load screen ended before a press"); return 0; }
+            fprintf(stderr, "level smoke: %s: the load screen ends at counter %u (title state %u, card %u %u %u "
+                            "%u)\n", k_phases[t.current].name, em_frame_counter(), major, mc[0], mc[1], mc[0x15],
+                    mc[0x16]);
+            return dmg_next();
+        }
+        if (D.sub > 0 && D.sub < 3) {
+            ++D.sub;
+            if (D.sub == 3) pad_apply(0, 0, 0);
+            return 0;
+        }
+        if (D.sub == 3) {
+            pad_apply(0, 0, 0);
+            if (memcmp(D.mc, mc, sizeof D.mc) == 0 && ++D.ticks <= 30) return 0;
+            D.sub = D.ticks = 0;
+            return 0;
+        }
+        const uint8_t screen = mc[1], step = mc[2], st3 = mc[3], yes = mc[9], cur = mc[0xA];
+        uint16_t word = 0;
+        if (screen == 2) {
+            if (step == 0) word = cur > 0 ? 0x1000 : 0x40;
+            else if (step == 1 && st3 == 1) word = yes == 0 ? 0x8000 : 0x40;
+        } else if (screen == 4) {
+            if (step == 0) word = cur > 0 ? 0x1000 : 0x40;
+            else if (step == 1 && st3 == 1) word = 0x40;
+        }
+        pad_apply(0, 0, 0);
+        if (!word) return dmg_timeout(2000, "the load screen's load") < 0 ? 0 : 0;
+        if (++D.tries > 40) { fail("the load screen's presses had no effect"); return 0; }
+        fprintf(stderr, "level smoke: %s: press %04X at counter %u (card %u %u %u %u %u %u)\n",
+                k_phases[t.current].name, word, em_frame_counter(), mc[0], screen, step, st3, yes, cur);
+        memcpy(D.mc, mc, sizeof D.mc);
+        ++D.hits;
+        pad_apply(em_pad_swap(word), 0, 0);
+        D.sub = 1;
+        D.ticks = 0;
+        return 0;
+    }
+    case DS_UNTIL_LOADED_CONTROL: {
+        /* The loaded game: 001ACEC0 in slot 0 (the title menu gone), the
+         * frame machine in state 1 and control, in the area the card's
+         * block names (D.area, kept at the press of the load). */
+        pad_apply(0, 0, 0);
+        if (D.sub == 0) {
+            /* The handoff's tick: the block's area, D_00275BE0, and what
+             * 001AF150 restored from the block (D_00810118 / 119 / 11C,
+             * D_00810120 / 122 and the offset 0x70003B94 / 96). */
+            const EmSceneState *sc = em_scene_state();
+            int16_t h120, h122;
+            memcpy(&h120, sc->d810118 + 8, 2);
+            memcpy(&h122, sc->d810118 + 0xA, 2);
+            D.sub = 1;
+            fprintf(stderr, "level smoke: %s: the loaded block's area %02X %02X %02X, D_00275BE0 %u\n",
+                    k_phases[t.current].name, sc->d810700, sc->d810701, sc->d810702, sc->d275BE0);
+            fprintf(stderr, "level smoke: %s: the settings after 001AF150 %u %u %u %d %d offset %d %d\n",
+                    k_phases[t.current].name, sc->d810118[0], sc->d810118[1], sc->d810118[4], h120, h122,
+                    sc->spad3B94, sc->spad3B96);
+        }
+        if (D.sub == 1 && em_scene_state()->d275BE0 == 0 && task_byte(EM_SCENE_TASK_08) == 3 &&
+            task_byte(EM_SCENE_TASK_09) == 1) {
+            D.sub = 2;
+            fprintf(stderr, "level smoke: %s: placed at counter %u (%.3f,%.5f,%.3f) yaw=%.5f health=%.1f\n",
+                    k_phases[t.current].name, em_frame_counter(), g.pos[0], g.pos[1], g.pos[2], g.yaw,
+                    em_scene_state()->d810858);
+        }
+        if (D.sub == 2 && in_control() && em_live_u8(a, 4) == 1) {
+            fprintf(stderr, "level smoke: %s: control in the loaded area %02X at tick %u counter %u "
+                            "(%.3f,%.5f,%.3f) yaw=%.5f health=%.1f\n", k_phases[t.current].name,
+                    em_scene_state()->d810700, (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter(),
+                    g.pos[0], g.pos[1], g.pos[2], g.yaw, em_scene_state()->d810858);
+            return dmg_next();
+        }
+        (void)dmg_timeout(3000, "control in the loaded area");
         return 0;
     }
     case DS_UNTIL_TITLE_PROMPT:

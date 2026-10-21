@@ -17,11 +17,12 @@ instruction of the original is reproduced here.
 | The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original); wired into the options binding (section 6.1): live in load mode through LOAD GAME's read into the progress block (one storage since save2 round 2), the done message and the fade, to the result 2 | test-card-screen-reference, test-options-card-live |
 | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
 | The progress block as one storage | D_00810700..D_00810D3F, which 00228B60 reads into and a save's Write reads (section 6.1) | every byte one storage (em_scene_state.h; save2 round 2); 001AF2C0's effect on all 0x640 bytes | test-continue-reset-reference, test-options-card-live |
-| LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated: the title's handoff (001AC070 state 4, id 1) and the options' 001D2610 fail-stop | - |
+| LOAD GAME after the read: the title | 001AC070 state 5's r == 2 (001AF150, D_00275BE0 = 1), state 4's 001AB790(001ACEC0); 001ACEC0 state 0 / 2, 001ADF50 on the block's area, 0x1AE040 state 0's 001B07C0(0) from the load pose, 001B0460's clear (section 6.3) | wired (save2 round 3): the title's LOAD GAME after a death enters the slot's area | the side run dmg_load_game (`make test-level-smoke-damage`) |
+| LOAD GAME after the read: the options | 0022A650's r == 2 (001AEBA0, 001AF150, 001D2610, D_00275BE0 = 1, the game task to 3 / 5) | not bound: 001D2610 fail-stops | - |
 | The host card | em_memcard: GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
 | The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
 | Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
-| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
+| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8); the start-point saves' load pose is zero (section 6.3) | - |
 
 Next steps: section 8.
 
@@ -451,12 +452,10 @@ a card the enumeration refuses, and **LOAD GAME** to its end: 00228B60
 reads the slot's 0x640 bytes straight into the progress block D_00810700,
 then the done message 00227010 (45 frames), 00225AC0's fade-out
 001AEDE0(8, 0), its wait for the fade's end, the texture restore
-00200970(1) and its state 3, which returns 2 (a game loaded). Where loading
-then stops: on the title, 001AC070 state 5 hands the result to state 4,
-whose handoff of a loaded game (id 1, D_00275BE0 = 1) fail-stops in the
-frontend (the load-game service); in the options, 0022A650's r == 2 runs
-001AEBA0 and 001AF150 (the settings back from the block) and faults at
-001D2610 (not bound). Section 8 has the next step.
+00200970(1) and its state 3, which returns 2 (a game loaded). On the
+title the loaded game then begins (section 6.3); in the options, 0022A650's
+r == 2 runs 001AEBA0 and 001AF150 (the settings back from the block) and
+faults at 001D2610 (not bound). Section 8 has the next step.
 
 **The progress block is one storage** (save2 round 2). The read can store
 all 0x640 bytes because every byte of D_00810700..D_00810D3F now has one
@@ -604,6 +603,75 @@ words each frame):
   half-units at the confirmation's Yes or after a successful format
   (section 6), and neither was reached.
 
+### 6.3 A loaded game begins (the title)
+
+What the original does after the card screen's result 2 on the title,
+from the byte-matched C of 001AC070, 001ACEC0, 001AD1A0, 001ADF50, 001B07C0
+and 001B0460 and the NEARMISS C of the frame machine 0x1AE040, and how the
+port runs it (save2 round 3):
+
+- **001AC070 state 5, r == 2**: 001AF150 (the settings D_00810118 / 119 /
+  11C, D_00810120 / 122 and the screen offset 0x70003B94 / 96 back from the
+  block's D_00810708 / 709 / 70C / 754 / 756, then 001AF470's button
+  masks), D_00275BE0 = 1 (already 1 since state 2's load verdict), state 4.
+  The port: em_frontend's load_frame runs em_options_live_001AF150 over
+  the same frame on the result 2, then completes the load screen; the
+  title flow goes to state 4 in that tick.
+- **State 4** (the next tick): 001AB790(001ACEC0), the game task with a
+  cleared record. The port: the EM_STARTUP_NEW_GAME event with id 1 calls
+  em_game_reinstall_loaded_001AC070 (em_game.c): the task replaced as for
+  New Game, D_00275BE0 left 1, the port's stand-ins outside the route
+  cleared as for New Game, the opening not requested. The load screen runs
+  only on the title after a death (the boot's title faults at it: no
+  AREA11 binding), so the handoff refuses a cold title.
+- **001ACEC0**: state 0 runs 001AD1A0 (screen module 3, 001D19D0) and,
+  D_00275BE0 being 1, goes to state 2, which sets +8 = 3, +9 = 5: no
+  001AD230 (no 001AF2C0 reset: the block is the slot's) and no 001AD360 (no
+  intro movie, no AREA11 store into D_00810700). 001ADF50 (the area read,
+  the load veil) loads the area of the block's D_00810700 / 701, the way a
+  level exit's area move does; +9 = 1 then runs the frame machine.
+- **0x1AE040 state 0**: 001B07C0(0) with D_00275BE0 == 1 places the player
+  from the load pose: +0xA0 and +0xB0 = D_00810710..718, the rotation +0xC0
+  = D_00810720..728 (w = 1.0 each), +0xE forced 0 (no walk-out), the vitals
+  from the block; its 001B0460 clears D_00275BE0 to 0 (and the camera's
+  D_008101E6). The port's bindings (w_001B07C0) now pass the block's load
+  pose to em_spawn_001B07C0 (the one translation, test-spawn-place-reference)
+  instead of refusing D_00275BE0 == 1; arg0 1 with D_00275BE0 == 1 is still
+  refused (001B0460 cleared it at state 0). The port's New Game fixtures
+  (em_game_legacy_state0_fixtures: the weapon context reset) do not run
+  for a loaded placement: C61 / C62 / CB4 / D3C are the block's.
+
+The load pose is what the terminal's 00159B90 copies there from the
+player's +0xA0 / +0xC0 when its Use (00157CE0) returns nonzero, just before
+a save; every save the original makes holds the pose at a save terminal.
+**The start-point saves of section 7 hold a zero load pose**: their
+arrival blocks were never at a terminal (D_00810710..72F are 0 in all
+three), so the original code loading one places the player at (0, 0, 0)
+with heading 0, not at the arrival (AREA01 entry 4's record places at
+(41.0, 0, -565.6), heading -1.43411). `EM_START_AT` needs that resolved
+first (section 8).
+
+The side run **dmg_load_game** (`make test-level-smoke-damage`,
+em_level_smoke_test.c, checked by tools/level_smoke_damage.py
+check_dmg_load_game) plays dmg_load's way to the title after the death and
+its load screen, then LOAD GAME of slot 1 on port 0 with the card screen's
+policy of test_card_screen_reference (slot 0, Yes), on a copy of the
+area01 start-point card (build/level_smoke_damage/dmg_load_game_card, the
+run's EM_TEST_MEMCARD_ROOT, test input only), then until control in the
+loaded area and 60 ticks. No recording of a load exists, so it checks the
+original code's own steps: dmg_00..dmg_03 against the recordings as
+dmg_flame; the title rows (the load mode, the slot choice, the screen's end
+with +0 = 3 and the result 2, then one row of state 4 and none after it);
+the game task after the handoff 0 -> 2 -> 3 / 5 -> 3 / 1 (never 1 or 3 / 0);
+the area bytes after the handoff equal the slot's every tick; the settings
+after 001AF150 equal the slot's; the placement equals the slot's load pose
+and health; control in the loaded area; the card folder unchanged by the
+load. Run 2026-10-21: PASS (AREA01 01 00 04, placed at (0, 0, 0) heading
+0, health 100; about 7 minutes alone). Mutants: the pose not passed
+(D_00275BE0 0 to the placement) places at entry 4's record (41.0, 0,
+-565.6) and fails the placement check. Equivalent on this card: a skipped
+001AF150 (the card's settings are the defaults the run already has).
+
 ## 7. Start-point saves (round 6)
 
 What `EM_START_AT` is to load (not wired yet, section 8): one memory card
@@ -657,10 +725,11 @@ refused.
 What this is and is not. The original saves only at a save terminal
 (00225AC0(1), docs/OPTIONS.md section 7). A start-point save holds what the
 writer's code makes of the block at the arrival frame, a frame the tool
-chooses; it is not a save the original made. What LOAD GAME does after the
-read (the restore of the rest of the state and the area entry, section 1)
-is not translated, so whether loading one of these cards enters the area at
-the recorded arrival is not shown yet: that is `EM_START_AT`'s proof.
+chooses; it is not a save the original made. Loading one through the
+title's LOAD GAME enters its area (section 6.3, the side run
+dmg_load_game on the area01 card), but at the zero load pose these blocks
+hold, not at the recorded arrival: that has to be settled before
+`EM_START_AT` (section 8).
 
 `make test-start-saves` (`tools/test_start_saves.py`) builds all three into
 a temporary folder and checks each card again from the recording files
@@ -680,16 +749,15 @@ both are 0 in every arrival block.
 
 ## 8. Next steps
 
-In order (the progress block as one storage is done, section 6.1): what
-the card screen's callers do with its result 2 (001AC070's title load: the
-handoff of a loaded game, state 4 with id 1, today a frontend fail-stop;
-0022A650's r == 2: 001D2610, unbound; then the chain's restore and area
-entry from the loaded block; the port's New Game fixture
-em_game_legacy_state0_fixtures, whose em_weapon_reset re-seeds C61 / C62 /
-CB4 / D3C from the HUD's display copy at 001B07C0(0) in a scene that is not
-an arrival, must not undo a loaded block); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
+In order (the title's loaded game is done, section 6.3): the start-point
+saves' load pose (section 6.3: zero in all three; a decision is needed on
+what the builder writes there, for example 00159B90's copy of the arrival
+frame's +0xA0 / +0xC0, the terminal's own step, as a documented tool
+choice like the arrival frame itself); 0022A650's r == 2 (001D2610,
+unbound); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
 em_memcard on `build/start_saves/<name>` and the title's LOAD GAME on slot
-0 of port 0, off by default, refusing an unknown name or a card that is not
+0 of port 0 (at the boot's title, which has no AREA11 binding for the load
+screen yet), off by default, refusing an unknown name or a card that is not
 built; the save terminal's Yes path (0020CDC0, request 6) and the save
 mode's leaves (GetInfo's free count, Format 00114D18, 001AF2C0, block_copy
 00121870, the icon container *D_0028A4A0 as a window); a fork recording of
