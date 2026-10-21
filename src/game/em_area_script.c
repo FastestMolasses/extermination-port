@@ -1376,13 +1376,17 @@ static EmScriptCommandResult execute(void *context, EmScript *script, unsigned c
     case 0x05: if (o.k->handler) return external_handler(&o, 0x001B9CF0u); break;
     case 0x12: if (o.k->handler) return external_handler(&o, 0x001B76D0u); break;
     case 0x13: if (o.k->handler) return external_handler(&o, 0x001B7670u); break;
+    /* op 0x11, 001B7700 (NEARMISS decomp C): the sub-area request D_008106CE /
+     * D_008106CF (AREA00's switch, a00_08); em_area00_low's checked
+     * translation through the area binding's handler. */
+    case 0x11: if (o.k->handler) return external_handler(&o, 0x001B7700u); break;
     case 0x17: if (o.k->handler) return external_handler(&o, 0x001B6D70u); break;
     case 0x1A: if (o.k->handler) return external_handler(&o, 0x001B6AE0u); break;
     default: break;
     }
         /* Opcodes 03, 05, 08, 0E, 11..13, 17, 19, 1A: not used by the
          * AREA11 scripts this host admits (docs/AREA_SCRIPT.md); 03, 05,
-         * 0E, 12, 13, 17 and 1A run only through an area binding's handler
+         * 0E, 11, 12, 13, 17 and 1A run only through an area binding's handler
          * (the existing original-handler owners). */
     return fault(&o, 0x0024D880u + 4u * (u32(record, 0) & 0xFFF));
 }

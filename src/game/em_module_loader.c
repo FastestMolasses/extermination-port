@@ -230,6 +230,11 @@ struct EmModuleLoader {
     EmStatusSceneFault fault, io_fault;
     uint32_t dispatches, reads, unmeasured;
     int in_dispatch; /* the views are copied into `ld` while a dispatch runs */
+    /* the comparison-only drive replay (em_module_loader_set_drive_replay) */
+    EmModuleLoaderReplayRead *replay;
+    uint32_t replay_n, replay_served, replay_near, replay_missed;
+    EmModuleLoaderReplayCounter replay_counter;
+    void *replay_ctx;
 };
 
 static EmModuleLoader *s_live;
@@ -332,6 +337,47 @@ failed:
     return NULL;
 }
 
+/* The first sector of a measured-table / replay file id (0 for an id that
+ * names no file: no read starts there, the pack holds no sector 0). */
+static uint32_t file_base(const EmModuleLoader *ml, uint32_t f)
+{
+    return f == 0 ? ml->d28A480[0]
+           : f == 1 ? ml->d28A488[0]
+           : f - 0x10u < EM_STATUS_SCENE_AREA_FILES ? ml->d28A3C0[f - 0x10u][0]
+                                                    : 0u;
+}
+
+/* The comparison-only drive replay: 1 with *busy from the nearest unserved
+ * entry of this read within 2 counters of the recording's, else 0. */
+static int replay_take(EmModuleLoader *ml, uint32_t lsn, uint32_t sectors, uint32_t *busy)
+{
+    uint32_t now;
+    if (!ml->replay_n || !ml->replay_counter || ml->replay_counter(ml->replay_ctx, &now) != 1)
+        return 0;
+    EmModuleLoaderReplayRead *best = NULL;
+    uint32_t best_d = 3;
+    for (uint32_t i = 0; i < ml->replay_n; ++i) {
+        EmModuleLoaderReplayRead *e = &ml->replay[i];
+        if (e->served || e->sectors != sectors || file_base(ml, e->file) + e->sector != lsn)
+            continue;
+        const uint32_t d = e->counter > now ? e->counter - now : now - e->counter;
+        if (d < best_d) {
+            best = e;
+            best_d = d;
+        }
+    }
+    if (!best) {
+        ++ml->replay_missed;
+        return 0;
+    }
+    best->served = 1;
+    ++ml->replay_served;
+    if (best_d)
+        ++ml->replay_near;
+    *busy = best->busy;
+    return 1;
+}
+
 static int drive_ready(void *ctx, int32_t mode, int32_t *reply)
 {
     EmModuleLoader *ml = ctx;
@@ -363,12 +409,10 @@ static int drive_read(void *ctx, uint32_t lsn, uint32_t sectors, uint32_t buf,
     uint32_t busy = 0;
     if (ml->drive == EM_MODULE_LOADER_DRIVE_MEASURED) {
         int found = sectors == 0; /* a zero-sector read completes at its first poll */
+        if (!found && replay_take(ml, lsn, sectors, &busy))
+            found = 1;
         for (size_t i = 0; !found && i < sizeof MEASURED / sizeof MEASURED[0]; ++i) {
-            const uint32_t f = MEASURED[i].file;
-            const uint32_t base = f == 0 ? ml->d28A480[0]
-                                  : f == 1 ? ml->d28A488[0]
-                                  : f - 0x10u < EM_STATUS_SCENE_AREA_FILES ? ml->d28A3C0[f - 0x10u][0]
-                                                                           : 0u;
+            const uint32_t base = file_base(ml, MEASURED[i].file);
             if (base + MEASURED[i].sector == lsn && MEASURED[i].sectors == sectors) {
                 busy = MEASURED[i].busy;
                 found = 1;
@@ -746,6 +790,34 @@ int em_module_loader_set_drive(EmModuleLoader *ml, int mode)
         return -1;
     ml->drive = mode;
     return 0;
+}
+
+int em_module_loader_set_drive_replay(EmModuleLoader *ml, EmModuleLoaderReplayRead *reads, uint32_t n,
+                                      EmModuleLoaderReplayCounter counter, void *ctx)
+{
+    if (!ml || ml->drive != EM_MODULE_LOADER_DRIVE_MEASURED || (n && (!reads || !counter)))
+        return -1;
+    for (uint32_t i = 0; i < n; ++i)
+        if (reads[i].busy > EM_MODULE_LOADER_REPLAY_BUSY_MAX ||
+            (i && reads[i].counter < reads[i - 1].counter))
+            return -1;
+    ml->replay = reads;
+    ml->replay_n = n;
+    ml->replay_counter = counter;
+    ml->replay_ctx = ctx;
+    ml->replay_served = ml->replay_near = ml->replay_missed = 0;
+    return 0;
+}
+
+void em_module_loader_drive_replay_stats(const EmModuleLoader *ml, uint32_t *served, uint32_t *near_,
+                                         uint32_t *missed)
+{
+    if (served)
+        *served = ml ? ml->replay_served : 0;
+    if (near_)
+        *near_ = ml ? ml->replay_near : 0;
+    if (missed)
+        *missed = ml ? ml->replay_missed : 0;
 }
 
 void em_module_loader_bind_live(EmModuleLoader *ml)

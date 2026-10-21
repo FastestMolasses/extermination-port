@@ -1545,6 +1545,16 @@ test-disc-assets-reference:
 test-module-loader-reference:
 	python3 tools/test_module_loader_reference.py
 
+# The module loader's comparison-only drive replay (EM_PS2_DRIVE_REPLAY;
+# docs/IOP_STREAM.md "Drive replay"): a synthetic pack, no disc data.
+.PHONY: test-module-loader-replay
+test-module-loader-replay:
+	@mkdir -p build/module_loader_replay
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/module_loader_replay_test.c \
+	    src/game/em_module_loader.c src/game/em_status_scene_original.c src/game/em_task.c -lm \
+	    -o build/module_loader_replay/module_loader_replay_test
+	build/module_loader_replay/module_loader_replay_test build/module_loader_replay/pack.emml
+
 # The sound-bank upload (docs/IOP_STREAM.md "The sound-bank transfer"): the
 # EE sound library and 001FB370's whole chain against the original
 # instructions over the title capture, and its end state against route 00.

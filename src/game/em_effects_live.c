@@ -1735,6 +1735,14 @@ int em_effects_live_001CFBE0_bytes(int32_t key, int32_t kind, u32 source, const 
     EmHeadSpriteOriginalXf x;
     xf_read(&x, block);
     if (!x.m40_bytes) return fail(x.m40, "transform matrix has no render-context owner");
+    /* The packet REFs its source block, which the chain page reads by
+     * address when the list is walked. A resident-overlay block that no
+     * other owner maps (AREA00's puff tables D_008287E0 / D_00828870,
+     * func_overlay_AREA00_008237E0) is kept by address like 001D04B0's,
+     * from the caller's view of it. */
+    if (!(source >= 0x00100000u && source < 0x00275B00u) && !em_effects_live_window(source, 0x90) &&
+        !em_rcl_bytes(source, 0x90) && !map_overlay_source(source, source_bytes))
+        return fail(source, "001CFBE0: no room for another overlay source block");
     const EmHeadSpriteOriginalSource st = {source, source_bytes};
     return check(chain_001CFBE0(key, (u32)kind, &st, &x, copy), 0x001CFBE0u);
 }

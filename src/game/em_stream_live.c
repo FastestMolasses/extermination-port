@@ -227,7 +227,9 @@ static int drive_replay_from_env(EmIopStream *iop)
         unsigned long v[4];
         char extra;
         lineno++;
-        if (line[0] == '#' || line[0] == '\n')
+        /* 'L' lines are the module loader's reads (em_scene_bindings reads
+         * them: em_module_loader_set_drive_replay). */
+        if (line[0] == '#' || line[0] == '\n' || line[0] == 'L')
             continue;
         if (line[0] == '@') {
             char name[sizeof S.anchor[0].phase];
@@ -291,6 +293,14 @@ void em_stream_live_drive_replay_anchor(const char *phase, uint32_t counter)
                 (unsigned)S.anchor[i].counter, (unsigned)counter);
         return;
     }
+}
+
+int em_stream_live_drive_replay_counter(uint32_t *counter)
+{
+    if (!S.replay_n || !S.anchored || !counter)
+        return 0;
+    *counter = em_frame_counter() + S.offset;
+    return 1;
 }
 
 int em_stream_live_boot(const char *path)

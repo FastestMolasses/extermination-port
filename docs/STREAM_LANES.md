@@ -342,7 +342,8 @@ lanes' entry points:
   device opens at 48000 Hz (by the startup audio, or by the lanes at their first active lane).
 - **Bound since the rand() order audit (RAND_ORDER.md section 2):** 0x1AE040's state-0 area-entry 001FAE70(1) (the
   first rand() after New Game and cue 25's read) and the state-4 room move's 001FAE70(0) (one rand(); cue 25 goes
-  on). **Still reported:** state 2's r == 1 and state 6's (UM_001FAE70); no level smoke run reaches them.
+  on). Since bound: state 2's r == 1 (the options close, chain step OPTIONS) and state 6's sub-area return
+  (a0 = 1; AREA00's switch, a00_08, 2026-10-20, LEVEL3_BINDING.md); any other call stays reported (UM_001FAE70).
 
 Verified live: the level smoke plays the whole route with the lanes (every phase's capture check, and the director's
 voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); the opening's stream request on the real lanes

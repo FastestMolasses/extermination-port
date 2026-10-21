@@ -557,7 +557,12 @@ once in `em_stream_live_boot` (a `stream lanes: drive replay of N recorded
 reads, M anchors` line on stderr), and the run's `stream drive: replay:`
 line counts the reads served, those served off the recording's counter,
 and the reads inside the recorded span that found no entry (the first
-eight listed with the entries not taken).
+eight listed with the entries not taken). Lines `L counter file sector
+sectors busy` are the screen-module loader's reads (2026-10-20): read
+once at the loader's boot (a `module loader replay:` line on stderr), they
+give a bank load's reads the fork recording's busy polls (IOP_STREAM.md
+"Drive replay", MODULE_LOADER.md 1.7); `tools/drive_replay.py` derives
+them from the fork traces.
 
 The tables are recorded on the fork from the user's own disc by
 `tools/record_drive_replay.py` (hidden, under the run lock, through the

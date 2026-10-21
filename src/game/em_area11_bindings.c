@@ -2333,9 +2333,22 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
 
 static int equipment_spawn(int32_t arg1);
 
-/* A node the effect binder's 001EF9D0 allocated: its behaviour by +0x10. */
+static EmArea11SpawnFallback s_spawn_fallback;
+
+void em_area11_bindings_set_spawn_fallback(EmArea11SpawnFallback fn)
+{
+    s_spawn_fallback = fn;
+}
+
+/* A node the effect binder's 001EF9D0 allocated: its behaviour by +0x10;
+ * a callback with no row here goes to the area fallback first. */
 static int bind_spawned(EmActor *actor)
 {
+    if (actor && !binding_for(actor->callback) && s_spawn_fallback) {
+        const int r = s_spawn_fallback(actor);
+        if (r != 0)
+            return r > 0 ? 0 : -1;
+    }
     return bind_node(actor, NULL);
 }
 

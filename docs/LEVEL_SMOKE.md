@@ -2106,6 +2106,19 @@ a00_08's 360 compared rows are exact apart from `lock_r54` and `progress`.
 The capture check still stops at the arrival's first differing row. The
 first-level smokes' tick, RNG and present logs are byte-identical to port
 main b804f8c's (receipts in ignored `build/frontier2_i10_20261020/`).
+Since AREA00's sub-area switch (2026-10-20, iteration 11; LEVEL3_BINDING.md
+"Current state": op 0x11 through the area handler, state 6's `001FF030`,
+module 0x1D delivered as sub 1's static-object bank and rebound at state
+6's `001C1DC0`, the drive replay's loader entries, the switch's puff node
+`00823820` through the AREA00 runtime) `--run --until a00_10` plays a00_08
+to its end (486 frames; the module load row for row as recorded: state 6 at
+row 362, state 1 at 452), aligns a00_09 at counter 39568 and fault-stops at
+frame 12742 (a00_09 row 191) on the barricade crate's child spawn
+(`001AFA90`, `em_area11_boxes.c` `h_spawn`). Windowed, a00_08's 487 and
+a00_09's 191 rows are exact apart from `lock_r54` and `progress`. The
+capture check still stops at the arrival's first differing row. The
+first-level smokes' tick, RNG and present logs are byte-identical to port
+main 8284849's (receipts in ignored `build/frontier2_i11_20261020_184329/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

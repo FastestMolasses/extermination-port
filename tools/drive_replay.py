@@ -52,14 +52,82 @@ def find_beat(table_dir, beat):
     return found[0]
 
 
-def write_table(phases, table_dir, out_path):
+def loader_reads(trace_path, iso=None, stream_reads=None):
+    """The module loader's bank-load reads (slot-2 record +8 == 0: 001FF830
+    with 001FF3F0) of one fork recording, as "L" entries (counter, file,
+    sector, sectors, busy): file 0 = INDEX.IDX, 1 = DATA.DAT, the sector
+    inside that file. The recording samples the slot-2 record once per
+    main-loop tick and the task dispatches once per tick, so a read issued
+    in tick i (the header in step 0 -> 1, a chunk in sub-state 1 -> 2, the
+    payload in step 3 -> 4) and completed by the poll of tick j took
+    j - i - 1 busy polls (docs/MODULE_LOADER.md 1.7, as the New Game rows).
+    Each read's file, sector and count are the user's disc's (the module's
+    header sector, tools/export_module_loader.py module_reads). Area loads
+    (+8 == 1) keep their established alignment rules and are not listed. A
+    load with a retried read (a poll error) is refused. The loader does
+    nothing while the stream sequencer's phase D_00282157 is nonzero (a
+    stream read in flight), so a row in a poll step counts as a poll only
+    while no stream read is in flight: with the beat's stream table
+    (`stream_reads`, read_beat) a load overlapping one is refused."""
+    import export_module_loader as eml
+    rows = json.loads(Path(trace_path).read_text())['rows']
+    disc = None
+    out, i = [], 0
+    def rec(r):
+        b = bytes.fromhex(r['slots'])
+        return b[0x40], b[0x48], b[0x49], b[0x4B], b[0x4E]
+    while i < len(rows):
+        slot, state, step, sub, module = rec(rows[i])
+        if not (slot and state == 0 and step == 1):
+            i += 1
+            continue
+        assert i == 0 or rec(rows[i - 1])[1:3] != (0, 1), (str(trace_path), 'load starts before the recording')
+        if disc is None:
+            disc = eml.Disc(Path(iso) if iso else eml.DECOMP / 'Extermination-rebuilt.iso')
+        _header, reads = eml.module_reads(disc, disc.index, disc.data, module)
+        runs, j, prev = [], i, None
+        while j < len(rows):
+            k = rec(rows[j])
+            if not (k[0] and k[1] == 0 and k[4] == module):
+                break
+            key = 'header' if k[2] == 1 else 'chunk' if (k[2], k[3]) == (2, 2) else 'payload' if k[2] == 4 else None
+            if key and (prev != key or (runs and runs[-1][2] != j - 1)):
+                runs.append([key, j, j])
+            elif key:
+                runs[-1][2] = j
+            assert prev is None or k[2] >= rec(rows[j - 1])[2], (str(trace_path), rows[j]['f'], 'loader step moved back (a retried read)')
+            prev = key
+            j += 1
+        assert j < len(rows) and rec(rows[j])[1] == 0x63, (str(trace_path), 'load still running at the recording\'s end')
+        names = [w for w, _l, _n in reads]
+        kinds = [r[0] for r in runs]
+        expect = ['header'] + ['chunk'] * sum(n.startswith('chunk') for n in names) + ['payload']
+        assert kinds == expect, (str(trace_path), rows[i]['f'], 'loader reads differ from the module header', kinds, expect)
+        if stream_reads is not None:
+            c0, c1 = rows[i]['counter'], rows[j]['counter']
+            busy = [(c, f) for c, _s, _n, f in stream_reads if c <= c1 and c + f + 1 >= c0]
+            assert not busy, (str(trace_path), 'a stream read is in flight during the load', busy)
+        for (what, lsn, sectors), (_k, first, last) in zip(reads, runs):
+            base = disc.index[0] if what == 'header' else disc.data[0]
+            if sectors:
+                out.append((rows[first]['counter'], 0 if what == 'header' else 1, lsn - base, sectors,
+                            last - first))
+        i = j
+    return out
+
+
+def write_table(phases, table_dir, out_path, traces=None):
     """phases: (phase, beat folder name, first_counter) in path order.
+    traces: optional {phase: fork trace.json}; their bank-load reads
+    (loader_reads) are added as "L" lines for the module loader.
     Writes the merged table; returns a summary (raises when a table is missing)."""
     table_dir = Path(table_dir)
-    lines, entries, anchors, sources, last = [], [], [], [], None
+    lines, entries, anchors, sources, last, loader = [], [], [], [], None, []
     for phase, beat, first in phases:
         path = find_beat(table_dir, beat)
         reads = read_beat(path)
+        if traces and phase in traces:
+            loader.extend(loader_reads(traces[phase], stream_reads=reads))
         assert all(a[0] <= b[0] for a, b in zip(reads, reads[1:])), (beat, 'table out of counter order')
         if reads and last is not None:
             assert reads[0][0] > last, (phase, 'drive replay tables overlap on this path', reads[0][0], last)
@@ -71,9 +139,10 @@ def write_table(phases, table_dir, out_path):
     lines.append('# merged drive replay (comparison only; disc-derived, never committed)')
     lines.extend(anchors)
     lines.extend('%d %d %d %d' % e for e in entries)
+    lines.extend('L %d %d %d %d %d' % e for e in loader)
     Path(out_path).write_text('\n'.join(lines) + '\n')
     return dict(table=str(out_path), sources=sources, phases=[p for p, _, _ in phases],
-                entries=len(entries))
+                entries=len(entries), loader_entries=len(loader))
 
 
 def report(run_text):

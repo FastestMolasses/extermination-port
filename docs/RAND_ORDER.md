@@ -72,8 +72,11 @@ fails the tool. Both traces become (original function, state) per call.
   area music's read (cue 25).
 - **The room move** (state 4, a0 = 0). It draws once, then cue 25 continues. The
   traced fence-door run draws at both room moves (counters 6774 and 7239).
-- **Still reported (UM_001FAE70):** state 2 (0022A650 == 1) and state 6. No smoke run
-  reaches them.
+- **State 6's return** (a0 = 1, after the sub-area request's module load; bound
+  2026-10-20, AREA00's switch, a00_08; LEVEL3_BINDING.md). Its rand() is not
+  compared with a capture (no AREA00 rand capture); the a00_08 rows after it are
+  exact (windowed). The options close (state 2, 0022A650 == 1) is bound too
+  (chain step OPTIONS); any other call stays reported (UM_001FAE70).
 - **Effect on the opening.** The area music's read is now in flight when the
   opening's cue-0x3F prefill is requested, and the prefill waits for it, as in the
   original. At host speed (the default) the prefill waits one field for it; with the

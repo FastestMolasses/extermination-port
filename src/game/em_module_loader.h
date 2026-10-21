@@ -198,6 +198,33 @@ void em_module_loader_set_trace(EmModuleLoader *ml, EmModuleLoaderTrace trace, v
 /* EM_MODULE_LOADER_DRIVE_HOST (default) or _MEASURED. 0, or -1. */
 int em_module_loader_set_drive(EmModuleLoader *ml, int mode);
 
+/* The comparison-only drive replay (developer switch EM_PS2_DRIVE_REPLAY,
+ * the user's decision of 2026-10-19, "Comparison-only replay"; never a
+ * player or launcher option; docs/IOP_STREAM.md "Drive replay" and
+ * MODULE_LOADER.md 1.7). With the measured drive, a read whose file
+ * (0 = INDEX.IDX, 1 = DATA.DAT, 0x10 + a = the area file D_0028A3C0[a]),
+ * first sector inside that file and sector count equal an entry's, issued
+ * while the counter hook's recording counter is within 2 of the entry's
+ * counter, takes the entry's busy fields (the fork recording's polls between
+ * the read's issue and its completion); the nearest such entry is taken,
+ * each once. Any other read takes the measured table, or host speed.
+ * `counter` returns 1 with the recording's counter for the read issued now,
+ * 0 while the run is not anchored. `reads` stays the caller's (its `served`
+ * flags are set here). 0, or -1 (the host drive, a busy count over
+ * EM_MODULE_LOADER_REPLAY_BUSY_MAX, or entries out of counter order). */
+#define EM_MODULE_LOADER_REPLAY_BUSY_MAX 1024u
+typedef struct {
+    uint32_t counter, file, sector, sectors, busy;
+    int served;
+} EmModuleLoaderReplayRead;
+typedef int (*EmModuleLoaderReplayCounter)(void *ctx, uint32_t *counter);
+int em_module_loader_set_drive_replay(EmModuleLoader *ml, EmModuleLoaderReplayRead *reads, uint32_t n,
+                                      EmModuleLoaderReplayCounter counter, void *ctx);
+/* The replay's counters: entries served, of them at a counter other than
+ * the entry's; reads issued while anchored that no entry covered. */
+void em_module_loader_drive_replay_stats(const EmModuleLoader *ml, uint32_t *served, uint32_t *near_,
+                                         uint32_t *missed);
+
 /* The loader record the live task uses: em_module_loader_task_001FF0D0
  * dispatches through this instance (NULL unbinds). Binding a non-NULL
  * instance clears the orphan fault. */

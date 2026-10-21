@@ -14,6 +14,88 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20, iteration 11 (port main 8284849 plus AREA00's sub-area
+switch): the C side plays a00_08 to its end, aligns a00_09 and stops 191
+rows into it, at the first barricade crate's break.** Not a capture pass.
+In the order the run met them:
+
+- **Op 0x11, `001B7700` (NEARMISS decomp C).** `em_area_script.c`'s
+  `execute` now sends op 0x11 to the area binding's handler, as ops 0x03,
+  0x05, 0x0E, 0x12, 0x13, 0x17 and 0x1A; the AREA01 / AREA00 script
+  worker already ran `em_area00_low_001B7700` (`make
+  test-area00-low-reference`: 12 of 12 conditional outcomes). Record
+  0082A600's mode word 2 stores D_008106CE = 2 and D_008106CF = 0x81 and
+  raises D_00275BD8; the classifier `001AE7E0` (byte-matched) then returns
+  3 and the frame machine enters state 6 (a00_08 row 362, as recorded).
+- **State 6's `001FF030` (byte-matched decomp C).** `em_scene_bindings.c`
+  binds it (state 6 only) to `em_area00_low_001FF030` over the scene
+  state's bytes (`em_area01_scene_view`): D_00810730[0] = 0x81,
+  D_00810701 = 1, D_00275BD8 = 1, and its tail `001FF080(0, 0x1D)` is the
+  loader task's request. `001FEFE0` (D_008106CE other than 2:
+  `001FF080(2, 0)`, the untranslated bank-set streamer `00200360`) stays
+  unbound. The SFX registry scope follows D_00810701 there
+  (`em_sfx_set_area`; 001FB9F0 pages its ids by D_00810700/701). State 6's
+  return calls `001FAE70(1)`, now bound (`w_001FAE70`).
+- **Module 0x1D.** Its header (read locally from the user's disc) names
+  no chunks and no sections, a 1,873-sector payload and one relocation,
+  slot 0x44 (D_0028A5A0) at offset 0: 001FF830's kind 2 delivers it at
+  D_0028A5A0 and relocates the slot onto it. The exporter's
+  `SUBAREA_MODULES` adds it to the module pack (MODULE_LOADER.md section
+  4; 57 ranges, 43,201,712 bytes; ignored, never committed).
+  Its 0x3A8800 payload bytes equal, byte for byte, the last 0x3A8800 bytes
+  of AREA00 room 1's resident region (offset 0x1ED800; checked locally
+  on the user's disc; nowhere in room 0's): AREA00_ASSETS.md's two nested
+  blocks differ only in id 0x44, the static bank, so module 0x1D is sub
+  1's static-object bank; the grid, the cell directory and the model bank
+  are shared. After the load the first
+  original reader is state 6's `001C1DC0` (001C1E70 -> 001D52E0 reads the
+  bank's grid header): there `w_001C1DC0` rebinds the render context's
+  copy of the bank from the drive's delivered bytes and selects the
+  object-texture catalog and the shadow receivers of AREA00 sub 1 (no GS
+  upload: module 0x1D has none).
+- **The load's timing: the comparison-only drive replay now covers the
+  module loader's bank loads** (IOP_STREAM.md "Drive replay"; the user's
+  decision of 2026-10-19 covers each disc read). The a00_08 recording's
+  slot-2 record (sampled once per tick, the task dispatching once per
+  tick) shows the header read issued at row 363 and done at row 370 (6
+  busy polls) and the payload issued at row 372 and done at 448 (75); no
+  stream read is in flight then (the stream table's reads at counters
+  40047 and 40172), so the gate D_00282157 is clear. `tools/drive_replay.py
+  loader_reads` derives these "L" entries from the fork trace and the
+  disc's module header; the AREA00 harness adds them to its table; the
+  loader takes an entry with its file, sector and count within 2 counters
+  (`em_module_loader_set_drive_replay`; `make test-module-loader-replay`).
+  The run: state 6 at row 362, sub-step 1 at 363, D_00275BD8 clear at
+  451, state 1 at 452, all as recorded.
+- **The switch owner's puffs `00823820`** (func_overlay_AREA00_008237E0,
+  byte-identical C; `em_area00_ovl_00823820`, `python3
+  tools/test_area00_overlay_reference.py`: 22 cases, 235 of 235 reachable
+  words). The switch 00825920's `001EFD20` (a00_08 row 456) allocates an
+  effect node whose callback is this AREA00 owner; the effect binder only
+  knew AREA11 rows. `em_area11_bindings_set_spawn_fallback` now offers an
+  unknown callback to the scene's area fallback: in AREA00 a resident-overlay
+  callback of `area01_rebind`'s AREA00 list runs through the same AREA00
+  runtime as the roster's owners; elsewhere nothing changes. Its packets'
+  sources D_008287E0 / D_00828870 are overlay tables: `001CFBE0` through
+  `em_effects_live_001CFBE0_bytes` now keeps an otherwise unmapped
+  overlay source block by address (as 001D04B0's), so the chain page's REF
+  reads them.
+- **The stop: a00_09 frame 12742** (row 191, counter 39759), "001551B0
+  at record uid 2201 faulted": the barricade crate's break reaches
+  `001AFA90` and its nest child copy (`em_area11_boxes.c` `h_spawn`,
+  unbound). Next unit on front B: that child spawn.
+
+Windowed against route_a00 (owners included), the counts before a00_08
+are those of iteration 10 (a00_00 242/363 .. a00_05 655/1,160); ignoring
+`lock_r54` and `progress`, a00_00..a00_03 and a00_05..a00_09 (487 and 191
+rows) are exact row for row and a00_04 differs only in the shake rows
+1546..1553. The first-level smokes' tick, RNG and present logs equal port
+main 8284849's (sha256 2866e0de... / f8a37cb8... full, d2cb9bed... /
+2fa87dc2... drive switch); newgame-control 9.599849;
+`tools/test_level_smoke_area01.py --until a01_07` passes 28 live phases
+with the replay's AREA01 counts unchanged (403 of 597 served). Receipts in
+ignored `build/frontier2_i11_20261020_184329/`.
+
 **2026-10-20, iteration 10 (port main b804f8c plus AREA00's switch movie):
 the C side plays a00_08's movie and stops three frames after it, at the
 area script host's op 0x11.** Not a capture pass.

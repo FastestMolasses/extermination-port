@@ -17,7 +17,8 @@ first level loads (PAGE_MODULES: 0x1F the ITEM root, 0x1E MAP, 0x2C SPR4,
 0x24 DATABASE, the ITEM children 0x20 / 0x21 BATTERY / 0x22 / 0x23 and the
 SPR4 part pages 0x2D..0x31; docs/STATUS_PAGES.md section 1), the game-over
 screen module 0x27 (001AD4E0's 001FF080(0, 0x27); docs/DAMAGE.md), the
-options screen's modules 0x2B and 0x2A (docs/OPTIONS.md), area 0x0B
+options screen's modules 0x2B and 0x2A (docs/OPTIONS.md), the sub-area
+request's module 0x1D (001FF030; AREA00's switch), area 0x0B
 (AREA11, the New Game's 001FF080(1, 0)), area 1 room 0 (AREA01 sub 0, the
 level exit's load) and area 0 rooms 0 and 1 (AREA00's arrival and switch reload).
 
@@ -85,7 +86,11 @@ PAGE_MODULES = (0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F
 # 0x2B (0022A590's 001FF080(0, 0x2B)) and its memory-card screen 0x2A
 # (00225AC0's 001FF080(0, 0x2A); port docs/OPTIONS.md).
 SCREEN_MODULES = (0x27, 0x2A, 0x2B)
-DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES
+# 001FF030's 001FF080(0, 0x1D): the sub-area request's module (0x1AE040
+# state 6; AREA00's switch, a00_08, docs/THIRD_LEVEL_ROUTE.md): 001FF830
+# kind 2, delivered at D_0028A5A0.
+SUBAREA_MODULES = (0x1D,)
+DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES
 # (area, room): AREA11 (the New Game's 001FF080(1, 0)), AREA01 sub 0 (the
 # level exit's load: Roger's departure requests 001B0C60(1, 0, 4); route beat
 # 15, docs/FIRST_LEVEL_EXIT.md) and AREA00 sub 0 (the second level's exit:

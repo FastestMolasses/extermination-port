@@ -78,6 +78,15 @@ int em_area11_spawn_player_children_0015C420(void);
  * then 001D0660's 001F0310. 0, or -1. */
 int em_area11_bindings_effects_attach(void);
 
+/* The effect binder's area fallback: a node 001EF9D0 allocated whose
+ * +0x10 callback has no binding row here is offered to `fn` (the resident
+ * overlay's owners: AREA00's 00823820 puffs through the AREA01 / AREA00
+ * runtime). `fn` returns 1 when it bound the node, 0 when the callback is
+ * not its own (the row lookup then faults as before), -1 on a failure.
+ * NULL: no fallback. */
+typedef int (*EmArea11SpawnFallback)(EmActor *actor);
+void em_area11_bindings_set_spawn_fallback(EmArea11SpawnFallback fn);
+
 /* 0015C310(player, arg1): the equipment children (arg1 = 0: (0,0), (1,0),
  * (1,0x10); both: the flavour-2 nodes of D_00810CA4..CA7 and, with
  * D_00810CA6 == 4, (1,0x15)). 0, or -1. */

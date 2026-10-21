@@ -217,7 +217,11 @@ area files of D_0028A3C0 (file 0x10 + area in the table).
   veil's phase bounds: the switch's New Game load leaves the veil 258
   steps, the captures' 258 (257 before the rule: 001FB370's ninth call).
 - Any other read is answered at host speed and counted as `unmeasured`.
-  Nothing is extrapolated. The page modules other than 0x21 have no
+  Nothing is extrapolated. Comparison only (2026-10-20): under the
+  developer switch `EM_PS2_DRIVE_REPLAY` a bank load's read with an entry
+  of the replay table takes that entry's busy polls first, derived from a
+  fork recording's per-tick slot-2 record (IOP_STREAM.md "Drive replay";
+  `em_module_loader_set_drive_replay`, `make test-module-loader-replay`). The page modules other than 0x21 have no
   recording (no capture shows a status page open): with the switch their
   loads take the host-speed 10 dispatches, and their reads are counted.
 
@@ -686,11 +690,15 @@ counters.
    D_00275304[0], D_00264890), and the sectors of module 3, of the page
    modules (`PAGE_MODULES`: 0x1E..0x24 and 0x2C..0x31), of the screen
    modules 0x27 (the game over; DAMAGE.md section 5), 0x2A and 0x2B (the
-   options' card and row screens; OPTIONS.md) (`SCREEN_MODULES`), of area 0x0B
+   options' card and row screens; OPTIONS.md) (`SCREEN_MODULES`), of the
+   sub-area request's module 0x1D (001FF030's 001FF080(0, 0x1D): AREA00
+   sub 1's static-object bank, LEVEL3_BINDING.md; `SUBAREA_MODULES`,
+   added 2026-10-20), of area 0x0B
    (the overlay file, the header, the bank, the A entry and the resident
    region), of area 1 room 0 (AREA01 sub 0, the level exit's load) and of
    area 0 rooms 0 and 1 (AREA00's second-level arrival and switch reload;
-   sub 1 added 2026-10-13): `DEFAULT_AREAS`; 39,363,728 bytes in all. Add others with
+   sub 1 added 2026-10-13): `DEFAULT_AREAS`; 43,201,712 bytes in all (57
+   ranges, 2026-10-20). Add others with
    `--modules` / `--areas`.
    `--capture <folder>` (developer only) adds the capture checks and takes
    that capture's cursors as the seeds. The game does not start without the

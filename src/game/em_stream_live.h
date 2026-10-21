@@ -146,6 +146,9 @@ const EmSoundSample *em_stream_live_sound_sample(void);
  * counter; a phase the table anchors maps the run's counter onto the
  * recording's from there. Nothing happens without a table. */
 void em_stream_live_drive_replay_anchor(const char *phase, uint32_t counter);
+/* The recording's counter for the main-loop counter now (1), or 0 without
+ * a table or before its first anchor (the module loader's replay reads it). */
+int em_stream_live_drive_replay_counter(uint32_t *counter);
 /* The drive's counters (em_iop_stream_drive_stats) and whether the PS2
  * disc-drive timing switch was on at the boot (*ps2_timing; em_settings);
  * 0 before the boot. */

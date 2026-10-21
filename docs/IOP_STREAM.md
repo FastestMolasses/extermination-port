@@ -393,6 +393,32 @@ at row 957 (LEVEL2_BINDING.md).
   bytes (001FA0D0's lane records) on the fork against the native run over
   recording counters 21790..22100; once explained, make
   `--strict-drive-replay` the AREA01 harness's gate.
+- **The module loader's bank loads** (2026-10-20, iteration 11; the same
+  switch and the same table): lines `L counter file sector sectors busy`
+  (file 0 = INDEX.IDX, 1 = DATA.DAT, the sector inside the file) are the
+  loader's reads; the stream lanes skip them and `em_scene_bindings` hands
+  them to `em_module_loader_set_drive_replay`. A loader read with an
+  entry's file, sector and count, issued within 2 counters of it (the
+  stream's anchors map the counter), takes the entry's busy polls; any
+  other read takes the measured table or host speed as before
+  (MODULE_LOADER.md 1.7). The entries come from the fork recordings
+  themselves (`tools/drive_replay.py loader_reads`): the recorder samples
+  the slot-2 loader record once per main-loop tick and the task dispatches
+  once per tick, so a read issued in tick i and completed by the poll of
+  tick j took j - i - 1 busy polls; each read's file, sector and count are
+  the user's disc's module header's (`tools/export_module_loader.py
+  module_reads`). A load during which a stream read is in flight (the
+  loader is gated by D_00282157) is refused, as is a retried read. Only
+  bank loads (+8 == 0) are listed; the area loads keep their alignment
+  rules. On the level 2-4 main routes: a00_08's module 0x1D (header 6
+  polls, payload 75) and a01r_01's module 0x23 (6, 8);
+  `tools/test_level_smoke_area00.py` adds the AREA00 phases' entries.
+  The run's `module loader:` line counts them ("replay: N of M recorded
+  loader reads served"). Unit test: `make test-module-loader-replay` (a
+  synthetic pack, no disc data: host speed without a table, the entries'
+  6 / 75 polls with one, the window's edges, mismatched count / sector /
+  file, served once, unanchored, four refusals; mutations of the window,
+  the count match and the served flag fail it).
 - **Unit test** (`make test-iop-stream`, `test_reader_replay` and
   `test_reader_replay_bounds`): an entry is taken once, only by a read at
   its own sector and count within 2 counters on either side (both edges

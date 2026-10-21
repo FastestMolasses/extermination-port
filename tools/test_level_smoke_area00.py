@@ -340,10 +340,14 @@ def main():
         phases = [(p, a01.MAIN_BEATS[p], a01.route_capture(p)['first_counter']) for p in a01.MAIN_BEATS]
         phases += [(p, (a00.MAIN_BEATS | a00.SIDE_BEATS)[p], a00.route_capture(p)['first_counter'])
                    for p in a00.phase_path(until) if p != 'a00_arrival']
-        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt')
+        # The AREA00 phases' bank loads (a00_08's module 0x1D) take the
+        # recording's loader polls too (drive_replay.loader_reads).
+        traces = {p: a00.capture_path(p) for p in a00.phase_path(until) if p != 'a00_arrival'}
+        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt', traces)
         env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
-        print(f"AREA00: drive replay of {replay_info['entries']} fork-recorded reads over "
-              f"{len(phases)} phases (comparison only)", flush=True)
+        print(f"AREA00: drive replay of {replay_info['entries']} fork-recorded reads and "
+              f"{replay_info['loader_entries']} loader reads over {len(phases)} phases (comparison only)",
+              flush=True)
     started = time.monotonic()
     receipt = dict(binary=str(binary), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                    reference=refs.label(), until=until, area00_path=a00.phase_path(until), pad_changes=count,
@@ -355,7 +359,8 @@ def main():
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     run_text = (out / 'run.log').read_text(errors='replace')
     for line in run_text.splitlines():
-        if line.startswith(('level smoke:', 'em_area00:', 'em_scene: FAULT', 'stream drive: replay')):
+        if line.startswith(('level smoke:', 'em_area00:', 'em_scene: FAULT', 'stream drive: replay',
+                            'module loader')):
             print(line, flush=True)
     if replay_info is not None:
         replay_info['run'] = drive_replay.report(run_text)

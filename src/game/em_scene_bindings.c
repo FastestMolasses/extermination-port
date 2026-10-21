@@ -170,6 +170,8 @@
 #include "game/em_area01_arrival.h"
 #include "game/em_area01_state.h"
 #include "game/em_area01_live.h"
+#include "game/em_area00_low.h"
+#include "game/em_area01_scene_view.h"
 #include "game/em_anim_runtime_rest.h"
 #include "game/em_world_textures_live.h"
 #include "game/em_script_host_workers.h"
@@ -299,9 +301,9 @@ static const struct {
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
     [UM_00199C50] = {0x00199C50u, "no port counterpart"},
-    [UM_001FAE70] = {0x001FAE70u, "area music cue from state 6; not mirrored there. The state-0 "
-                                  "area entry, the state-4 room move, the state-5 status close and "
-                                  "the state-2 options close are bound (w_001FAE70)"},
+    [UM_001FAE70] = {0x001FAE70u, "area music cue outside its bound calls (the state-0 area entry, "
+                                  "the state-4 room move, the state-5 status close, the state-2 "
+                                  "options close and state 6's sub-area return; w_001FAE70)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
     [UM_001D1EF0] = {0x001D1EF0u, "before the area's render-context bind (the New Game bring-up "
@@ -3290,6 +3292,20 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         return -1;
     }
 }
+/* The effect binder's area fallback (em_area11_bindings_set_spawn_fallback):
+ * in AREA00, a node 001EF9D0 allocated with a resident-overlay callback
+ * (001EFD20's effect types whose callback is an AREA00 owner: the switch
+ * 00825920's puffs 00823820, func_overlay_AREA00_008237E0, byte-identical C,
+ * em_area00_ovl_00823820) runs through the same AREA00 runtime as the
+ * roster's owners (area01_rebind's AREA00 list). Elsewhere, and for any
+ * other callback, the AREA11 rows decide as before. */
+static int area00_spawned_fallback(EmActor *a)
+{
+    if (s_state.d810700 != 0 || !a || a->callback < 0x00823500u)
+        return 0;
+    return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
+}
+
 static uint8_t *area01_extra_bytes(void *ctx, uint32_t address, uint32_t size, int write)
 {
     (void)ctx;
@@ -3641,9 +3657,40 @@ static int w_001B6990(void *ctx)
  * 001C1F50's TEX0 / colour / flags; its 001C1EA0 spawns the weather node
  * through rcl_weather; its 001C1E70 -> 001D52E0 is reported). A scene
  * without the render context keeps only the weather spawn. */
+/* 0x1AE040 state 6 after the sub-area request's module (001FF030's
+ * 001FF080(0, 0x1D)): 001FF830 delivered module 0x1D (kind 2) at
+ * D_0028A5A0 and relocated slot 0x44 onto it, so *D_0028A5A0, the
+ * render context's static-object bank, is now the new sub-area's (AREA00:
+ * docs/AREA00_ASSETS.md, the n0 / n1 loads differ only in id 0x44; the grid,
+ * the cell directory and the model bank are shared). The first original
+ * reader after the load is this 001C1DC0 (001C1E70 -> 001D52E0 reads the
+ * bank's grid header), so the port's copy of the bank, the shadow
+ * receivers and the object-texture catalog of D_00810700/701 are rebound
+ * here from the drive's delivered bytes (no GS upload: module 0x1D has no
+ * chunks or sections). */
+static int subarea_bank(void)
+{
+    EmModuleLoader *ml = em_module_loader_live();
+    EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+    const uint32_t bank = ld ? ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A5A0] : 0;
+    uint32_t size = 0;
+    const uint8_t *bytes = bank ? em_module_loader_memory_rest(ml, bank, &size) : NULL;
+    if (!bytes || em_rcl_static_world_bank(bank, bytes, size) < 0) {
+        fprintf(stderr, "em_scene: 001C1DC0: the sub-area's static-object bank D_0028A5A0 = %08X was not "
+                        "delivered by the module load\n", (unsigned)bank);
+        return em_scene_fault(&s_state, 0x0028A5A0u, EM_SCENE_FAULT_NULL_WORKER);
+    }
+    if (em_world_textures_live_bind(s_state.d810700, s_state.d810701) < 0 ||
+        em_shadow_live_select_area(s_state.d810700, s_state.d810701) < 0)
+        return em_scene_fault(&s_state, 0x0028A5A0u, EM_SCENE_FAULT_NULL_WORKER);
+    return 0;
+}
+
 static int w_001C1DC0(void *ctx)
 {
     (void)ctx;
+    if (s_entry_state == 6 && subarea_bank() < 0)
+        return -1;
     if (s_pool_mode == POOL_ROSTER && rcl_live())
         return em_rcl_001C1DC0() < 0 ? rcl_fault() : 0;
     unmirrored(UM_001C1DC0);
@@ -4196,13 +4243,15 @@ int em_scene_bindings_001FC280(void)
  * room move (a0 = 0: one rand(), then cue 25 continues) and the state-5
  * status close (a0 = 1) and the options' close (state 2's r == 1, a0 = 0;
  * chain step OPTIONS). The rand() order is checked against the C7 capture
- * (tools/rand_order.py, docs/RAND_ORDER.md). State 6 stays reported
- * (UM_001FAE70): no level smoke run reaches it. */
+ * (tools/rand_order.py, docs/RAND_ORDER.md). State 6's call after the
+ * sub-area load (sub-step 1, a0 = 1; AREA00's switch, a00_08) is bound too;
+ * any other call stays reported (UM_001FAE70). */
 static int w_001FAE70(void *ctx, int a0)
 {
     (void)ctx;
     const int bound = (s_entry_state == 0 && a0 == 1) || (s_entry_state == 4 && a0 == 0) ||
-                      (s_entry_state == 5 && a0 == 1) || (s_entry_state == 2 && a0 == 0);
+                      (s_entry_state == 5 && a0 == 1) || (s_entry_state == 2 && a0 == 0) ||
+                      (s_entry_state == 6 && a0 == 1);
     if (!bound)
         return unmirrored(UM_001FAE70);
     return em_stream_live_001FAE70(a0);
@@ -4387,6 +4436,53 @@ static int w_001FF080(void *ctx, int a0, int a1)
     return 0;
 }
 
+/* 001FF030(a0) (byte-matched C, src/func_001FF030.c): 0x1AE040 state 6's
+ * sub-area request when D_008106CE == 2 (op 0x11, 001B7700, mode 2: AREA00's
+ * switch, a00_08). em_area00_low_001FF030 is its checked translation (make
+ * test-area00-low-reference) over the scene state's D_00810700..702,
+ * D_00810730[] and D_00275BD8 (em_area01_scene_view; an index outside the
+ * port's 0x20 bytes of D_00810730 is unmapped: fail-stop). Its tail call
+ * 001FF080(0, 0x1D) is the loader task's request: module 0x1D (001FF830
+ * kind 2, at D_0028A5A0) through em_module_loader; D_00275BD8, set here,
+ * clears at the task's 0x63 step. 001FEFE0 (D_008106CE != 2, 001FF080(2, 0):
+ * the bank-set streamer 00200360, untranslated) stays unbound. */
+static uint8_t *ff030_view(void *ctx, uint32_t address, uint32_t size, int write)
+{
+    (void)ctx;
+    (void)write;
+    return em_area01_scene_view(&s_state, address, size);
+}
+
+static int ff030_call(void *ctx, EmArea00LowCall *c)
+{
+    (void)ctx;
+    if (c->fn != 0x001FF080u || c->na != 2 || (uint32_t)c->a[0] != 0 || (uint32_t)c->a[1] != 0x1Du)
+        return -1;
+    bind_trace(0x001FF030u, 0x001FF080u, 0, 0x1D, 0, 0);
+    EmModuleLoader *ml = em_module_loader_live();
+    if (!ml || em_module_loader_request_001FF080(ml, 0, 0x1D) != 0)
+        return -1;
+    c->v0 = 0;
+    return 0;
+}
+
+static int w_001FF030(void *ctx, uint8_t a0)
+{
+    (void)ctx;
+    if (s_entry_state != 6)
+        return -1;
+    EmArea00Low low = {.call = ff030_call, .view = ff030_view, .sp = 0};
+    if (em_area00_low_001FF030(&low, a0) < 0) {
+        fprintf(stderr, "em_scene: 001FF030(%02X) faulted at %08X (fault %d)\n", (unsigned)a0,
+                (unsigned)low.fault_address, (int)low.fault);
+        return -1;
+    }
+    /* 001FB9F0 pages its area ids by D_00810700/701 at every call: the
+     * registry scope follows the sub-area byte just stored. */
+    em_sfx_set_area(s_state.d810700, s_state.d810701);
+    return 0;
+}
+
 static int w_001ABF90(void *ctx, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3)
 {
     (void)ctx;
@@ -4562,6 +4658,7 @@ static void bindings_init(void)
     s_ready = 1;
     em_actor_pool_reset_001AF8E0(&s_pool);
     em_area11_bindings_attach(&s_pool, &s_state);
+    em_area11_bindings_set_spawn_fallback(area00_spawned_fallback);
 
     EmSceneWorkers *w = &s_workers;
     w->ctx = NULL;
@@ -4620,6 +4717,8 @@ static void bindings_init(void)
     /* Game over (S11b): 001AD4E0 and 001ADF00. */
     w->w_001D2880 = w_001D2880;
     w->w_001FF080 = w_001FF080;
+    /* 0x1AE040 state 6 (the sub-area request): 001FF030; 001FEFE0 stays unbound. */
+    w->w_001FF030 = w_001FF030;
     w->w_001AEE10 = w_001AEE10;
     w->w_001FA790 = w_001FA790;
     w->w_001ABF90 = w_001ABF90;
@@ -4963,6 +5062,78 @@ static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, ui
     return -1;
 }
 
+/* The comparison-only drive replay's module-loader reads (developer switch
+ * EM_PS2_DRIVE_REPLAY, the user's decision of 2026-10-19; never a player or
+ * launcher option; IOP_STREAM.md "Drive replay"): the table's lines
+ * "L counter file sector sectors busy" (the stream lanes read the others).
+ * Unset: nothing. 0, or -1 for a malformed line or a table the drive
+ * refuses (the timing switch off among them). */
+static EmModuleLoaderReplayRead *s_loader_replay;
+static uint32_t s_loader_replay_n;
+
+static int loader_replay_counter(void *ctx, uint32_t *counter)
+{
+    (void)ctx;
+    return em_stream_live_drive_replay_counter(counter);
+}
+
+static int loader_replay_from_env(EmModuleLoader *ml)
+{
+    const char *path = getenv("EM_PS2_DRIVE_REPLAY");
+    if (!path)
+        return 0;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "module loader replay: EM_PS2_DRIVE_REPLAY=%s cannot be opened\n", path);
+        return -1;
+    }
+    char line[256];
+    uint32_t n = 0, cap = 0, lineno = 0;
+    EmModuleLoaderReplayRead *reads = NULL;
+    while (fgets(line, sizeof line, f)) {
+        unsigned long v[5];
+        char extra;
+        ++lineno;
+        if (line[0] != 'L')
+            continue;
+        if (sscanf(line, "L %lu %lu %lu %lu %lu %c", &v[0], &v[1], &v[2], &v[3], &v[4], &extra) != 5 ||
+            v[0] > UINT32_MAX || v[1] > UINT32_MAX || v[2] > UINT32_MAX || v[3] > UINT32_MAX ||
+            v[4] > UINT32_MAX) {
+            fprintf(stderr, "module loader replay: %s:%u is not \"L counter file sector sectors busy\"\n",
+                    path, (unsigned)lineno);
+            fclose(f);
+            free(reads);
+            return -1;
+        }
+        if (n == cap) {
+            EmModuleLoaderReplayRead *more = realloc(reads, (cap = cap ? cap * 2 : 32) * sizeof *reads);
+            if (!more) {
+                fclose(f);
+                free(reads);
+                return -1;
+            }
+            reads = more;
+        }
+        reads[n++] = (EmModuleLoaderReplayRead){(uint32_t)v[0], (uint32_t)v[1], (uint32_t)v[2],
+                                                (uint32_t)v[3], (uint32_t)v[4], 0};
+    }
+    fclose(f);
+    if (!n)
+        return 0;
+    if (em_module_loader_set_drive_replay(ml, reads, n, loader_replay_counter, NULL) != 0) {
+        fprintf(stderr, "module loader replay: %s: the loader drive refuses its %u reads (the PS2 "
+                        "disc-drive timing switch off, out of counter order or a busy count over %u)\n",
+                path, (unsigned)n, (unsigned)EM_MODULE_LOADER_REPLAY_BUSY_MAX);
+        free(reads);
+        return -1;
+    }
+    s_loader_replay = reads;
+    s_loader_replay_n = n;
+    fprintf(stderr, "module loader replay: %u recorded loader reads from %s (EM_PS2_DRIVE_REPLAY, "
+                    "comparison only)\n", (unsigned)n, path);
+    return 0;
+}
+
 int em_scene_bindings_module_loader_boot(const char *pack_path)
 {
     em_scene_bindings_module_loader_shutdown();
@@ -5004,6 +5175,10 @@ int em_scene_bindings_module_loader_boot(const char *pack_path)
         em_module_loader_close(ml);
         return -1;
     }
+    if (loader_replay_from_env(ml) != 0) {
+        em_module_loader_close(ml);
+        return -1;
+    }
     em_module_loader_bind_live(ml);
     s_loader = ml;
     s_loader_reported = 0;
@@ -5018,6 +5193,9 @@ void em_scene_bindings_module_loader_shutdown(void)
     em_module_loader_bind_live(NULL);
     em_module_loader_close(s_loader);
     s_loader = NULL;
+    free(s_loader_replay);
+    s_loader_replay = NULL;
+    s_loader_replay_n = 0;
 }
 
 void em_scene_bindings_module_loader_field(void)
@@ -5051,6 +5229,16 @@ void em_scene_bindings_module_loader_report(FILE *out)
     else
         fprintf(out, "module loader: host speed: %u dispatches, %u reads", (unsigned)dispatches,
                 (unsigned)reads);
+    if (s_loader_replay_n) {
+        uint32_t served, near_, missed, unused = 0;
+        em_module_loader_drive_replay_stats(s_loader, &served, &near_, &missed);
+        for (uint32_t i = 0; i < s_loader_replay_n; ++i)
+            unused += !s_loader_replay[i].served;
+        fprintf(out, "; replay: %u of %u recorded loader reads served (%u at a counter other than the "
+                     "recording's), %u anchored reads with no recorded entry, %u entries not reached",
+                (unsigned)served, (unsigned)s_loader_replay_n, (unsigned)near_, (unsigned)missed,
+                (unsigned)unused);
+    }
     const EmSoundBank *bank = em_stream_live_sound_bank();
     fprintf(out, "; area uploads accepted: %u A entries, %u player packets; 001FB370: %u calls, %u "
                  "uploads (command 0x20)\n",
