@@ -396,8 +396,8 @@ static int boot_resources(void)
  * the options binding the AREA11 interaction host keeps (em_options_live,
  * the card screen's module 0x2A in the status pages' GS memory, the card
  * I/O em_memcard): 1 (the screen's exit) goes back to the menu, 2 (a game
- * loaded) is reached only through 00227300, which faults (beyond the first
- * level's recordings). The boot's title has no AREA11 binding yet: the
+ * loaded) is reached only through 00227300's LOAD GAME, whose read of the
+ * slot into D_00810700 fail-stops first (docs/SAVE_GAME.md section 6.1). The boot's title has no AREA11 binding yet: the
  * load entry there faults (no recording; the first level reaches the load
  * screen from the title after a death, decomp CAPTURES_C10.md dmg_05). */
 static void load_begin(uint32_t serial)

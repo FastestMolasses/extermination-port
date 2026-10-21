@@ -21,11 +21,11 @@ original's; no instruction of the original is reproduced here.
 | Brightness | 00202BA0 (the calibration picture, screen module 0x2B) | live | test-options-reference; opt_04 |
 | Button config | 00202D10, then 001AF470 over the masks 0x70003B74..83 | live (the masks are canonical; the player reads them there) | test-options-reference, test-startup-load-gaps-reference (001AF470); opt_05 |
 | Default | 00201C50 | live | test-options-reference; opt_06 |
-| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice; a chosen card faults (00227300; translated, not wired: SAVE_GAME.md section 6) | test-options-reference; opt_07 |
+| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1); LOAD GAME's read fail-stops (the progress block is not one storage yet) | test-options-reference; opt_07; test-options-card-live |
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
 | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
-| Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated, not wired (SAVE_GAME.md) | decomp save_scan.json; test-save-reference |
+| Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated and dispatched, but its callers are not wired and its save mode stops at the free count, Format, the New Game block and the full-block Write (SAVE_GAME.md section 6.1) | decomp save_scan.json; test-save-reference |
 
 ## 2. Opening and closing
 
@@ -40,8 +40,9 @@ message and its test cases are deleted.
 Every frame of state 2 runs 0022A650 through the binding (w_0022A650) and
 draws its stream in the same tick; the world is frozen (no 001D1EA0 runs),
 as on the game-over screen. Its result: 1 closes (001AF1C0, the cue 0xD,
-001FAE70(0)); 2 (a game loaded) is reached only through 00227300, which
-faults first; 3 (quit, Yes) runs 001AD140.
+001FAE70(0)); 2 (a game loaded) is reached only through 00227300's LOAD
+GAME, whose read of the slot into D_00810700 fail-stops first (SAVE_GAME.md
+section 6.1); 3 (quit, Yes) runs 001AD140.
 
 ## 3. The translations and their oracle
 
@@ -102,6 +103,16 @@ step (d810118, spad3B74, spad3B94 / 96); their earlier copies are gone:
 
 The boot's 001AB430 (em_scene_settings_001AB430) stores the defaults.
 
+The card screen past the slot choice (the save lane's binding, SAVE_GAME.md
+section 6.1) adds: the binding's own storage for the card code's .bss /
+.sbss buffers (GetDir's table D_00821500, the header D_00821980, the staging
+blocks D_008219D0 / D_00822050 / D_00822690, the slot path D_00822010; zero
+at the binding's creation, as the boot leaves .bss; nothing else reads them),
+the slot rows' text D_00275C94..9F (one 12-byte buffer: the play time's text
+runs past D_00275C94's 4 bytes into D_00275C98, see section 7), read-only
+per-call copies of em_area_title's place names D_002671C0, their strings and
+D_00289B40, and the card code's .data windows in the EMSP.
+
 ### 4.2 Callees
 
 Every callee is dispatched by its original address: the 2D layer 00207D00 /
@@ -118,12 +129,17 @@ views, the cues 0020CD40 / 60 / A0 to the host's 001FB9F0, the loader
 D_00275BD8 at its 0x63 step; tools/export_module_loader.py exports 0x2A and
 0x2B), 00200970(1) to em_status_runtime_restore, the fades, 001FBC50,
 001FABB0, 001D2830 and 001B61C0 to the interaction host's workers, and the
-card SDK to em_memcard (section 5). 002267A0 (00226070's step 1: the two
-ports polled in turn for a card) and 00227300 (the card screen past the
-slot choice) fault; both are translated since the save lane's round 4
-(em_card_original, docs/SAVE_GAME.md section 6), not wired yet. A missing
-view, a refused draw or a failing worker latches the call's fault and the
-coordinator stops.
+card SDK (GetInfo, Sync and the file commands) to em_memcard_call over the
+views (section 5). Since the save lane's binding, 002267A0 (00226070's step
+1: the two ports polled in turn for a card) and 00227300 (the card screen
+past the slot choice) are dispatched to their translations
+(em_card_original) on the binding's state, with sprintf 00122D10 (the
+conversions d and s), strcmp 00123020, the slot rows' text (001CC1E0 with the
+style 0 or D_00275898, 001FC770 with the config 0 or D_002671A0) and the card
+code's buffers (section 4.1) under them; the save mode's Format 00114D18,
+block copy 00121870 and New Game block 001AF2C0 fault (docs/SAVE_GAME.md
+section 6.1). A missing view, a refused draw or a failing worker latches
+the call's fault and the coordinator stops.
 
 ### 4.3 The title's load screen
 
@@ -135,8 +151,8 @@ EM_STARTUP_LOAD_GAME request; em_frontend load_begin). State 5 then calls
 through the options binding the AREA11 interaction host keeps after the
 death; its draw stream is drawn over the title's black frame. The result 1
 (the screen's exit) completes the request in the same tick and the flow is
-back in state 2 (the menu loads again); 2 cannot occur (00227300 faults
-first). The title flow also does what 001AC070 does at every entry that the
+back in state 2 (the menu loads again); 2 cannot occur yet (00227300's
+LOAD GAME fail-stops at its read of D_00810700, SAVE_GAME.md section 6.1). The title flow also does what 001AC070 does at every entry that the
 screen reads: 0x70003B90 = 0 (the game task writes 2) and the pad words
 D_00810E74 / E70 / E50 from the frame's step C (em_frame_scene_input). The
 boot's title has no AREA11 world and no binding: LOAD GAME there fails the
@@ -166,13 +182,18 @@ formatted PS2 card) for a slot whose directory exists; its result is 0 once
 the port has been asked since the boot, else -1. The boot's card check
 (em_frontend's stand-in for 001AB9D0 state 3) creates both directories and
 asks both ports, as the original's boot check 0022A460 does: the
-recordings' GetInfo results in the load row are 0 on both ports. A free or
-format pointer, a slot other than 0, a port other than 0 / 1 or a missing
-directory faults (no recording shows what the card server returns then).
-The card helpers' globals (D_00275C58..6F, D_00264E30..3B, D_00275840..47)
-have one storage there. The card's file commands (Open, Mkdir, Close, Write,
-Read, GetDir) are answered there too since the save lane's round 2
-(docs/SAVE_GAME.md section 5); no first-level path reaches them.
+recordings' GetInfo results in the load row are 0 on both ports. The format
+word, when the card check asks it, is 1 (the host card is formatted; a
+fresh, unformatted card in the fork answers 0, SAVE_GAME.md section 6.2). A
+free-count pointer, a slot other than 0, a port other than 0 / 1 or a
+missing directory faults (no recording shows what the card server returns
+then). The card helpers' globals (D_00275C58..6F, D_00264E30..3B,
+D_00275840..47) have one storage there. The card's file commands (Open,
+Mkdir, Close, Write, Read, GetDir) are answered there too since the save
+lane's round 2 (docs/SAVE_GAME.md section 5); the card-screen binding
+routes all eight through em_memcard_call. The first level's recordings
+never choose a card (the load row's slot choice is left with Triangle), so
+its side runs reach none of the file commands.
 
 ## 6. The side runs
 
@@ -213,11 +234,23 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   (`build/c10/options/save_scan.json`). The save writer that the card
   screen runs in save mode (00228A90 and its steps) and the card layout it
   writes: SAVE_GAME.md.
-- **A chosen slot and a load** (002267A0, 00227300; r == 2): no recording
-  chooses a slot; both fault. The card screen past the slot choice and the
-  load code below it (the load enumeration 002283B0 and LOAD GAME's read
-  00228B60 of the slot into the progress block) are translated, not wired
-  (SAVE_GAME.md sections 4 and 6).
+- **A chosen slot and a load** (002267A0, 00227300; r == 2): no first-level
+  recording chooses a slot. Since the save lane's binding the card screen
+  past the slot choice runs live (checked against the original by
+  test-options-card-live, SAVE_GAME.md section 6.1) up to LOAD GAME's read
+  00228B60, which fail-stops: it reads the slot into the whole progress
+  block D_00810700, which the port does not hold in one storage yet.
+  002267A0 is dispatched but unreachable on the host card (it runs only
+  when GetInfo stops reporting a PS2 card).
+- **The row text and the timeline clock** (open question): the slot rows'
+  play time (002293B0's `%02d:%02d:%02d` into D_00275C94, the 4 bytes
+  before D_00275C98, which the code addresses with byte stores only) always
+  runs on into D_00275C98, the timeline playback's start clock: 9 bytes
+  with the NUL under 100 hours, 10 for 100 to 999 hours, 11 from 1000
+  hours.
+  The binding keeps those bytes in its own buffer, apart from the script
+  host's clock; the two agree if no timeline plays while the card screen
+  runs, which no recording shows (SAVE_GAME.md section 6.1).
 - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.
 - **The title's OPTIONS entry** (00200A40) and LOAD GAME on the boot's title.
 
@@ -231,5 +264,6 @@ and, since the byte after it is not '7'..'9', draws nothing for the line
 
 ## 9. Re-exports
 
-    python3 tools/export_status_pages.py     # + the options' windows, the help container, modules 0x2A / 0x2B
+    python3 tools/export_status_pages.py     # + the options' windows, the help container, modules 0x2A / 0x2B,
+                                             #   and (the save lane's binding) the card code's .data windows
     python3 tools/export_module_loader.py    # + screen modules 0x2A and 0x2B

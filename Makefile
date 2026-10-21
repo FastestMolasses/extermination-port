@@ -1474,6 +1474,14 @@ test-load-reference:
 test-card-screen-reference:
 	python3 tools/test_card_screen_reference.py
 
+# The options binding (em_options_live) on the card screen past the slot
+# choice against the original code, both over the host memory card
+# and its draw and cue calls (docs/SAVE_GAME.md section 6.1; about 9 s
+# warm, 30 to 50 s on a first run, which builds the fixture).
+.PHONY: test-options-card-live
+test-options-card-live:
+	python3 tools/test_options_card_live.py
+
 # The host memory card's file commands (em_memcard) under the original save
 # writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
 # EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).

@@ -117,7 +117,11 @@ uint8_t *em_memcard_globals(uint32_t address, uint32_t size)
 /* 00114988: D_00241D68 nonzero returns it; the RPC is bound since the
  * boot's sceMcInit (D_0027B0C0 + 0x24 nonzero), so -100 is not returned;
  * the call is issued and D_00241D68 = 1. The end callback 00114930 stores
- * the type, free and format words through the pointers given. */
+ * the type, free and format words through the pointers given: the type 2
+ * and, when asked, the format word 1 (the host card is a formatted card:
+ * the card check 002280F0 moves on only on 1, and the fork's fresh,
+ * unformatted cards answer 0, docs/SAVE_GAME.md section 6.2). The free count
+ * still faults: no recording shows a formatted card's answer. */
 int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free_words, uint32_t format,
                         int32_t *v0, EmMemcardStore stores[3], unsigned *n)
 {
@@ -131,8 +135,8 @@ int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free
     }
     if (port < 0 || port > 1 || slot != 0)
         return fail("00114988 on a port other than 0 / 1 or a slot other than 0 (no recording)");
-    if (free_words || format)
-        return fail("00114988 asked for the free or format words (no recording shows them)");
+    if (free_words)
+        return fail("00114988 asked for the free count (no recording shows a formatted card's answer)");
     if (!present(port))
         return fail("00114988 on a slot whose directory data/memcard/slotN is missing (no recording "
                     "shows a missing card)");
@@ -140,6 +144,7 @@ int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free
     M.known[port] = 1;
     M.pending = 1;
     if (type) stores[(*n)++] = (EmMemcardStore){type, 2};
+    if (format) stores[(*n)++] = (EmMemcardStore){format, 1};
     *v0 = 0;
     return 0;
 }

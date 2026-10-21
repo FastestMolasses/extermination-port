@@ -2,11 +2,11 @@
  * routines that write a saved game to the card and read it back,
  * translated from the original
  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
- * em_save_. Not wired yet (docs/SAVE_GAME.md section 8): the card screen
- * 00227300 that runs it is translated (em_card_original) but the options
- * binding still faults there. Its libmc callees are answered by
- * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder
- * routes them there.
+ * em_save_. The card screen 00227300 (em_card_original) runs it, wired
+ * into the options binding em_options_live (docs/SAVE_GAME.md section
+ * 6.1), which answers its libmc callees through em_memcard_call
+ * (docs/SAVE_GAME.md section 5): live in load mode up to LOAD GAME's read
+ * (00228B60), which fail-stops; the save mode is not reachable live.
  *
  * The record is the card screen's, D_00810040 (docs/OPTIONS.md): +3 the
  * writer's state, +4 its step, +5, +0xA the save slot (0..4, the file
@@ -47,7 +47,7 @@
  *                 00114708 / 00114480 / 00114448 / 00114AC0 / 00114630),
  *                 the next takes the result 001FE9A0 kept in D_00275C64
  *
- * The load side (the card screen's; not wired either):
+ * The load side (the card screen's):
  *
  *   002283B0(e)   the load enumeration on e[2]: GetDir of the game's
  *                 directory (none: 1 with no slot present), then 00228EB0

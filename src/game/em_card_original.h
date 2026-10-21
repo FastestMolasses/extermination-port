@@ -2,8 +2,8 @@
  * card check, the slot list, the confirmation, the save or load it runs
  * and the card's error screens, translated from the original instructions
  * (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md section 6. Prefix
- * em_card_. Not wired yet: the options binding (em_options_live) still
- * faults at 002267A0 and 00227300.
+ * em_card_. The options binding (em_options_live) dispatches 00225D20's
+ * 00227300 and 00226070's 002267A0 here (docs/SAVE_GAME.md section 6.1).
  *
  * The record is the card screen's, D_00810040 (docs/OPTIONS.md, SAVE_GAME.md
  * section 2.2): +1 the screen (0 the card check, 1 the load enumeration, 2

@@ -54,6 +54,20 @@ typedef struct {
 } EmAreaTitleRecord;
 int em_area_title_record(const EmActor *node, EmAreaTitleRecord *out);
 
+/* The original bytes this module holds by address, for a binder that
+ * reads them where the original does (the card screen's slot rows read
+ * the place names D_002671C0[D_00289B40[area] + place], em_options_live):
+ * the export's blocks (D_0024A850, the pointer tables D_002671C0 /
+ * D_0026726C, the strings they name, D_00265520) and D_00289B40 as
+ * 001B0BA0 built it. Loads the export first (em_area_title_load). Up to
+ * `max` regions into `out`; returns how many, 0 when the export is
+ * missing. Nothing writes them after the load. */
+typedef struct {
+    uint32_t address, size;
+    const uint8_t *bytes;
+} EmAreaTitleRegion;
+unsigned em_area_title_regions(EmAreaTitleRegion *out, unsigned max);
+
 uint32_t em_area_title_fault(void);
 /* The 001CC1E0 lines drawn since start-up (the tick log). */
 uint32_t em_area_title_lines(void);

@@ -128,9 +128,11 @@ int em_message_live_cc1e0(int32_t slot, int32_t x, int32_t y, int32_t unused, in
                           uint32_t avail, const EmMessageTextStyle *style);
 /* 001FC770(x, y, text, cfg) on the service's draw module, for a caller
  * outside step F that draws its own line with its own config (the options
- * screen's 001FCBD0 / 001FCE30 with D_00264CB0): `text` points at `avail`
- * readable bytes holding its NUL. Its glyph run is drawn at this frame's
- * step-F render. 0 ok, -1 fault. */
+ * screen's 001FCBD0 / 001FCE30 with D_00264CB0, the card screen's slot rows
+ * with D_002671A0 or none): `text` points at `avail` readable bytes holding
+ * its NUL; cfg NULL is the original's 0 (001FC770 then draws with a copy of
+ * the template D_00264BF0). Its glyph run is drawn at this frame's step-F
+ * render. 0 ok, -1 fault. */
 int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t avail,
                           const EmMessageDrawConfig *cfg);
 /* 001FC9B0. 0 ok, -1 when the data is missing. */

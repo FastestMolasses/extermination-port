@@ -24,11 +24,15 @@
  * the port). The boot's card check (the startup's 001AB9D0 state 3, the
  * native stand-in em_frontend's) creates both directories and asks both
  * ports, as the original's boot check 0022A460 does: the recordings' GetInfo
- * results in the options' load row are 0 on both ports. A free or format
- * pointer (no first-level caller passes one), a slot other than 0, a port
- * other than 0 / 1 or a missing directory faults: no recording shows what
- * the card server returns then. The store of a result goes to the caller
- * (the binder writes the words at the addresses the original passes).
+ * results in the options' load row are 0 on both ports. The format word,
+ * when asked (the card check 002280F0), is 1: the host card is a formatted
+ * card, the only value on which the card check moves on (a fresh,
+ * unformatted card in the fork answers 0, docs/SAVE_GAME.md section 6.2). A
+ * free-count pointer (only the save mode's card check passes one, on a card
+ * without the game's directory), a slot other than 0, a port other than
+ * 0 / 1 or a missing directory faults: no recording shows what the card
+ * server returns then. The store of a result goes to the caller (the binder
+ * writes the words at the addresses the original passes).
  *
  * One storage for the card helpers' globals 001FE9A0 / 001FECB0 / 001FE920
  * / 001FE8D0 read and write: D_00275C58..D_00275C6F, D_00264E30..D_00264E3B
@@ -77,7 +81,8 @@ extern "C" {
  * open, a Write on a read-only one or a Read on a write-only one, and a
  * GetDir with mode != 0 or of a directory that is missing. A descriptor is
  * the lowest free of 0..2 (the server's handle table; the recording that
- * checks it is docs/SAVE_GAME.md section 8's next step). Open does not
+ * checks it is docs/SAVE_GAME.md section 8's next step: section 6.2's
+ * wrote no save). Open does not
  * truncate; Write and Read move the descriptor's offset.
  *
  * GetDir: a name without a wildcard stores its one entry when it exists

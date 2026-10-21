@@ -1918,7 +1918,13 @@ layout.
 - How: the screens are translated from the original instructions
   (em_options_original, `OPTIONS.md`) and run over the port's one storage at
   the original addresses (em_options_live); the card I/O is the platform
-  boundary em_memcard (GetInfo and Sync over data/memcard/slot1 / slot2).
+  boundary em_memcard (GetInfo, Sync and the card's file commands over
+  data/memcard/slot1 / slot2); since the save lane's binding the card
+  screen past the slot choice runs too (em_card_original through
+  em_options_live, `SAVE_GAME.md` section 6.1): the card check, the saved
+  slots listed with their places and play times, the cursor and the
+  confirmation, up to LOAD GAME's read, which stops the game (the progress
+  block is not yet one storage).
 - Evidence: `make test-options-reference`: the original routines executed
   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
@@ -1927,16 +1933,23 @@ layout.
   test-level-smoke-damage`): the nine OPTIONS recordings and dmg_05
   replayed, every state from the open equal to the recording's and lasting
   its rows (`LEVEL_SMOKE.md` "The OPTIONS side runs"), both PASS on
-  2026-10-08; `make test-area11-sfx-reference` pass M (the mono arms).
+  2026-10-08; `make test-area11-sfx-reference` pass M (the mono arms);
+  `make test-options-card-live` (2026-10-20): 30 whole card screens past
+  the slot choice, the original code and the binding over the host card,
+  every frame's card state equal and every frame's draw and cue calls
+  (the slot rows' text, styles and configs, the page draws, the cues) equal
+  to the original's arguments.
 - Status: **PARTIAL**. Proven: the state above relative to the PCSX2
   recordings. Not proven or not covered: the screen modules 0x2A / 0x2B
   load at host speed (about 10 ticks against the recordings' 23 rows); the
   screen position moves the picture since 2026-10-09 (the entry "Each field
   shown at its interlaced height"), in the direction the register meaning
-  gives, which no recording shows; choosing a memory-card slot, loading,
-  saving (the first level has no save point) and quitting with Yes are not
-  recorded and stop the game or are untested; pixels and sounds are not
-  compared.
+  gives, which no recording shows; choosing a memory-card slot is checked
+  against the original code only (no recording chooses one); loading stops
+  at LOAD GAME's read; saving (the first level has no save point) and
+  quitting with Yes are not recorded and stop the game or are untested; the
+  host card's format word (1) follows the code's test, its free count is
+  unanswered (no recording); pixels and sounds are not compared.
 
 **Off the main route in the first level: the optional pickups, the other ladders, breaking boxes, the elevator back up, declining the panel and talking to Roger, as in the original**
 
@@ -2719,4 +2732,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-16 (the sound-bank DMA step: the load veil entry with the switch runs the PS2's 258 frames (the SIF DMA pending at its first query, user decision 2026-10-15), its evidence and status; the frame-order entry's switch windows one tick later; no new claim at host speed). Before, 2026-10-15 (the specialized span loops step, PERFORMANCE.md "Progress" P14: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-15 (the decoded texture cache step, PERFORMANCE.md "Progress" P13: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-12 (the early Z test step, PERFORMANCE.md "Progress" P12: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-10 (the like-for-like fb2 step: the GS-frame entry's status (each point against the same-phase original; point 10 95.47 %), no new claim. Before, the fork switch's second stage: the GS model entry's evidence names part G, the half-pixel scissor edge against the fork, no new claim. Before, 2026-10-09, the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-20 (the save lane's card-screen binding, not merged yet: the options entry's card screen past the slot choice, its evidence and status). Before, 2026-10-16 (the sound-bank DMA step: the load veil entry with the switch runs the PS2's 258 frames (the SIF DMA pending at its first query, user decision 2026-10-15), its evidence and status; the frame-order entry's switch windows one tick later; no new claim at host speed). Before, 2026-10-15 (the specialized span loops step, PERFORMANCE.md "Progress" P14: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-15 (the decoded texture cache step, PERFORMANCE.md "Progress" P13: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-12 (the early Z test step, PERFORMANCE.md "Progress" P12: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-10 (the like-for-like fb2 step: the GS-frame entry's status (each point against the same-phase original; point 10 95.47 %), no new claim. Before, the fork switch's second stage: the GS model entry's evidence names part G, the half-pixel scissor edge against the fork, no new claim. Before, 2026-10-09, the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

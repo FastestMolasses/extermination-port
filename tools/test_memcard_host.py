@@ -31,7 +31,8 @@ docs/SAVE_GAME.md section 5. Two parts:
 The card server is the IOP's, not EE code: what em_memcard answers (a
 descriptor 0..2, GetDir's entries, the counts) is checked here against what
 the original EE code accepts and reads back, not against a recording of the
-server; that recording is docs/SAVE_GAME.md section 8's next step.
+server; that recording is docs/SAVE_GAME.md section 8's next step (section
+6.2's fork recording wrote no save: the game's Format failed on the fresh card).
 
 Host folders live in a temporary directory removed at the end. Quick by
 default (a covering set of saves); EM_TEST_FULL=1 runs every slot and port
@@ -351,6 +352,7 @@ class Mem:
 
 
 NAME, BUF, TABLE, CMD, RES, TYPE = 0x100, 0x1000, 0x4000, 0x80, 0x84, 0x88
+FREE_WORD, FORMAT_WORD = 0x8C, 0x90
 
 
 def unit(tmp):
@@ -435,6 +437,11 @@ def unit(tmp):
     assert do(MKDIR, 1, 0, name(DIR)) == 0 and sync() == (0xB, 0) and (root / 'slot2' / DIR).is_dir()
     # GetInfo / Sync through em_memcard_call: type 2, result 0 (a card the port knows)
     assert do(GETINFO, 0, 0, TYPE, 0, 0) == 0 and m.word(TYPE) == 2 and sync() == (1, 0)
+    # the card check's GetInfo: the format word 1 (a formatted card), type 2
+    m.put(TYPE, b'\xEE' * 4)
+    m.put(FORMAT_WORD, b'\xEE' * 4)
+    assert do(GETINFO, 0, 0, TYPE, 0, FORMAT_WORD) == 0 and sync() == (1, 0)
+    assert m.word(TYPE) == 2 and m.word(FORMAT_WORD) == 1
     # refusals (each on a fresh card; the fault latches)
     mk = lambda r: (r / 'slot1' / DIR).mkdir()      # noqa: E731
     for text in ('../x', '/' + DIR, DIR + '/../x', DIR + '//x', 'a b', 'x' * 32, DIR + '/./x', ''):
@@ -474,6 +481,7 @@ def unit(tmp):
     refused(WRITE, (0, 0xFFF0, 0x100), 'outside the caller', write_only)
     refused(OPEN, (0, 0, 0xFFFFFF00, 0x203), 'outside the caller')
     refused(0x114510, (0, 0, 0), 'not a libmc entry')
+    refused(GETINFO, (0, 0, TYPE, FREE_WORD, FORMAT_WORD), 'free count')
     LIB.em_memcard_reset()
     return n[0]
 
