@@ -47,6 +47,12 @@ CLASS2_WINDOWS = ((0x00242EB0, 0x70),)
 # blocks D_00255FB0 and D_00256040 (adjacent: one window). Only read.
 FOOTSTEP_WINDOWS = ((0x00255FB0, 0x120),)
 
+# The box break's lift handler 001EBC30 (effect subtype 8, NEARMISS decomp
+# C; AREA00 a00_09's barricade crate reaches it) passes the 0x90-byte
+# 001CFBE0 source blocks D_00256280 and D_00256310 (adjacent: one window).
+# Only read.
+BOX_BREAK_WINDOWS = ((0x00256280, 0x120),)
+
 
 def captures(decomp):
     root = decomp / 'build/fork_refs/s87'
@@ -78,7 +84,8 @@ def blocks(elf):
     if hashlib.sha256(elf).hexdigest() != E.ELF_SHA256:
         raise ValueError('Not the pinned SCUS-97112 boot ELF')
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
-    windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS)
+    windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
+               *BOX_BREAK_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -119,7 +126,7 @@ def verify_windows(data, paths):
     for path in paths:
         ram = path.read_bytes()
         for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS,
-                              *FOOTSTEP_WINDOWS):
+                              *FOOTSTEP_WINDOWS, *BOX_BREAK_WINDOWS):
             if ram[address:address + size] != wanted[address]:
                 raise ValueError('AREA00 immutable table differs from pinned ELF')
     verify_field_rows(paths)

@@ -2119,6 +2119,15 @@ a00_09's 191 rows are exact apart from `lock_r54` and `progress`. The
 capture check still stops at the arrival's first differing row. The
 first-level smokes' tick, RNG and present logs are byte-identical to port
 main 8284849's (receipts in ignored `build/frontier2_i11_20261020_184329/`).
+Since the barricade crate's break (2026-10-20, iteration 12;
+LEVEL3_BINDING.md "Current state": the nest children through `001AFA90`
+and the copy, the taken bit `001B1190`, the lift handler `001EBC30`, the
+debris models 0x1F / 0x21, the bug's sub-state machines and `001027E0`)
+`--run --until a00_10` plays 333 rows of a00_09 (exact apart from
+`lock_r54` and `progress`) and fault-stops at frame 12884 in the bug's
+`0019ED80` over a static cell record. The first-level smokes' tick, RNG
+and present logs are byte-identical to port main c40818b's (receipts in
+ignored `build/frontier2_i12_20261020_212528/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

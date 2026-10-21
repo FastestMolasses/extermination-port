@@ -3346,6 +3346,14 @@ static int area00_bind_deferred(void *ctx, EmActor *actor, const EmActorRosterSp
     }
     return 0;
 }
+/* A crate break's nest children (001551B0 state 2's 001AFA90 + copy,
+ * em_area11_boxes h_spawn; AREA00 a00_09's barricade crates spawn the bug
+ * owners 00128C10 / 0012A5D0): the same canonical runtime binding as the
+ * roster's and the deferred allocations' owners. */
+static int area01_bind_child(void *ctx, EmActor *actor)
+{
+    return actor ? area00_bind_deferred(ctx, actor, NULL) : -1;
+}
 static int area00_spawn_deferred(EmArea01Call *call)
 {
     if (call->na != 1 || call->nf || call->a[0] > UINT32_MAX)
@@ -3476,6 +3484,7 @@ static int area01_bind_live(void)
     if (em_effects_live_set_head_owner(area01_head_record, area01_head_bytes, &s_area01_live) < 0)
         return em_scene_fault(&s_state, 0x001F0120u, EM_SCENE_FAULT_NULL_WORKER);
     em_area11_boxes_bind_registry(area01_registry_bytes, h.loader);
+    em_area11_boxes_bind_children(area01_bind_child, NULL);
     const EmCollisionWorldAreaPasses passes = {&s_area01_live, area01_pass_bytes, area01_pass_pair};
     if (em_collision_world_bind_area_passes(&passes) < 0)
         return em_scene_fault(&s_state, 0x001AAD00u, EM_SCENE_FAULT_NULL_WORKER);

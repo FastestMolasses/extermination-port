@@ -14,6 +14,67 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-20, iteration 12 (port main c40818b plus the barricade crate's
+break): the C side plays 333 rows of a00_09 and stops at frame 12884, in
+the second crate child's collision probe.** Not a capture pass. In the
+order the run met them:
+
+- **The crate's nest children, `001AFA90` + the record copy** (001551B0
+  state 2 at 00155FC0, NEARMISS decomp C; `001AFA90` byte-matched). Crate
+  uid 2201 (model 0x50) has link 3: `D_0024D820[0]` = 0x8284C0, row
+  `D_0024A850[0]` + 3 = 6, three records (puids 0x7D, 0x7E, 0x7F; class 2;
+  behaviours 00128C10 / 0012A5D0 / 00128C10: the bugs). `em_area11_boxes.c`
+  `h_spawn` now allocates from the canonical pool
+  (`em_actor_pool_alloc_001AFA90`) and copies the fields in the original's
+  order (+0x9A, +0x03, +0x2E, +0x0D, +0x9D / +0x9E or +0x0E, +0x54, +0x56,
+  +0xB0.., +0xC0.., +0x10); the child fields themselves are
+  `em_crate_original`'s, checked against the original instructions by
+  `test_crate_original_reference.py` (`oracle_child`). The new binder hook
+  `em_area11_boxes_bind_children` (bound with the registry in
+  `area01_bind_live`) gives the child the AREA00 / AREA01 runtime binding
+  (`area00_bind_deferred`'s); without it a child still fail-stops (AREA11).
+- **Its taken bit, `001B1190`** (byte-matched): `h_set_taken` calls
+  `em_area11_bindings_001B1190` (the verified `em_gun_rest_001B1190`).
+  The run sets bits 0x1C (row 192), 0x1B (193) and 0x1D (266), each at the
+  recorded row.
+- **The break lift `001EBC30`** (effect 0x80000014, subtype 8; NEARMISS
+  decomp C): wired into `em_effects_live.c` (`handler_001EBC30`, the
+  translated `em_area00_hud_001EBC30`, 0x70003400 as the module's
+  `spad3400_lift`). Its sources `D_00256280` / `D_00256310` are exported
+  (`export_area00_runtime_tables.py` `BOX_BREAK_WINDOWS`, equal to the ELF
+  in all 13 retained AREA00 snapshots). `make
+  test-area00-box-lift-reference`: 96 packet chains (576 with
+  `EM_TEST_FULL=1`, 12 captures) against the original instructions, whole
+  RAM and scratchpad, both +0x38 values, two refusals.
+- **The debris models 0x1F / 0x21** (effect 0x8000000B's node `001F2BA0`,
+  subtype 1: `D_0025A350` row 1, table 0x37): `export_roger_banks.py`'s
+  `BREAK_SPANS` now holds 0x1F..0x22 as one span (with the husk 0x22;
+  still 16 regions), equal to RAM in all 16 AREA11, 16 AREA01 and 12 AREA00
+  captures; `export_area00_library.py` re-applied after it.
+- **The bug's sub-state machines** (0012A5D0, em_area01_exita, by +5):
+  `em_area01_live.c` `low_entry` dispatches em_area00_low's 0012B410,
+  0012B970, 0012BE20, 0012C490, 0012CAA0, 0012D240, 0012D850, 00129FC0 and
+  0012E070 (`make test-area00-low-reference`, full sweep 2,141 cases); the
+  run reached 0012D850 (word assembly).
+- **`001027E0`** (asm-word SDK leaf) from 0012ADC0: `sdk_001027E0` over
+  `em_rvr_001027E0` (`test_render_verify_rest_reference.py`).
+- **The stop: a00_09 frame 12884** (row 333): the bug 0012A5D0 at node
+  007BD710 calls `0019ED80(0x70003190, 0x015C94EC)`; 0x015C94EC lies in
+  the static cell data (`D_0028A5A8` = 0x1523380 + 0xA616C), not in the grid
+  hull nodes, and the collision view refuses it (code 3). Next unit on
+  front B: 0019ED80 over a static cell record.
+- **Divergence kept (not new):** a00_09 row 152, the recording sets taken
+  bit 0x71 (the bug 00128C10 at record 49 dies); the native run does not,
+  and at row 244 sets 0x72 (the bug at record 50). Hidden in the windowed
+  counts because `progress` is ignored with `lock_r54`; also present in
+  iteration 11's 191 rows.
+
+Windowed against route_a00 ignoring `lock_r54` and `progress`, a00_00..
+a00_03 and a00_05..a00_09 (333 rows) are exact and a00_04 differs only in
+the shake rows 1546..1553, as in iteration 11. The first-level smokes'
+tick, RNG and present logs equal port main c40818b's; newgame-control
+9.599849. Receipts in ignored `build/frontier2_i12_20261020_212528/`.
+
 **2026-10-20, iteration 11 (port main 8284849 plus AREA00's sub-area
 switch): the C side plays a00_08 to its end, aligns a00_09 and stops 191
 rows into it, at the first barricade crate's break.** Not a capture pass.

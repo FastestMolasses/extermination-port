@@ -126,6 +126,9 @@ static struct {
     EmPlayerEquipmentSpriteWorkers sworkers;
     EmPlayerEquipmentFault sfault;
     uint32_t spad3600_sprite[8];
+    /* 0x70003400..+0x3F: 001EBC30's lift matrix (the node's +0xD0 copied,
+     * +0x34 raised by 2.5), written before it is read inside the one call. */
+    uint8_t spad3400_lift[0x40];
     /* 001F5C20's marker position, handed through 001F4D40 to 001CD520 */
     uint32_t marker[4];
     int marker_set;
@@ -946,6 +949,59 @@ static int handler_001EB980(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* 001EBC30 (effect subtype 8, the box break's second effect of a model
+ * 0x1C / 0x50 box, 0x80000014, 001551B0 at 00155FC0; NEARMISS decomp C,
+ * the subtype-0x0D handler 001EBD20's twin with a 2.5 lift and 3.0), first
+ * reached by AREA00 a00_09's barricade crate. Its existing HUD owner's
+ * translation (em_area00_hud_001EBC30; test_area00_hud_reference.py) over
+ * the views it addresses: D_00275C30 / D_00275C34 (the node and its work
+ * block, node + 0x1F0, as 001EA240 sets them), the node's +0x38 and the work
+ * block's +0x54 / +0x5C (accumulator, fraction; read), and the scratch
+ * matrix 0x70003400..+0x3F it copies the node's +0xD0 into and lifts by 2.5
+ * (+0x34). Its 001CFBE0 sources D_00256310 / D_00256280 are exported by
+ * export_area00_runtime_tables.py BOX_BREAK_WINDOWS. a0 is node + 0xD0. */
+typedef struct { EmEffectOriginalNode *node; u32 address; uint8_t *scratch; } LiftCall;
+static int lift_worker(void *ctx, EmArea00HudCall *c)
+{
+    LiftCall *v=ctx;
+    if(c->fn==0x00102958u) {
+        if(c->na!=2 || (u32)c->a[0]!=0x70003400u || (u32)c->a[1]!=v->address+0xD0u)return -1;
+        memcpy(v->scratch,v->node->matrix,0x40);
+        return 0;
+    }
+    if(c->fn==0x001CFB50u && c->na==3 && c->nf==5 && (u32)c->a[2]==0x70003400u) {
+        float src[16];
+        memcpy(src,v->scratch,sizeof src);
+        return w_001CFB50(NULL,(u32)c->a[0],(u32)c->a[1],src,c->f[0],c->f[1],c->f[2],c->f[3],c->f[4]);
+    }
+    if(c->fn==0x001CFBE0u && c->na==5 && !c->nf)
+        return w_001CFBE0(NULL,(int32_t)c->a[0],(int32_t)c->a[1],(u32)c->a[2],(u32)c->a[3],(int32_t)c->a[4]);
+    return -1;
+}
+static int handler_001EBC30(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001EBC30u,"box break lift without its node");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot));
+    u32 globals[2]={at,at+0x1F0u};               /* D_00275C30, D_00275C34 */
+    int32_t live38=node->live38;
+    float accumulator=work->accumulator, fraction=work->fraction;
+    uint8_t *scratch=S.spad3400_lift;
+    EmArea00HudRegion regions[]={
+        {0x00275C30u,8,(uint8_t *)globals},
+        {at+0x38u,4,(uint8_t *)&live38},
+        {at+0x244u,4,(uint8_t *)&accumulator},
+        {at+0x24Cu,4,(uint8_t *)&fraction},
+        {0x70003400u,sizeof S.spad3400_lift,scratch},
+    };
+    LiftCall call={node,at,scratch};
+    EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
+                       .call=lift_worker,.ctx=&call,.sp=HANDLER_SP};
+    if(em_area00_hud_001EBC30(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001EBC30u,"box break lift HUD handler fault");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
@@ -957,6 +1013,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);
+    if (handler == 0x001EBC30u) return handler_001EBC30(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -1016,7 +1073,8 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
      * D_00256160, since AIMLIVE's fix round D_002561F0 and D_00255590,
      * the skid's D_002556B0 / D_00255740 and the AREA01 splash handlers'
      * D_002557D0 + 0x90 n (n = 0..5), export_effect_tables.py; the
-     * footstep 001EB980's D_00255FB0 / D_00256040,
+     * footstep 001EB980's D_00255FB0 / D_00256040 and the box break lift
+     * 001EBC30's D_00256280 / D_00256310,
      * export_area00_runtime_tables.py), 0x90 bytes. */
     const uint8_t *bytes = source >= 0x002565E0u && source - 0x002565E0u <= sizeof S.sources - 0x90u
                                ? S.sources + (source - 0x002565E0u)
@@ -1025,6 +1083,7 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u ||
                               source == 0x00255E90u || source == 0x00255F20u ||
                               source == 0x00255FB0u || source == 0x00256040u ||
+                              source == 0x00256280u || source == 0x00256310u ||
                               source == 0x00256EE0u || source == 0x00256F70u ||
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))

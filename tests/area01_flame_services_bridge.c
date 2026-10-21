@@ -104,7 +104,7 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     if(address<EM_ACTOR_POOL_BASE || (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE ||
        (address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY ||
        (!splash_handler(handler) && handler!=0x001ECB00u && handler!=0x001ED7A0u &&
-        handler!=0x001EB980u))return -1;
+        handler!=0x001EB980u && handler!=0x001EBC30u))return -1;
     fs_seed(ram,spr);
     memcpy(S.xs.spad3AC0,spr+0x3AC0,sizeof S.xs.spad3AC0);
     memcpy(S.sources,ram+0x2565E0,sizeof S.sources);
@@ -119,6 +119,10 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     /* The footstep 001EB980's D_00255FB0 / D_00256040 (one window). */
     S.window[3].address=0x255FB0;S.window[3].size=0x120;S.windows=4;
     memcpy(S.elf+ELF_AT(0x255FB0),ram+0x255FB0,0x120);
+    /* The box break lift 001EBC30's D_00256280 / D_00256310 (one window). */
+    S.window[4].address=0x256280;S.window[4].size=0x120;S.windows=5;
+    memcpy(S.elf+ELF_AT(0x256280),ram+0x256280,0x120);
+    memcpy(S.spad3400_lift,spr+0x3400,sizeof S.spad3400_lift);
     if(splash_deny_descriptors)S.windows=2;
     memcpy(S.spad3600_sprite,spr+0x3600,sizeof S.spad3600_sprite);
     S.sworkers=(EmPlayerEquipmentSpriteWorkers){&pc,w_sprite_001CD370,w_sprite_001CB5F0,
@@ -132,6 +136,7 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     memcpy(&s->e.work.step,ram+address+0x1F8,4);
     memcpy(&s->e.work.accumulator,ram+address+0x244,4);
     memcpy(&s->e.work.fraction,ram+address+0x24C,4);
+    memcpy(&s->e.live38,ram+address+0x38,4);
     int rc=w_handler(NULL,handler,&s->e,depth,&s->e.work);
     memcpy(ram+address+0x1F4,&s->e.work.seed_copy,4);
     memcpy(ram+address+0x1F8,&s->e.work.step,4);
@@ -139,6 +144,7 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     memcpy(spr+0x3660,S.xs.spad3660,sizeof S.xs.spad3660);
     memcpy(spr+0x3670,S.xs.spad3670,sizeof S.xs.spad3670);
     memcpy(spr+0x3600,S.spad3600_sprite,sizeof S.spad3600_sprite);
+    memcpy(spr+0x3400,S.spad3400_lift,sizeof S.spad3400_lift);
     fs_publish(ram);
     memcpy(ram+0x257360,S.elf+ELF_AT(0x257360),0x1B0);
     free(S.elf);S.elf=NULL;S.windows=0;

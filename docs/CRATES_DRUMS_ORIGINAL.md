@@ -266,7 +266,15 @@ over idle04 at a gameplay window: PASS).
     node 001F2BA0 (subtype 0: D_0025A350 row 0, sixteen pieces of models
     0x1C / 0x1E, em_area00_fx_debris with em_area00_world's 001C6200
     through the aim / fire composition; its slots are em_aim_fire_trail's)
-    and the subtype-0x0D handler 001EBD20 (EFFECT_MANAGER.md 8.2);
+    and the subtype-0x0D handler 001EBD20 (EFFECT_MANAGER.md 8.2); a model
+    0x1C / 0x50 box (AREA00 a00_09) spawns 0x8000000B (subtype 1: row 1,
+    models 0x1F / 0x21) and 0x80000014 (the lift handler 001EBC30,
+    em_effects_live.c handler_001EBC30);
+  - the nest children of a box with link >= 0 (00155FC0): 001AFA90(record
+    +4) and the record copy (em_area11_boxes.c h_spawn, bound through
+    em_area11_boxes_bind_children in AREA00 / AREA01; AREA11's boxes have no
+    link and fail-stop there); a model-0x50 box's state 3 sets its taken
+    bit 001B1190(+0x9A) (h_set_taken);
   - the husk rebind 001CA6E0(self, 001C6120(*D_0028A56C, 0x22)): the
     global library's model 0x22 (the Roger export, regions of
     tools/export_roger_banks.py; its textures in object_textures.emot),

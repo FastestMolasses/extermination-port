@@ -115,9 +115,13 @@ EQUIPMENT_SPANS = ((0x07, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A
 SHOT_SPANS = ((0x07, 0x0F), (0x19, 0x19))
 # A model-6 box's damage break (001551B0; BRANCH br_04 / br_06): the husk 0x22
 # and the subtype-0 debris pieces 0x1C / 0x1E (D_0025A350 row 0's +0x54 /
-# +0x58). Library spans too: em_area11_boxes' library_model and 001F3E30
-# read them by address; no pose host maps them.
-BREAK_SPANS = ((0x1C, 0x1C), (0x1E, 0x1E), (0x22, 0x22))
+# +0x58); a model 0x1C / 0x50 box's break (AREA00 a00_09's barricade crate:
+# effect 0x8000000B's node 001F2BA0, subtype 1: D_0025A350 row 1, table
+# 0x37, models 0x1F and 0x21, drawn by 001F3E30). 0x1F..0x22 are block
+# models in file order: one span with the husk (0x20 is exported and checked
+# too), so the region count stays 16. Library spans too: em_area11_boxes'
+# library_model and 001F3E30 read them by address; no pose host maps them.
+BREAK_SPANS = ((0x1C, 0x1C), (0x1E, 0x1E), (0x1F, 0x22))
 # AREA01 group 0x828A00: 0015AC00 uses +0x0D unless (+3 & 15)==1;
 # 00219550 does so except class0/item0x28. Its library ids are 4D/58/6C/72.
 # The latter two are already exported above. These model-only spans do not

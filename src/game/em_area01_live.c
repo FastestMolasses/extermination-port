@@ -17,6 +17,7 @@
 #include "game/em_area01_flame_services.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area00_low.h"
+#include "game/em_render_verify_rest.h"
 #include "game/em_anim_runtime_rest.h"
 #include "game/em_shadow_live.h"
 #include "game/em_area11_bindings.h"
@@ -422,6 +423,68 @@ static int low_001288D0(EmArea01Live *l,EmArea01Call *c)
     int rc=em_area00_low_001288D0(&low,(uint32_t)c->a[0],(uint32_t)c->a[1]);
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
 }
+/* The sub-state machines the bug owner 0012A5D0 (em_area01_exita, byte-
+ * matched decomp C) runs by its +5 (states 2..7 and 9: 0012B410 NEARMISS,
+ * 0012B970 / 0012BE20 / 0012C490 jump tables, 0012CAA0 byte-matched,
+ * 0012D240 NEARMISS, 0012D850 word assembly), and the reaction / release
+ * routines 0012A5D0's callees reach (00129FC0 byte-matched jump table,
+ * 0012E070 C linked from asm): em_area00_low's translations
+ * (test_area00_low_reference.py against the original instructions), over
+ * this composition's views; their own callees come back through it. First
+ * reached natively by AREA00 a00_09's crate children. */
+static int low_entry(EmArea01Live *l,EmArea01Call *c)
+{
+    EmArea00Low low;memset(&low,0,sizeof low);
+    low.call=low_call;low.ctx=l;low.sp=c->sp;low.view=low_view;low.view_ctx=l;
+    const uint32_t a0=(uint32_t)c->a[0],a1=(uint32_t)c->a[1];
+    int rc;
+    switch(c->function) {
+    case 0x0012B410u: rc=c->na<2 ? -1 : em_area00_low_0012B410(&low,a0,a1);break;
+    case 0x0012B970u: rc=c->na<2 ? -1 : em_area00_low_0012B970(&low,a0,a1);break;
+    case 0x0012BE20u: rc=c->na<2 ? -1 : em_area00_low_0012BE20(&low,a0,a1);break;
+    case 0x0012C490u: rc=c->na<2 ? -1 : em_area00_low_0012C490(&low,a0,a1);break;
+    case 0x0012CAA0u: rc=c->na<2 ? -1 : em_area00_low_0012CAA0(&low,a0,a1);break;
+    case 0x0012D240u: rc=c->na<2 ? -1 : em_area00_low_0012D240(&low,a0,a1);break;
+    case 0x0012D850u: rc=c->na<2 ? -1 : em_area00_low_0012D850(&low,a0,a1);break;
+    case 0x00129FC0u: rc=c->na<2 ? -1 : em_area00_low_00129FC0(&low,a0,a1);break;
+    case 0x0012E070u: rc=c->na<1 ? -1 : em_area00_low_0012E070(&low,a0);break;
+    default: rc=-1;break;
+    }
+    return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
+}
+static int low_entry_handles(uint32_t fn)
+{
+    switch(fn) {
+    case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
+    case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
+        return 1;
+    default:
+        return 0;
+    }
+}
+/* 001027E0(dst, src) (asm-word leaf of the SDK, the rigid inverse:
+ * transposed rotation rows with w = 0, translation -(R^T t), w kept), from
+ * the bug owners' 0012ADC0 (em_area01_exita; scratch 0x700036E0 from
+ * 0x700036A0): em_render_verify_rest's translation (em_rvr_001027E0,
+ * test_render_verify_rest_reference.py against the original instructions).
+ * The four source rows (low four address bits ignored) are all read before
+ * the first store, so dst may equal src; a partial overlap is refused. */
+static int sdk_001027E0(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<2)return worker_result(l,-1,c->function);
+    const uint32_t a=(uint32_t)c->a[0]&~15u,b=(uint32_t)c->a[1]&~15u;
+    if(a!=b && overlaps(a,64,b,64))return worker_result(l,-1,c->function);
+    uint32_t in[16],out[16];
+    const uint8_t *p=bytes(l,b,64,0);
+    if(!p)return worker_result(l,-1,b);
+    memcpy(in,p,64);
+    EmRvrFault fault;memset(&fault,0,sizeof fault);
+    if(em_rvr_001027E0(out,in,&fault)<0)return worker_result(l,-1,c->function);
+    uint8_t *q=bytes(l,a,64,1);
+    if(!q)return worker_result(l,-1,a);
+    memcpy(q,out,64);
+    return 0;
+}
 /* 001F9100(owner, point, normal, f12) from 001B5360 (em_area00_low): the
  * first level's decal route (em_shadow_actor_route through em_shadow_live)
  * over the three quadwords the original loads (low four address bits
@@ -693,6 +756,8 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     if(c->function==0x0012D580u)return low_0012D580(l,c);
     if(c->function==0x001288D0u)return low_001288D0(l,c);
+    if(low_entry_handles(c->function))return low_entry(l,c);
+    if(c->function==0x001027E0u)return sdk_001027E0(l,c);
     if(c->function==0x001F9100u)return owner_001F9100(l,c);
     if(c->function==0x001C9D50u)return rest_001C9D50(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);

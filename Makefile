@@ -1894,6 +1894,17 @@ test-area00-surface-vu-reference:
 test-area00-footstep-reference:
 	python3 tools/test_area00_footstep_reference.py
 
+# test-area00-box-lift-reference: the live effect pass's box break lift
+# handler 001EBC30 (effect subtype 8, a00_09's barricade crate) against the
+# original instructions and every transform / packet callee, whole RAM and
+# scratchpad (the lift matrix 0x70003400 included), both node +0x38 values
+# (both sources), over the retained AREA00 captures' effect nodes; the
+# export's D_00256280 window and two refusals (about 9 s; EM_TEST_FULL=1 all
+# 12 captures; opt-in).
+.PHONY: test-area00-box-lift-reference
+test-area00-box-lift-reference:
+	python3 tools/test_area00_box_lift_reference.py
+
 .PHONY: test-area01-collision-view-reference test-area01-shadow-live-reference test-area01-scratch-views
 test-area01-collision-view-reference:
 	python3 tools/test_area01_collision_view_reference.py

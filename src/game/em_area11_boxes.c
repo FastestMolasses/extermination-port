@@ -14,6 +14,7 @@
 
 #include "game/em_actor_collision.h"
 #include "game/em_actor_roster.h"
+#include "game/em_area11_bindings.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
@@ -127,6 +128,8 @@ static struct {
     EmArea11BoxesRegistryView registry_view;
     void *registry_context;
     uint32_t registry_fault;
+    EmArea11BoxesChildBinder child_binder;
+    void *child_context;
 } S;
 
 static const uint8_t *registry_memory(uint32_t address,uint32_t size)
@@ -172,6 +175,11 @@ void em_area11_boxes_bind_registry(EmArea11BoxesRegistryView view,void *context)
     S.registry=(EmCrateRegistry){.resolve=view?registry_group:NULL};
 }
 uint32_t em_area11_boxes_registry_fault(void){return S.registry_fault;}
+void em_area11_boxes_bind_children(EmArea11BoxesChildBinder binder, void *context)
+{
+    S.child_binder = binder;
+    S.child_context = binder ? context : NULL;
+}
 
 static int report(const char *what)
 {
@@ -741,8 +749,41 @@ static int h_taken(void *c, uint8_t puid)
     return b && b->scene ? em_actor_roster_001B11E0(b->scene,
         (EmActorRosterProgress *)em_scene_progress_spawn_view(b->scene),puid) : -1;
 }
+/* 001551B0 state 2's child (decomp src/func_001551B0.c, NEARMISS C, the
+ * nest loop at 00155FC0): e = 001AFA90(record +4) (byte-matched decomp
+ * C; em_actor_pool_alloc_001AFA90, which already latches +0x9D/+0x9E for
+ * class 2); a refused allocation (0) skips the record. Then the copy in the
+ * original's order: +0x9A puid, +0x03 model, +0x2E the model's high byte,
+ * +0x0D, class 2: +0x9D = D_00810701 and +0x9E = record +0x0A, otherwise
+ * the halfword +0x0E; +0x54, +0x56, +0xB0..+0xB8 (parent + offset),
+ * +0xC0..+0xC8 and +0x10 (the child's behaviour word). The binder gives
+ * the record the native behaviour for that callback. 1 allocated, 0 not. */
 static int h_spawn(void *c, const EmCrateChild *child)
-{ (void)c; (void)child; return unbound("001AFA90 and the nest child copy"); }
+{
+    Box *b = c;
+    if (!S.child_binder) return unbound("001AFA90 and the nest child copy");
+    if (!b || !b->pool || !b->scene || !child) return report("the nest child copy without its pool");
+    EmActor *e = em_actor_pool_alloc_001AFA90(b->pool, b->scene, child->class_id);
+    if (!e) return 0;
+    e->table_index = child->puid;
+    e->model = child->model;
+    e->flags2 = child->model_high;
+    e->param = child->param;
+    if (child->class_two) {
+        e->b9D = child->sub_area;
+        e->b9E = child->condition;
+    } else {
+        e->uid = child->placement;
+    }
+    e->kind = (uint16_t)child->kind;
+    e->link = (uint16_t)child->link;
+    memcpy(e->pos, child->position, sizeof child->position);
+    memcpy(e->rot, child->rotation, sizeof child->rotation);
+    e->callback = child->behavior;
+    if (S.child_binder(S.child_context, e) < 0 || !e->behavior)
+        return report("the nest child's behaviour has no binding");
+    return 1;
+}
 /* The husk rebind of a damage break (001551B0 at 001562xx; decomp
  * src/func_001551B0.c): 001CA6E0(self, 001C6120(*D_0028A56C, model)) with
  * model 0x22 (a box of model 6) or 0x29 (0x1E): +0x44 = the global
@@ -763,8 +804,16 @@ static int h_rebind(void *c, uint16_t model)
         return report("the husk rebind: 001CA6E0 (the library model) faulted");
     return 0;
 }
+/* 001551B0 state 3 (decomp src/func_001551B0.c, at 001565B4): a box of
+ * model 0x50 with a nonzero +0x9A sets its taken bit, 001B1190(+0x9A)
+ * (byte-matched decomp C) through em_area11_bindings_001B1190 (the
+ * verified em_gun_rest_001B1190 over D_00810700 and the canonical
+ * D_00810860 rows), before 001AFC10 frees it. */
 static int h_set_taken(void *c, uint8_t puid)
-{ (void)c; (void)puid; return unbound("001B1190 (model 0x50 taken bit)"); }
+{
+    (void)c;
+    return em_area11_bindings_001B1190(puid) < 0 ? report("001B1190 faulted (the taken bit)") : 0;
+}
 static int h_segment(void *c, const float f[3], const float t[3], int32_t mask, int32_t ex)
 { (void)c; (void)f; (void)t; (void)mask; (void)ex; return unbound("0019A570 (the drum's break test)"); }
 /* 001F0460(preset, M) and 001EFD20(id, pos) over the effect binder. */
@@ -815,6 +864,7 @@ void em_area11_boxes_reset(void)
 void em_area11_boxes_area_reset(void)
 {
     em_area11_boxes_bind_registry(NULL,NULL);
+    em_area11_boxes_bind_children(NULL, NULL);
     memset(S.box, 0, sizeof S.box);
     memset(&S.library, 0, sizeof S.library);
     S.library_word = 0;

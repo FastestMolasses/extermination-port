@@ -94,6 +94,17 @@ typedef uint8_t *(*EmArea11BoxesRegistryView)(void *,uint32_t,uint32_t,int);
 void em_area11_boxes_bind_registry(EmArea11BoxesRegistryView,void *context);
 uint32_t em_area11_boxes_registry_fault(void);
 
+/* Optional binder for the children a crate's break allocates (001551B0
+ * state 2 at 00155FC0: 001AFA90(record +4) per untaken nest record, then
+ * the record copy, +0x10 = record +0x28 the child's behaviour). The binder
+ * gives the new record its native behaviour for that callback (the area's
+ * roster binding); it returns 0, or <0 to fail-stop. Bound with the
+ * registry (same lifetime: reset/detach clears it). NULL detaches; without
+ * a binder a child spawn still fail-stops (AREA11's placements never reach
+ * a nest group). */
+typedef int (*EmArea11BoxesChildBinder)(void *, EmActor *);
+void em_area11_boxes_bind_children(EmArea11BoxesChildBinder, void *context);
+
 /* The 001AF710 bone-slot stack and its 0xD0-byte slot arena as
  * em_roger_actor_original views (D_00275BCC, D_00275BD0, D_007D4640[],
  * D_007D5840..): the one storage the boxes and Roger's owner pop from and
