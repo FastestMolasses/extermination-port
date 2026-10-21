@@ -5,8 +5,10 @@
  * em_save_. The card screen 00227300 (em_card_original) runs it, wired
  * into the options binding em_options_live (docs/SAVE_GAME.md section
  * 6.1), which answers its libmc callees through em_memcard_call
- * (docs/SAVE_GAME.md section 5): live in load mode up to LOAD GAME's read
- * (00228B60), which fail-stops; the save mode is not reachable live.
+ * (docs/SAVE_GAME.md section 5): live in load mode through LOAD GAME's
+ * read (00228B60) of the slot into the progress block (one storage since
+ * save2 round 2), the done message and the fade; the save mode is not
+ * reachable live.
  *
  * The record is the card screen's, D_00810040 (docs/OPTIONS.md): +3 the
  * writer's state, +4 its step, +5, +0xA the save slot (0..4, the file

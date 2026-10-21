@@ -1357,7 +1357,7 @@ static int status_pages_frame(void)
         return 0;
     }
     case SP_HEALTH:
-        g.status.health = (float)step->value;
+        em_scene_state()->d810858 = (float)step->value;
         sp_next();
         return 0;
     case SP_TAKE: {
@@ -1390,9 +1390,9 @@ static int status_pages_frame(void)
         if (step->value == CHECK_FIRE_MODE)
             ok = em_weapon_fire_mode() != sp.fire_mode;
         else if (step->value == CHECK_HEALTH_60)
-            ok = g.status.health == 60.0f && page && page->item.step == 1;
+            ok = em_scene_state()->d810858 == 60.0f && page && page->item.step == 1;
         else if (step->value == CHECK_HEALTH_100)
-            ok = g.status.health == 100.0f && page && page->item.step == 1;
+            ok = em_scene_state()->d810858 == 100.0f && page && page->item.step == 1;
         else if (step->value == CHECK_CLOSED)
             ok = in_control();
         if (ok) {
@@ -1413,7 +1413,7 @@ static int status_pages_frame(void)
     }
     fprintf(stderr, "level smoke: status_pages: PASS frames=%d pages=MAP,SPR4,DATABASE,EQUIPMENT,"
             "EVENT,HEALING takes=0x1E,0x1F,0x32,0x10,0x08 fire_mode=%u->%u health=%.1f\n", sp.total,
-            (unsigned)sp.fire_mode, (unsigned)em_weapon_fire_mode(), (double)g.status.health);
+            (unsigned)sp.fire_mode, (unsigned)em_weapon_fire_mode(), (double)em_scene_state()->d810858);
     return 1;
 }
 
@@ -3148,7 +3148,7 @@ static int dmg_frame(void)
     switch (st->kind) {
     case DS_END:
         fprintf(stderr, "level smoke: %s: PASS hits=%d health=%.1f player=(%.3f,%.5f,%.3f)\n",
-                k_phases[t.current].name, D.hits, g.status.health, g.pos[0], g.pos[1], g.pos[2]);
+                k_phases[t.current].name, D.hits, em_scene_state()->d810858, g.pos[0], g.pos[1], g.pos[2]);
         return 1;
     case DS_IDLE:
         pad_apply(0, 0, 0);
@@ -3159,13 +3159,13 @@ static int dmg_frame(void)
          * walk at the flame while walkable, neutral otherwise, until the
          * health drops; then neutral until +4 == 1 or the health is 0. */
         if (D.sub == 0) {
-            if (g.status.health <= st->a) return dmg_next();
-            D.hp0 = g.status.health;
+            if (em_scene_state()->d810858 <= st->a) return dmg_next();
+            D.hp0 = em_scene_state()->d810858;
             D.sub = 1;
             D.ticks = 0;
         }
         if (D.sub == 1) {
-            if (g.status.health < D.hp0) {
+            if (em_scene_state()->d810858 < D.hp0) {
                 ++D.hits;
                 pad_apply(0, 0, 0);
                 D.sub = 2;
@@ -3177,7 +3177,7 @@ static int dmg_frame(void)
             return dmg_timeout(400, "no flame hit") < 0 ? 0 : 0;
         }
         pad_apply(0, 0, 0);
-        if (em_live_u8(a, 4) == 1 || g.status.health <= 0.0f) {
+        if (em_live_u8(a, 4) == 1 || em_scene_state()->d810858 <= 0.0f) {
             D.sub = 0;
             return 0;
         }
@@ -3308,7 +3308,7 @@ static int dmg_frame(void)
             fprintf(stderr, "level smoke: %s: first control again at tick %u counter %u (%.3f,%.5f,%.3f) "
                             "yaw=%.5f health=%.1f\n", k_phases[t.current].name,
                     (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter(), g.pos[0], g.pos[1], g.pos[2],
-                    g.yaw, g.status.health);
+                    g.yaw, em_scene_state()->d810858);
             return dmg_next();
         }
         (void)dmg_timeout(12000, "first control after the New Game");
@@ -3398,7 +3398,7 @@ static int dmg_frame(void)
             pad_apply(0, D.lag[0][0], D.lag[0][1]);
             return 0;
         }
-        if (g.status.health <= 0.0f) return dmg_next();
+        if (em_scene_state()->d810858 <= 0.0f) return dmg_next();
         if (dmg_walkable(a)) nav_stick_toward(st->a, st->b, 1.0f);
         else pad_apply(0, 0, 0);
         D.lag[0][0] = D.lag[1][0];
@@ -3447,7 +3447,7 @@ static int dmg_frame(void)
                 em_frame_counter(), (int)timer, DMG_FAN_ALIGN_ROW);
         dmg_next();
         D.frame = DMG_FAN_ALIGN_ROW;
-        D.hp0 = g.status.health;
+        D.hp0 = em_scene_state()->d810858;
         dmg_fan_apply(D.frame - 2);
         return 0;
     }
@@ -3460,9 +3460,9 @@ static int dmg_frame(void)
             fail("dmg_fan went below Z 156 (the exit box)");
             return 0;
         }
-        if (g.status.health < D.hp0) {
+        if (em_scene_state()->d810858 < D.hp0) {
             ++D.hits;
-            D.hp0 = g.status.health;
+            D.hp0 = em_scene_state()->d810858;
         }
         if (D.frame < DMG_FAN_LAST_ROW) {
             dmg_fan_apply(D.frame - 2);
@@ -3470,10 +3470,10 @@ static int dmg_frame(void)
         }
         /* dmg_08's end: one hit (100 -> 95), control back, the protection
          * over (+0 = 1). */
-        if (D.hits != 1 || g.status.health != 95.0f || em_live_u8(a, 0) != 1 || em_live_u8(a, 4) != 1 ||
+        if (D.hits != 1 || em_scene_state()->d810858 != 95.0f || em_live_u8(a, 0) != 1 || em_live_u8(a, 4) != 1 ||
             g.pd_iframes > 0) {
             fprintf(stderr, "level smoke: dmg_fan: hits %d health %.1f +0 %u +4 %u protection %d\n", D.hits,
-                    g.status.health, em_live_u8(a, 0), em_live_u8(a, 4), g.pd_iframes);
+                    em_scene_state()->d810858, em_live_u8(a, 0), em_live_u8(a, 4), g.pd_iframes);
             fail("dmg_fan did not end as dmg_08 does (one hit to 95, +0 = 1, control back)");
             return 0;
         }

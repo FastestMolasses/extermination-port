@@ -186,7 +186,7 @@ unsigned em_game_anim_active(void);
  *
  * D_00810811 is NOT a battery flag. It is the opening-complete byte: the
  *   AREA11 opening controller 00823E80 stores 0xFF there at
- *   0x00823F74..80 when its script ends (g.opening_complete; executed by
+ *   0x00823F74..80 when its script ends (the progress block's d810811; executed by
  *   tools/test_continue_reset_reference.py). The byte is also index 0xB9
  *   of the D_00810758 event array, so event writes could reach it; that
  *   has not been audited. No pickup take writes it, and there is no

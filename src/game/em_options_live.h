@@ -76,7 +76,7 @@ typedef struct {
     uint32_t task_address;      /* *0x70003B6C: the running task's record */
     uint8_t *task;              /* its bytes +8..+0x1F (24) */
     uint8_t *mc;                /* D_00810040, 0xD4 bytes */
-    uint8_t *progress;          /* D_00810700, 0x640 bytes (the canonical ranges) */
+    uint8_t *progress;          /* D_00810700, the whole 0x640-byte block */
     EmMessageBlock *message;    /* D_002821B0 */
     uint8_t *busy;              /* D_00275BD8 */
     uint16_t *masks;            /* 0x70003B74..0x70003B83 */

@@ -14,9 +14,10 @@ instruction of the original is reproduced here.
 |---|---|---|---|
 | The save writer | 00228A90 and its steps 00228530, 002285A0, 002288A0, 00229640, 00229680, 002284F0, 001AF220 | translated (em_save_original), not wired | test-save-reference |
 | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
-| The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original); wired into the options binding (section 6.1): live in load mode up to LOAD GAME's read, which fail-stops (the progress block is not one storage yet) | test-card-screen-reference, test-options-card-live |
+| The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original); wired into the options binding (section 6.1): live in load mode through LOAD GAME's read into the progress block (one storage since save2 round 2), the done message and the fade, to the result 2 | test-card-screen-reference, test-options-card-live |
 | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
-| LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated | - |
+| The progress block as one storage | D_00810700..D_00810D3F, which 00228B60 reads into and a save's Write reads (section 6.1) | every byte one storage (em_scene_state.h; save2 round 2); 001AF2C0's effect on all 0x640 bytes | test-continue-reset-reference, test-options-card-live |
+| LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated: the title's handoff (001AC070 state 4, id 1) and the options' 001D2610 fail-stop | - |
 | The host card | em_memcard: GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
 | The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
 | Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
@@ -446,13 +447,51 @@ GAME after a death) the card check, the load enumeration (the slot files
 read from data/memcard/slotN into the staging block, the name check, the
 check byte), the slot rows with place names and play times, the cursor, the
 confirmation, Circle / Triangle out, a card without the game's directory and
-a card the enumeration refuses. **LOAD GAME's read fail-stops**: 00228B60
+a card the enumeration refuses, and **LOAD GAME** to its end: 00228B60
 reads the slot's 0x640 bytes straight into the progress block D_00810700,
-of which the port holds only the canonical ranges in one storage
-(em_scene_state.h, em_scene_progress_canonical); the binding refuses the
-Read before any byte is stored (em_memcard: "a card Read into bytes outside
-the caller's memory") and the coordinator stops. A save has the same wall
-(the Write of the live block reads all 0x640 bytes) and others before it:
+then the done message 00227010 (45 frames), 00225AC0's fade-out
+001AEDE0(8, 0), its wait for the fade's end, the texture restore
+00200970(1) and its state 3, which returns 2 (a game loaded). Where loading
+then stops: on the title, 001AC070 state 5 hands the result to state 4,
+whose handoff of a loaded game (id 1, D_00275BE0 = 1) fail-stops in the
+frontend (the load-game service); in the options, 0022A650's r == 2 runs
+001AEBA0 and 001AF150 (the settings back from the block) and faults at
+001D2610 (not bound). Section 8 has the next step.
+
+**The progress block is one storage** (save2 round 2). The read can store
+all 0x640 bytes because every byte of D_00810700..D_00810D3F now has one
+storage, EmSceneState's `progress` (em_scene_state.h): the owners that had
+storage of their own were moved onto it. The area bytes D_00810700..702,
+D_00810730[] and the counter D_00810750 are named members of EmSceneState
+over the block (an anonymous union: their readers did not change);
+D_00810811 (the opening's completion byte, was g.opening_complete);
+D_00810858 / D_0081085C (health and infection, were g.status.health /
+infection: the port still holds the player's +0x220 / +0x228 in these same
+words, as before, so 0015CF90's and 001B07C0's copies stay identities;
+g.status keeps only the HUD's display copy, set each frame as the magazine
+and the reserve already were); D_00810C61 / C62 / CB4 / D3C (em_weapon's
+fire mode, magazine, reserve and light, which em_weapon now keeps in the
+block). The census behind it: every address of the block named in src/
+outside the formerly migrated ranges; the others are per-call copies of a
+binding or later areas' translations over their own images, which keep no
+storage. 001AF2C0's reset (em_scene_state.h,
+em_scene_progress_reset_001AF2C0, with em_pickup_reset's item stores) now
+covers the whole block: besides the memset and the stores the port had, it
+stores D_00810703..705 = 0xFF, D_00810858 = 100.0, D_0081085C = 0,
+D_00810D20..D23 = 1, C61 = 0, C62 = 30, CB4 = 60 and D3C = 0, and clears the
+area bytes, D_00810730[] and D_00810750 as the original's memset does.
+`make test-continue-reset-reference` checks all 0x640 bytes (and the
+button masks 001AF470 writes) against the executed 001AF2C0 from two
+starting blocks with every byte set; run 2026-10-21: PASS. Mutants (703..705
+left 0, D23 left 0, the memset skipping D_00810730..753): all fail it; the
+D3C = 0 store dropped survives (an equivalent mutant: the memset already
+cleared it). The status pages' binding keeps its own views of the area
+bytes, the vitals and C61 / C62 / CB4 (per call or the frame's pointers, the
+same storage in the game) and views the rest of the block; the options
+binding views the whole block.
+
+A save has the wall the read had (the Write of the live block reads all
+0x640 bytes, now one storage) and others before it:
 the save mode is reached only from the save terminal's Yes (0020CDC0
 request 6) and 001AD740, neither wired; its card check asks the free count
 (em_memcard faults: no recording), its Format 00114D18, the New Game block
@@ -477,7 +516,7 @@ bytes, the EMSP, the message data and the area-title export) on a second
 folder with the same files. Same pad words each frame (made on the original
 alone, test-card-screen-reference's policy). After every frame 00225AC0's
 result, the card record (0xD4 bytes), the card helpers' globals, the
-progress block's canonical bytes and the binding's card buffers (D_00821500,
+whole progress block (0x640 bytes) and the binding's card buffers (D_00821500,
 the header D_00821980, the staging blocks D_008219D0 / D_00822050 /
 D_00822690, D_00822010, D_00275C94..9F) must equal the original's, and at
 the end the two host folders. Each frame's draw and cue calls must also
@@ -487,7 +526,9 @@ w, h, its text up to the NUL and the 8 style bytes (the original's at its
 style pointer, the binding's as it decoded them), or no style, 001FC770's
 x, y, text and its config's 5 words and style (or config 0), and the cues
 as 0020CD40 / 60 / A0 pass them to 001FB9F0 (the wrappers run as original
-code). Where the native side's log is taken matters: each draw is logged
+code), and the fades 001AEDE0 / 001AEE10 and the texture restore 00200970
+with their arguments (the oracle records them and answers 0; the fixture's
+host logs them where the binding hands them on). Where the native side's log is taken matters: each draw is logged
 inside a thin wrapper of the binding (em_options_live_set_trace, a
 test-only log) from the very parameters it then forwards unchanged to
 em_page_draw / em_message_live, so a wrong argument in a dispatcher's call
@@ -496,20 +537,30 @@ callback, where they arrive. The wrappers' forward lines pass their own
 parameters verbatim; what em_page_draw and em_message_live then make of
 them (the packets) is their own tests'. The test asserts that the flows
 compared 001CC1E0 with no style and with D_00275898, 001FC770 with the
-configs D_00264CB0, D_002671A0 and 0, every page draw and the cues.
+configs D_00264CB0, D_002671A0 and 0, every page draw, the cues, the
+fade-out and the restore.
 001CC170 (the text width) runs as original code on the oracle but is not
 called on the card screen (only 001FCE30 calls it). Flows: LOAD GAME of
-each slot on both ports (each must stop on the very frame the original
-issues the Read of D_00810700, with that Read's bytes the slot file), a
+each slot on both ports (on the frame the original issues the Read of
+D_00810700 both blocks must hold the slot file; on each recording's first
+LOAD GAME flow both sides then run the done message, the fade-out, the
+fade's end, which the frame machine makes and the test hands to both sides
+as D_0028A9A0 = 2, the restore and 00225AC0's state 3 returning 2; the
+other LOAD GAME flows stop the frame after the Read, and EM_TEST_FULL=1
+runs every one to the end), a
 declined confirmation then Triangle, Circle and Triangle on the list, no
 directory, a refused card (icon.sys missing) with Cross and with Triangle,
 a card missing one save file (EX_DATA.03, which exercises strcmp 00123020
 past a shared prefix), rows with saves 0 and 3 on port 1. The rows' play
 times include 0, 59 frames, 3:59:30, 99:59:59 and 0x7FFFFFFF frames (9942
-hours: the longest text). Run 2026-10-20: PASS, 30 flows, 1,266 frames
-equal (16 end at the read, 8 with 2, 6 with 1), 20,110 draw and cue calls
-equal (104 cues); about 9 s warm on an idle machine (15 s measured under
-load), 30 to 50 s on a first run (it builds the fixture). Mutants
+hours: the longest text). Run 2026-10-21: PASS, 30 flows, 1,382 frames
+equal (16 LOAD GAME, 2 of them through the load's end; 8 end with 2, 6 with
+1), 23,959 draw, cue, fade and restore calls equal (104 cues); about 12 s
+of CPU warm (28 s wall under load), 30 to 50 s more on a first run (it
+builds the fixture). EM_TEST_FULL=1: PASS, 2,082 frames, 43,910 calls (all
+16 LOAD GAME flows to the load's end). A gap of one byte (D_00810858) in
+the binding's block view fails it at the Read ("a card Read into bytes
+outside the caller's memory"). Earlier mutants (round 1)
 (sprintf's flags dropped, its arguments shifted, strcmp never equal,
 00227300's result lost, the row text cut to 4 bytes, the card's stores
 dropped; the glyph and flag bytes swapped for every style but D_00275828,
@@ -629,11 +680,14 @@ both are 0 in every arrival block.
 
 ## 8. Next steps
 
-In order: the progress block D_00810700 as one storage (LOAD GAME's read
-writes all 0x640 bytes and every save reads them; the port holds only its
-canonical ranges, em_scene_state.h); what the card screen's callers do with
-its result 2 (0022A650's r == 2, 001AC070's title load: the restore and the
-area entry); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
+In order (the progress block as one storage is done, section 6.1): what
+the card screen's callers do with its result 2 (001AC070's title load: the
+handoff of a loaded game, state 4 with id 1, today a frontend fail-stop;
+0022A650's r == 2: 001D2610, unbound; then the chain's restore and area
+entry from the loaded block; the port's New Game fixture
+em_game_legacy_state0_fixtures, whose em_weapon_reset re-seeds C61 / C62 /
+CB4 / D3C from the HUD's display copy at 001B07C0(0) in a scene that is not
+an arrival, must not undo a loaded block); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
 em_memcard on `build/start_saves/<name>` and the title's LOAD GAME on slot
 0 of port 0, off by default, refusing an unknown name or a card that is not
 built; the save terminal's Yes path (0020CDC0, request 6) and the save

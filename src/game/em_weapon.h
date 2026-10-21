@@ -1,9 +1,12 @@
-/* em_weapon.h - the rifle's ammo and mode bytes: their one storage.
+/* em_weapon.h - the rifle's ammo and mode bytes. Their one storage is the
+ * progress block D_00810700 (em_scene_state.h, the named members d810C61,
+ * d810C62, d810CB4 and d810D3C, since save2 round 2); this module is their
+ * accessors.
  *
  * The player's aiming and firing run on their originals in AREA11
  * (docs/AIM_FIRE.md): the stance machines 0x1D..0x22, the fire machines,
  * the gun node 00188630 / 0018A6B0, the shots, the lamp, the knife and the
- * aim camera, composed by em_aim_fire_live. This module only holds the
+ * aim camera, composed by em_aim_fire_live. This module only reaches the
  * global bytes those originals (and the HUD, the pickups and the status
  * pages) read and write:
  *

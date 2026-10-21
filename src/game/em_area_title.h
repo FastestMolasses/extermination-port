@@ -12,7 +12,7 @@
  *   001AFC10  the caller's free of the node's record
  * Its memory: D_00810700 / 701 and the scratchpad mode byte 0x70003B8D
  * from the scene state, D_008106B8 (the scene's B8 byte), D_008104D8 (the
- * player's infection float, g.status.infection), D_00289B40 (built at
+ * player's infection float, D_0081085C), D_00289B40 (built at
  * load by em_sul_001B0BA0 from the exported D_0024A850 counts, as 001B0BA0
  * builds it at boot), and the ELF data tools/export_area_title.py exports
  * (assets/area_title.emat): the pointer tables D_002671C0 / D_0026726C, the

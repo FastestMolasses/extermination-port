@@ -818,21 +818,17 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         fprintf(f, ", %u]", a->callback);
     }
     uint32_t hp;
-    memcpy(&hp, &g.status.health, 4);
+    memcpy(&hp, &em_scene_state()->d810858, 4);
     fprintf(f, "}, \"hp\": %u, \"progress\": [", hp);
-    /* Each byte from its one port owner: the canonical progress region,
-     * or the named mirror g.opening_complete (D_00810811, not migrated).
-     * A byte with neither has no port storage: live code reaches the
-     * region only through em_scene_progress_at (which refuses it) or a
-     * named mirror, so it keeps 001AF2C0's reset value 0 (the region's
-     * memset). */
+    /* Each byte from its one storage, the progress block (whole since
+     * save2 round 2). */
     static const uint32_t windows[][2] = {{0x8107D8, 64}, {0x810758, 8}, {0x810860, 64}, {0x810D00, 32}};
     for (unsigned i = 0; i < 4; ++i) {
         uint8_t bytes[64];
         for (uint32_t k = 0; k < windows[i][1]; ++k) {
             const uint32_t at = windows[i][0] + k;
             const uint8_t *p = em_scene_progress_at(&s_state, at, 1);
-            bytes[k] = p ? *p : at == 0x00810811u ? g.opening_complete : 0;
+            bytes[k] = p ? *p : 0;
         }
         if (i)
             fputs(", ", f);
@@ -846,12 +842,8 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
             uint8_t bytes[8];
             for (unsigned k = 0; k < sizeof bytes; ++k) {
                 const uint32_t at = starts[i] + k;
-                const uint8_t *p = at == 0x00810C61u ? em_weapon_fire_mode_byte() :
-                                   at == 0x00810C62u ? em_weapon_mag_byte() :
-                                   em_scene_progress_at(&s_state, at, 1);
-                /* The weapon owns C61/C62. Remaining unmigrated bytes
-                 * retain the original reset, as the windows above. */
-                bytes[k] = p ? *p : 0;
+                const uint8_t *p = em_scene_progress_at(&s_state, at, 1);
+                bytes[k] = p ? *p : 0; /* the weapon's C61 / C62 are block bytes */
             }
             fprintf(f, ", \"%s\": ", names[i]);
             log_hex(f, bytes, sizeof bytes);
@@ -1172,9 +1164,9 @@ static void log_tick_end(int rc)
          * +0x04, +0x0D]. */
         {
             uint32_t hp, pend, inf, pend_inf;
-            memcpy(&hp, &g.status.health, 4);
+            memcpy(&hp, &em_scene_state()->d810858, 4);
             memcpy(&pend, &g.pd_pend_hp, 4);
-            memcpy(&inf, &g.status.infection, 4);
+            memcpy(&inf, &em_scene_state()->d81085C, 4);
             memcpy(&pend_inf, &g.pd_pend_inf, 4);
             const uint8_t *pad = em_pad_actuator_block();
             fprintf(f, ", \"dmg\": [%u, %u, %u, %u, %u, %u, %d, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, [", hp, pend,
@@ -2683,9 +2675,9 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     the same record position to both)
  *   +0xC4 heading     g.yaw (+0xC0/+0xC8 are written 0; the port has no
  *                     pitch or roll)
- *   +0x220/+0x228     g.status.health/infection, which are also the port's
- *                     only copy of D_00810858/D_0081085C, so 001B07C0's copy
- *                     is an identity here
+ *   +0x220/+0x228     the progress block's D_00810858 / D_0081085C: the
+ *                     port holds +0x220 / +0x228 in those words, so
+ *                     001B07C0's copy is an identity here
  *   +0x234/+0x235     g.pd_infected/g.pd_low (the record's view). Their
  *                     sources D_00810707 / D_00810706 are canonical progress
  *                     (HK / GLUE), stored by 0015CF90 at every player stage
@@ -2747,8 +2739,8 @@ static void spawn_commit(const EmSpawnIo *io)
     g.pos[1] = io->player.f0B0[1];
     g.pos[2] = io->player.f0B0[2];
     g.yaw = io->player.f0C0[1];
-    g.status.health = io->player.f220;
-    g.status.infection = io->player.f228;
+    em_scene_state()->d810858 = io->player.f220;
+    em_scene_state()->d81085C = io->player.f228;
     g.pd_infected = io->player.b234;
     g.pd_low = io->player.b235;
     g.pd_pend_hp = io->player.f224;
@@ -2909,8 +2901,8 @@ static int w_001B07C0(void *ctx, int a0)
         return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
     io.d810706 = *e706;
     io.d810707 = *e707;
-    io.d810858 = g.status.health;
-    io.d81085C = g.status.infection;
+    io.d810858 = em_scene_state()->d810858;
+    io.d81085C = em_scene_state()->d81085C;
     io.d810788 = e788 ? *e788 : 0;
     io.d810C7D = items[0x19];
     io.d810C7E = items[0x1A];
@@ -2922,9 +2914,9 @@ static int w_001B07C0(void *ctx, int a0)
     io.player.f0A0[1] = io.player.f0B0[1] = g.pos[1];
     io.player.f0A0[2] = io.player.f0B0[2] = g.pos[2];
     io.player.f0C0[1] = g.yaw;
-    io.player.f220 = g.status.health;
+    io.player.f220 = em_scene_state()->d810858;
     io.player.f224 = g.pd_pend_hp;
-    io.player.f228 = g.status.infection;
+    io.player.f228 = em_scene_state()->d81085C;
     io.player.f22C = g.pd_pend_inf;
     io.player.b234 = (uint8_t)g.pd_infected;
     io.player.b235 = (uint8_t)g.pd_low;
@@ -4534,9 +4526,11 @@ static int w_001AEBA0(void *ctx, int16_t a0)
  * and the screen offset; its draw stream is drawn in the same tick (the
  * world is frozen; no 001D1EA0 runs), as the game-over screen's. r == 1
  * closes: 001AF1C0 (the settings into the progress block, 001AF470), the
- * cue 0xD and 001FAE70(0). r == 2 (a game loaded) is reached only through
- * 00227300, which faults first (not translated); r == 3 (quit, Yes) runs
- * 001AD140 as the death does. */
+ * cue 0xD and 001FAE70(0). r == 2 (a game loaded: LOAD GAME through
+ * 00227300, its read of the slot into the progress block) runs 001AEBA0
+ * and 001AF150, then faults at 001D2610 (not bound: loading a game is the
+ * save lane's next step, docs/SAVE_GAME.md section 8); r == 3 (quit, Yes)
+ * runs 001AD140 as the death does. */
 static int options_frame(EmOptionsFrame *f)
 {
     if (!s_user) return -1;

@@ -36,18 +36,24 @@ hands to its draw and sound callees: em_options_live_set_trace, logged
 inside wrappers from the parameters they forward) and, at the end, the two
 host folders.
 
-LOAD GAME's read (00228B60) writes the whole progress block D_00810700,
-which the port does not yet hold in one storage (em_scene_state.h: only its
-canonical ranges): there the binding must fail-stop on the very frame the
-original issues that Read, with every frame before it equal.
+LOAD GAME's read (00228B60) writes the whole progress block D_00810700
+(one storage since save2 round 2, em_scene_state.h): on the frame the
+original issues that Read both blocks must hold the slot file, and every
+frame the whole block must be equal. On each recording's first LOAD GAME
+flow both sides then run the rest of the load: the done message 00227010,
+00225AC0's fade-out 001AEDE0(8, 0) and the texture restore 00200970(1)
+(both logged where the binding hands them to its host and compared with
+the original's arguments), the fade's end (D_0028A9A0 = 2, which the frame
+machine sets, handed to both sides) and 00225AC0's state 3, which returns
+the slot screen's result 2; the other LOAD GAME flows stop the frame after
+the Read (EM_TEST_FULL=1 runs every one to the end).
 
-Every flow on both recordings, about 9 s warm, 30 to 50 s on a first run (it
-builds the fixture); no EM_TEST_FULL variant.
+Every flow on both recordings, about 12 s of CPU warm (30 s wall under
+load), 30 to 50 s more on a first run (it builds the fixture).
 """
 import ctypes as C
 import hashlib
 import os
-import re
 import struct
 import subprocess
 import sys
@@ -127,15 +133,6 @@ def build_fixture():
     return fx
 
 
-def canonical_ranges():
-    """em_scene_progress_canonical's table (the progress block's bytes the
-    port holds in one storage), read from the header the binding compiles."""
-    text = (ROOT / 'src/game/em_scene_state.h').read_text()
-    body = text[text.index('em_scene_progress_canonical'):]
-    body = body[:body.index('};')]
-    return [(int(a, 16), int(b, 16)) for a, b in re.findall(r'\{0x([0-9A-Fa-f]+)u,\s*0x([0-9A-Fa-f]+)u\}', body)]
-
-
 # The draw and cue calls the binding passes on (em_options_live_set_trace's
 # layout, em_options_live.h): on the oracle's side each is answered 0 and
 # recorded with the values the original passes (the text up to its NUL, the
@@ -146,7 +143,7 @@ def canonical_ranges():
 # places text) and the cue wrappers 0020CD40 / 60 / A0 run as original code;
 # the cue is their 001FB9F0(id, a1, a2, a3).
 MASK64 = (1 << 64) - 1
-WORDS = {0x207D00: 2, 0x207E40: 6, 0x207F80: 6, 0x1FB9F0: 4}
+WORDS = {0x207D00: 2, 0x207E40: 6, 0x207F80: 6, 0x1FB9F0: 4, 0x200970: 1, 0x1AEDE0: 2, 0x1AEE10: 2}
 TEXT_MAX = 256
 
 
@@ -193,7 +190,7 @@ def recorder(callee):
     return hook
 
 
-DRAWS = (0x20A7A0, 0x207D00, 0x207E40, 0x207F80, 0x1CC1E0, 0x1FC770, 0x1FB9F0)
+DRAWS = (0x20A7A0, 0x207D00, 0x207E40, 0x207F80, 0x1CC1E0, 0x1FC770, 0x1FB9F0, 0x200970, 0x1AEDE0, 0x1AEE10)
 COVER = {}                             # (callee, style or config address) -> calls compared
 
 
@@ -291,7 +288,7 @@ def flows():
     return out
 
 
-def run_flow(fx, tmp, tag, beat, knobs, ranges, stats):
+def run_flow(fx, tmp, tag, beat, knobs, stats):
     port, present = knobs.get('port', 0), knobs['present']
     files = None if present is None else CS.card_files(beat, set(present), knobs.get('drop', ()))
     roots = [Path(tmp) / tag / side for side in ('oracle', 'live')]
@@ -313,7 +310,7 @@ def run_flow(fx, tmp, tag, beat, knobs, ranges, stats):
         assert fx.fx_seed(a, arr(bytes(ram[a:a + n])), n) == 0, hex(a)
     packet = ee.load(PACKET)
     goal = knobs['goal']
-    then, confirming, reads = None, False, 0
+    then, confirming, reads, read_frame = None, False, 0, None
     for frame in range(FRAMES):
         e74, e78 = CS.policy(ee, goal, frame)
         if then is not None:
@@ -327,15 +324,16 @@ def run_flow(fx, tmp, tag, beat, knobs, ranges, stats):
         want = ee.r[2] & MASK
         read_now = [c for c in ee.calls[calls0:] if c[0] == READ and c[1][1] == 0x810700]
         rc, got = live.frame(e74, e78)
-        if read_now:
-            # LOAD GAME's read of the slot into D_00810700: the binding stops here
-            fault = fx.fx_memcard_fault()
-            assert knobs['end'] == 'read', (tag, 'LOAD GAME read on a flow that should not read', frame)
-            assert rc == -1 and fault and b'outside the caller' in fault, (tag, frame, rc, fault)
-            assert bytes(ee.mem[0x810700:0x810D40]) == files[DIR + '/EX_DATA.%02d' % goal['slot']], tag
-            reads += 1
-            return frame + 1, 'read'
         assert rc == 0, (tag, 'the binding faulted', frame, fx.fx_memcard_fault())
+        if read_now:
+            # LOAD GAME's read of the slot into D_00810700 (all 0x640 bytes,
+            # the whole block one storage): both blocks hold the slot file
+            assert knobs['end'] == 'read', (tag, 'LOAD GAME read on a flow that should not read', frame)
+            slot_file = files[DIR + '/EX_DATA.%02d' % goal['slot']]
+            assert len(slot_file) == 0x640 and bytes(ee.mem[0x810700:0x810D40]) == slot_file, tag
+            assert bytes(live.progress) == slot_file, (tag, frame, 'the binding\'s block is not the slot file')
+            reads += 1
+            read_frame = frame
         assert got == want, (tag, frame, 'result', got, want)
         drawn = live_trace(fx)
         if drawn != ee.trace:
@@ -352,8 +350,18 @@ def run_flow(fx, tmp, tag, beat, knobs, ranges, stats):
             assert got_g == bytes(ee.mem[a:a + n]), (tag, frame, hex(a), got_g.hex(), bytes(ee.mem[a:a + n]).hex())
         for a, n in OWN:
             assert live.own(a, n) == bytes(ee.mem[a:a + n]), (tag, frame, 'buffer', hex(a))
-        for lo, hi in ranges:
-            assert bytes(live.progress[lo - 0x810700:hi - 0x810700]) == bytes(ee.mem[lo:hi]), (tag, frame, hex(lo))
+        assert bytes(live.progress) == bytes(ee.mem[0x810700:0x810D40]), (tag, frame, 'the progress block')
+        if read_frame is not None and not knobs.get('to_end') and frame == read_frame + 1:
+            # the default run: the frame after the read checked, the rest
+            # of this load (the done message, the fade) only on the
+            # recording's first read flow (EM_TEST_FULL=1: on every flow)
+            return frame + 1, 'read'
+        if reads and ee.load(MC, 1) == 2 and live.fade != 2:
+            # after the load 00225AC0 (state 2) waits for the fade-out its
+            # 001AEDE0(8, 0) started; the frame machine runs the fade, not
+            # this screen: its end (D_0028A9A0 = 2) is handed to both sides
+            ee.save(0x28A9A0, 2, 2)
+            live.fade = 2
         # the declined confirmation, back on the cursor: the goal's exit press
         on_list = ee.load(MC + 1, 1) == 2
         if on_list and ee.load(MC + 2, 1) == 1:
@@ -363,6 +371,13 @@ def run_flow(fx, tmp, tag, beat, knobs, ranges, stats):
         if ee.load(MC + 0x15, 1) != 2 or want:
             # 00227300 returned: 1 -> the slot screen's card choice, 2 -> out
             ended = 1 if ee.load(MC + 0x15, 1) == 1 else 2
+            if knobs['end'] == 'read':
+                # LOAD GAME done: 00225AC0's state 3 returns the slot
+                # screen's result m[0x16] (2 after a load), the block the
+                # slot file
+                assert reads == 1 and ee.load(MC, 1) == 3 and want == ee.load(MC + 0x16, 1) == 2, \
+                    (tag, frame, reads, ee.load(MC, 1), want)
+                ended = 'read'
             assert ended == knobs['end'], (tag, frame, 'ended with', ended, 'not', knobs['end'])
             o, n = MH.card_files(roots[0], port), MH.card_files(roots[1], port)
             assert o == n, (tag, 'the host cards differ')
@@ -390,12 +405,17 @@ def main():
         os.chdir(cwd)
     items = flows()
     chosen = items                     # all of them
-    ranges = canonical_ranges()
+    full = os.environ.get('EM_TEST_FULL') == '1'
+    seen = set()
+    for beat, knobs in chosen:         # which read flows run the whole load
+        if knobs['end'] == 'read' and (full or beat not in seen):
+            knobs['to_end'] = True
+            seen.add(beat)
     frames, ends, stats = 0, {}, {'draws': 0, 'cues': 0}
     with tempfile.TemporaryDirectory(prefix='em_options_card_') as tmp:
         for i, (beat, knobs) in enumerate(chosen):
             t1 = time.time()
-            n, how = run_flow(fx, tmp, 'flow%d' % i, beat, knobs, ranges, stats)
+            n, how = run_flow(fx, tmp, 'flow%d' % i, beat, knobs, stats)
             print('  flow %d %s %s: %d frames, %s (%.1f s)' % (i, beat, knobs['goal'], n, how, time.time() - t1),
                   flush=True)
             frames += n
@@ -404,7 +424,8 @@ def main():
     # style D_00275898 (a .data window) and no style, 001FC770's configs
     # D_00264CB0, D_002671A0 and 0, the page draws and the cues
     for key in ((0x1CC1E0, 0), (0x1CC1E0, 0x275898), (0x1FC770, 0), (0x1FC770, 0x264CB0),
-                (0x1FC770, 0x2671A0), (0x207D00, 0), (0x207E40, 0), (0x207F80, 0), (0x20A7A0, 0), (0x1FB9F0, 0)):
+                (0x1FC770, 0x2671A0), (0x207D00, 0), (0x207E40, 0), (0x207F80, 0), (0x20A7A0, 0), (0x1FB9F0, 0),
+                (0x200970, 0), (0x1AEDE0, 0)):
         assert COVER.get(key), ('no flow compared', hex(key[0]), hex(key[1]))
     print(f'{len(chosen)} whole card screens on both sides ({frames} frames equal; ends {ends}; '
           f'{stats["draws"]} draw and cue calls equal, {stats["cues"]} of them cues)')

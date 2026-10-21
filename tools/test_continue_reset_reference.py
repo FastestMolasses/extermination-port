@@ -4,10 +4,14 @@
 Executes the original func_001AF2C0 (and its callees 00121A28, 001AF470,
 001C40B0) from the user's ELF over captured AREA11 RAM taken after the
 opening, with the progress/status fields dirtied the way a death in
-AREA11 leaves them. The port's mirror (game_state_new_game in
+AREA11 leaves them. The port's reset (em_scene_progress_reset_001AF2C0
+in src/game/em_scene_state.h with game_state_new_game in
 src/game/em_game_internal.h, applied by em_game_install_new and by the
-game-over option-0 restart) must produce the same values for every field
-EmGameState mirrors.
+game-over option-0 restart) must produce the same values for every named
+field. Since save2 round 2 the whole progress block D_00810700 is one
+storage, and check_block_reset compares all 0x640 bytes after the port's
+em_pickup_reset with the executed 001AF2C0, from two starting blocks with
+every byte set (and the button masks 001AF470 writes).
 
 The inventory part of 001AF2C0 is mirrored by em_pickup_reset
 (src/game/em_pickup.c). A shim that includes em_pickup.c dirties the
@@ -18,8 +22,8 @@ executed original.
 
 It also executes the AREA11 opening controller's completion slice
 (overlay 0x00823F6C..0x00823F84, resident in the capture) to show that
-D_00810811 is the opening-complete byte the port now names
-opening_complete, then the slice through its 001C4760 call (to
+D_00810811 is the opening-complete byte (the progress block's named
+member d810811), then the slice through its 001C4760 call (to
 0x00823F8C) and 001C4760 itself over seeded key/request bytes, against the
 port's one live translation em_director_original_001C4760_scene (em_scene_state.h; the
 opening's key add and the legacy director's beat-0 key add).
@@ -46,7 +50,7 @@ MASK64 = (1 << 64) - 1
 class Probe(C.Structure):
     _fields_ = [(name, C.c_uint32) for name in (
         'health_bits', 'infection_bits', 'mag', 'reserve', 'battery',
-        'battery_max', 'opening_complete', 'event_39', 'key_item_zero',
+        'battery_max', 'd810811', 'event_39', 'key_item_zero',
         'director_step', 'terminal_powered', 'mechanism_done', 'area01_locks', 'mechanism_gate',
         'npc_done', 'npc_gate', 'light_gate', 'bridge_gate', 'area01_story', 'bridge_counter',
         'reaction_gate', 'event15')]
@@ -226,6 +230,19 @@ void pickup_probe(uint8_t *count, uint8_t *out)
     out[8] = *em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
     out[9] = *em_scene_progress_at(em_scene_state(), 0x00810CA7u, 1);
 }
+/* The whole progress block (one storage since save2 round 2): `before` in
+ * it and the settings D_00810118.. as given, then the port's 001AF2C0
+ * reset of the block (em_pickup_reset); the block and the button masks
+ * 0x70003B74.. after it. */
+void block_probe(const uint8_t *before, const uint8_t *settings, uint8_t *after, uint8_t *masks)
+{
+    EmSceneState *s = em_scene_state();
+    memcpy(s->progress.bytes, before, EM_SCENE_PROGRESS_SIZE);
+    memcpy(s->d810118, settings, sizeof s->d810118);
+    em_pickup_reset();
+    memcpy(after, s->progress.bytes, EM_SCENE_PROGRESS_SIZE);
+    memcpy(masks, s->spad3B74, sizeof s->spad3B74);
+}
 """
 
 
@@ -247,12 +264,12 @@ def build_native_pickup():
     native = C.CDLL(str(lib))
     count, values = (C.c_uint8 * 256)(), (C.c_uint8 * 10)()
     native.pickup_probe(count, values)
-    return bytes(count), bytes(values)
+    return bytes(count), bytes(values), native
 
 
 def check_pickup_reset(o):
     """em_pickup_reset vs the executed 001AF2C0 inventory writes."""
-    count, values = build_native_pickup()
+    count, values, _native = build_native_pickup()
     fields = [(f'item count C64[{i:#04x}]', o.load(0x810C64 + i, 1), count[i])
               for i in range(0x40)]
     fields += [
@@ -279,6 +296,42 @@ def check_pickup_reset(o):
     return failed
 
 
+BLOCK, BLOCK_SIZE = 0x810700, 0x640
+
+
+def check_block_reset(elf, ram):
+    """The whole progress block: the executed 001AF2C0 against the port's
+    em_pickup_reset, both from the same block, every byte set (so the
+    memset is shown for every byte), and the capture's settings
+    D_00810118..; all 0x640 bytes and the button masks 0x70003B74.. after
+    it must be equal. Two starting patterns."""
+    _count, _values, native = build_native_pickup()
+    native.block_probe.argtypes = [C.c_char_p, C.c_char_p, C.c_void_p, C.c_void_p]
+    settings = bytes(ram[0x810118:0x810128])
+    checked = 0
+    for k, pattern in enumerate((lambda i: (i * 7 + 0x5A) & 0xFF or 0xA5, lambda i: 0xFF)):
+        before = bytes(pattern(i) for i in range(BLOCK_SIZE))
+        o = CaptureOriginal(elf, ram)
+        for i, b in enumerate(before):
+            o.save(BLOCK + i, b, 1)
+        o.run(0x1AF2C0)
+        want = bytes(o.load(BLOCK + i, 1) for i in range(BLOCK_SIZE))
+        want_masks = bytes(o.load(0x70003B74 + i, 1) for i in range(16))
+        after, masks = (C.c_uint8 * BLOCK_SIZE)(), (C.c_uint8 * 16)()
+        native.block_probe(before, settings, after, masks)
+        bad = [i for i in range(BLOCK_SIZE) if after[i] != want[i]]
+        for i in bad[:16]:
+            print(f'BAD block D_{BLOCK + i:08X} (pattern {k}): original {want[i]:#04x}, native {after[i]:#04x}')
+        assert not bad, f'{len(bad)} progress-block bytes differ from the executed 001AF2C0 (pattern {k})'
+        assert bytes(masks) == want_masks, ('button masks', bytes(masks).hex(), want_masks.hex())
+        # the seeds themselves, so a reset that only zeroes cannot pass
+        assert want[0x703 - 0x700] == 0xFF and want[0xD20 - 0x700] == 1 and want[0xC62 - 0x700] == 30
+        assert number(int.from_bytes(want[0x158:0x15C], 'little')) == 100.0
+        checked += BLOCK_SIZE
+    return (f'progress block: {checked} bytes (2 patterns x 0x640) and the button masks equal the '
+            'executed 001AF2C0')
+
+
 def main():
     elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA
@@ -288,6 +341,7 @@ def main():
     o = run_original(elf, ram)
     probe, native = build_native()
     print(check_key_add(elf, ram, native))
+    print(check_block_reset(elf, ram))
     fields = [
         ('health D_00810858', o.load(0x810858), probe.health_bits),
         ('D_0081085C', o.load(0x81085C), probe.infection_bits),
@@ -295,7 +349,7 @@ def main():
         ('reserve D_00810CB4', o.load(0x810CB4, 2), probe.reserve),
         ('battery D_00810CB2>>1', o.load(0x810CB2, 2) >> 1, probe.battery),
         ('battery max D_00810CB7>>1', o.load(0x810CB7, 1) >> 1, probe.battery_max),
-        ('opening complete D_00810811', o.load(0x810811, 1), probe.opening_complete),
+        ('opening complete D_00810811', o.load(0x810811, 1), probe.d810811),
         ('event 0x39 D_00810791', o.load(0x810791, 1), probe.event_39),
         ('key item 0 D_00810CC3', o.load(0x810CC3, 1), probe.key_item_zero),
         ('director step D_00810813', o.load(0x810813, 1), probe.director_step),
@@ -320,12 +374,8 @@ def main():
     assert number(o.load(0x810858)) == 100.0
     failed += check_pickup_reset(o)
 
-    # Original writes neither EmGameState nor em_pickup mirrors nor the D2
-    # progress region (area bytes, D20..D23). Reported, not asserted here.
-    # (CA5/CA7 are D2 progress bytes since S10b, checked in check_pickup_reset.)
-    print('not mirrored by this check:')
-    print('  area bytes 700..705 =', o.read(0x810700, 6).hex(),
-          '| D20..D23 =', o.read(0x810D20, 4).hex())
+    # Every byte of the block (the area bytes and D20..D23 among them) is
+    # compared by check_block_reset above.
     if failed:
         print(f'continue reset reference: {failed} field(s) differ — FAIL')
         return 1

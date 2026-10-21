@@ -15,18 +15,27 @@ int terminal_progress_contract(void)
         assert(em_area01_scene_view(&scene, 0x00810710u + i, 1) == all + i);
         all[i] = (uint8_t)(17 * i + 3);
     }
+    /* The whole block is one storage (save2 round 2): a span is refused
+     * only when it is empty, wraps or leaves D_00810700..D_00810D3F. */
     static const uint32_t bad[][2] = {
-        {0x0081070Fu, 1}, {0x0081070Fu, 2}, {0x00810710u, 0},
-        {0x00810710u, 33}, {0x00810720u, 17}, {0x0081072Fu, 2},
-        {0x00810730u, 1}, {0xFFFFFFF0u, 32}, {0x00810710u, 0xFFFFFFFFu}
+        {0x00810710u, 0}, {0x008106FFu, 1}, {0x008106FFu, 2}, {0x00810D3Fu, 2},
+        {0x00810D40u, 1}, {0x00810700u, 0x641u}, {0xFFFFFFF0u, 32}, {0x00810710u, 0xFFFFFFFFu}
     };
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; ++i)
         assert(!em_scene_progress_at(&scene, bad[i][0], bad[i][1]));
-    assert(!em_area01_scene_view(&scene, 0x0081070Fu, 2));
-    assert(!em_area01_scene_view(&scene, 0x0081072Fu, 2));
+    assert(em_scene_progress_at(&scene, 0x00810700u, 0x640u) == scene.progress.bytes);
+    assert(em_scene_progress_at(&scene, 0x00810D3Fu, 1) == scene.progress.bytes + 0x63F);
+    assert(em_scene_progress_at(&scene, 0x00810720u, 17) == all + 0x10);
+    assert(em_area01_scene_view(&scene, 0x0081070Fu, 2) == scene.progress.bytes + 0x0F);
+    assert(em_area01_scene_view(&scene, 0x0081072Fu, 2) == all + 0x1F);
+    assert(!em_area01_scene_view(&scene, 0x008106FFu, 2));
     assert(!em_scene_progress_at(NULL, 0x00810710u, 16));
-    /* The neighboring area-history array retains its separate owner. */
+    /* The named members are the block's own bytes. */
     assert(em_area01_scene_view(&scene, 0x00810730u, 16) == scene.d810730);
+    assert(scene.d810730 == scene.progress.bytes + 0x30 && &scene.d810700 == scene.progress.bytes &&
+           (uint8_t *)&scene.d810750 == scene.progress.bytes + 0x50 &&
+           (uint8_t *)&scene.d810858 == scene.progress.bytes + 0x158 &&
+           (uint8_t *)&scene.d810CB4 == scene.progress.bytes + 0x5B4 && &scene.d810D3C == scene.progress.bytes + 0x63C);
     assert(scene.progress.bytes[0x0F] == 0xA5 && scene.progress.bytes[0x30] == 0xA5);
     uint8_t saved[32]; memcpy(saved, all, sizeof saved);
     memset(scene.req, 0, sizeof scene.req);
@@ -36,6 +45,9 @@ int terminal_progress_contract(void)
     em_scene_progress_reset_001AF2C0(&scene);
     assert(em_scene_progress_at(&scene, 0x00810710u, 32) == all);
     for (unsigned i = 0; i < 32; ++i) assert(all[i] == 0);
+    /* 001AF2C0's memset reaches the named members too. */
+    for (unsigned i = 0; i < 0x20; ++i) assert(scene.d810730[i] == 0);
+    assert(scene.d810700 == 0 && scene.d810750 == 0 && scene.progress.bytes[3] == 0xFF);
     return 0;
 }
 

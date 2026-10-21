@@ -5,12 +5,13 @@
  * A shared library the test loads with ctypes: the status pages' EMSP (the
  * GS memory with the card screen's module 0x2A applied and the .data
  * windows), the message service's data and the area-title export are the
- * assets the game loads; the host workers accept every call (the fades and
- * the loader are outside this test). The binding's draw calls (logged
- * where it hands them to em_page_draw / em_message_live:
- * em_options_live_set_trace) and the cues this host's sound receives are
- * logged for the test to compare with the original's. Each frame is one em_options_live_00225AC0
- * call over storage the test owns. */
+ * assets the game loads; the host workers accept every call (the loader
+ * is outside this test). The binding's draw calls (logged where it hands
+ * them to em_page_draw / em_message_live: em_options_live_set_trace), the
+ * cues this host's sound receives and the fades and the texture restore
+ * its host receives are logged for the test to compare with the
+ * original's. Each frame is one em_options_live_00225AC0 call over
+ * storage the test owns. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -75,7 +76,27 @@ static int sound(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3)
 }
 static int one(void *c) { (void)c; return 1; }
 static int module_load(void *c, uint32_t m) { (void)c; (void)m; return 1; }
-static int fade(void *c, int out, int32_t a0, int32_t a1) { (void)c; (void)out; (void)a0; (void)a1; ++fades; return 1; }
+/* The fades 001AEDE0 (out) / 001AEE10 (a0, a1) and the texture restore
+ * 00200970(1) the binding hands to its host: logged where they arrive (the
+ * binding refuses 00200970 with another argument). */
+static int fade(void *c, int out, int32_t a0, int32_t a1)
+{
+    (void)c;
+    const uint32_t head[2] = {out ? 0x001AEDE0u : 0x001AEE10u, 8u};
+    const int32_t args[2] = {a0, a1};
+    trace_put(head, sizeof head);
+    trace_put(args, sizeof args);
+    ++fades;
+    return 1;
+}
+static int restore(void *c)
+{
+    (void)c;
+    const uint32_t head[2] = {0x00200970u, 4u}, arg = 1;
+    trace_put(head, sizeof head);
+    trace_put(&arg, sizeof arg);
+    return 1;
+}
 static int draw_context(void *c, int32_t a0, int32_t a1) { (void)c; (void)a0; (void)a1; return 1; }
 static int rumble(void *c, int32_t a, int32_t b, int32_t d, int32_t f) { (void)c; (void)a; (void)b; (void)d; (void)f; return 1; }
 
@@ -89,7 +110,7 @@ int fx_init(const char *emsp, const char *message)
         return 0;
     }
     if (em_message_live_install(message) != 1) return 0;
-    static const EmOptionsHost host = {NULL, sound, module_load, one, fade, one, one, draw_context, rumble};
+    static const EmOptionsHost host = {NULL, sound, module_load, restore, fade, one, one, draw_context, rumble};
     live = em_options_live_create(gs, &host);
     if (live) em_options_live_set_trace(live, trace, NULL);
     return live != NULL;

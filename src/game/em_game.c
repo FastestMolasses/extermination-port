@@ -1434,6 +1434,14 @@ void em_game_new_game_reset_001AF2C0(void)
     game_state_new_game(&g);
 }
 
+/* The demo status's health and infection (75, 60), stored in their one
+ * storage D_00810858 / D_0081085C (the progress block). */
+static void game_demo_vitals(void)
+{
+    em_scene_state()->d810858 = 75.0f;
+    em_scene_state()->d81085C = 60.0f;
+}
+
 /* Process-level game-state init shared by both entries: g cleared, the
  * env-selected captures and self-tests read. No task is registered. */
 static void game_install_state(void)
@@ -1453,6 +1461,7 @@ static void game_install_state(void)
                                  .infection = 60.0f, .mag = 4,
                                  .mag_max = 30, .reserve = 120,
                                  .battery = 4, .battery_max = 6 };
+    game_demo_vitals();
     g.capture_path = getenv("EM_CAPTURE");
     const char *cf = getenv("EM_CAPTURE_FRAME");
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
@@ -1550,11 +1559,13 @@ void em_game_install(void)
     game_install_state();
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
-    /* The progress bytes in that same memset (D_00810791, D_00810811
-     * opening complete, D_00810841[11] terminal unlock) are already 0
-     * from the memset of g above; they PERSIST across an intra-area
-     * room-move scene reload and are cleared again only by the
-     * 001AF2C0 routes (New Game's 001AD230, game-over option 0). */
+    /* That reset stores 001AF2C0's health 100 / infection 0 in the block;
+     * the fixture keeps the demo status's (above). The progress bytes
+     * (D_00810791, D_00810811 opening complete, D_00810841[11] terminal
+     * unlock) PERSIST across an intra-area room-move scene reload and are
+     * cleared again only by the 001AF2C0 routes (New Game's 001AD230,
+     * game-over option 0). */
+    game_demo_vitals();
     (void)em_game_legacy_area_load(g.scene_dir);
     em_scene_bindings_fixture_loaded(em_task_register(0, em_scene_task_001ACEC0));
 }

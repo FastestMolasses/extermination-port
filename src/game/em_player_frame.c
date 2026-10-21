@@ -318,7 +318,7 @@ static void actor_update(void)
      * above it (src/func_0015C700.c: `if (hp > 35.0f) +0x235 &= 0x2`).
      * So a hurt player never plays the look-around fidget — he only
      * breathes; the latch being a pure function of health is why the
-     * gate below reads g.status.health directly (same PD_LOW_HEALTH =
+     * gate below reads D_00810858 directly (same PD_LOW_HEALTH =
      * 35.0f constant the damage block derives from the same tail). It
      * gates only the COUNTDOWN, exactly like the engine: a fidget
      * already in flight when the latch trips plays out and re-arms
@@ -340,7 +340,7 @@ static void actor_update(void)
             /* the LOW-HEALTH latch (+0x235 & 1) FREEZES the countdown —
              * the decrement lives inside the engine's gate, so a hurt
              * player's timer neither runs nor resets */
-            if (g.status.health > PD_LOW_HEALTH &&
+            if (em_scene_state()->d810858 > PD_LOW_HEALTH &&
                 --g.idle_timer <= 0) {     /* +0x28 hit 0: fidget */
                 g.idle_phase = 1;
                 g.fid_t      = 0.0;
@@ -497,7 +497,7 @@ static void player_hit_mailbox(void)
  *     the whole-function translation (test_census_unverified_reference
  *     executes the original), over the player record: D_00810706 = +0x235
  *     and D_00810707 = +0x234 (canonical progress bytes), D_00810858 /
- *     D_0081085C = +0x220 / +0x228 (g.status.health / infection, the
+ *     D_0081085C = +0x220 / +0x228 (the progress block's words, the
  *     port's one storage of both: the record's vitals view loads them
  *     before every stage and stores them after it, so the copy is the
  *     identity there), then the B9 latch when +0x220 <= 0.0 on the EE
@@ -526,7 +526,7 @@ int em_player_0015BCF0(void)
         player_states_vitals_publish();
     const EmGlueVitals vitals = {em_scene_progress_at(scene, 0x00810706u, 1),
                                  em_scene_progress_at(scene, 0x00810707u, 1),
-                                 (uint8_t *)&g.status.health, (uint8_t *)&g.status.infection,
+                                 (uint8_t *)&em_scene_state()->d810858, (uint8_t *)&em_scene_state()->d81085C,
                                  &scene->req[EM_SCENE_REQ_B9]};
     return em_glue_0015CF90(record->bytes, &vitals);
 }

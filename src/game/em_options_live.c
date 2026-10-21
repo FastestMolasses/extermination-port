@@ -261,7 +261,7 @@ static int line_config(EmOptionsLive *l, uint32_t address, EmMessageDrawConfig *
 /* ---- EE memory as the card server and the leaves reach it -------------- */
 
 /* Every byte of [address, address + size) in a view (a range may span
- * views: the progress block's canonical ranges are views of their own). */
+ * views). */
 static int mem_check(EmOptionsLive *l, uint32_t address, uint32_t size)
 {
     for (uint32_t i = 0; i < size;) {

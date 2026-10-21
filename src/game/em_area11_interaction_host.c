@@ -498,7 +498,7 @@ static int status_sound(void *context, uint32_t cue)
 /* The original normal hub (0020CDC0 phase 1: em_status_hub with
  * em_status_hub_ui and 0020A7A0, in the status runtime). Its 00209DF0
  * inputs, as the port holds them:
- *   D_00810858/5C  g.status.health/infection (the port's only copy;
+ *   D_00810858/5C  the progress block's words (the port's only copy;
  *                  em_scene_bindings.c 001B07C0)
  *   D_008104E4     g.pd_infected: the player record D_008102B0 +0x234,
  *                  the infection latch 0021C270 sets
@@ -513,8 +513,8 @@ static int hub_display(void *context, EmStatusHubDisplay *display)
     (void)context;
     const uint8_t *equipment = em_scene_progress_at(em_scene_state(), 0x00810CA4u, 4);
     if (!equipment) return 0;
-    display->health = g.status.health;
-    display->infection = g.status.infection;
+    display->health = em_scene_state()->d810858;
+    display->infection = em_scene_state()->d81085C;
     display->warning = (uint8_t)g.pd_infected;
     display->battery_equipped = em_pickup_item_count(0x1B);
     display->charge = (uint16_t)em_pickup_battery_charge();
@@ -538,7 +538,7 @@ static int hub_display(void *context, EmStatusHubDisplay *display)
  * 0020E3A0/0020E1E0) and, every hub frame, 001B0000 (the D_0028B020 walk
  * that runs 0020E6F0/0020EC80 and 0020E460 and queues their 001CB580
  * draws). Their inputs, as the port holds them:
- *   D_00810858/5C  g.status.health/infection
+ *   D_00810858/5C  the progress block's words
  *   D_008104E4     g.pd_infected (0020E6F0's variant; 0020EC80 reaches
  *                  001F4BF0, the rand-pulsed glow, when it is 1)
  *   D_00810C60     g.status (em_pickup_equipment_read)
@@ -550,7 +550,7 @@ static int hub_models(void *context, EmStatusHubEvent event, unsigned argument)
     (void)context;
     const uint8_t *equipment = em_scene_progress_at(em_scene_state(), 0x00810CA4u, 4);
     if (!equipment) return 0;
-    EmStatusModelsInputs in = {.health = g.status.health, .infection = g.status.infection,
+    EmStatusModelsInputs in = {.health = em_scene_state()->d810858, .infection = em_scene_state()->d81085C,
                                .d8104E4 = (uint8_t)g.pd_infected};
     em_pickup_equipment_read(&in.d810C60, NULL, NULL);
     memcpy(in.ca, equipment, sizeof in.ca);
@@ -697,7 +697,7 @@ static int page_player_0015C700(void *context, int (*table16)(void *, uint32_t, 
     const uint8_t *c8 = em_scene_req_at(em_scene_state(), 0x008106C8u);
     const uint32_t word = (uint32_t)c8[0] | (uint32_t)c8[1] << 8 | (uint32_t)c8[2] << 16 |
                           (uint32_t)c8[3] << 24;
-    return player_pose_0015C700(g.status.health, word, table16, table_context) ? 0 : -1;
+    return player_pose_0015C700(em_scene_state()->d810858, word, table16, table_context) ? 0 : -1;
 }
 
 /* The MAP page's 001B0000 models at their place in the page's draw
@@ -731,7 +731,7 @@ static int models_light(void *context, int32_t mode, const EmOwnerServicesOwner 
 
 /* The status pages' storage (em_status_pages_live.h): the canonical
  * request and progress bytes, the live message block, the mode byte, the
- * vitals g.status (D_00810858 / 5C, the port's only copy), D_008104E4 =
+ * vitals D_00810858 / 5C (the progress block's words), D_008104E4 =
  * g.pd_infected, the main-loop counter, em_weapon's C61 / C62 / CB4, and
  * for MAP the UI pool (world.models) and the player record's +0xA0 / +0xC4
  * (g.pos / g.yaw, the port's copies of D_00810350 / D_00810374). */
@@ -743,8 +743,8 @@ static int pages_frame(void *context, EmStatusPagesFrame *frame)
     frame->progress = scene->progress.bytes;
     frame->message = em_message_live_block();
     frame->spad3B8D = &scene->spad3B8D;
-    frame->health = &g.status.health;
-    frame->infection = &g.status.infection;
+    frame->health = &em_scene_state()->d810858;
+    frame->infection = &em_scene_state()->d81085C;
     frame->warning = (uint8_t)g.pd_infected;
     frame->counter = em_frame_counter();
     frame->c62 = em_weapon_mag_byte();

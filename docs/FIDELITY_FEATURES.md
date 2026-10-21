@@ -1923,8 +1923,10 @@ layout.
   screen past the slot choice runs too (em_card_original through
   em_options_live, `SAVE_GAME.md` section 6.1): the card check, the saved
   slots listed with their places and play times, the cursor and the
-  confirmation, up to LOAD GAME's read, which stops the game (the progress
-  block is not yet one storage).
+  confirmation and LOAD GAME through its read of the slot into the
+  progress block (one storage since save2 round 2), the done message and
+  the fade; the game then stops where the loaded game would begin (the
+  title's handoff of a loaded game, the options' 001D2610).
 - Evidence: `make test-options-reference`: the original routines executed
   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
@@ -1938,7 +1940,11 @@ layout.
   the slot choice, the original code and the binding over the host card,
   every frame's card state equal and every frame's draw and cue calls
   (the slot rows' text, styles and configs, the page draws, the cues) equal
-  to the original's arguments.
+  to the original's arguments; since 2026-10-21 the whole progress block
+  every frame and LOAD GAME through the read to the result 2 (the fade-out
+  and the restore compared too); `make test-continue-reset-reference`:
+  the New Game reset 001AF2C0's effect on all 0x640 bytes of the block
+  equal to the executed original.
 - Status: **PARTIAL**. Proven: the state above relative to the PCSX2
   recordings. Not proven or not covered: the screen modules 0x2A / 0x2B
   load at host speed (about 10 ticks against the recordings' 23 rows); the
@@ -1946,7 +1952,8 @@ layout.
   shown at its interlaced height"), in the direction the register meaning
   gives, which no recording shows; choosing a memory-card slot is checked
   against the original code only (no recording chooses one); loading stops
-  at LOAD GAME's read; saving (the first level has no save point) and
+  after the card screen's result 2 (the loaded game's entry is not bound);
+  saving (the first level has no save point) and
   quitting with Yes are not recorded and stop the game or are untested; the
   host card's format word (1) follows the code's test, its free count is
   unanswered (no recording); pixels and sounds are not compared.

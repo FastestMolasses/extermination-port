@@ -27,6 +27,9 @@ RECORD_POSE = ('em_player_record_pose', 'em_pose_host_workers', 'em_player_stage
 BRIDGE = r'''
 #include "game/em_player_pose_host.c"
 EmGameState g;
+/* The progress block (D_00810858, the health) lives in the scene state the
+ * game's em_scene_bindings.c owns; this bridge provides its own. */
+EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 static EmTransitionFade fade;
 static unsigned placements;
 static EmPlayerLiveActor actor;
@@ -74,7 +77,7 @@ static int row_a00(void *c, unsigned index, int16_t *clip){
 static int row_c90(void *c, int clip, int16_t *value){(void)c;return player_pose_row0(clip, value);}
 static int end_hook(void *c){(void)c;++end_calls;return end_extra ? end_extra() : 1;}
 int setup(const uint8_t *bank, uint32_t size) {
-    g.model.bone_count=22; g.status.health=100;
+    g.model.bone_count=22; em_scene_state()->d810858=100;
     g.pos[0]=321;g.pos[1]=290;g.pos[2]=201;g.yaw=.7f;
     special=malloc(size);
     if(!special)return 0;

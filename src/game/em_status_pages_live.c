@@ -221,6 +221,18 @@ static void view(EmStatusPagesLive *l, uint32_t address, uint32_t size, uint8_t 
         l->views[l->view_count++] = (EmArea01RenderView){address, size, bytes};
 }
 
+/* The progress block's bytes the block's view holds: every byte but the
+ * area bytes D_00810700..702 (MAP's view of f->area), the vitals
+ * D_00810858..5F and em_weapon's C61, C62 and CB4..CB5, which have views of
+ * their own below (the vitals and C61 per call, written back after it; the
+ * others the frame's pointers, the same storage in the game). */
+static int progress_viewed(uint32_t a)
+{
+    return em_scene_progress_canonical(a, 1) && a >= 0x00810703u && !(a >= 0x00810858u && a < 0x00810860u) &&
+           a != 0x00810C61u &&
+           a != 0x00810C62u && a != 0x00810CB4u && a != 0x00810CB5u;
+}
+
 /* The views of one call, in the order the header lists. The scratchpad
  * work area is split around the counter and the mode byte, which have
  * views of their own (no byte lies in two views). */
@@ -230,13 +242,12 @@ static void build_views(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
     view(l, T_UI, 0xA0, f->ui);
     view(l, EM_SCENE_REQ_BASE, EM_SCENE_REQ_SIZE, f->req);
     for (uint32_t a = EM_SCENE_PROGRESS_BASE; a < EM_SCENE_PROGRESS_BASE + EM_SCENE_PROGRESS_SIZE;) {
-        if (!em_scene_progress_canonical(a, 1)) {
+        if (!progress_viewed(a)) {
             ++a;
             continue;
         }
         uint32_t end = a;
-        while (end < EM_SCENE_PROGRESS_BASE + EM_SCENE_PROGRESS_SIZE &&
-               em_scene_progress_canonical(end, 1))
+        while (end < EM_SCENE_PROGRESS_BASE + EM_SCENE_PROGRESS_SIZE && progress_viewed(end))
             ++end;
         view(l, a, end - a, f->progress + (a - EM_SCENE_PROGRESS_BASE));
         a = end;
@@ -571,8 +582,9 @@ static void vitals_in(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
     memcpy(l->player220, f->health, 4);
 }
 
-/* The page's health stores back to the port's one copy (g.status). The
- * port holds the player record's +0x220 and D_00810858 as that one value
+/* The page's health stores back to the port's one copy (D_00810858 / 5C in
+ * the progress block, em_scene_state.h). The port holds the player
+ * record's +0x220 and D_00810858 as that one value
  * (em_player.c vitals_load), so a +0x220 store that D_00810858 does not
  * hold faults (002160B0 stores both with the same value). */
 static int vitals_out(EmStatusPagesLive *l, const EmStatusPagesFrame *f)

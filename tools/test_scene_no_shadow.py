@@ -17,8 +17,10 @@ AREA00 arrival/door/terminal/ferry bytes (75B, 75C, 7DA, 7DB, 7DC), in the
 EmProgress region:
 
   1. the retired port copies are gone from src/ and tests/: `frame_selector`
-     (g.frame_selector, S11a), `cine_step` (g.cine_step = D_00810813, HK) and
-     `opening_key_item_zero` (g.opening_key_item_zero = D_00810CC3[0], HK);
+     (g.frame_selector, S11a), `cine_step` (g.cine_step = D_00810813, HK),
+     `opening_key_item_zero` (g.opening_key_item_zero = D_00810CC3[0], HK) and
+     `opening_complete` (g.opening_complete = D_00810811, save2 round 2: the
+     whole progress block one storage);
   2. assignments to the canonical scratchpad/input fields occur only in the
      files of their original writers' counterparts (WRITERS below). A pointer
      view that writes through to the canonical byte counts as a writer and is
@@ -467,7 +469,7 @@ ALLOWED = [
 
 BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810767|810841|810842|810845|810759|81075A|81075B|81075C|81075D|810760|8107D9|8107DA|8107DB|8107DC|8107E0|81080F",
                         re.IGNORECASE)
-RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
+RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero", "opening_complete")
 DECL = re.compile(
     r"^\s*(?:static\s+)?(?:const\s+)?(?:volatile\s+)?"
     r"(?:u?int(?:8|16|32|64)_t|unsigned(?:\s+(?:char|short|int))?|char|short|int|bool)\s+"

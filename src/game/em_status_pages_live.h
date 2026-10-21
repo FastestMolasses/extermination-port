@@ -17,9 +17,10 @@
  *   D_00810130 (0xA0)          the status block (the runtime's; its UI+0x20
  *                              word is the shared 00208AD0 clock)
  *   D_008106B0 (0x48)          the request bytes (EmSceneState.req)
- *   D_00810700 (0x640)         only the migrated ranges of the progress block
- *                              (em_scene_progress_canonical)
- *   D_00810858 / 5C            health / infection (g.status, per call)
+ *   D_00810700 (0x640)         the progress block, but for the bytes below
+ *                              that have views of their own (the area bytes,
+ *                              the vitals, C61 / C62 / CB4)
+ *   D_00810858 / 5C            health / infection (the block's words, per call)
  *   D_008104D0                 the player record's +0x220, the same health
  *   D_00810C61 / C62 / CB4     em_weapon's fire mode, magazine and reserve
  *   D_008111D0 (0x10)          001C5FB0's result buffer
@@ -83,7 +84,7 @@ typedef struct {
     int (*present)(void *context, int32_t x, int32_t y, int32_t group, int32_t line);
     /* 00185420(item): *owner = the record address, 0 for none */
     int (*find_device)(void *context, int32_t item, uint32_t *owner);
-    /* 0015C700(D_008102B0) after the page's health stores (g.status holds
+    /* 0015C700(D_008102B0) after the page's health stores (the block holds
      * them): table16 reads a halfword of the .data windows */
     int (*player_0015C700)(void *context, int (*table16)(void *, uint32_t, int16_t *),
                            void *table_context);

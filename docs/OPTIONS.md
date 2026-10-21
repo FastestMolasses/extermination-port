@@ -21,7 +21,7 @@ original's; no instruction of the original is reproduced here.
 | Brightness | 00202BA0 (the calibration picture, screen module 0x2B) | live | test-options-reference; opt_04 |
 | Button config | 00202D10, then 001AF470 over the masks 0x70003B74..83 | live (the masks are canonical; the player reads them there) | test-options-reference, test-startup-load-gaps-reference (001AF470); opt_05 |
 | Default | 00201C50 | live | test-options-reference; opt_06 |
-| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1); LOAD GAME's read fail-stops (the progress block is not one storage yet) | test-options-reference; opt_07; test-options-card-live |
+| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1) and LOAD GAME through its read into the progress block (one storage since save2 round 2) to the result 2; r == 2 then faults at 001D2610 (not bound) | test-options-reference; opt_07; test-options-card-live |
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
 | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
@@ -40,9 +40,10 @@ message and its test cases are deleted.
 Every frame of state 2 runs 0022A650 through the binding (w_0022A650) and
 draws its stream in the same tick; the world is frozen (no 001D1EA0 runs),
 as on the game-over screen. Its result: 1 closes (001AF1C0, the cue 0xD,
-001FAE70(0)); 2 (a game loaded) is reached only through 00227300's LOAD
-GAME, whose read of the slot into D_00810700 fail-stops first (SAVE_GAME.md
-section 6.1); 3 (quit, Yes) runs 001AD140.
+001FAE70(0)); 2 (a game loaded, through 00227300's LOAD GAME, which reads
+the slot into the progress block D_00810700) runs 001AEBA0 and 001AF150 and
+faults at 001D2610, not bound yet (SAVE_GAME.md sections 6.1 and 8); 3
+(quit, Yes) runs 001AD140.
 
 ## 3. The translations and their oracle
 
@@ -87,8 +88,8 @@ cases, 58,697 callee entries equal, 491 of 492 outcomes.
 `src/game/em_options_live.c` runs the translations over views of the port's
 one storage at their original addresses (the AREA01 UI lane's memory
 model): the settings D_00810118 (16 bytes), the running task's record
-*0x70003B6C, the card record D_00810040 (0xD4 bytes), the progress block's
-canonical ranges, the message block D_002821B0, the busy byte D_00275BD8,
+*0x70003B6C, the card record D_00810040 (0xD4 bytes), the whole progress
+block D_00810700 (one storage since save2 round 2), the message block D_002821B0, the busy byte D_00275BD8,
 the masks 0x70003B74..83 and the screen offset 0x70003B94 / 96. The
 settings, the masks and the offset are canonical in EmSceneState since this
 step (d810118, spad3B74, spad3B94 / 96); their earlier copies are gone:
@@ -237,9 +238,11 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
 - **A chosen slot and a load** (002267A0, 00227300; r == 2): no first-level
   recording chooses a slot. Since the save lane's binding the card screen
   past the slot choice runs live (checked against the original by
-  test-options-card-live, SAVE_GAME.md section 6.1) up to LOAD GAME's read
-  00228B60, which fail-stops: it reads the slot into the whole progress
-  block D_00810700, which the port does not hold in one storage yet.
+  test-options-card-live, SAVE_GAME.md section 6.1) through LOAD GAME's
+  read 00228B60 of the slot into the whole progress block D_00810700 (one
+  storage since save2 round 2), the done message and the fade, to the
+  result 2; what follows the result (001D2610, the area entry) is not
+  bound.
   002267A0 is dispatched but unreachable on the host card (it runs only
   when GetInfo stops reporting a PS2 card).
 - **The row text and the timeline clock** (open question): the slot rows'

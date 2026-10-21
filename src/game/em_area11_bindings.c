@@ -1195,8 +1195,8 @@ static uint8_t *player_closeout(uint32_t offset, uint32_t size, int *handled)
 }
 
 /* The record's +0x220 health, +0x224 pending damage, +0x228 infection and
- * +0x22C pending infection have one storage, the port's g.status.health,
- * g.pd_pend_hp, g.status.infection and g.pd_pend_inf (em_player.c
+ * +0x22C pending infection have one storage, the port's D_00810858 (the
+ * progress block), g.pd_pend_hp, D_0081085C and g.pd_pend_inf (em_player.c
  * vitals_load / vitals_store: the stage's view of them is loaded before
  * 0015BA50 and stored after 0015BCF0's tail). Between two stages, where
  * the close-out runs, the passes reach those words: 001A8660's knock-back
@@ -1210,7 +1210,7 @@ static uint8_t *player_vitals(uint32_t offset, uint32_t size, int *handled)
     *handled = 1;
     if (size != 4 || offset % 4u)
         return NULL;
-    float *word[4] = {&g.status.health, &g.pd_pend_hp, &g.status.infection, &g.pd_pend_inf};
+    float *word[4] = {&em_scene_state()->d810858, &g.pd_pend_hp, &em_scene_state()->d81085C, &g.pd_pend_inf};
     return (uint8_t *)word[(offset - 0x220u) / 4u];
 }
 
@@ -1487,7 +1487,7 @@ static int opening_001FABB0(void *ctx)
 static int opening_00810811(void *ctx, uint8_t value)
 {
     (void)ctx;
-    g.opening_complete = value;   /* D_00810811 (em_game.h) */
+    em_scene_state()->d810811 = value;   /* D_00810811 (the progress block) */
     return 0;
 }
 
@@ -2050,7 +2050,7 @@ static int tick_area_title(EmActor *actor, Node *node, const EmArea11World *worl
 {
     (void)node;
     (void)world;
-    if (em_area_title_001C5930(actor, s_scene, g.status.infection, title_free, NULL) < 0)
+    if (em_area_title_001C5930(actor, s_scene, em_scene_state()->d81085C, title_free, NULL) < 0)
         return em_scene_faulted(s_scene) ? -1
                                          : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
                                                  "area title: 001C5930 faulted");
