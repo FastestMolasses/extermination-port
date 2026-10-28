@@ -204,6 +204,18 @@ int main(int argc, char **argv)
     const float source[3] = {-50, 0, 90};
     float gl, gr;
     assert(em_sfx_compute_gains(source, 300.0f, &gl, &gr));
+    {
+        /* 001FBD50's flat byte (001FBF50 a3): nonzero zeroes both y before
+         * the distance; only its low byte counts. 250 above, 100 out. */
+        const float high[3] = {0, 250, 100};
+        float fl, fr, hl, hr;
+        assert(!em_sfx_compute_gains_mode(high, 0, 200.0f, &fl, &fr));
+        assert(!em_sfx_compute_gains_mode(high, 0x100, 200.0f, &fl, &fr));
+        assert(em_sfx_compute_gains_mode(high, 1, 200.0f, &fl, &fr));
+        const float level[3] = {0, 0, 100};
+        assert(em_sfx_compute_gains_mode(level, 0, 200.0f, &hl, &hr));
+        assert(fl == hl && fr == hr);      /* same x/z distance, same pan */
+    }
     FILE *requests = fopen("reg_requests.txt", "w");
     assert(requests);
     fprintf(requests, "%d %d\n", (int)em_sfx_request_word(gl),

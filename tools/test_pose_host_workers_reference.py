@@ -219,7 +219,7 @@ class ClipRates(C.Structure):
 
 STAGE_CALLEES = ('w001D0C70', 'bone_init', 'clip_init', 'clip_resolve', 'skeleton_frame', 'w001C8710',
                  'w001C87C0', 'sample_bones', 'sound', 'cue', 'w001EFE00', 'w001F00A0', 'w001F0060',
-                 'atan2', 'link20', 'clip_lookup', 'request', 'w0015C9D0', 'link1C', 'sound_stop')
+                 'atan2', 'link20', 'clip_lookup', 'request', 'w0015C9D0', 'link1C', 'sound_stop', 'record_written')
 
 
 class StageCallees(C.Structure):

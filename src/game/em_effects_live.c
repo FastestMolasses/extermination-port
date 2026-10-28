@@ -1569,6 +1569,11 @@ static int bind_pending(void)
                 : s->e.callback == EM_EFFECTS_LIVE_HEAD_SPRITE ? KIND_HEAD : KIND_OTHER;
         sync_driver(s);
         if (s->kind == KIND_HEAD) sync_head(s);
+        else if (s->e.w24_written) {
+            /* 001EFE00 / 001F0060's +0x24 store: the slot's one +0x24 word. */
+            s->parent24 = s->e.w24;
+            s->parent24_valid = 1;
+        }
         if (rc == 0 && S.bind(a) < 0) rc = fail(s->e.callback, "no pool binding for the effect node");
     }
     S.npending = 0;
@@ -1629,6 +1634,38 @@ int em_effects_live_001EFD20_result(uint32_t id, const float pos[4], uint32_t *o
 
 int em_effects_live_001EFD20(uint32_t id, const float pos[4])
 { return em_effects_live_001EFD20_result(id, pos, NULL); }
+
+int em_effects_live_001EFE00(uint32_t id, const float b0[4], const float c0[4], uint32_t w14,
+                             uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001EFE00(&S.e, id, b0, c0, w14, &n);
+    return spawn_result(status, 0x001EFE00u, n, out);
+}
+
+int em_effects_live_001F00A0(uint32_t id, const float pos[4], const float dir[4], int32_t owner,
+                             uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001F00A0(&S.e, id, pos, dir, owner, &n);
+    return spawn_result(status, 0x001F00A0u, n, out);
+}
+
+int em_effects_live_001F0060(uint32_t id, uint32_t owner, uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001F0060(&S.e, id, owner, &n);
+    return spawn_result(status, 0x001F0060u, n, out);
+}
 
 int em_effects_live_001F0460(int32_t n, const float m[16])
 {

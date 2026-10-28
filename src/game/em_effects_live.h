@@ -6,7 +6,8 @@
  * translations share and wires each one's workers to the other translations
  * over the one canonical render context (em_render_context_live):
  *
- *   em_effect_original       001EF9D0 / 001EFD90 / 001EFD20 (the spawns;
+ *   em_effect_original       001EF9D0 / 001EFD90 / 001EFD20 / 001EFE00 /
+ *                            001F00A0 / 001F0060 (the spawns;
  *                            001EF940's sound through em_sfx's 001FBF50
  *                            gains and 001FB9F0 submit: record 0x27, the
  *                            flame's contact, carries one),
@@ -121,6 +122,15 @@ int em_effects_live_001EFD20(uint32_t id, const float pos[4]);
 int em_effects_live_001EF9D0(uint32_t id, const float pos[4], uint32_t f12, uint32_t *node);
 int em_effects_live_001EFD90_result(uint32_t id, const float pos[4], const float rot[4], uint32_t *node);
 int em_effects_live_001EFD20_result(uint32_t id, const float pos[4], uint32_t *node);
+/* The owner spawns (em_effect_original's 001EFE00 / 001F00A0 / 001F0060),
+ * with the node address (0: none allocated). 001EFE00 takes the owner's
+ * +0xB0 / +0xC0 quadwords and +0x14 word; the +0x24 they store is the
+ * slot's +0x24 word (em_effects_live_node_field). */
+int em_effects_live_001EFE00(uint32_t id, const float b0[4], const float c0[4], uint32_t w14,
+                             uint32_t *node);
+int em_effects_live_001F00A0(uint32_t id, const float pos[4], const float dir[4], int32_t owner,
+                             uint32_t *node);
+int em_effects_live_001F0060(uint32_t id, uint32_t owner, uint32_t *node);
 /* Typed entry points for callers holding their original local transform
  * block. The first 0x58 bytes are original fields; its final 8 bytes are
  * untouched. CFBE0 resolves m40 and the source through actual owner views. */

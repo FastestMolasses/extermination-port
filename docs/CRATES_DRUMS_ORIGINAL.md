@@ -285,16 +285,25 @@ over idle04 at a gameplay window: PASS).
     damage and frees itself).
   The level smoke's br_crate_stack and br_west_ledge compare the boxes r3..r6
   row for row with the recordings br_04 / br_06 over 200 rows.
+- **The drum's collision queries (2026-10-28).** The break test
+  0019A570(0x700038A0, 0x700038B0, 4, 0) is em_coll_segment_0019A570 over
+  the area's collision world and its one scratchpad state
+  (em_collision_world_segment); the flight sweep 0019AD00(self, point,
+  0x80000007) of models 0xA / 0xC is em_coll_move_owner_move over the move
+  world and scratch, with the drum as the query actor at its current +0xB0
+  (bit 31 moves that +0xB0's x / z). Both translations carry their own
+  original-instruction tests (COLL_SEGMENT_WALKERS.md,
+  test_coll_move_reference.py's owner cases with 0x80000007). The take cue
+  001FBD50(self, id, flat, radius) plays at the owner's current +0xB0
+  through em_sfx_play_at_mode_track (a nonzero flat byte: the x/z
+  distance).
 - **Fail-stop workers.** These are reached only on the nest-group paths
-  (+0x0E bit 0 set, +0x56 >= 0; no AREA11 box has either), by a drum's
-  break or a model-0x1E box's husk (none in AREA11). Each names its
-  original:
-  - 001EFD20 / 001F0460 (the drums' break effects)
-  - 001B11E0 / 001B1190 (taken bits)
-  - 001AFA90's nest child
+  (+0x0E bit 0 set, +0x56 >= 0; no AREA11 box has either) or by a
+  model-0x1E box's husk (none in AREA11), and the drum queries without an
+  area collision world. Each names its original:
+  - 001AFA90's nest child (bound only in AREA00 / AREA01)
   - the husk 0x29 (a model-0x1E box; the library model is not exported)
-  - 0019A570 (the drum's break test)
-  - 0019AD00 (the flight sweep of models 0xA / 0xC)
+  - 0019A570 / 0019AD00 when the area has no original collision world
 
   The legacy shot-break was retired with them (item 7 of the former
   status).

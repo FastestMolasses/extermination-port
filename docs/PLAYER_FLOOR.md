@@ -410,6 +410,31 @@ so the reload order shows; 24 by default, 800 with `EM_TEST_FULL=1`), cover
 every phase and both outcomes of each test, and compare every record byte
 and the call log; a missing worker faults before any write.
 
+Also on 2026-10-28 it translates 0015B610's three remaining routines from
+their byte-matched decomp C. 001833F0 and 00183440 (+5 = 2 / 3,
+`em_player_001833F0` / `em_player_00183440` over EmPlayerMajor5ClimbWorkers)
+write +0x23F = 2 and the word +0x24C (0 / 1) and run 001662D0; 001833F0
+then clears 0x70003B8D when +4 (read after the call) is 1, and 00183440,
+while bit 0x1000 of +0x200 is set, adds 1.0 to +0x268 and, once that is not
+below 4.0, clears 0x70003B8D and enters +4 = 1, +5 = 0xC, +6 = 0, +0x1F0 =
+0x17. 001834E0 (+5 = 4, `em_player_001834E0` over
+EmPlayerMajor5GlideWorkers) is the six-phase scripted glide: clip 0x180 at
+8.0 and 0016BAE0(p, 1), a 120-frame then a 30-frame glide of +0xB0..+0xB8
+to D_002487B0..B8 and D_002487C0..C8 (the per-frame step (target - pos) /
+frames in +0x2E0..+0x2E8), clip 0x181 at 4.0, the wait for bit 0x1000 of
++0x200 (then +0x2EC = -0.2), and 00179880(p, p + 0x2EC) with 00175900(p, 0)
+until it returns nonzero (then 0x70003B8D = 0 and +4 = 1, +5 = +6 = +0x1F0
+= 0). They are not wired: the stage keeps its fail-stop stubs for +5 = 2..4,
+because 001662D0 (the ladder climb lane) and 00175900 are the closure
+binder's and 001834E0's 0016BAE0 (the crawl spawn) is not bound there. No
+first-level spawn record or script writes +5 = 2..4 under +4 = 5. The
+"major5" cases run the three originals with 001662D0, 001749A0, 0016BAE0,
+00179880 and 00175900 hooked and recorded (the hooks rewrite +4, +0x200 and
++0xB0 so the reloads show), cover both outcomes of every test, every glide
+phase and the 4.0 boundary (30 by default, 600 with `EM_TEST_FULL=1`), and
+compare every record byte, 0x70003B8D and the call log; the D_002487B0..C8
+words are read from the ELF and must be the only table reads.
+
 The two shared-library compiles of this test (the floor library and the
 real-world bridge) are cached by a hash of the command, the .c files and
 every src/ header, so an unchanged tree reuses them. The default run is back

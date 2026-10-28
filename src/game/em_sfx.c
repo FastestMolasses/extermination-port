@@ -333,8 +333,11 @@ static int (*s_distance_listener)(float out[3]);
 
 void em_sfx_bind_distance_listener(int (*reader)(float out[3])) { s_distance_listener = reader; }
 
-int em_sfx_compute_gains(const float pos[3], float radius,
-                         float *gain_l, float *gain_r)
+/* `flat` is 001FBF50's a3 byte: nonzero zeroes the y of both distance
+ * copies (0x70003604 / 0x70003614) before 001B15D0, so the distance (and
+ * the near-pan factor taken from it) is the x/z one; the pan reloads the
+ * source's +0xB0 afterwards. */
+static int sfx_gains(const float pos[3], float radius, int flat, float *gain_l, float *gain_r)
 {
     *gain_l = *gain_r = 0.0f;
     if (!s.lis_valid) {
@@ -352,12 +355,12 @@ int em_sfx_compute_gains(const float pos[3], float radius,
 
     /* DISTANCE: player listener (D_00810360, read at the call: the
      * player record's +0xB0, which 0015BCF0's tail leaves as the bone-1
-     * hip), full 3-D (flat2d = 0 at every translated call site). */
+     * hip), full 3-D unless `flat` (001FBF50 a3) zeroes both y. */
     float listener[3];
     memcpy(listener, s.lis_player, sizeof listener);
     if (s_distance_listener && s_distance_listener(listener) < 0) return 0;
     float dx = pos[0] - listener[0];
-    float dy = pos[1] - listener[1];
+    float dy = flat ? 0.0f : pos[1] - listener[1];
     float dz = pos[2] - listener[2];
     float d  = sqrtf(dx * dx + dy * dy + dz * dz);
     if (d >= radius) return 0;          /* engine: not submitted */
@@ -393,6 +396,18 @@ int em_sfx_compute_gains(const float pos[3], float radius,
         *gain_l = vol * t;
     }
     return 1;
+}
+
+int em_sfx_compute_gains(const float pos[3], float radius,
+                         float *gain_l, float *gain_r)
+{
+    return sfx_gains(pos, radius, 0, gain_l, gain_r);
+}
+
+int em_sfx_compute_gains_mode(const float pos[3], int32_t flat, float radius,
+                              float *gain_l, float *gain_r)
+{
+    return sfx_gains(pos, radius, (uint8_t)flat != 0, gain_l, gain_r);
 }
 
 /* 001FB9F0's tail: the handle D_00281D50[group * 20 + bank], then
@@ -513,11 +528,16 @@ void em_sfx_play_at(unsigned id, const float pos[3], float radius)
  * -1 when the source is out of range (or the id plays nothing). */
 int em_sfx_play_at_track(unsigned id, const float pos[3], float radius)
 {
+    return em_sfx_play_at_mode_track(id, pos, 0, radius);
+}
+
+int em_sfx_play_at_mode_track(unsigned id, const float pos[3], int32_t flat, float radius)
+{
     if (!pos) return -1;
     const EmSfxEntry *entry = sfx_accept(id);
     if (!entry) return -1;
     float gl, gr;
-    if (!em_sfx_compute_gains(pos, radius, &gl, &gr)) {
+    if (!em_sfx_compute_gains_mode(pos, flat, radius, &gl, &gr)) {
         s.culls++;                      /* engine play_sound -1 */
         return -1;
     }
