@@ -374,7 +374,9 @@ static int model_function(uint32_t fn)
     case 0x001BA580u: case 0x001BA540u: case 0x001CA700u: case 0x001CA770u:
     case 0x001D06D0u: case 0x001D06E0u: case 0x001D0C70u: case 0x001D8BF0u:
     case 0x001C62C0u: case 0x001C63E0u: case 0x001C67E0u: case 0x001C68C0u: case 0x001C69A0u:
-    case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:return 1;
+    case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:
+    case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
+        return 1;
     default:return 0;
     }
 }
@@ -461,6 +463,8 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     case 0x0012D850u: rc=c->na<2 ? -1 : em_area00_low_0012D850(&low,a0,a1);break;
     case 0x00129FC0u: rc=c->na<2 ? -1 : em_area00_low_00129FC0(&low,a0,a1);break;
     case 0x0012E070u: rc=c->na<1 ? -1 : em_area00_low_0012E070(&low,a0);break;
+    /* 0012DE90(event block): the AREA01 revisit's 0x824D50 (byte-matched C). */
+    case 0x0012DE90u: rc=c->na<1 ? -1 : em_area00_low_0012DE90(&low,a0);break;
     default: rc=-1;break;
     }
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
@@ -470,6 +474,7 @@ static int low_entry_handles(uint32_t fn)
     switch(fn) {
     case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
     case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
+    case 0x0012DE90u:
         return 1;
     default:
         return 0;
