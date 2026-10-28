@@ -30,7 +30,7 @@
  *   tools/export_render_context.py): D_00241010 (8), D_00250F30..
  *   D_0025316F (the colour, D_002513E0, the room table D_00251C50),
  *   D_0026E510 (16), D_00275670..D_0027569F; from its second file
- *   (assets/render_context_effects.emrc) D_002534C0..2F and
+ *   (assets/render_context_effects.emrc) D_00253490..2F and
  *   D_0026E810..4F; and from the static-world
  *   export (assets/scene_snow/static_world.emsw, tools/export_static_world.py):
  *   D_00253560..EF (001E1E60's upload block) and, read only, the
@@ -62,8 +62,8 @@
  * (001D9720, 001E0380, 001D71F0, 001D9060; its 001D7BB0 is em_point_light's
  * reset) and of 001DDA00's effect callees 001DDB70, 001DFF70 (with
  * 001DFE70 and 001D64A0) and 001DF110 (with 001DF020, 001D7510, 001D7000,
- * 001D6DD0, 001D7A80). The worker the port cannot run yet (001DE920) is
- * bound to a fault.
+ * 001D6DD0, 001D7A80), and 001DDAA0's 001DE920 (em_level9_port_fx's
+ * translation over this storage).
  *
  * Fail-stop: the first fault of any of them is latched here (the original
  * function address, em_rcl_fault()); every later entry returns -1. */

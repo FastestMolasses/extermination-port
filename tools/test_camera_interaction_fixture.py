@@ -76,6 +76,8 @@ SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/ga
            # The render context (census L32 / L30): the zoom the camera's view
            # publication reads, the 001DD950 store of its 001DD980 calls.
            'src/game/em_render_context_live.c', 'src/game/em_gs_blocks_original.c', 'src/game/em_frame_kick.c',
+           # its 001D19E0 / 001DDAA0 callees' translations (RENDER_CONTEXT.md 8.6)
+           'src/game/em_point_light.c', 'src/game/em_level9_port_fx.c', 'src/game/em_random.c',
            'src/game/em_frame_render_heads.c',
            'src/game/em_render_context.c', 'src/game/em_packet_chain_original.c',
            'src/game/em_status_ui_leftovers.c', 'src/game/em_load_veil_particles.c',

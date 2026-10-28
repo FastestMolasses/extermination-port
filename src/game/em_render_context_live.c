@@ -21,6 +21,8 @@
 #include "game/em_load_veil_particles.h"
 #include "game/em_ee_float.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_level9_port.h"
+#include "game/em_random.h"
 #include "game/em_skin_arena_init.h"
 #include "game/em_packet_chain_original.h"
 #include "game/em_player_equipment.h"
@@ -78,8 +80,8 @@ typedef uint32_t u32;
 #define D_81C050_SIZE 0x38A0u     /* grids D_0081C0F0 / D_0081D0F0 (0x1000 each) and */
                                   /* 001E1010's table D_0081E0F0 (0x1800), .bss */
 #define D_275C08    0x00275C08u   /* the GS read-back queue count 001D71F0 clears */
-#define D_2534C0    0x002534C0u   /* .data: 001DF020's pairs, 001DFE70's corners, */
-#define D_2534C0_SIZE 0x70u       /* 001E0380's quadword (D_00253520) */
+#define D_253490    0x00253490u   /* .data: 001DE920's basis, 001DF020's pairs, */
+#define D_253490_SIZE 0xA0u       /* 001DFE70's corners, 001E0380's quadword */
 #define D_26E810    0x0026E810u   /* .data: 001DDB70's four colour quadwords */
 #define D_26E810_SIZE 0x40u
 #define VIEWS_MAX   40u
@@ -102,7 +104,7 @@ static uint8_t *s_spad3400_borrowed;
 static uint32_t s_d817E20_words[0x100 / 4];
 static uint32_t s_d81C050_words[D_81C050_SIZE / 4];
 static uint32_t s_d275C08_words[1];
-static uint8_t s_d2534C0[D_2534C0_SIZE];
+static uint8_t s_d253490[D_253490_SIZE];
 static uint8_t s_d26E810[D_26E810_SIZE];
 static uint32_t s_d8101D0_words[0x10 / 4];
 /* The static-object bank *D_0028A5A0 (static_world.emsw block 0), read only. */
@@ -269,7 +271,7 @@ static void build_views(void)
     add_view(D_817E20, 0x100, (uint8_t *)s_d817E20_words, 1);
     add_view(D_81C050, D_81C050_SIZE, (uint8_t *)s_d81C050_words, 1);
     add_view(D_275C08, 4, (uint8_t *)s_d275C08_words, 1);
-    add_view(D_2534C0, D_2534C0_SIZE, s_d2534C0, 0);
+    add_view(D_253490, D_253490_SIZE, s_d253490, 0);
     add_view(D_26E810, D_26E810_SIZE, s_d26E810, 0);
     if (s_dynamic_word) {
         add_view(EM_A01R_D_0028A5A4, 4, (uint8_t *)(uintptr_t)s_dynamic_word, 0);
@@ -781,7 +783,7 @@ static int rcl_001D64A0(int32_t chan, const u32 a1[3], const u32 a2[3], const u3
 static int rcl_001DFE70(u32 colour, u32 f12)
 {
     const u32 fn = 0x001DFE70u;
-    const uint8_t *k = rd(D_2534C0 + 0x40u, 0x20, fn), *c = rd(colour, 12, fn);
+    const uint8_t *k = rd(D_253490 + 0x70u, 0x20, fn), *c = rd(colour, 12, fn);
     if (!k || !c) return -1;
     u32 c0[4], c1[4], col[4];
     for (unsigned i = 0; i < 4; ++i) {
@@ -1035,7 +1037,7 @@ static int rcl_001DF020(int32_t chan, u32 a1, u32 *result)
     if (rcl_001D7510(chan, 0, 0) < 0) return -1;
     if (em_load_veil_particles_001D1F80(&R.veil, chan, 0, 1) < 0) return fail(0x001D1F80u, "001D1F80 fault");
     if (rcl_001D7000(chan, 0) < 0 || rcl_001D6DD0(chan, 0x7000, 0x7900) < 0) return -1;
-    if (rcl_001D7A80(chan, 0x40, D_2534C0, D_2534C0 + 0x20u, a1) < 0) return -1;
+    if (rcl_001D7A80(chan, 0x40, D_253490 + 0x30u, D_253490 + 0x50u, a1) < 0) return -1;
     if (em_load_veil_particles_001D1F20(&R.veil, chan) < 0) return fail(0x001D1F20u, "001D1F20 fault");
     return 0;
 }
@@ -1059,6 +1061,118 @@ static int rcl_001DF110(void *ctx, uint32_t a0)
     put32(slot, end + 0x10u);
     return em_packet_chain_w_001CB760(&R.pc, 0x007635C0u, 0xFFF000, r) < 0
                ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
+}
+
+/* 001DE920 (001DDAA0's branch for the area keys 0x0B00..0x0E00 when
+ * 001B0070's word has bit 5 or 6; AREA11 is 0x0B): the outdoor weather
+ * packet. Its one translation is em_level9_port_001DE920 (the instructions
+ * followed; docs/LEVEL9_PORT.md), run here over this module's storage: its
+ * memory view is own() plus a private stack window for its 0x140-byte
+ * frame (the original's stack is not modelled; nothing outside the frame
+ * reads it), and each callee is the translation this module binds
+ * elsewhere. Its 001CB760 is the packet chain's own, as 001DDB70's. */
+#define L9_STACK_TOP  0x01FFF000u   /* the private stack window's top */
+#define L9_STACK_SIZE 0x200u
+static uint8_t s_l9_stack[L9_STACK_SIZE];
+static u32 s_l9_frame;   /* 001DE920's frame: sp - 0x140 */
+
+static uint8_t *l9_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address >= L9_STACK_TOP - L9_STACK_SIZE && size <= L9_STACK_SIZE &&
+        address - (L9_STACK_TOP - L9_STACK_SIZE) <= L9_STACK_SIZE - size)
+        return s_l9_stack + (address - (L9_STACK_TOP - L9_STACK_SIZE));
+    return own(address, size);
+}
+static int l9_001026A0(void *ctx, uint32_t out, uint32_t m, uint32_t v)
+{
+    const uint8_t *pm = l9_bytes(ctx, m, 0x40), *pv = l9_bytes(ctx, v, 16);
+    uint8_t *po = l9_bytes(ctx, out, 16);
+    if (!pm || !pv || !po) return -1;
+    float mf[16], vf[4], of[4];
+    memcpy(mf, pm, sizeof mf);
+    memcpy(vf, pv, sizeof vf);
+    em_effect_original_001026A0(of, mf, vf);
+    memcpy(po, of, sizeof of);
+    return 0;
+}
+static int l9_00102948(void *ctx, uint32_t dst, uint32_t src)
+{
+    const uint8_t *s = l9_bytes(ctx, src & ~15u, 16);
+    uint8_t *d = l9_bytes(ctx, dst & ~15u, 16);
+    if (!s || !d) return -1;
+    memmove(d, s, 16);
+    return 0;
+}
+static int l9_00122BB8(void *ctx, int32_t *result)
+{
+    (void)ctx;
+    *result = (int32_t)em_random_next();
+    return 0;
+}
+static int l9_001281C0(void *ctx, float f, int32_t *result)
+{
+    (void)ctx;
+    u32 bits;
+    memcpy(&bits, &f, 4);
+    *result = em_player_float_to_int(bits);
+    return 0;
+}
+static int l9_001CB760(void *ctx, uint32_t table, uint32_t id, uint32_t address, int32_t unread)
+{
+    (void)ctx;
+    (void)unread;   /* 001CB760 does not read a3 */
+    return em_packet_chain_w_001CB760(&R.pc, table, (int32_t)id, address);
+}
+static int l9_001D1F20(void *ctx, int32_t chan) { return v_001D1F20(ctx, chan); }
+static int l9_001D1FF0(void *ctx, int32_t chan, int32_t a1) { return v_001D1FF0(ctx, chan, a1); }
+static int l9_001D2040(void *ctx, int32_t chan, int32_t a1) { return v_001D2040(ctx, chan, a1); }
+static int l9_001D6B10(void *ctx, int32_t a0, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)ctx;
+    return em_render_context_001D6B10(&R.rc, a0, a1, a2, a3, NULL);
+}
+static int l9_001D6BA0(void *ctx, int32_t chan, int32_t a1, int32_t a2, int32_t a3, int32_t t0, int32_t t1)
+{
+    return v_001D6BA0(ctx, chan, a1, a2, a3, t0, t1);
+}
+/* 001D6C90's seven stack arguments are the low words of the doublewords
+ * the caller stored at its frame + 0x00..+0x30. */
+static int l9_001D6C90(void *ctx, int32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t t0, int32_t t1,
+                       int32_t t2, int32_t t3)
+{
+    int32_t args[15] = {a0, a1, a2, a3, t0, t1, t2, t3};
+    for (unsigned k = 0; k < 7; ++k) {
+        const uint8_t *p = l9_bytes(ctx, s_l9_frame + 8u * k, 4);
+        if (!p) return -1;
+        args[8 + k] = (int32_t)rd32(p);
+    }
+    return em_render_context_001D6C90(&R.rc, args, NULL);
+}
+static int rcl_001DE920(void *ctx)
+{
+    (void)ctx;
+    EmLevel9PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.bytes = l9_bytes;
+    h.w_001026A0 = l9_001026A0;
+    h.w_00102948 = l9_00102948;
+    h.w_00122BB8 = l9_00122BB8;
+    h.w_001281C0 = l9_001281C0;
+    h.w_001CB760 = l9_001CB760;
+    h.w_001D1F20 = l9_001D1F20;
+    h.w_001D1FF0 = l9_001D1FF0;
+    h.w_001D2040 = l9_001D2040;
+    h.w_001D6B10 = l9_001D6B10;
+    h.w_001D6BA0 = l9_001D6BA0;
+    h.w_001D6C90 = l9_001D6C90;
+    EmLevel9PortFault fault = {0, 0};
+    s_l9_frame = L9_STACK_TOP - 0x140u;
+    if (em_level9_port_001DE920(&h, L9_STACK_TOP, &fault) < 0) {
+        if (R.rc.fault.code) return -1;
+        return fail(fault.address ? fault.address : 0x001DE920u, "001DE920 fault");
+    }
+    return 0;
 }
 
 /* 001D9720: the target packet D_00817E20: words 0, 0, 0x11000000,
@@ -1104,7 +1218,7 @@ static int rcl_001E0380(void *ctx)
 {
     (void)ctx;
     const u32 fn = 0x001E0380u;
-    const uint8_t *q = rd(D_2534C0 + 0x60u, 16, fn);
+    const uint8_t *q = rd(D_253490 + 0x90u, 16, fn);
     uint8_t *g = wr(D_81C050 + 0xA0u, 0x2000, fn);
     if (!q || !g) return -1;
     for (int32_t i = 0; i < 16; ++i) {
@@ -1227,11 +1341,11 @@ static void wire(void)
     w->w_001D4B20 = unbound_u;
     w->w_001D5BD0 = unbound;
     /* 001DDA00's effect callees: 001DDB70 (flag 6, 0015D2F0 mode 2,
-     * D_008106C6 == 2), 001DFF70 (flag 7, the fade 001DFE10 starts) and
-     * the ramp records' 001DF110 (flags 2 / 9) are translated here;
-     * 001DE920 (001DDAA0's area keys 0x0B00..0x0E00 with 001B0070 bit 5 or
-     * 6; AREA11 is 0x0B) is not: reaching it faults. */
-    w->w_001DE920 = unbound;
+     * D_008106C6 == 2), 001DFF70 (flag 7, the fade 001DFE10 starts), the
+     * ramp records' 001DF110 (flags 2 / 9) and 001DDAA0's 001DE920 (flag
+     * 1, the area keys 0x0B00..0x0E00 with 001B0070 bit 5 or 6; AREA11 is
+     * 0x0B). */
+    w->w_001DE920 = rcl_001DE920;
     w->w_001DDB70 = rcl_001DDB70;
     w->w_001DFF70 = rcl_001DFF70;
     w->w_001DF110 = rcl_001DF110;
@@ -1275,7 +1389,7 @@ static const Block k_blocks[] = {
 };
 /* The second file (the effect callees and 001E0380). */
 static const Block k_effect_blocks[] = {
-    {D_2534C0, D_2534C0_SIZE, s_d2534C0},
+    {D_253490, D_253490_SIZE, s_d253490},
     {D_26E810, D_26E810_SIZE, s_d26E810},
 };
 #define BLOCK_COUNT (sizeof k_blocks / sizeof k_blocks[0])
@@ -2087,7 +2201,7 @@ uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)
     if (p >= s_d241010 && p < s_d241010 + sizeof s_d241010) return NULL;
     if (p >= s_d26E510 && p < s_d26E510 + sizeof s_d26E510) return NULL;
     if (p >= s_d26E850 && p < s_d26E850 + sizeof s_d26E850) return NULL;
-    if (p >= s_d2534C0 && p < s_d2534C0 + sizeof s_d2534C0) return NULL;
+    if (p >= s_d253490 && p < s_d253490 + sizeof s_d253490) return NULL;
     if (p >= s_d26E810 && p < s_d26E810 + sizeof s_d26E810) return NULL;
     if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return NULL;
     if ((s_dynamic_word && p >= s_dynamic_word && p < s_dynamic_word + 4) ||
