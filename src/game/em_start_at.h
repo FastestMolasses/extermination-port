@@ -54,5 +54,7 @@ int em_start_at_report(void);
  * neutral). Without the variable both do nothing. */
 void em_start_at_pad_control(unsigned counter);
 int em_start_at_pad_frame(unsigned counter);
+/* 1 on every 300th frame of a running pad script (its progress line). */
+int em_start_at_pad_progress(unsigned counter);
 
 #endif

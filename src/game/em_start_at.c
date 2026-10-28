@@ -447,3 +447,8 @@ int em_start_at_pad_frame(unsigned counter)
                                (pad.row[i].ly - 128) / 128.0f, 0, 0};
     return 0;
 }
+
+int em_start_at_pad_progress(unsigned counter)
+{
+    return pad.active && counter > pad.start && (counter - pad.start) % 300u == 0;
+}
