@@ -2,6 +2,9 @@
 
 Status: 2026-09-23. Live: the message service's text draws through it on every
 present tick (`em_message_live`, docs/MESSAGE_SERVICE.md "Binding").
+2026-10-28: the small font (001CBA50 / 001CBC20, section "The small font")
+is translated here too and live for the options screen and the status pages
+(`em_page_draw_cba50`).
 
 Files:
 - `src/game/em_message_glyph_original.{h,c}`: the native translation.
@@ -10,7 +13,8 @@ Files:
 - `tests/message_glyph_test.c`: the native fail-stop contract, ASan/UBSan
   (`make test-message-glyph`).
 - `em_hud_glyph_strip` / `em_hud_tall_glyph_cell` (`src/game/em_hud.c`): the
-  draw boundary, through the tall-font atlas.
+  draw boundary, through the tall-font atlas; `em_hud_small_glyph_strip` /
+  `em_hud_small_glyph_cell` the small font's.
 
 This module is the message draw module's two workers (docs/MESSAGE_DRAW.md):
 `glyph_advance` is 001CBE10 and `draw_text` is 001FC7B0.
@@ -122,6 +126,72 @@ Not modelled at the boundary (renderer work, WP for the Original profile's GS
 path): the TEST and ALPHA registers, and the skewed kind's GS rasterisation.
 The fb2 set shows message text at 09_fence_door and 15_level_exit (the area
 title); 15 is compared (tools/test_fb2_pixels.py).
+
+## The small font (001CBA50 / 001CBC20, 2026-10-28)
+
+| Original | Native | Source read | What it does |
+|---|---|---|---|
+| 001CBA50 | `em_message_glyph_cba50` | byte-matched C | Arguments (slot, x, y, advance, height, text, style). Every byte of the text is one strip cell: glyph byte - 0x20, 0x87 for '$', 0 for a byte below 0x20, uploaded with 001CC8A0(0, column, 0, glyph * 32); the column grows by 16 and the drawn width by `advance`. When the column reaches 0x200 the accumulated height grows by `height`, the strip is flushed with 001CBC20(slot, x, y, width, height, column, 0x10, style), x moves on by the width and the strip restarts. The end adds `height` and flushes the rest (an empty text flushes once with width 0). 001CCB00, the strip reset it calls, is empty. |
+| 001CBC20 | `em_message_glyph_cbc20` | NEARMISS C (register colouring only) | References the prebuilt packets D_002511C0 (3 quadwords) and D_00250FC0 (8 quadwords) on both arms of the style test, then one sprite: UV (0, 0) at XYZF2 (x, y) and (u_end, v_end) at (x + width, y + height >> 1, arithmetic), Z 0xFFFFFF. With a style the RGBAQ is style word 0 with byte +4 ORed in at bit 24, and byte +7, clamped to 0xF, is ORed into both XYZF2 words at bit 16 (the Y coordinate's fraction); without one (a null pointer) 0x80808080 and 0. |
+
+The flush worker gets the packed words (RGBAQ, both UV and XYZF2, 64-bit as
+the original stores them), the two packet references (address and
+quadword count) and the strip's uploads since the reset. The prebuilt
+packets set, by their A+D writes (read from the user's ELF by the reference
+test, `small_state`): ALPHA_1 = 0x44 (D_002511C0); TEXFLUSH, PRIM 0x156
+(sprite, textured, alpha-blended, UV), TEX0_1 the PSMT4 strip at block
+0x1B00 (512 wide, TCC, modulate, the CLUT at 0x1B67 as for the tall
+strip), TEX1_1 = 0x60 (bilinear) and TEST_1 (D_00250FC0). The tall
+sprite packet D_002510C0 is the same block with TEX1_1 = 0.
+
+**Callers.** `em_page_draw_cba50` runs the translation for the options
+screen (`em_options_live`, 001CBA50 dispatched by address; a style pointer
+of 0 is the original's null) and the status pages (`em_status_pages_live`:
+0020B210's 001CBA50 calls and 00208AD0's through `em_status_draw`). Each
+flush joins the page's draw stream in order; the D_002511C0 write leaves
+the stream's blend mode at 0 (ALPHA_1 = 0x44, 00207D00's mode 0) until
+the next 00207D00. The upload worker refuses a glyph the small-font atlas
+lacks, the flush worker a slot other than 1 (the page stream's): the
+frame is refused and the caller faults. The status pages' tall-font
+001CC1E0 calls go to `em_message_live_cc1e0`, as the options screen's
+do. This retired the page stream's stand-in text (`em_page_draw_text`,
+which drew the glyphs straight from the atlas with alpha 1.0, ignored the
+style's +4 and +7 bytes and the packets, and faulted on a null style).
+`em_hud_text_color`'s other users (the hub, the BATTERY and ITEM pages)
+are unchanged.
+
+**Draw boundary.** `em_hud_small_glyph_strip` maps the two XYZF2 corners
+and the UV extent with the UI canvas offsets 0x700 / 0x790 (field lines
+doubled, the Y fraction kept) and draws each uploaded 16 x 16 cell's part
+of the sprite from the small-font atlas with `em_gfx_overlay_glyph`,
+bilinear, modulated by RGBAQ / 0x80 times the ink colour (`GLYPH_INK`,
+as above: the same nibble table and CLUT), the RGBAQ alpha, standard alpha
+blend, cut to the SCISSOR_1 window. Not GS-exact: the renderer's bilinear
+weights, and at a cell edge it blends the atlas neighbour where the GS
+blends the strip's next cell (or, at the strip's edge, whatever the wrap
+mode reaches); the atlas's white coverage texels stand for the CLUT's
+ink / transparent pair. TEST_1 (alpha test never, framebuffer only) is not
+modelled. No capture of these pages' text has been compared.
+
+**Verified (2026-10-28).** `tools/test_message_glyph_reference.py` runs
+the original 001CBA50 and 001CBC20 (and 001CC8A0's mode 0, 001CCE80,
+001CCB00, 001232E0) over the same capture: each 001CC8A0 call's four
+arguments (mode 0) against the native upload in order, its 0x100-byte
+packet size, each 001CBC20 call's eight arguments against the native
+flush, and the 0x80 bytes it appends at the slot-1 cursor against an
+image built from the native record (both packet references, the cnt tag,
+the VIF DIRECT code, the GIF tag and register list, the UV / RGBAQ / XYZF2
+dwords); the original may store only into the packet area and the cursor
+word. Cases: 001CBC20 directly over a grid (six styles: none, the
+default, +7 = 7, all bytes 0xFF, +7 = 0x10, +7 = 0x0F; wrapping
+coordinates and extents; 400 random sets in full mode; quick 96 of 616);
+001CBA50 over synthetic strings (every byte value, '$', control bytes,
+exactly 32 cells, 33, 64 and 127 cells), seven advance / height pairs
+(including 0, negative and wrapping), four positions (including wrapping)
+and the six styles, plus the distinct bank strings (quick 50). Mutation
+spot checks: the clamp bound 0xF -> 0xE and the '$' glyph 0x87 -> 0x89
+both fail it. `tests/message_glyph_test.c` adds the small font's
+fail-stop contract (51 checks).
 
 ## Capture compare
 

@@ -6,16 +6,18 @@
 
 #include "game/em_hud.h"
 #include "game/em_item_geometry.h"
+#include "game/em_message_glyph_original.h"
 #include "game/em_status_background.h"
 
-enum { CALLS = 2048, ARENA = 4096, ATLAS_W = 1024, ATLAS_H = 2048, TEXTURES = 128, ARCS = 16 };
-enum { K_BLEND = 1, K_SPRITE, K_SCISSOR, K_RECT, K_TEXT, K_BACKGROUND, K_TRIANGLE, K_ARC, K_FLAT,
+enum { CALLS = 2048, ATLAS_W = 1024, ATLAS_H = 2048, TEXTURES = 128, ARCS = 16, SMALLS = 256,
+       SMALL_UPLOADS = 4096 };
+enum { K_BLEND = 1, K_SPRITE, K_SCISSOR, K_RECT, K_SMALL, K_BACKGROUND, K_TRIANGLE, K_ARC, K_FLAT,
        K_MODELS };
 
 typedef struct {
-    uint8_t kind, mode, proportional;
+    uint8_t kind, mode;
     int32_t xy[6];
-    uint32_t rgba, text;
+    uint32_t rgba;
     uint64_t tex0;
 } Call;
 
@@ -27,10 +29,16 @@ typedef struct {
 struct EmPageDraw {
     const EmGsTexture *gs;
     Call calls[CALLS];
-    unsigned count, arena_used, mode;
-    char arena[ARENA];
+    unsigned count, mode;
     float arcs[ARCS][24];
     unsigned arc_count;
+    /* 001CBA50 (em_message_glyph_cba50) and its 001CBC20 flushes this
+     * frame: the packed sprite, a copy of its style and its strip. */
+    EmMessageGlyphSmall small;
+    EmMessageGlyphSmallFlush smalls[SMALLS];
+    EmMessageTextStyle small_styles[SMALLS];
+    EmMessageGlyphUpload small_uploads[SMALL_UPLOADS];
+    unsigned small_count, small_upload_count;
     int refused, uploaded, dirty;
     uint8_t *atlas;
     Texture textures[TEXTURES];
@@ -39,6 +47,9 @@ struct EmPageDraw {
     EmPageDrawModels models;
     void *models_ctx;
 };
+
+static int small_upload(void *context, const EmMessageGlyphUpload *upload);
+static int small_flush(void *context, const EmMessageGlyphSmallFlush *flush);
 
 EmPageDraw *em_page_draw_create(const EmGsTexture *gs)
 {
@@ -51,6 +62,8 @@ EmPageDraw *em_page_draw_create(const EmGsTexture *gs)
     }
     d->gs = gs;
     d->generation = em_gs_texture_generation(gs) - 1;
+    const EmMessageGlyphSmallWorkers workers = {d, small_upload, small_flush};
+    em_message_glyph_small_init(&d->small, &workers);
     return d;
 }
 
@@ -67,7 +80,7 @@ void em_page_draw_begin(EmPageDraw *d)
 {
     if (!d)
         return;
-    d->count = d->arena_used = d->arc_count = 0;
+    d->count = d->arc_count = d->small_count = d->small_upload_count = 0;
     d->refused = 0;
     d->mode = 0;
 }
@@ -150,42 +163,55 @@ int em_page_draw_rectangle(EmPageDraw *d, int32_t slot, int32_t x0, int32_t y0, 
     return 1;
 }
 
-/* The glyph cells the original 001CBA50 / 001CC1E0 calls pass (the status
- * hub's mapping, em_status_hub_ui.c / em_battery_ui.c). */
-static int text_style(int proportional, int32_t w, int32_t h, EmHudTextStyle *style)
+/* 001CC8A0(0, column, row, glyph * 32): the strip keeps the call; the
+ * texels are the small-font atlas's, which must hold the glyph. */
+static int small_upload(void *context, const EmMessageGlyphUpload *upload)
 {
-    if (proportional) {
-        *style = EM_HUD_TEXT_TALL;
-        return w == 10 && h == 20;
-    }
-    if (w == 12 && h == 12)
-        *style = EM_HUD_TEXT_NUM12;
-    else if (w == 16 && h == 16)
-        *style = EM_HUD_TEXT_NUM16;
-    else
-        return 0;
+    EmPageDraw *d = context;
+    if (upload->offset % 32u || !em_hud_small_glyph_cell(upload->offset / 32u, NULL))
+        return refuse(d);
     return 1;
 }
 
-int em_page_draw_text(EmPageDraw *d, int proportional, int32_t x, int32_t y, int32_t w, int32_t h,
-                      const char *text, uint32_t rgb)
+/* 001CBC20: the packed sprite and its strip join the stream (render
+ * context slot 1, the page's). */
+static int small_flush(void *context, const EmMessageGlyphSmallFlush *flush)
 {
-    EmHudTextStyle unused;
-    const size_t length = text ? strlen(text) + 1 : 0;
-    if (!d || !text || !text_style(proportional, w, h, &unused) || length > ARENA - d->arena_used)
+    EmPageDraw *d = context;
+    if (flush->slot != 1 || d->small_count >= SMALLS ||
+        flush->upload_count > SMALL_UPLOADS - d->small_upload_count)
         return refuse(d);
-    Call *c = append(d, K_TEXT);
+    Call *c = append(d, K_SMALL);
     if (!c)
         return 0;
-    c->proportional = (uint8_t)(proportional != 0);
-    c->xy[0] = x;
-    c->xy[1] = y;
-    c->xy[2] = w;
-    c->xy[3] = h;
-    c->rgba = rgb & 0xFFFFFFu;
-    c->text = d->arena_used;
-    memcpy(d->arena + d->arena_used, text, length);
-    d->arena_used += (unsigned)length;
+    EmMessageGlyphSmallFlush *out = &d->smalls[d->small_count];
+    *out = *flush;
+    if (flush->style) {
+        d->small_styles[d->small_count] = *flush->style;
+        out->style = &d->small_styles[d->small_count];
+    }
+    memcpy(&d->small_uploads[d->small_upload_count], flush->uploads,
+           flush->upload_count * sizeof *flush->uploads);
+    out->uploads = &d->small_uploads[d->small_upload_count];
+    d->small_upload_count += flush->upload_count;
+    c->xy[0] = (int32_t)d->small_count++;
+    /* D_002511C0 writes ALPHA_1 = 0x44: 00207D00's mode 0 until the next
+     * 00207D00. */
+    d->mode = 0;
+    return 1;
+}
+
+int em_page_draw_cba50(EmPageDraw *d, int32_t slot, int32_t x, int32_t y, int32_t advance,
+                       int32_t height, const uint8_t *text, uint32_t avail,
+                       const EmMessageTextStyle *style)
+{
+    if (!d || d->refused || !text)
+        return refuse(d);
+    if (em_message_glyph_cba50(&d->small, slot, x, y, advance, height, text, avail, style) < 0) {
+        /* The module latches its fault; the next frame starts clean. */
+        d->small.fault = NULL;
+        return refuse(d);
+    }
     return 1;
 }
 
@@ -459,12 +485,9 @@ int em_page_draw_render(EmPageDraw *d, EmGfx *gfx)
                  (c->xy[2] - c->xy[0]) / 16.0f, (c->xy[3] - c->xy[1]) / 8.0f, 1.5f, 1.5f, 1.5f,
                  1.5f, color, c->mode);
             break;
-        case K_TEXT: {
-            EmHudTextStyle style;
-            if (!text_style(c->proportional, c->xy[2], c->xy[3], &style))
-                return refuse(d);
-            em_hud_text_color(gfx, (float)c->xy[0] - 1792, ((float)c->xy[1] - 1936) * 2,
-                              d->arena + c->text, style, c->rgba);
+        case K_SMALL: {
+            const float window[4] = {clip.x0, clip.y0, clip.x1, clip.y1};
+            ok = em_hud_small_glyph_strip(gfx, &d->smalls[c->xy[0]], window) == 1;
             break;
         }
         case K_BACKGROUND: {

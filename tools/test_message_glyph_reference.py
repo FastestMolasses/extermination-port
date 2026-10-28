@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Original tall-font glyph runs against em_message_glyph_original.c.
+"""Original tall- and small-font glyph runs against em_message_glyph_original.c.
 
 docs/MESSAGE_GLYPH.md. The EE interpreter of test_player_slide_reference.py
 executes the ORIGINAL instructions over captured EE RAM (user-local, never
 copied here): 001FC7B0, 001CC1E0, 001CBE10, 001CC8A0, 001CCE80, 001CC3B0,
-001CCB00, 001232E0 and the memset 00121A28. Nothing is hooked away: the two
-boundary routines are observed (their arguments recorded) and then executed.
+001CCB00, 001232E0 and the memset 00121A28, and for the small font 001CBA50
+and 001CBC20. Nothing is hooked away: the boundary routines are observed (their
+arguments recorded) and then executed.
 
   001CC8A0  glyph texel upload. Each call's arguments (mode, strip x, strip
             y, glyph byte offset) are compared in order with the native
@@ -18,6 +19,14 @@ boundary routines are observed (their arguments recorded) and then executed.
             UV and XYZ2 dwords. Bytes the original leaves unwritten keep the
             fill pattern on both sides.
 
+  001CBC20  small-font strip flush (001CBA50's). Each call's eight arguments
+            are compared with the native flush, and its packet bytes with an
+            image built from the native record: the two prebuilt-packet
+            references (address and quadword count), the cnt tag, the VIF
+            DIRECT code, the GIF tag and register list, and the UV, RGBAQ and
+            XYZF2 dwords. 001CC8A0's mode-0 calls (column, row, glyph * 32)
+            are compared in order with the native small upload worker's.
+
 Also compared: the cursor advance per call, and the set of addresses the
 original stores to (only the packet area, the cursor word and the stack).
 
@@ -27,7 +36,10 @@ the captured style D_00275C50 and with record styles, and through the
 D_00264BF0 template (no style). Synthetic strings of this file's own making
 reach every byte value, the 0x81 expansion, newline recursion, the 512-texel
 strip wrap and wrapping coordinates. 001CBE10 runs for every byte value, and
-001CC3B0 runs directly over an argument grid.
+001CC3B0 runs directly over an argument grid. 001CBA50 runs over every byte
+value, the 32-cell strip wrap, the bank strings, styles (none, alpha and
++7 bytes on both sides of the clamp) and wrapping coordinates and steps;
+001CBC20 runs directly over an argument grid.
 
 No original instruction bytes, disassembly, text or font data are written by
 this file; the report in build/ holds only counts.
@@ -52,13 +64,15 @@ REFERENCE = DECOMP / 'build/startup-reference'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 
 FC7B0, CC1E0, ADVANCE, UPLOAD, FLUSH = 0x1FC7B0, 0x1CC1E0, 0x1CBE10, 0x1CC8A0, 0x1CC3B0
+CBA50, CBC20 = 0x1CBA50, 0x1CBC20
 EXECUTED = ((0x1FC7B0, 0x200), (0x1CC1E0, 0x1CC), (0x1CBE10, 0x35C), (0x1CC8A0, 0x254),
             (0x1CC3B0, 0x4E8), (0x1CCB00, 0x8), (0x1CCE80, 0xEC), (0x1232E0, 0x138),
-            (0x121A28, 0xC0))
+            (0x121A28, 0xC0), (0x1CBA50, 0x1D0), (0x1CBC20, 0x1F0))
 CONTEXT = 0x275670                       # D_00275670: the render context pointer
 BANK_G, BANK_A = 0x28A4E8, 0x28A594
 LINE_CFG, TEMPLATE, STYLE = 0x264CD0, 0x264BF0, 0x275C50
 PACKET_SPRITE, PACKET_SKEWED, PACKET_HEAD = 0x2510C0, 0x251140, 0x2511C0
+PACKET_SMALL = 0x250FC0                  # D_00250FC0: 001CBC20's state packet
 TEXT, PACKET = 0x1F30000, 0x1F40000
 PACKET_SIZE = 0x40000
 FILL = 0xA5
@@ -74,6 +88,7 @@ class Original:
         self.events, self.stores = [], set()
         ee.hooks[UPLOAD] = lambda e: self.observe(e, UPLOAD, 'upload', 4)
         ee.hooks[FLUSH] = lambda e: self.observe(e, FLUSH, 'flush', 8)
+        ee.hooks[CBC20] = lambda e: self.observe(e, CBC20, 'sflush', 8)
         save = ee.save
 
         def guarded(address, value, size=4):
@@ -130,6 +145,27 @@ UPLOAD_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(Upload))
 FLUSH_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(Flush))
 
 
+class SmallFlush(C.Structure):
+    _fields_ = [('slot', C.c_int32), ('x', C.c_int32), ('y', C.c_int32), ('width', C.c_int32),
+                ('height', C.c_int32), ('u_end', C.c_int32), ('v_end', C.c_int32),
+                ('style', C.POINTER(Style)), ('head', C.c_uint32), ('head_qwc', C.c_uint32),
+                ('state', C.c_uint32), ('state_qwc', C.c_uint32), ('rgbaq', C.c_uint64),
+                ('uv', C.c_uint64 * 2), ('xyzf2', C.c_uint64 * 2), ('uploads', C.POINTER(Upload)),
+                ('upload_count', C.c_uint32)]
+
+
+SFLUSH_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(SmallFlush))
+
+
+class SmallWorkers(C.Structure):
+    _fields_ = [('context', C.c_void_p), ('upload', UPLOAD_FN), ('flush', SFLUSH_FN)]
+
+
+class GlyphSmall(C.Structure):
+    _fields_ = [('workers', SmallWorkers), ('strip', Upload * 0x20), ('strip_count', C.c_uint32),
+                ('fault', C.c_char_p)]
+
+
 class Workers(C.Structure):
     _fields_ = [('context', C.c_void_p), ('upload', UPLOAD_FN), ('flush', FLUSH_FN)]
 
@@ -155,6 +191,10 @@ def library():
     lib.em_message_glyph_cc1e0.argtypes = [C.POINTER(Glyph), C.c_int32, C.c_int32, C.c_int32, C.c_int32,
                                            C.c_int32, C.c_void_p, C.c_uint32, C.POINTER(Style)]
     lib.em_message_glyph_cc3b0.argtypes = [C.c_int32] * 7 + [C.POINTER(Style), C.POINTER(Flush)]
+    lib.em_message_glyph_small_init.argtypes = [C.POINTER(GlyphSmall), C.POINTER(SmallWorkers)]
+    lib.em_message_glyph_cba50.argtypes = [C.POINTER(GlyphSmall)] + [C.c_int32] * 5 + [
+        C.c_void_p, C.c_uint32, C.POINTER(Style)]
+    lib.em_message_glyph_cbc20.argtypes = [C.c_int32] * 7 + [C.POINTER(Style), C.POINTER(SmallFlush)]
     return lib
 
 
@@ -171,6 +211,9 @@ class Native:
         self.workers = Workers(None, UPLOAD_FN(self.upload), FLUSH_FN(self.flush))
         self.glyph = Glyph()
         assert lib.em_message_glyph_init(C.byref(self.glyph), C.byref(self.workers)) == 1
+        self.small_workers = SmallWorkers(None, UPLOAD_FN(self.small_upload), SFLUSH_FN(self.small_flush))
+        self.small = GlyphSmall()
+        assert lib.em_message_glyph_small_init(C.byref(self.small), C.byref(self.small_workers)) == 1
 
     def upload(self, _, u):
         u = u.contents
@@ -187,9 +230,23 @@ class Native:
         self.events.append(('flush', args, (f.kind, f.vertex_count, passes, uploads)))
         return 1
 
+    def small_upload(self, _, u):
+        u = u.contents
+        self.events.append(('upload', (0, u.x, u.y, u.offset), None))
+        return 1
+
+    def small_flush(self, _, f):
+        f = f.contents
+        style = C.addressof(f.style.contents) if f.style else 0
+        assert style in (0, C.addressof(self.style)), 'small flush style is not the bound style block'
+        args = (f.slot, f.x, f.y, f.width, f.height, f.u_end, f.v_end, STYLE if style else 0)
+        uploads = [(f.uploads[i].x, f.uploads[i].y, f.uploads[i].offset) for i in range(f.upload_count)]
+        self.events.append(('sflush', args, (small_image(f), uploads)))
+        return 1
+
     @property
     def fault(self):
-        return self.glyph.fault
+        return self.glyph.fault or self.small.fault
 
 
 def flush_image(kind, vertices, passes):
@@ -218,6 +275,25 @@ def flush_image(kind, vertices, passes):
     return bytes(image)
 
 
+def small_image(f):
+    """The packet 001CBC20 appends, built from the native record. Bytes the
+    original does not write keep FILL."""
+    image = bytearray([FILL]) * 0x80
+
+    def tag(at, qwc, ident, address):
+        struct.pack_into('<H', image, at, qwc)
+        image[at + 3] = ident
+        struct.pack_into('<I', image, at + 4, address)
+    tag(0x00, f.head_qwc, 0x30, f.head)
+    tag(0x10, f.state_qwc, 0x30, f.state)
+    tag(0x20, 5, 0x10, 0)
+    image[0x30:0x40] = bytes(16)
+    struct.pack_into('<I', image, 0x3C, 0x50000004)
+    struct.pack_into('<8Q', image, 0x40, 0x8001 | 0x64000000 << 32, 0x413413, f.uv[0], f.rgbaq, f.xyzf2[0],
+                     f.uv[1], f.rgbaq, f.xyzf2[1])
+    return bytes(image)
+
+
 def same(o, n, where):
     want, got = o.events, n.events
     assert len(got) == len(want), (where, 'call count', len(got), len(want))
@@ -225,8 +301,17 @@ def same(o, n, where):
     for i, ((wk, wa, packet), (gk, ga, detail)) in enumerate(zip(want, got)):
         assert wk == gk and wa == ga, (where, i, wk, wa, gk, ga)
         if wk == 'upload':
-            assert len(packet) == 0x280, (where, i, 'upload packet size', len(packet))
+            assert len(packet) == (0x280 if wa[0] else 0x100), (where, i, 'upload packet size', len(packet))
             strip.append(wa[1:])
+            continue
+        if wk == 'sflush':
+            image, uploads = detail
+            assert uploads == strip, (where, i, 'small strip contents')
+            strip = []
+            assert packet == image, (where, i, 'small flush packet',
+                                     next((j for j in range(min(len(packet), len(image))) if packet[j] != image[j]),
+                                          (len(packet), len(image))))
+            flushes += 1
             continue
         kind, vertices, passes, uploads = detail
         assert vertices == (4 if kind else 2), (where, i)
@@ -329,6 +414,109 @@ def flush_grid(o, n, lib):
     return len(cases)
 
 
+SMALL_STYLES = [None, bytes([0x80, 0x80, 0x80, 0, 0x80, 0, 0, 0]), bytes([0x60, 0x20, 0x10, 0, 0x40, 3, 0x11, 7]),
+                bytes([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), bytes([0x10, 0x20, 0x30, 0x84, 0, 0, 0, 0x10]),
+                bytes([1, 2, 3, 4, 0x7F, 9, 0, 0x0F])]
+
+
+def small_flush_grid(o, n, lib):
+    """001CBC20 called directly over an argument grid."""
+    rnd = random.Random(0x1CBC20)
+    coords = [(0x700, 0x790), (0x7AF, 0x7F3), (0, 0), (-1, -1), (0x7FFFFFFF, 0x7FFFFFFF), (-0x80000000, 5)]
+    extents = [(0xC, 0xC, 0x10, 0x10), (0x180, 0xC, 0x200, 0x10), (0x40, 0x20, 0x40, 0x10), (0, 0, 0, 0),
+               (-3, -7, -0x10, 0x7FFFFFFF), (0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF, -0x80000000)]
+    cases = [(s, c, e) for s in range(len(SMALL_STYLES)) for c in coords for e in extents]
+    fixed = len(cases)
+    cases += [(rnd.randrange(len(SMALL_STYLES)), (rnd.getrandbits(32) - (1 << 31), rnd.getrandbits(32) - (1 << 31)),
+               tuple(rnd.getrandbits(32) - (1 << 31) for _ in range(4))) for _ in range(400)]
+    cases = select(cases, 50, 0x1CBC20, axes=(lambda c: c[0],),
+                   keep=lambda i, c: i < fixed and (c[1] in coords[:2] or c[2] == extents[0]))
+    for index, (s, (x, y), (w, h, u, v)) in enumerate(cases):
+        raw = SMALL_STYLES[s]
+        if raw is not None:
+            set_style(o, n, raw)
+        o.reset_packet()
+        o.call(CBC20, 1, x, y, w, h, u, v, STYLE if raw is not None else 0)
+        packet = o.ee.read(PACKET, o.ee.load(o.cursor_cell) - PACKET)
+        f = SmallFlush()
+        lib.em_message_glyph_cbc20(1, x, y, w, h, u, v, C.pointer(n.style) if raw is not None else None, C.byref(f))
+        assert packet == small_image(f), ('small flush grid', index, s, x, y, w, h, u, v)
+        assert not o.unmodelled(), ('small flush grid', index)
+    o.events.clear()
+    return len(cases)
+
+
+def run_small(o, n, text, x, y, step, s, where):
+    advance, height = step
+    raw = SMALL_STYLES[s]
+    if raw is not None:
+        set_style(o, n, raw)
+    o.reset_packet()
+    o.ee.write(TEXT, text + b'\0')
+    o.call(CBA50, 1, x, y, advance, height, TEXT, STYLE if raw is not None else 0)
+    buf = C.create_string_buffer(text, len(text) + 1)
+    rc = n.lib.em_message_glyph_cba50(C.byref(n.small), 1, x, y, advance, height, buf, len(text) + 1,
+                                      C.pointer(n.style) if raw is not None else None)
+    assert rc == 0, (where, n.fault)
+    assert not o.unmodelled(), (where, [hex(a) for a in o.unmodelled()[:8]])
+    return same(o, n, where)
+
+
+def small_runs(o, n, real):
+    """001CBA50 over the synthetic strings and the distinct bank strings."""
+    every = bytes(range(1, 256))
+    texts = [b'', b'0', b'100', b'$5', b'HEALTH', b'/', every[:0x20], every[0x20:0x60], every[0x60:0xC0],
+             every[0xC0:], b'\x01\x1f\x20\x24\x7f\x80\xff', b'8' * 0x20, b'8' * 0x21, b'W' * 0x40,
+             b'M' * 0x7F]
+    steps = [(0xC, 0xC), (0x10, 0x10), (0xC, 0x10), (0xA, 0xA), (0, 0), (-5, 7), (0x7FFFFFFF, 0x7FFFFFFF)]
+    positions = [(0x7AF, 0x7F3), (0, 0), (-1, -1), (0x7FFFFFF0, 0x7FFFFF00)]
+    cases = [(t, p, st, s) for t in texts for p in range(len(positions)) for st in range(len(steps))
+             for s in range(len(SMALL_STYLES))]
+    bank = sorted({t for _, _, t in real} - set(texts))
+    cases += [(t, 0, 0, s) for t in bank for s in (0, 2)]
+    cases = select(cases, 50, 0x1CBA50, axes=(lambda c: c[1], lambda c: c[2], lambda c: c[3]),
+                   keep=lambda i, c: c[1] == 0 and c[2] == 0 and c[3] in (0, 2) and len(c[0]) <= 0x21 and
+                   c[0] in texts)
+    uploads = flushes = 0
+    for text, p, st, s in cases:
+        x, y = positions[p]
+        u, f = run_small(o, n, text, x, y, steps[st], s, ('small', text[:12], p, st, s))
+        uploads, flushes = uploads + u, flushes + f
+    assert flushes > len(cases), 'the small strip wrap was not reached'
+    return len(cases), uploads, flushes
+
+
+def ad_registers(image, address):
+    """The A+D writes of a prebuilt packet: a header quadword (VIF FLUSH,
+    DIRECT), a PACKED GIF tag with the one register A+D, then NLOOP
+    (register, value) quadwords."""
+    lo, hi = struct.unpack_from('<QQ', image, address + 0x10)
+    assert hi == 0xE and lo >> 58 & 3 == 0 and lo >> 60 == 1, hex(address)
+    out = {}
+    for i in range(lo & 0x7FFF):
+        value, register = struct.unpack_from('<QQ', image, address + 0x20 + 0x10 * i)
+        out[register & 0xFF] = value
+    return out
+
+
+def small_state(elf, text_base):
+    """The GS state em_hud_small_glyph_strip draws 001CBC20's sprite in,
+    read from the pinned ELF: D_002511C0 writes ALPHA_1 = 0x44 (Cs * As +
+    Cd * (1 - As)); D_00250FC0 writes PRIM = 0x156 (sprite, textured,
+    alpha-blended, UV), TEX1_1 = 0x60 (bilinear), a TEX0_1 of the PSMT4
+    strip at block 0x1B00 (width 512) with TCC set and TFX modulate, and
+    TEXFLUSH and TEST_1 (whose value is not modelled by the port)."""
+    head = ad_registers(elf, PACKET_HEAD + text_base)
+    state = ad_registers(elf, PACKET_SMALL + text_base)
+    assert head == {0x42: 0x44}, 'D_002511C0'
+    assert sorted(state) == [0x00, 0x06, 0x14, 0x3F, 0x47], 'D_00250FC0 registers'
+    assert state[0x00] == 0x156 and state[0x14] == 0x60 and state[0x3F] == 0, 'D_00250FC0 PRIM / TEX1_1'
+    tex0 = state[0x06]
+    assert (tex0 & 0x3FFF, tex0 >> 14 & 0x3F, tex0 >> 20 & 0x3F, tex0 >> 26 & 15) == (0x1B00, 8, 0x14, 9), 'TEX0_1'
+    assert tex0 >> 34 & 1 == 1 and tex0 >> 35 & 3 == 0, 'TEX0_1 TCC / TFX'
+    return 'ALPHA_1 0x44, PRIM 0x156, TEX1_1 0x60, TEX0_1 PSMT4 strip (TCC, modulate)'
+
+
 def main():
     elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA256, 'wrong original executable'
@@ -338,10 +526,11 @@ def main():
     for address, size in EXECUTED:
         assert ram[address:address + size] == elf[address + text_base:address + text_base + size], hex(address)
     for address, size in ((LINE_CFG, 0x18), (TEMPLATE, 0x18), (PACKET_SPRITE, 0x80), (PACKET_SKEWED, 0x80),
-                          (PACKET_HEAD, 0x30)):
+                          (PACKET_HEAD, 0x30), (PACKET_SMALL, 0x80)):
         assert ram[address:address + size] == elf[address + text_base:address + text_base + size], hex(address)
     lib = library()
     o, n = Original(elf, ram), Native(lib, ram)
+    report_state = small_state(elf, text_base)
     captured_style = bytes(ram[STYLE:STYLE + 8])
 
     report = {'mode': MODE}
@@ -381,6 +570,10 @@ def main():
         uploads, flushes, runs = uploads + u, flushes + f, runs + 1
     report['synthetic_runs'], report['synthetic_uploads'], report['synthetic_flushes'] = runs, uploads, flushes
     assert flushes > runs, 'the strip wrap was not reached'
+
+    report['small_gs_state'] = report_state
+    report['small_flush_grid_cases'] = small_flush_grid(o, n, lib)
+    report['small_runs'], report['small_uploads'], report['small_flushes'] = small_runs(o, n, real)
     report['boundaries'] = ('001CC8A0 texels (the port glyph atlas) and the GS rasterisation of the packed '
                             'passes are not compared here')
     out = ROOT / 'build/message_glyph_reference'

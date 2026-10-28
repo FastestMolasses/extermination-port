@@ -48,6 +48,26 @@ int em_message_live_fe070(const EmMessageBank *bank, int32_t index, int32_t x, i
     (void)result;
     return -1;
 }
+int em_message_live_cc1e0(int32_t slot, int32_t x, int32_t y, int32_t unused, int32_t h,
+                          const uint8_t *text, uint32_t avail, const EmMessageTextStyle *style)
+{
+    (void)slot; (void)x; (void)y; (void)unused; (void)h; (void)text; (void)avail; (void)style;
+    return -1;
+}
+/* The status pages' small-font text (em_page_draw): this fixture binds no
+ * status pages, so reaching it is a fault. */
+int em_hud_small_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
+{
+    (void)index; (void)cell;
+    assert(!"em_hud_small_glyph_cell without a status page");
+    return 0;
+}
+int em_hud_small_glyph_strip(EmGfx *g, const EmMessageGlyphSmallFlush *f, const float clip[4])
+{
+    (void)g; (void)f; (void)clip;
+    assert(!"em_hud_small_glyph_strip without a status page");
+    return 0;
+}
 /* The MAP page's workers (em_status_pages_live: the UI pool em_status_models,
  * the SDK leaves, the render context, the 2D flush before the pool's
  * models): this fixture binds no status pages and no UI pool, so reaching

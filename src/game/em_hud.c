@@ -851,6 +851,72 @@ void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *f)
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }
 
+int em_hud_small_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
+{
+    font_parse();
+    if (s_font.state != 1 || index >= s_font.face[FONT_SMALL].count) return 0;
+    const FontGlyph *g = &s_font.glyphs[s_font.face[FONT_SMALL].first + index];
+    if (g->w != 16 || g->h != 16) return 0;
+    if (cell) *cell = (EmHudGlyphCell){g->u, g->v, g->w, g->h};
+    return 1;
+}
+
+/* One strip cell's part of a 001CBC20 sprite, cut to the SCISSOR_1 window
+ * (its texel extent cut in proportion). */
+static void small_cell_quad(EmGfx *gfx, const float clip[4], float x0, float y0, float x1, float y1,
+                            float u0, float v0, float u1, float v1, const float rgba[4])
+{
+    float cx0 = x0, cy0 = y0, cx1 = x1, cy1 = y1;
+    if (clip) {
+        cx0 = fmaxf(cx0, clip[0]);
+        cy0 = fmaxf(cy0, clip[1]);
+        cx1 = fminf(cx1, clip[2]);
+        cy1 = fminf(cy1, clip[3]);
+    }
+    if (cx0 >= cx1 || cy0 >= cy1) return;
+    const float du = (u1 - u0) / (x1 - x0), dv = (v1 - v0) / (y1 - y0);
+    em_gfx_overlay_glyph(gfx, cx0, cy0, cx1 - cx0, cy1 - cy0, u0 + (cx0 - x0) * du,
+                         v0 + (cy0 - y0) * dv, u0 + (cx1 - x0) * du, v0 + (cy1 - y0) * dv, rgba);
+}
+
+int em_hud_small_glyph_strip(EmGfx *gfx, const EmMessageGlyphSmallFlush *f, const float clip[4])
+{
+    if (!gfx || !f || !font_ensure(gfx)) return 0;
+    /* The GS state the sprite draws in is the two prebuilt packets'. */
+    if (f->head != EM_MESSAGE_GLYPH_SMALL_HEAD || f->head_qwc != 3 ||
+        f->state != EM_MESSAGE_GLYPH_SMALL_STATE || f->state_qwc != 8 || (f->upload_count && !f->uploads))
+        return 0;
+    em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
+    /* D_00250FC0's TEX1_1 = 0x60: bilinear (the font quads' default). */
+    em_gfx_overlay_glyph_nearest(gfx, 0);
+    /* TFX modulate (0x80 is unity) of the strip's ink texel (GLYPH_INK,
+     * the CLUT entry 001CC8A0's nibble table gives an ink bit, as for the
+     * tall strip) by the packed RGBAQ; its alpha is the RGBAQ's. */
+    const uint32_t c = (uint32_t)f->rgbaq;
+    const float ink = GLYPH_INK / 255.0f;
+    const float rgba[4] = {(float)(c & 255u) / 128.0f * ink, (float)((c >> 8) & 255u) / 128.0f * ink,
+                           (float)((c >> 16) & 255u) / 128.0f * ink, (float)(c >> 24) / 128.0f};
+    const StripVertex a = strip_vertex(f->uv[0], f->xyzf2[0]);
+    const StripVertex b = strip_vertex(f->uv[1], f->xyzf2[1]);
+    /* An empty or reversed sprite (an empty text: width 0) covers nothing. */
+    if (b.u <= a.u || b.v <= a.v || b.x <= a.x || b.y <= a.y) return 1;
+    const float sx = (b.x - a.x) / (b.u - a.u), sy = (b.y - a.y) / (b.v - a.v);
+    /* Each upload wrote its 16 x 16 cell of the strip (001CBA50's cells
+     * are disjoint); strip texels no upload wrote are drawn empty. */
+    for (uint32_t i = 0; i < f->upload_count; i++) {
+        const EmMessageGlyphUpload *u = &f->uploads[i];
+        EmHudGlyphCell cell;
+        if (u->offset % 32u || !em_hud_small_glyph_cell(u->offset / 32u, &cell)) return 0;
+        const float u0 = fmaxf((float)u->x, a.u), u1 = fminf((float)u->x + 16.0f, b.u);
+        const float v0 = fmaxf((float)u->y, a.v), v1 = fminf((float)u->y + 16.0f, b.v);
+        if (u1 <= u0 || v1 <= v0) continue;
+        small_cell_quad(gfx, clip, a.x + (u0 - a.u) * sx, a.y + (v0 - a.v) * sy, a.x + (u1 - a.u) * sx,
+                        a.y + (v1 - a.v) * sy, cell.u + (u0 - (float)u->x), cell.v + (v0 - (float)u->y),
+                        cell.u + (u1 - (float)u->x), cell.v + (v1 - (float)u->y), rgba);
+    }
+    return 1;
+}
+
 float em_hud_text_width(const char *str, EmHudTextStyle style)
 {
     if (!str || !em_hud_font_ready()) return 0.0f;

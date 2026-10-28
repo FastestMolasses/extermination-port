@@ -1581,7 +1581,7 @@ test-status-runtime:
 	@mkdir -p build/status_page_reference
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c src/game/em_status_hub_ui.c src/game/em_status_draw.c src/game/em_item_geometry.c src/game/em_item_sdk_math.c \
 	    src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_status_ui_leftovers.c src/game/em_census_standins.c src/game/em_render_verify_rest.c src/game/em_player_stage_workers.c \
-	    src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c src/game/em_status_pages_helpers.c \
+	    src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_message_glyph_original.c src/game/em_status_pages_live.c src/game/em_status_pages_helpers.c \
 	    src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c src/game/em_status_pages_parts.c \
 	    src/game/em_area01_ui_pages.c src/game/em_pickup_items_original.c \
 	    src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_task.c -lm -o build/status_page_reference/status_runtime_test

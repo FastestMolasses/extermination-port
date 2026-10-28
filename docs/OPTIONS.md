@@ -110,7 +110,9 @@ memory (the screen modules 0x2B and 0x2A applied as they load; the EMSP
 export carries their windows, tools/export_status_pages.py), the glyph and
 line draws 001CC1E0 / 001CC170 / 001FC770 to em_message_live (style
 D_00275828), 001FE480 to em_message_bank_string over the help container
-*D_0028A498, 001CBA50 / 001C5FB0 to the page text, the libc leaves to the
+*D_0028A498, 001CBA50 to `em_page_draw_cba50` (translated with 001CBC20,
+MESSAGE_GLYPH.md "The small font"; a style pointer of 0 is the original's
+null), 001C5FB0 to the page text, the libc leaves to the
 views, the cues 0020CD40 / 60 / A0 to the host's 001FB9F0, the loader
 001FF080 to em_status_runtime_module_load (the loader task in slot 2 clears
 D_00275BD8 at its 0x63 step; tools/export_module_loader.py exports 0x2A and

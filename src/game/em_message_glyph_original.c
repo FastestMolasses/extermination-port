@@ -293,3 +293,124 @@ int em_message_glyph_fc7b0(EmMessageGlyph *g, int32_t x, int32_t y, const uint8_
         if (!newline) return 0;
     }
 }
+
+/* ---- The small font ---------------------------------------------------- */
+
+static int small_fail(EmMessageGlyphSmall *g, const char *why)
+{
+    if (!g->fault) g->fault = why;
+    return -1;
+}
+
+int em_message_glyph_small_init(EmMessageGlyphSmall *g, const EmMessageGlyphSmallWorkers *workers)
+{
+    if (!g || !workers) return 0;
+    memset(g, 0, sizeof *g);
+    g->workers = *workers;
+    return 1;
+}
+
+/* 001CBC20. Arguments in the original's order: slot, x, y, width, height,
+ * u_end, v_end, style. */
+void em_message_glyph_cbc20(int32_t slot, int32_t x, int32_t y, int32_t width, int32_t height,
+                            int32_t u_end, int32_t v_end, const EmMessageTextStyle *style,
+                            EmMessageGlyphSmallFlush *out)
+{
+    memset(out, 0, sizeof *out);
+    out->slot = slot;
+    out->x = x;
+    out->y = y;
+    out->width = width;
+    out->height = height;
+    out->u_end = u_end;
+    out->v_end = v_end;
+    out->style = style;
+    /* The two prebuilt packets, referenced on both arms of the style test. */
+    out->head = EM_MESSAGE_GLYPH_SMALL_HEAD;
+    out->head_qwc = 3;
+    out->state = EM_MESSAGE_GLYPH_SMALL_STATE;
+    out->state_qwc = 8;
+
+    /* The colour: with a style, word 0 with the +4 byte ORed in at bit 24,
+     * and the +7 byte (both unsigned bytes); without one 0x80808080 and 0. */
+    uint32_t rgba, a;
+    if (style) {
+        rgba = (uint32_t)style->glyph << 24 | (uint32_t)style->color;
+        a = style->pad[1];
+    } else {
+        rgba = 0x80808080u;
+        a = 0;
+    }
+    const uint64_t z = (uint64_t)0xFFFFFFu << 32;   /* XYZF2 Z field */
+    out->rgbaq = sext32(rgba);
+    out->uv[0] = 0;
+    /* The sprite: (x, y) to (x + width, y + (height >> 1)), the strip
+     * texels (0, 0) to (u_end, v_end). */
+    out->xyzf2[0] = sext32((uint32_t)x << 4 | (uint32_t)y << 20) | z;
+    out->uv[1] = sext32((uint32_t)u_end << 4 | (uint32_t)v_end << 20);
+    out->xyzf2[1] = sext32(add32(x, width) << 4 | add32(y, sra32(height, 1)) << 20) | z;
+    /* The +7 byte, clamped to 0xF, ORed into both XYZF2 words at bit 16
+     * (the Y coordinate's fraction). */
+    if (a > 0xF) a = 0xF;
+    out->xyzf2[0] |= (uint64_t)(a << 16);
+    out->xyzf2[1] |= (uint64_t)(a << 16);
+}
+
+static int small_upload(EmMessageGlyphSmall *g, int32_t x, int32_t y, uint32_t offset)
+{
+    if (g->strip_count >= EM_MESSAGE_GLYPH_SMALL_UPLOADS)
+        return small_fail(g, "small glyph strip upload overflow");
+    EmMessageGlyphUpload *u = &g->strip[g->strip_count++];
+    u->x = x;
+    u->y = y;
+    u->offset = offset;
+    if (!g->workers.upload) return small_fail(g, "small upload worker missing");
+    if (!g->workers.upload(g->workers.context, u)) return small_fail(g, "small upload worker failed");
+    return 0;
+}
+
+static int small_flush(EmMessageGlyphSmall *g, int32_t slot, int32_t x, int32_t y, int32_t width,
+                       int32_t height, int32_t u_end, int32_t v_end, const EmMessageTextStyle *style)
+{
+    EmMessageGlyphSmallFlush out;
+    em_message_glyph_cbc20(slot, x, y, width, height, u_end, v_end, style, &out);
+    out.uploads = g->strip;
+    out.upload_count = g->strip_count;
+    if (!g->workers.flush) return small_fail(g, "small flush worker missing");
+    if (!g->workers.flush(g->workers.context, &out)) return small_fail(g, "small flush worker failed");
+    return 0;
+}
+
+/* 001CBA50. Arguments in the original's order: slot, x, y, the per-byte
+ * advance, the height step, text, style. */
+int em_message_glyph_cba50(EmMessageGlyphSmall *g, int32_t slot, int32_t x, int32_t y,
+                           int32_t advance, int32_t height, const uint8_t *text, uint32_t avail,
+                           const EmMessageTextStyle *style)
+{
+    if (!g || g->fault) return -1;
+    uint32_t len;
+    if (!bounded_strlen(text, avail, &len)) return small_fail(g, "small glyph run without terminator");
+    /* The strip row (always 0), column, accumulated height and drawn
+     * width; 001CCB00(slot, 0, 0, 0x200, 0x10), the strip reset, is empty. */
+    int32_t row = 0, col = 0, h = 0, w = 0;
+    g->strip_count = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        uint32_t c = text[i];
+        /* '$' is glyph 0x87, a printable byte its value - 0x20, a control
+         * byte glyph 0. */
+        uint32_t glyph = c < 0x20 ? 0 : c == 0x24 ? 0x87 : c - 0x20;
+        /* 001CC8A0(0, column, row, glyph * 32). */
+        if (small_upload(g, col, row, glyph << 5)) return -1;
+        col += EM_MESSAGE_GLYPH_SMALL_CELL;
+        w = (int32_t)add32(w, advance);
+        if (col >= 0x200) {
+            h = (int32_t)add32(h, height);
+            if (small_flush(g, slot, x, y, w, h, col, row + 0x10, style)) return -1;
+            x = (int32_t)add32(x, w);
+            g->strip_count = 0;
+            row = col = h = w = 0;
+        }
+    }
+    h = (int32_t)add32(h, height);
+    return small_flush(g, slot, x, y, w, h, col, row + 0x10, style);
+}

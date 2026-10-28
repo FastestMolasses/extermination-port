@@ -461,7 +461,7 @@ native or the gap):
 | 001FCF10 | `em_rvr_001FCF10` | |
 | 001FCF60 | `em_cs_001FCF60` | |
 | 001FE070 | message service (`em_census_standins` / `em_message_*`) | help-bank line |
-| 001C5FB0, 00123168, 001CBA50 | `em_status_hub_ui` / `em_status_draw` inline number formatting, the font path | need an address-level entry |
+| 001C5FB0, 00123168, 001CBA50 | `em_status_draw_001C5FB0`, a copy over the views, `em_page_draw_cba50` (the live binding, section 7) | 001CBA50 / 001CBC20 translated in em_message_glyph_original (2026-10-28) |
 | 001FB9F0 | `em_sfx` | |
 | 001FF080 | the module loader (`em_status_scene_loader_request_001FF080`) | modules 0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31 |
 | 0020E020 | `em_item_trail_reset` | |
@@ -575,7 +575,8 @@ dispatches every callee by original address:
 | 0020A7A0 | `em_page_draw` background (em_status_background, stepped at the draw) |
 | 0020AE40 / 0020B210 / 0020B0D0 / 0020BEF0 / 0020CD40 / 60 / A0 | `em_sul_*` over the views; 00208AD0 (flag 8) is `em_status_health_draw` with the hub's records |
 | 0020CD80 / 0020CCB0 / 001FCF10 | `em_spr_0020CD80`, `em_cs_0020CCB0`, `em_rvr_001FCF10` (the host's 001FCB90) |
-| 001C5FB0 / 00123168 / 001CBA50 | `em_status_draw_001C5FB0` into its buffer D_008111D0, a copy over the views, `em_page_draw` text |
+| 001C5FB0 / 00123168 / 001CBA50 | `em_status_draw_001C5FB0` into its buffer D_008111D0, a copy over the views, `em_page_draw_cba50` (001CBA50 / 001CBC20 translated, em_message_glyph_original; MESSAGE_GLYPH.md "The small font"; 00208AD0's calls too) |
+| 001CC1E0 | `em_message_live_cc1e0` (the message service's glyph module, as the options screen calls it; drawn at step F's render) |
 | 001FCF60 / 001FE070 | `em_message_live_record_draw` / `em_message_live_fe070` (the record container *D_0028A49C, module 0 slot 3, is a view at its original address 0x00B0B800) |
 | 0020D930 / 0020E020 / 0020AC70 | `em_menu_hover_0020D930` with 001B62C0's record at 0x700038A0, the shared trail reset, `em_item_trail_step` (a2 != 0 zeroes the new slot; the base floats get 1792 / 1824 added) |
 | 001FF080 | the runtime's module worker |

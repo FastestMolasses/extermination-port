@@ -1,5 +1,6 @@
-/* Tall-font glyph runs: the draw half below the message line layout.
- * Docs: docs/MESSAGE_GLYPH.md.
+/* Tall-font glyph runs: the draw half below the message line layout, and
+ * the small font's runs (001CBA50 / 001CBC20, the second half of this
+ * header). Docs: docs/MESSAGE_GLYPH.md.
  *
  * Hand translation of the original routines the message draw module's
  * `draw_text` and `glyph_advance` workers stand for
@@ -122,6 +123,82 @@ int em_message_glyph_cc1e0(EmMessageGlyph *glyph, int32_t slot, int32_t x, int32
 void em_message_glyph_cc3b0(int32_t slot, int32_t x, int32_t y, int32_t u_end, int32_t v_end,
                             int32_t width, int32_t height, const EmMessageTextStyle *style,
                             EmMessageGlyphFlush *out);
+
+/* ---- The small font: 001CBA50 and 001CBC20 ----------------------------
+ *
+ *   001CBA50  (byte-matched) small-font strip layout: every byte of the
+ *             text one 16 x 16 cell (16 strip columns) and `advance`
+ *             pixels of drawn width; the strip is flushed when its column
+ *             reaches 0x200 and at the end
+ *   001CBC20  (NEARMISS, register colouring only; its C) strip flush: one
+ *             sprite over the strip, as the GS register values it packs
+ *   001CCB00  empty (001CBA50 calls it to reset the strip)
+ *
+ * Boundaries (workers, fail-stop):
+ *   001CC8A0(0, column, row, glyph * 32): the 16 x 16 glyph texel upload
+ *     into the strip at GS block 0x1B00 (row is always 0). The texels are
+ *     the port's small-font atlas (the user's own font export).
+ *   the GS: the flush worker receives the packed sprite, the two prebuilt
+ *     packets the flush references (D_002511C0, 3 quadwords: ALPHA_1 =
+ *     0x44; D_00250FC0, 8 quadwords: TEXFLUSH, PRIM sprite textured
+ *     alpha-blended with UV, TEX0 the PSMT4 strip with its CLUT, TEX1_1 =
+ *     0x60 bilinear, TEST_1) and the strip contents since the last reset. */
+enum {
+    EM_MESSAGE_GLYPH_SMALL_CELL = 0x10,    /* strip columns per byte          */
+    EM_MESSAGE_GLYPH_SMALL_UPLOADS = 0x20, /* cells per strip (0x200 / 0x10)  */
+    EM_MESSAGE_GLYPH_SMALL_HEAD = 0x002511C0,  /* D_002511C0, 3 quadwords     */
+    EM_MESSAGE_GLYPH_SMALL_STATE = 0x00250FC0  /* D_00250FC0, 8 quadwords     */
+};
+
+/* One 001CBC20 call as it packs it. The sprite's GIF data is, in order,
+ * UV uv[0], RGBAQ rgbaq, XYZF2 xyzf2[0], UV uv[1], RGBAQ rgbaq, XYZF2
+ * xyzf2[1] (64-bit register values). */
+typedef struct {
+    int32_t slot;                  /* argument 1: render-context slot      */
+    int32_t x, y;                  /* arguments 2, 3: GS pixel coordinates */
+    int32_t width, height;         /* arguments 4, 5                       */
+    int32_t u_end, v_end;          /* arguments 6, 7: strip texel extent   */
+    const EmMessageTextStyle *style; /* argument 8 (NULL: default colour)  */
+    uint32_t head, head_qwc;       /* the first prebuilt-packet reference  */
+    uint32_t state, state_qwc;     /* the second prebuilt-packet reference */
+    uint64_t rgbaq;
+    uint64_t uv[2];
+    uint64_t xyzf2[2];
+    /* The strip contents at the flush: the 001CC8A0(0, ...) uploads since
+     * the last reset, in upload order. */
+    const EmMessageGlyphUpload *uploads;
+    uint32_t upload_count;
+} EmMessageGlyphSmallFlush;
+
+typedef struct {
+    void *context;
+    /* 001CC8A0(0, x, y, offset); offset = glyph index * 32. */
+    int (*upload)(void *context, const EmMessageGlyphUpload *upload);
+    int (*flush)(void *context, const EmMessageGlyphSmallFlush *flush);
+} EmMessageGlyphSmallWorkers;
+
+typedef struct {
+    EmMessageGlyphSmallWorkers workers;
+    EmMessageGlyphUpload strip[EM_MESSAGE_GLYPH_SMALL_UPLOADS];
+    uint32_t strip_count;
+    const char *fault;             /* latched; later calls fail */
+} EmMessageGlyphSmall;
+
+/* Binds the workers and clears the strip and the fault. 1, or 0 for NULL. */
+int em_message_glyph_small_init(EmMessageGlyphSmall *glyph, const EmMessageGlyphSmallWorkers *workers);
+
+/* 001CBA50(slot, x, y, advance, height, text, style): `text` points at
+ * `avail` readable bytes and must hold its NUL inside them. 0 ok, -1
+ * fault. */
+int em_message_glyph_cba50(EmMessageGlyphSmall *glyph, int32_t slot, int32_t x, int32_t y,
+                           int32_t advance, int32_t height, const uint8_t *text, uint32_t avail,
+                           const EmMessageTextStyle *style);
+
+/* 001CBC20(slot, x, y, width, height, u_end, v_end, style): fills `out`
+ * (uploads and upload_count are left to the caller). Pure. */
+void em_message_glyph_cbc20(int32_t slot, int32_t x, int32_t y, int32_t width, int32_t height,
+                            int32_t u_end, int32_t v_end, const EmMessageTextStyle *style,
+                            EmMessageGlyphSmallFlush *out);
 
 #ifdef __cplusplus
 }

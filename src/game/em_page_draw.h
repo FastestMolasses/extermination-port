@@ -13,12 +13,16 @@
  *                                       later draws keep only the window
  *                                       pixels x0..x1, field lines y0..y1
  *   00207F80 rectangles (0020CCB0's marker), the trail triangles of
- *   0020AC70, the 001CBA50 / 001CC1E0 text runs and the 0020A7A0 background
- *   (em_status_background, stepped at the draw, as the other pages do).
+ *   0020AC70, the 0020A7A0 background (em_status_background, stepped at
+ *   the draw, as the other pages do) and the small-font text runs:
+ *   001CBA50 translated (em_message_glyph_cba50), each of its 001CBC20
+ *   strip flushes kept in the stream and drawn by em_hud_small_glyph_strip
+ *   inside the SCISSOR_1 window. (The tall-font 001CC1E0 runs go to the
+ *   message service, em_message_live_cc1e0.)
  * The textures are decoded from the GS memory the original would hold
  * (em_gs_texture, the page modules applied as they load) into one atlas
- * in the shared UI decor slot. A texture the decoder refuses, an unknown
- * text cell or a full stream refuses the frame (the caller faults). */
+ * in the shared UI decor slot. A texture the decoder refuses, a glyph the
+ * font atlas lacks or a full stream refuses the frame (the caller faults). */
 #ifndef EM_PAGE_DRAW_H
 #define EM_PAGE_DRAW_H
 
@@ -26,6 +30,7 @@
 
 #include "em_gfx.h"
 #include "game/em_gs_texture.h"
+#include "game/em_message_draw_original.h"
 
 typedef struct EmPageDraw EmPageDraw;
 
@@ -42,10 +47,14 @@ int em_page_draw_scissor(EmPageDraw *draw, int32_t slot, int32_t x0, int32_t y0,
 /* 00207F80(1, x0, y0, x1, y1, rgba): GS 12.4 corners. */
 int em_page_draw_rectangle(EmPageDraw *draw, int32_t slot, int32_t x0, int32_t y0, int32_t x1,
                            int32_t y1, uint32_t rgba);
-/* A text run at GS pixel (x, y) with cell w x h; rgb from the style
- * record's low word. */
-int em_page_draw_text(EmPageDraw *draw, int proportional, int32_t x, int32_t y, int32_t w,
-                      int32_t h, const char *text, uint32_t rgb);
+/* 001CBA50(slot, x, y, advance, height, text, style): `text` points at
+ * `avail` readable bytes holding its NUL; style NULL is the original's 0
+ * (001CBC20 then packs 0x80808080). Its flushes join the stream; after
+ * each, the blend mode is 0, the ALPHA_1 = 0x44 its D_002511C0 packet
+ * writes (00207D00's mode 0). */
+int em_page_draw_cba50(EmPageDraw *draw, int32_t slot, int32_t x, int32_t y, int32_t advance,
+                       int32_t height, const uint8_t *text, uint32_t avail,
+                       const EmMessageTextStyle *style);
 int em_page_draw_background(EmPageDraw *draw, uint64_t tex0);
 /* One 00208AD0 arc (the health gauge's 24-float descriptor, drawn as
  * em_status_hub_ui draws it: em_item_geometry_arc's strip). */

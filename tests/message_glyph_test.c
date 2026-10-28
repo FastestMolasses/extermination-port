@@ -2,7 +2,8 @@
  * The original-instruction comparison is tools/test_message_glyph_reference.py;
  * this file checks only what the native module adds: missing or failing
  * workers, unterminated text, an overlong run, a missing config and the
- * latched fault. Synthetic inputs only. */
+ * latched fault, for the tall font and the small font (001CBA50).
+ * Synthetic inputs only. */
 #include "game/em_message_glyph_original.h"
 
 #include <stdio.h>
@@ -28,6 +29,56 @@ static int on_flush(void *ctx, const EmMessageGlyphFlush *f)
     flushes++;
     last = *f;
     return !fail_flush;
+}
+
+static int small_flushes;
+static EmMessageGlyphSmallFlush small_last;
+
+static int on_small_flush(void *ctx, const EmMessageGlyphSmallFlush *f)
+{
+    (void)ctx;
+    small_flushes++;
+    small_last = *f;
+    return !fail_flush;
+}
+
+static void fresh_small(EmMessageGlyphSmall *g, int with_upload, int with_flush)
+{
+    EmMessageGlyphSmallWorkers w = {NULL, with_upload ? on_upload : NULL, with_flush ? on_small_flush : NULL};
+    uploads = small_flushes = fail_upload = fail_flush = 0;
+    CHECK(em_message_glyph_small_init(g, &w) == 1);
+}
+
+static void small_font(void)
+{
+    EmMessageGlyphSmall g;
+    const uint8_t text[] = "12";
+    const uint8_t open_text[2] = {'1', '2'};
+    CHECK(em_message_glyph_small_init(NULL, NULL) == 0);
+    CHECK(em_message_glyph_small_init(&g, NULL) == 0);
+
+    /* Two cells, one flush with both uploads and the default colour. */
+    fresh_small(&g, 1, 1);
+    CHECK(em_message_glyph_cba50(&g, 1, 0x7AF, 0x7F3, 0xC, 0xC, text, sizeof text, NULL) == 0 && !g.fault);
+    CHECK(uploads == 2 && small_flushes == 1 && small_last.upload_count == 2);
+    CHECK(small_last.width == 0x18 && small_last.u_end == 0x20 && small_last.v_end == 0x10);
+    CHECK((uint32_t)small_last.rgbaq == 0x80808080u);
+
+    /* Unterminated text, missing or failing workers: the fault latches. */
+    fresh_small(&g, 1, 1);
+    CHECK(em_message_glyph_cba50(&g, 1, 0, 0, 0xC, 0xC, open_text, sizeof open_text, NULL) == -1 && g.fault);
+    CHECK(em_message_glyph_cba50(&g, 1, 0, 0, 0xC, 0xC, text, sizeof text, NULL) == -1);
+    fresh_small(&g, 0, 1);
+    CHECK(em_message_glyph_cba50(&g, 1, 0, 0, 0xC, 0xC, text, sizeof text, NULL) == -1 && g.fault);
+    fresh_small(&g, 1, 0);
+    CHECK(em_message_glyph_cba50(&g, 1, 0, 0, 0xC, 0xC, text, sizeof text, NULL) == -1 && g.fault);
+    fresh_small(&g, 1, 1);
+    fail_upload = 1;
+    CHECK(em_message_glyph_cba50(&g, 1, 0, 0, 0xC, 0xC, text, sizeof text, NULL) == -1 && g.fault);
+    fresh_small(&g, 1, 1);
+    fail_flush = 1;
+    CHECK(em_message_glyph_cba50(&g, 1, 0, 0, 0xC, 0xC, text, sizeof text, NULL) == -1 && g.fault);
+    CHECK(em_message_glyph_cba50(NULL, 1, 0, 0, 0xC, 0xC, text, sizeof text, NULL) == -1);
 }
 
 static void fresh(EmMessageGlyph *g, int with_upload, int with_flush)
@@ -99,6 +150,8 @@ int main(void)
     /* 001CBE10 spot values. */
     CHECK(em_message_glyph_advance(0x4D) == 12 && em_message_glyph_advance(0x41) == 9);
     CHECK(em_message_glyph_advance(-1) == 9);
+
+    small_font();
 
     printf("message_glyph_test: %d checks PASS\n", checks);
     return 0;

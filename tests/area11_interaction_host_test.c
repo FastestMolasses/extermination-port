@@ -210,6 +210,11 @@ int em_gfx_overlay_triangle(EmGfx *g, const float xy[3][2], const float rgba[3][
 int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
 { (void)index; (void)cell; return 1; }
 void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush) { (void)gfx; (void)flush; }
+/* The status pages' and options screen's small-font strips (em_page_draw). */
+int em_hud_small_glyph_cell(uint32_t index, EmHudGlyphCell *cell)
+{ (void)index; (void)cell; return 1; }
+int em_hud_small_glyph_strip(EmGfx *gfx, const EmMessageGlyphSmallFlush *flush, const float clip[4])
+{ (void)gfx; (void)flush; (void)clip; return 1; }
 int em_sfx_set_area(int area, int sub)
 {
     sfx_selected = 0;

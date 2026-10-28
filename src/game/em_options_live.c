@@ -342,7 +342,7 @@ static int dispatch(void *ctx, uint32_t target, uint32_t sp, const uint64_t *a, 
         return 0;
     }
     /* the numbers: 001C5FB0(value, width, blank) into its buffer, and
-     * 001CBA50's fixed text (the status pages' em_page_draw text) */
+     * 001CBA50's small-font text (translated, em_page_draw_cba50) */
     case 0x001C5FB0u: {
         char text[8];
         if (!em_status_draw_001C5FB0(text, I(0), I(1), I(2))) return -1;
@@ -351,12 +351,20 @@ static int dispatch(void *ctx, uint32_t target, uint32_t sp, const uint64_t *a, 
         return 0;
     }
     case 0x001CBA50u: {
-        uint8_t *p, *style;
+        uint8_t *p, *record = NULL;
         const uint32_t n = room(l, U(5), &p);
-        const uint8_t *z = p ? memchr(p, 0, n) : NULL;
-        if (!z || (uint32_t)(z - p) > 127) return report(l, target, "reads its text outside the views");
-        if (I(0) != 1 || !(style = at(l, U(6), 8))) return report(l, target, "has no style record");
-        return ok0(em_page_draw_text(l->draw, 0, I(1), I(2), I(3), I(4), (const char *)p, get32(style) & 0xFFFFFFu));
+        if (!p || !memchr(p, 0, n)) return report(l, target, "reads its text outside the views");
+        /* style 0: 001CBC20's default colour */
+        if (U(6) && !(record = at(l, U(6), 8))) return report(l, target, "reads its style outside the views");
+        EmMessageTextStyle style;
+        if (record) {
+            style.color = (int32_t)get32(record);
+            style.glyph = record[4];
+            style.flag = record[5];
+            style.pad[0] = record[6];
+            style.pad[1] = record[7];
+        }
+        return ok0(em_page_draw_cba50(l->draw, I(0), I(1), I(2), I(3), I(4), p, n, record ? &style : NULL));
     }
     /* the message lines */
     case 0x001FE480u: {

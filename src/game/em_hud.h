@@ -328,6 +328,29 @@ int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell);
  * 0x700/0x790 (field lines doubled). No-op without a gfx or the atlas. */
 void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush);
 
+/* The small-font atlas cell of glyph index `index` (001CC8A0's mode-0
+ * byte offset / 32: the byte value - 0x20, '$' = 0x87, a control byte 0).
+ * 1 when the atlas holds a 16 x 16 cell for it (cell may be NULL), 0 when
+ * the atlas is missing or has no such cell. */
+int em_hud_small_glyph_cell(uint32_t index, EmHudGlyphCell *cell);
+
+/* Draw one 001CBC20 strip flush (em_message_glyph_original.h): its packed
+ * sprite (the XYZF2 corners with the Y fraction the style's +7 byte gives,
+ * the UV extent, the RGBAQ) over the strip its uploads composed, each
+ * 16 x 16 cell from the small-font atlas, in the GS state of its prebuilt
+ * packets: bilinear (D_00250FC0's TEX1_1 = 0x60), TFX modulate of the
+ * strip's ink texel by the RGBAQ (0x80 unity, the RGBAQ alpha), standard
+ * alpha blend (D_002511C0's ALPHA_1 = 0x44). Strip texels no upload wrote
+ * are drawn empty. The GS coordinates are mapped with the UI canvas
+ * offsets 0x700 / 0x790 (field lines doubled) onto the 512x448 canvas,
+ * which it leaves selected. `clip` (canvas x0, y0, x1, y1, half-open; NULL
+ * none) is the SCISSOR_1 window. The renderer's bilinear sampler reads the
+ * atlas: its weights and the texels it blends across a cell edge (the
+ * atlas neighbour, not the strip's) are the renderer's. 1 drawn, 0
+ * refused (no gfx or atlas, other prebuilt packets, a glyph missing from
+ * the atlas). */
+int em_hud_small_glyph_strip(EmGfx *gfx, const EmMessageGlyphSmallFlush *flush, const float clip[4]);
+
 /* Is the font sheet loaded? (placeholder rects are the fallback) */
 int em_hud_font_ready(void);
 

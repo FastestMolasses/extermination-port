@@ -382,48 +382,53 @@ static int sul_sprite(void *c, int32_t slot, int32_t x, int32_t y, int32_t w, in
     return ok0(em_page_draw_sprite(((EmStatusPagesLive *)c)->draw, slot, x, y, w, h, rgba, tex0));
 }
 
-/* A style record's colour: the low 24 bits of its first word (0 = none:
- * 001CC3B0 fills 0x80808080). */
-static int style_rgb(EmStatusPagesLive *l, uint32_t style, uint32_t *rgb)
+/* An 8-byte text style record as 001CBA50 / 001CC1E0 read it through
+ * their style pointer. 1, or 0 when it lies outside the views. */
+static int style_record(EmStatusPagesLive *l, uint32_t style, EmMessageTextStyle *out)
 {
-    if (!style) {
-        *rgb = 0x808080u;
-        return 1;
-    }
     const uint8_t *p = at_byte(l, style, 8);
     if (!p)
         return 0;
-    *rgb = get32(p) & 0xFFFFFFu;
+    out->color = (int32_t)get32(p);
+    out->glyph = p[4];
+    out->flag = p[5];
+    out->pad[0] = p[6];
+    out->pad[1] = p[7];
     return 1;
 }
 
+/* 001CBA50(slot, x, y, advance, height, text, style), translated
+ * (em_page_draw_cba50); style 0 is the original's null pointer. */
 static int sul_text_fixed(void *c, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
                           const char *text, uint32_t style)
 {
     EmStatusPagesLive *l = c;
-    uint32_t rgb;
-    if (slot != 1 || !style_rgb(l, style, &rgb))
+    EmMessageTextStyle record;
+    if (slot != 1 || !text || (style && !style_record(l, style, &record)))
         return -1;
-    return ok0(em_page_draw_text(l->draw, 0, x, y, w, h, text, rgb));
+    return ok0(em_page_draw_cba50(l->draw, slot, x, y, w, h, (const uint8_t *)text,
+                                  (uint32_t)strlen(text) + 1u, style ? &record : NULL));
 }
 
+/* 001CC1E0(slot, x, y, unused, h, text, style) on the message service's
+ * glyph module (em_message_live_cc1e0, as the options screen calls it):
+ * its passes are drawn at this frame's step-F render. */
 static int sul_text_proportional(void *c, int32_t slot, int32_t x, int32_t y, int32_t w,
                                  int32_t h, uint32_t text, uint32_t style)
 {
     EmStatusPagesLive *l = c;
-    char buffer[128];
-    uint32_t rgb;
-    if (slot != 1 || !style_rgb(l, style, &rgb))
+    EmMessageTextStyle record;
+    /* The text's view (at_byte's: the first that holds it) to its end. */
+    const uint8_t *p = NULL;
+    uint32_t avail = 0;
+    for (uint32_t i = 0; !p && i < l->view_count; ++i)
+        if (text >= l->views[i].address && text - l->views[i].address < l->views[i].size) {
+            p = l->views[i].bytes + (text - l->views[i].address);
+            avail = l->views[i].address + l->views[i].size - text;
+        }
+    if (slot != 1 || !p || !memchr(p, 0, avail) || (style && !style_record(l, style, &record)))
         return -1;
-    for (unsigned i = 0;; ++i) {
-        const uint8_t *p = i < sizeof buffer ? at_byte(l, text + i, 1) : NULL;
-        if (!p)
-            return -1;
-        buffer[i] = (char)*p;
-        if (!*p)
-            break;
-    }
-    return ok0(em_page_draw_text(l->draw, 1, x, y, w, h, buffer, rgb));
+    return em_message_live_cc1e0(slot, x, y, w, h, p, avail, style ? &record : NULL) < 0 ? -1 : 0;
 }
 
 /* 00208AD0's own leaves (em_status_draw workers: 1 = accepted). */
@@ -437,11 +442,18 @@ static int d_rectangle(void *c, int x0, int y0, int x1, int y1, uint32_t rgba)
     return em_page_draw_rectangle(((EmStatusPagesLive *)c)->draw, 1, x0, y0, x1, y1, rgba);
 }
 
+/* 00208AD0's 001CBA50 calls (always the small font, slot 1): `style` is
+ * the 8-byte record its pointer names, little-endian. */
 static int d_text(void *c, int proportional, int x, int y, int w, int h, const char *value,
                   uint64_t style)
 {
-    return em_page_draw_text(((EmStatusPagesLive *)c)->draw, proportional, x, y, w, h, value,
-                             (uint32_t)style & 0xFFFFFFu);
+    if (proportional || !value)
+        return 0;
+    const EmMessageTextStyle record = {(int32_t)(uint32_t)style, (uint8_t)(style >> 32),
+                                       (uint8_t)(style >> 40),
+                                       {(uint8_t)(style >> 48), (uint8_t)(style >> 56)}};
+    return em_page_draw_cba50(((EmStatusPagesLive *)c)->draw, 1, x, y, w, h, (const uint8_t *)value,
+                              (uint32_t)strlen(value) + 1u, &record);
 }
 
 static int d_arc(void *c, const float descriptor[24])
