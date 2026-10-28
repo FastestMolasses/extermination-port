@@ -14,6 +14,46 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 18: `001EF510` bound; the AREA00 creatures'
+divergence is an rand() phase lag, not a translation fault.** The run still
+stops at a00_09 frame 13225 inside the diverged a00_09 (iteration 17).
+
+- **`001EF510` (effect subtype 6, the box-break spray; stop S3)** runs as an
+  em_effects_live handler over em_area00_fx's translation: its 001EFD90
+  spawn through em_effect_original, 001CFB50 / 001CFBE0 through the
+  module's workers, the direct 001EEEB0 through the hazard handler; views
+  D_00275C30 / D_00275C34 and the work block's +0x04 / +0x54.
+- **What makes the creatures differ.** Fork replays of a00_00..a00_04 and
+  a01_07 (hidden, owned sessions; every row equal to the recording) logged
+  every rand() call (return address) and the pool every frame; the native
+  run logged its draws (EM_RAND_TRACE) and, in temporary builds, its
+  class-2 records. Findings:
+  - The two bugs 0x6A / 0x6E (records 43 / 46) are byte-identical to the
+    original's through the arrival until arrival row 4496 (a01_07 row
+    4496), where each enters 0012AFC0 state 0. 0012AFC0 draws rand() & 1,
+    then 00128600(0) (one draw, D_00242ED0 + (rand & 15)), then a heading
+    draw when 00128600 returned 0. The native creatures make these calls in
+    the same order and frame as the original's (point light 4 draws, the
+    bugs 5, 001E7D20 4, ...), but with other values: the original's first
+    bug draw has state 0xBD4DA24D before it, which the native consumes two
+    frames later (another caller); the native bug draws come 104 / 105
+    draws earlier in the stream. So 00128600 answers differently and the
+    two bugs take each other's branches (0x6A +6 = 3 instead of 1).
+  - Within each replayed beat the number of draws per frame is equal
+    (a01_00, a01_02, a01_07 including the AREA00 load, a00_00..a00_04, and
+    AREA11 beats 12..14): the lag is gained outside the sampled rows (the
+    frames between beats, the AREA11 -> AREA01 change, or beats not yet
+    replayed: a01_01, a01_03..a01_06, 15_level_exit, whose fork replay
+    stopped with an error). Locating it is the next unit; everything the
+    creatures do in AREA00 (and the bugs of the a01r event) depends on it.
+  - Tools (ignored, `build/frontier/`): `fork/fork_pool_probe.py` (the
+    iteration-14 probe; `pool` / `nopool`, `calls`), `tools/syncdraws.py`
+    (draws per row, fork vs native), `tools/frameorder.py` (consumer order
+    within a frame), `tools/rareoff.py` (offset on named consumers),
+    `tools/c2diff.py` (class-2 records by +0x9A), the temporary diagnostic
+    patches `diag_scene_bindings.patch` / `diag_class7.patch`, fork data
+    `fork/a00_00..a00_04`, `fork/a01_07`, `fork/l1_10..l1_15`.
+
 **2026-10-28, iteration 17 (port main b4a4147 and `pretrans-a00` merged):
 the C side runs a00_09 to frame 13225** (674 rows; a00_00..a00_08 unchanged),
 where a bug's sub-state machine `0012C490` faults (node 0x7BDFE0). Not the

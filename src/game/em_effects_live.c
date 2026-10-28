@@ -11,6 +11,7 @@
 #include "game/em_aim_fire_tables.h"
 #include "game/em_area01_render_hud.h"
 #include "game/em_area00_hud.h"
+#include "game/em_area00_fx.h"
 #include "game/em_area02_misc.h"
 #include "game/em_level8_port.h"
 #include "game/em_collision_world.h"
@@ -963,6 +964,71 @@ static int handler_hazard(u32 handler, EmEffectOriginalNode *node, int32_t depth
     return 0;
 }
 
+/* 001EF510 (effect subtype 6; the box-break spray, AREA00 a00_09; its
+ * translation em_area00_fx_001EF510, test_area00_fx_reference.py): when
+ * the work block's +0x54 is 0.0 it spawns 001EFD90(0x80000036, node +0xB0,
+ * node +0xC0), then three LCG rounds of 001CFB50 / 001CFBE0 with the tables
+ * D_00257990 / D_00257AB0 / D_00257A20 around a direct 001EEEB0(a0, a1).
+ * Views: D_00275C30 / D_00275C34 (the node and its work block, as 001EA240
+ * sets them), the work block's +0x04 (the LCG) and +0x54. */
+typedef struct {
+    EmEffectOriginalNode *node;
+    EmEffectOriginalWork *work;
+    u32 address, depth;
+    u32 globals[2];          /* D_00275C30, D_00275C34 */
+} SprayCall;
+static uint8_t *spray_view(void *ctx, uint32_t a, uint32_t n, int write)
+{
+    SprayCall *c=ctx;
+    if(a>=0x00275C30u && n<=8u && a-0x00275C30u<=8u-n) return write?NULL:(uint8_t *)c->globals+(a-0x00275C30u);
+    if(a==c->address+0x1F4u && n==4) return (uint8_t *)&c->work->seed_copy;
+    if(a==c->address+0x244u && n==4) return write?NULL:(uint8_t *)&c->work->accumulator;
+    return NULL;
+}
+static int spray_call(void *ctx, uint32_t fn, uint32_t sp, const EmArea00FxRegs *r, uint64_t *v0, uint32_t *f0)
+{
+    SprayCall *c=ctx;
+    (void)sp;(void)f0;
+    const u32 a0=(u32)r->r[4], a1=(u32)r->r[5], a2=(u32)r->r[6];
+    if(fn==0x001EFD90u) {
+        if(r->imask!=0x70u || a1!=c->address+0xB0u || a2!=c->address+0xC0u) return -1;
+        EmEffectOriginalNode *n=NULL;
+        float pos[4],rot[4];
+        memcpy(pos,c->node->pos,sizeof pos);memcpy(rot,c->node->rot,sizeof rot);
+        if(em_effect_original_001EFD90(&S.e,a0,pos,rot,&n)<0) return -1;
+        Slot *s=slot_of_node(n);
+        if(n && !s) return -1;
+        *v0=s ? em_actor_pool_address(S.pool,actor_of(s)) : 0;
+        return 0;
+    }
+    if(fn==0x001CFB50u) {
+        if(r->imask!=0x70u || r->fmask!=0x1F000u || a2!=c->address+0xD0u) return -1;
+        return w_001CFB50(NULL,a0,a1,c->node->matrix,r->f[12],r->f[13],r->f[14],r->f[15],r->f[16]);
+    }
+    if(fn==0x001CFBE0u) {
+        if(r->imask!=0x1F0u || r->fmask) return -1;
+        return w_001CFBE0(NULL,(int32_t)a0,(int32_t)a1,a2,(u32)r->r[7],(int32_t)r->r[8]);
+    }
+    if(fn==0x001EEEB0u) {
+        if(r->imask!=0x30u || a0!=c->address+0xD0u || a1!=c->depth) return -1;
+        return handler_hazard(0x001EEEB0u,c->node,(int32_t)c->depth,c->work);
+    }
+    return -1;
+}
+static int handler_001EF510(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001EF510u,"spray without its node");
+    const u32 at=em_actor_pool_address(S.pool,actor_of(slot));
+    SprayCall c={node,work,at,(u32)depth,{at,at+0x1F0u}};
+    EmArea00Fx x;memset(&x,0,sizeof x);
+    x.core.world.view=spray_view;x.core.world.view_ctx=&c;
+    x.call=spray_call;x.ctx=&c;x.sp=HANDLER_SP;
+    if(em_area00_fx_001EF510(&x,at+0xD0u,(u32)depth)<0)
+        return fail(x.core.fault.address?x.core.fault.address:0x001EF510u,"spray handler fault (em_area00_fx)");
+    return 0;
+}
+
 /* 001EB980 (effect subtype 0x27, the footstep variant of entity 0x80000068;
  * byte-matched decomp C), AREA00's first reached in a00_00: one 001CFB50 of
  * the node's matrix with work +0x54 / +0x5C (the accumulator and the
@@ -1054,6 +1120,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EBC30u) return handler_001EBC30(node, depth, work);
     if (handler == 0x001EEBA0u || handler == 0x001EEEB0u || handler == 0x001ECFB0u)
         return handler_hazard(handler, node, depth, work);
+    if (handler == 0x001EF510u) return handler_001EF510(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
