@@ -533,3 +533,398 @@ All 48 fresh quick suites pass under `build/levels/oracle-capacity-refresh-1/`,
 and the metadata receipt is published. Every existing assertion and full-sweep
 test is preserved; those exhaustive sweeps were not rerun. The regenerated
 readiness map again uses the source-matching receipts.
+
+
+## Part B: AREA06 dependency refresh (2026-10-20)
+
+This follow-up audits the checked-in readiness table without regenerating it.
+Its level 5–15 U rows collapse to 81 distinct boot entries; none is an overlay
+entry. The per-level totals repeat shared functions. Original-entry evidence,
+partial live bindings, and intentional hardware adapters are kept separate in
+the follow-up sections below. Hooking a named entry does not verify its body.
+
+A private fresh inventory also found 29 AREA06-suite entries whose old receipt
+became stale through the conservative shared-header/source dependency closure.
+The complete unchanged `test_area06_port_reference.py` full sweep passes:
+3,649 cases, 6,227 original/native runs, 5,091/5,091 reachable words, 45,504 call
+entries, 19,659 helper rehearsals, and 2,958 fail-stop runs across 109 cases.
+All 30 suite entries retain their existing assertions, including the shared
+callee reuse checks. No translation defect was found in this refresh.
+
+Receipt: `build/level-oracle-audit/area06-evidence.json`; log:
+`build/level-oracle-audit/area06-full/area06_port.log`. The receipt's dependency
+SHA-256 is `8163b0a8d2445bd65243ac02c8b2ff7f89aeade060d46843940a4f28ce392db0`.
+It is private metadata, not a replacement for the lead's readiness publication.
+
+```sh
+python3 tools/level_oracle_audit.py --run build/level-oracle-audit/new-area06-run \
+  --full --suite area06_port --evidence build/level-oracle-audit/new-area06-evidence.json
+```
+
+Requests for main: use this fresh receipt when reconciling the readiness map.
+No AREA06 production diff or live wiring change is needed from this rerun.
+
+
+### Part B native regression receipt
+
+The unchanged application passes `newgame-control` at **9.599849**,
+`make test-level-smoke` (three phases), and
+`make test-level-smoke-ps2-drive` (20 phases through AREA01 arrival).
+Both tick logs are byte-identical to the preserved `6753747` baseline:
+65,543,433 host-timing bytes and 458,392,518 PS2-drive-timing bytes. Status
+presentation checks pass as well. Runs were headless. Receipt and logs:
+`build/level-oracle-audit/native-gates/`; baseline:
+`build/level-oracle-audit/baseline-6753747/`.
+
+The staged AREA06 documentation checkpoint also builds in isolation without
+warnings (`build/level-oracle-audit/index-area06-build.log`). Later follow-up
+translations remain outside the application source list; their tests are
+opt-in. No protected production file, default audio behavior, or smoke
+assertion changes in this Part B work.
+
+
+## Part B: level-5 shared initialization and audio (2026-10-20)
+
+`em_level5_state.{c,h}` adds complete **unwired** translations of the readable
+C definitions for `001D0660` and `001E7780`. The former always runs effects
+initialization before the area dispatcher. The latter preserves all 40 exact
+area/sub-area keys, the key-zero argument remap to 1, the six global resets,
+the signed record count, and the wrapping `0xA060` record stride. Its sixteen
+overlay workers and effects worker remain explicit boundaries. The protected
+AREA00/AREA01 owner and live scene adapter are unchanged.
+
+The unchanged level-14 harness compares both original entries and the nested
+original dispatcher with the new C: calls and arguments, every memory access
+in order, whole memory at calls and return, poisoned starts, worker mutations,
+unmapped/misaligned stops, and first-fault behavior. **65,745 full cases pass**,
+including all 65,536 selectors; **192/192 reachable words** execute. Five
+intentional mistakes (zero-key argument, stride, signed count, read order,
+and omitted effects call) are rejected. Logs are
+`build/level-oracle-audit/level5-state-chain-full.log` and
+`build/level-oracle-audit/level5-state-mutations-final.log`.
+
+Cause caught while translating: the original reads the sub-area byte between
+the third and fourth global reset, earlier than the C statement order suggests.
+The first candidate failed the ordered-access assertion; the final candidate
+preserves that order. This was fixed in the new unwired file. The current live
+owners' narrower scene/area scope is a binding limitation, not silently
+certified by the new candidate.
+
+`test_level5_shared_audio_reference.py` adds an exact-entry audit for all 25
+shared audio U entries. Sixteen have passing original/native comparisons:
+
+| Group | Original entries |
+|---|---|
+| Queue / sound library | `001157F0`, `001193A8`, `00119400`, `00119450`, `001194B8`, `00119528`, `001199F0` |
+| Stream lanes / allocator | `00119828`, `0011A2B0`, `0011A4E8`, `0011A608`, `0011A658`, `001F9820`, `001FB0B0` |
+| Actual scene stop / service release | `0011A070`, `001FC520` |
+
+Full receipts cover 680 sound-library cases, the 8/9-call bank chains and two
+rejected timing mutations, 315,956 stream cases, 18,900 lockstep frames across
+27 captures, 400 captured stream fields, 1,000 stop cases, six release cases,
+and 333 EE allocator-suite cases (315 hit the selected allocator entry).
+The stop test compiles the actual protected scene and SFX forwarding bodies
+read-only into an ignored fixture, then executes the real driver routine.
+No existing assertion is changed and no production defect was found.
+
+Nine U entries remain **intentional hardware adapters**, despite direct
+original-wrapper probes: `0010BAA0`, `0010BBC0`, `0010BBE0`, `0010BC00`,
+`0010F8F8`, `0010F968`, `00112610`, `00112D18`, `00113280`. Their lower
+syscall/RPC results are scripted; this does not prove host heap, DMA, or CD
+hardware equivalent to the original SDK. The complete quick run asserts that
+all 25 target entries actually execute; a hooked name cannot satisfy it.
+Per-entry scopes, counts, source digests and receipt digests are in
+`build/later-oracle-audio/handoff.json`; component full reports and the final
+`all-quick-report.json` are in that same private folder.
+
+```sh
+EM_TEST_FULL=1 EM_TEST_JOBS=2 make test-level5-state-reference
+EM_TEST_FULL=1 EM_TEST_JOBS=2 make test-level5-shared-audio-reference
+```
+
+Requests for main: retain the nine adapters' boundary classification. Review
+the new complete initialization functions for future later-area binding once
+the AREA00/revisit work is free; provide canonical memory and overlay workers
+rather than broadening the current partial owner by inference. Nothing here
+wires those functions or changes shared audio behavior. The native regression
+receipt above applies to the unchanged application.
+
+
+## Part B: level-15 shared services and source blockers (2026-10-20)
+
+`test_level15_shared_services_reference.py` keeps all existing comparator
+assertions and adds exact native-body fixtures where older tests only hooked
+the wrapper. All eleven full lanes pass. Twenty entries have original/native
+body comparisons:
+
+| Lane | Entries | Full result |
+|---|---|---|
+| GS clear / copy | `001008C0`, `00121870` | 200 clear cases; 12 copy cases, whole RAM and scratchpad |
+| Status / loader | `001AFF90`, `001FF590`, `001FF830`, `001FFCD0`, `001FF080`, `001FF0D0`, `00200730`, `00200830`, `00200890`, `00200970` | 175 pool cases; 161 dispatch cases / 159 whole loads; 124 area dispatches / 7 loads; 25 poll, 12 DMA, 184 packet/restore cases; complete New Game loader states |
+| Aim / pickup | `001B1510`, `001C47E0` | 7,360 aim-leaf cases; 240 inventory-consume cases |
+| Messages | `001FD0E0`, `001FDDB0` | 52,227 line-walker calls, both outcomes of all 14 branches; 4,656 cue calls, with the two existing structurally one-sided branches documented |
+| Draw kernels | `001D3900`, `001D3CF0` | 218 indicator cases, including 110 clipped cases |
+| Collision | `001A5C30`, `001A56A0` | existing segment suite; new 4,288-case column oracle, both return outcomes and all six output words bit-identical, no callee hooks |
+
+The two actual native draw forwarding bodies `001D3990` / `001D3D90` also
+match their original entry's lower-call arguments: channel 3 and the resolved
+model address. Their 36 delegations and six native refusals pass. Model
+resolution and host channel persistence remain separate boundaries. Three
+private deliberate native mutations are rejected. No shared production
+mistranslation was found in these compared entries.
+
+The actual pad bodies are tested but **not promoted to complete original
+translations**. `00110B80` has 1,024 original status combinations and the
+native stable-port case plus four refusals; the native deliberately represents
+only connected, stable port 0/slot 0. `00111018` has 1,024 original actuator
+payload/native motor pairs plus four refusals; the RPC lifecycle is a hardware
+boundary. The existing live scene adapter `001D0660` has 32 branch/fault
+contract cases, but remains conditional on host scene predicates; this is
+separate from the complete unwired candidate proved above.
+
+Per-entry native symbols, limits, counts and source hashes are in
+`build/later-oracle-services/handoff.json`; eleven full lane logs/JSON receipts,
+`summary.json`, and `mutation-controls.json` are retained beside it.
+
+```sh
+EM_TEST_FULL=1 EM_TEST_JOBS=2 make test-level15-shared-services-reference
+```
+
+### Requests for main: four ownerless source blockers
+
+Rechecking the actual definitions confirms that `0013D2D0`, `0013D850`,
+`00141C90`, and `0020F2A0` still have assembly-only bodies. These are the four
+missing non-boundary game entries in the later-route inventory, all on level
+15; the other missing rows are native/SDK boundaries. No usable decomp C was
+found, no behavior was inferred from names, and no original instruction
+listing was displayed or copied. Definition hashes and marker counts are in
+`build/level-oracle-audit/source-definitions.json`.
+
+The user explicitly selected “Record source blockers in Requests for main,
+then continue A2” on 2026-10-20. Recover readable C for these four definitions
+in the decomp, then translate and run their original-entry oracles. They
+remain missing. Keep the two pad adapters classified as hardware boundaries;
+do not infer complete later-scene readiness from the existing scene adapter's
+contract tests. No protected source or readiness document was changed.
+
+
+## Part B: level-14 shared player functions (2026-10-20)
+
+All 30 shared player U entries now have an original-entry audit. Twenty-nine
+pass the unchanged existing comparators, with an observation-only entry
+counter proving that the original body executes rather than being hooked:
+
+| Suite | Selected entries | Full result |
+|---|---|---|
+| Closure | `001696A0`, `00169730`, `0016A4B0`, `0016A8B0`, `0016ADE0`, `0016AE40`, `00175390`, `001787B0`, `001811F0`, `00181430`, `001814E0`, `00181730`, `001818D0`, `00181950`, `00181A70`, `00181B80`, `00181BA0`, `00181E20`, `00181F60`, `00182090`, `00182100` | 200,000 state cases; 719/719 feasible conditional outcomes over 32 routines; 791 worker faults; 200 missing-worker/storage refusals |
+| Ladder | `0017FD80`, `0017FE00`, `0017FF00`, `00180600`, `001809B0` | 400,000 state and 100,000 helper cases; 378/378 outcomes; 1,316 worker faults; 41 missing-worker refusals |
+| Major2 | `00181D70`, `002230A0` | 5,670 fixed and 30,000 random cases; 143 path classes; 28 dispatcher slots; 168 fail-stop checks |
+| Healing | `0015C700` | 2,205 cases; 540 identical animation requests |
+
+The closure suite retains its three documented impossible outcomes. These are
+shared-body proofs, not new later-level route replays: the original first-level
+16-beat census did not reach those closure states. Per-entry execution counts,
+source hashes and scopes are in
+`build/later-oracle-player/player-oracle-handoff.json` and the four
+`{closure,ladder,major2,heal}-full.json` receipts beside it.
+
+```sh
+EM_TEST_FULL=1 EM_TEST_JOBS=2 make test-level14-shared-player-reference
+# Expected-failure check: passes while the strict oracle rejects the unfixed
+# live owner with exactly the pinned failure signature; fails on any change.
+make test-level14-player-frame-reference
+# Strict regression reproducer: exits nonzero on the live owner until main
+# applies the proposal below. Opt-in; no aggregate target runs it.
+make test-level14-player-frame-strict
+```
+
+The full `0015BCF0` frame oracle is deliberately a separate opt-in target
+(`test-level14-player-frame-strict`). `test-level14-player-frame-reference`
+wraps it as an expected-failure check
+(`tools/test_level14_player_frame_expected_failure.py`): it runs the unchanged
+strict oracle and passes only when the comparison completes (a harness error
+is not accepted as the expected failure), all 1,384 cases run with 44/44
+outcomes, no case matches, and the mismatch signature is exactly the pinned
+one. The pin has two layers, both measured from the oracle's own report
+(call addresses and record offsets only): tables of the distinct mismatch key
+sets (710 / 425 / 249 cases), call orders (6), final-record offset sets (5),
+publication slot sets (`[5,7]` x1334, `[5,7,9]` x50), boundary record offsets
+(14) and boundary argument mismatches (`0011A070` x425), each with its case
+count; and a SHA-256 over every case's index, inputs and mismatches. Any
+added, removed or moved difference, so a new owner regression as well as a
+partial fix, fails the check and prints the changed signatures. Two
+sensitivity controls run after it: a private include root
+(`build/later-oracle-player/regression-control`, removed afterwards) with a
+production `em_player_frame.c` copy that also flips record byte 0x10 must be
+rejected as a signature change, and the private proposal tree
+(`build/later-oracle-player/proposed-include`, skipped when absent) passes the
+strict oracle and must be rejected as "now matches". When main applies the
+proposal, retire the wrapper and point the target back at the strict oracle.
+The strict oracle compiles the actual frame,
+stage glue, pose selector/publication and stage-tail sources, and runs the
+complete pinned original wrapper. Stage, skeleton, vitals, camera, footstep
+and stop are symmetric scripted callee boundaries; the original copy helper
+executes. It compares call order, every actor byte at each boundary and return,
+carry/hip/Euler publication, and the canonical busy byte. Unknown native host
+branches abort. Scope is the bound translated-stage path (damage-state zero,
+locomotion/display enabled); it does not certify the legacy path or the
+scripted callee bodies.
+
+The current production owner is **FAIL** and remains U. Confirmed causes:
+camera precedes animation; kill-plane/loop-stop runs before its original
+place; vitals runs after footstep; final actor `+B0` retains feet instead of
+bone-1 position; published Euler X/Z are zeroed; and the original stage busy
+state is replaced by legacy host locks. These independent differences are
+not normalized away. The exact protected-owner proposal and its final private
+validation are recorded below; no shared production file is edited here.
+
+### Requests for main: protected player wrapper
+
+The current production wrapper fails all **1,384 cases**; the private proposal
+passes all 1,384 with **44/44 conditional outcomes**. Four cases explicitly
+change the stage child busy output in both directions. Before canonical B3
+publication was added, those four cases failed while the other 1,380 passed
+(`frame-busy-before-fix.json`). Merely preserving the previous busy byte is
+insufficient: the completed stage view must publish its result.
+
+A deliberate change to the exported Euler-X result buffer is rejected in all
+1,384 cases, solely at that output. This is comparator-sensitivity evidence,
+not a production-source mutation. Independent review also removed an unrelated
+`player_pose_align()` edit; the proposal generator now asserts the entire
+suffix following `player_pose_finish_palette()` remains unchanged.
+
+Final receipts are `build/later-oracle-player/frame-production.json`,
+`frame-proposal.json`, and `frame-mutant.json`; their source hashes and the
+private proposal are indexed by `player-oracle-handoff.json`. Proposal SHA-256:
+`7a537098195528269490483f673950f966757f9f4d9fd95f45bf58083bd6bd85`.
+The exact unapplied diff follows. Main owns these files; apply only after its
+current work is free, then rerun the shared player/scene/pose regressions and
+all native gates. The unchanged-app smoke receipts do **not** validate this
+proposal in a live route. The production entry remains U.
+
+```diff
+--- a/src/game/em_player.c
++++ b/src/game/em_player.c
+@@ -18,6 +18,7 @@
+ #include "game/em_player.h"
+ #include "game/em_ee_float.h"
+ #include "game/em_effect_color.h"
++#include "game/em_glue_original.h"
+ #include "game/em_player_closure_live.h"
+ #include "game/em_player_floor.h"
+ #include "game/em_player_heading.h"
+@@ -1219,37 +1220,40 @@
+         live_fault("0015BA50 D_008106F1/D_00810CB6 not bound");
+         return;
+     }
++    /* Publish the completed 0015BA50 busy result before the wrapper tail. */
++    em_scene_state()->req[EM_SCENE_REQ_B3] = live.scene.busy;
+     /* 0015B130 / 00182D70 write 0x70003B8F through the stage's view. */
+     if (live.scene.spad3B8F != live.loaded3B8F) em_scene_state()->spad3B8F = live.scene.spad3B8F;
+     /* 00183250's exit (+4 = 5's walk-out) clears 0x70003B8D through the view. */
+     if (live.scene.spad3B8D != live.loaded3B8D) em_scene_state()->spad3B8D = live.scene.spad3B8D;
+-    /* 0015BCF0 after 0015BA50: +BC, the -200 check and the loop-sound stop. */
++    /* 0015BCF0: establish position W, then evaluate before vitals,
++     * camera and footstep. The kill-plane and loop-stop tail follows them. */
+     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
+-    if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
+-        live_fault("0011A070 worker fault");
+-        return;
+-    }
+-    /* 0015BCF0's 0015CBA0: the state byte +1F0 -> the action code +230 the
+-     * camera dispatches on (em_camera_leftovers' translation; it reads +1F0,
+-     * +1F1, +236 and +0D, none of which the tail writes). */
+-    if (em_camleft_0015CBA0(&live.a) < 0) {
+-        live_fault("0015CBA0 fault");
+-        return;
+-    }
+-    /* 0015BCF0's animate step (after +BC = 1.0, which the tail writes; the
+-     * -200 check and the loop-sound stop touch none of its inputs): the
+-     * record's skeleton at its +B0 / +C4. */
++    em_live_set_u32(&live.a, 0xBC, 0x3F800000u);
+     em_live_set_f32(&live.a, 0xC4, g.yaw);
+     if (player_pose_animate() < 0) {
+         live_fault("0015BCF0 skeleton evaluation fault");
+         return;
+     }
+-    /* 0015BCF0's 00187350 after the evaluation (its 0015CF90 runs in
+-     * em_player_0015BCF0; neither reads what the other writes): the step
+-     * sounds and surface effects from the record's clip clock, +1F0's
+-     * mailbox and nodes 17 / 18 (census L12). */
++    EmSceneState *scene = em_scene_state();
++    const EmGlueVitals vitals = {em_scene_progress_at(scene, 0x00810706u, 1),
++                                 em_scene_progress_at(scene, 0x00810707u, 1),
++                                 (uint8_t *)&g.status.health, (uint8_t *)&g.status.infection,
++                                 &scene->req[EM_SCENE_REQ_B9]};
++    if (em_glue_0015CF90(live.a.bytes, &vitals) < 0) {
++        live_fault("0015CF90 fault");
++        return;
++    }
++    if (em_camleft_0015CBA0(&live.a) < 0) {
++        live_fault("0015CBA0 fault");
++        return;
++    }
+     if (loco_live() && em_player_closure_live_footstep(&live.a) < 0) {
+         live_fault("00187350 worker fault");
++        return;
++    }
++    if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
++        live_fault("0011A070 worker fault");
+         return;
+     }
+     stage_position_publish();
+--- a/src/game/em_player_frame.c
++++ b/src/game/em_player_frame.c
+@@ -514,6 +514,8 @@
+     actor_update();          /* func_0015BCF0 — player actor update   */
+     player_pose_finish_palette(); /* original hip/Euler scratch publication */
+     player_struggle_tick();  /* legacy bug-latch struggle (mash CROSS) */
++    if (g.pd_state != 2 && player_states_stage_live())
++        return 0; /* Preserve the original stage busy byte and its vitals call order. */
+     EmSceneState *scene = em_scene_state();
+     scene->req[EM_SCENE_REQ_B3] = (uint8_t)(player_damage_locked() ||
+                                             em_examine_input_locked() ||
+@@ -522,8 +524,7 @@
+     const EmPlayerLiveActor *record = player_states_actor();
+     if (!record)
+         return -1;
+-    if (g.pd_state == 2 || !player_states_stage_live())
+-        player_states_vitals_publish();
++    player_states_vitals_publish();
+     const EmGlueVitals vitals = {em_scene_progress_at(scene, 0x00810706u, 1),
+                                  em_scene_progress_at(scene, 0x00810707u, 1),
+                                  (uint8_t *)&g.status.health, (uint8_t *)&g.status.infection,
+--- a/src/game/em_player_pose_host.c
++++ b/src/game/em_player_pose_host.c
+@@ -787,8 +787,8 @@
+      * scratch vectors after the player callback, including script-owned ticks. */
+     memcpy(source.hip, g.player_palette + 16 + 12, sizeof source.hip);
+     source.hip_valid = 1;
+-    source.saved_euler[0] = source.saved_euler[2] = 0;
+-    source.saved_euler[1] = g.yaw;
++    memcpy(source.record.actor->bytes + 0xB0, g.player_palette + 16 + 12, 16);
++    memcpy(source.saved_euler, source.record.actor->bytes + 0xC0, sizeof source.saved_euler);
+     source.saved_euler_w = em_live_f32(source.record.actor, 0xCC);
+     source.saved_euler_valid = 1;
+ }
+
+```
+
+### Part B rollup
+
+The checked-in levels 5–15 inventory contains **81 unique U entries**:
+67 existing native bodies/wrappers now have passing original-entry evidence
+within their stated boundaries, two complete new unwired initialization
+candidates pass, eleven intentional hardware adapters retain their model
+classification, and the protected player wrapper remains a strict failing
+oracle. Counts and limits are reflected in all eleven route documents.
+The four ownerless level-15 game definitions remain source blockers, as the
+user directed. No readiness regeneration, route wiring, shared production
+repair, or audio integration is included.
+
+The new initialization candidate fixes original memory-read ordering, preserving
+observable reset callbacks; five deliberate source mutations are rejected.
+The other confirmed translation defects are in the protected player wrapper
+and are handed to main above. Existing native regressions remain New Game
+**9.599849**, host smoke **PASS**, and PS2-drive smoke **PASS**, with both tick
+logs byte-identical to the pre-B baseline (hashes recorded above).

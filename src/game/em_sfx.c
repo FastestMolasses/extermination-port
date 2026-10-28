@@ -35,6 +35,7 @@
 
 #include "game/em_bgm.h"
 #include "game/em_sfx_bank.h"
+#include "game/em_spu2_output.h"
 
 #define SFX_REGISTRY   "assets/sfx/sfx_registry.emsr"
 #define SFX_DEV_RATE   48000 /* the SPU2 rate; the device must run at it   */
@@ -171,7 +172,8 @@ static void render_to(uint64_t target)
         unsigned count = target - s.samples > SFX_FIELD_MAX ? SFX_FIELD_MAX
                                                             : (unsigned)(target - s.samples);
         memset(out, 0, sizeof(float) * 2u * count);
-        s.frames_mixed += em_sfx_driver_render(&s.driver, out, count, SFX_DEV_RATE);
+        s.frames_mixed += em_spu2_output_render(&s.driver, out, count, SFX_DEV_RATE,
+            s.samples, s.ring, s.samples + count == target ? s.ring_n : 0);
         ring_push(out, count);
         s.samples += count;
     }

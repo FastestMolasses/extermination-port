@@ -38,7 +38,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
-           src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
+           src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_spu2_dsp.c src/game/em_spu2_reverb.c src/game/em_spu2_effects.c src/game/em_spu2_output.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
@@ -2138,3 +2138,56 @@ test-level-texture-registry:
 	@mkdir -p build/levels/texture-registry
 	clang -O2 -Wall -Wextra -Werror -Isrc -Wl,-dead_strip tests/level_texture_registry_test.m -framework Cocoa -framework Metal -framework QuartzCore -o build/levels/texture-registry/test
 	EM_HEADLESS=1 build/levels/texture-registry/test
+
+# SPU2 output experiments: synthetic arithmetic tests are fast; waveform
+# comparison is opt-in and requires an explicit private capture manifest.
+.PHONY: test-spu2-output test-spu2-output-compare
+test-spu2-output:
+	python3 tools/test_spu2_output_unit.py
+	python3 tools/test_spu2_reverb.py
+	python3 tools/test_spu2_effects_export.py
+	python3 tools/test_spu2_output_compare_unit.py
+
+test-spu2-output-compare:
+	@test -n "$(SPU2_COMPARE_MANIFEST)" || { echo "set SPU2_COMPARE_MANIFEST to a private capture manifest"; exit 2; }
+	python3 tools/test_spu2_output_compare.py --manifest "$(SPU2_COMPARE_MANIFEST)" --report build/spu2-output/compare-report.json
+
+# Later-route shared entries remain unwired; these original-entry audits are opt-in.
+.PHONY: test-level5-state-reference test-level5-shared-audio-reference
+test-level5-state-reference:
+	python3 tools/test_level5_state_reference.py
+	python3 tools/test_level5_state_mutations.py
+
+test-level5-shared-audio-reference:
+	python3 tools/test_level5_shared_audio_reference.py
+
+.PHONY: test-level15-shared-services-reference
+test-level15-shared-services-reference:
+	python3 tools/test_level15_shared_services_reference.py
+
+.PHONY: test-level14-shared-player-reference test-level14-player-frame-reference test-level14-player-frame-strict
+test-level14-shared-player-reference:
+	python3 tools/test_level14_shared_player_reference.py --suite closure
+	python3 tools/test_level14_shared_player_reference.py --suite ladder
+	python3 tools/test_level14_shared_player_reference.py --suite major2
+	python3 tools/test_level14_shared_player_reference.py --suite heal
+
+# Expected-failure check: passes only while the strict 0015BCF0 oracle rejects
+# the unfixed production owner with exactly the pinned failure signature
+# (per-signature case counts plus a per-case digest over all 1,384 cases); any
+# new owner regression, partial fix or full match fails it. It then runs two
+# sensitivity controls (an injected owner regression must be rejected; the
+# private proposal, when present, must be rejected as matching). The strict
+# oracle itself (exits nonzero until main applies the proposal) is opt-in and
+# in no aggregate.
+test-level14-player-frame-reference:
+	python3 tools/test_level14_player_frame_expected_failure.py
+test-level14-player-frame-strict:
+	python3 tools/test_level14_player_frame_reference.py
+
+# Explicit offline comparison tooling checks; no device/emulator is started.
+.PHONY: test-spu2-a2-tools
+test-spu2-a2-tools:
+	python3 tools/test_spu2_alignment.py
+	python3 tools/test_spu2_observer.py
+	python3 tools/test_spu2_stage_compare.py

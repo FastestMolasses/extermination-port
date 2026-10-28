@@ -245,6 +245,7 @@ def registry_runtime():
     subprocess.run(['cc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror',
         '-fsanitize=address,undefined','-fno-omit-frame-pointer','-ffp-contract=off','-Isrc',
         'tests/sfx_registry_test.c','src/game/em_sfx_bank.c','src/game/em_sfx.c',
+        'src/game/em_spu2_dsp.c','src/game/em_spu2_reverb.c','src/game/em_spu2_output.c',
         '-o',str(executable)],cwd=ROOT,check=True)
     subprocess.run([str(executable),str(len(invalid)),','.join(hex(i) for i in ids),
                     ','.join(str(frames[i]) for i in ids),'refusal'],cwd=out,check=True)
