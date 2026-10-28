@@ -2484,6 +2484,13 @@ static int state0_001D0660(void *ctx)
     return 0;
 }
 
+/* The scene pool's original record address of `actor` (0: not a record). */
+static uint32_t arrival_pool_address(void *context, const EmActor *actor)
+{
+    (void)context;
+    return em_actor_pool_address(&s_pool, actor);
+}
+
 /* 0x1AE040 state 0, first callee: 001AFCA0 (em_slg_001AFCA0, since chain
  * step GLUE): 001AF5C0 (the player wipe), 001AF690, 001AF710, 001AF8E0
  * (the pool reset), 001D0660, then spad 31F4 = 0 (design 2.3). Before it,
@@ -2527,6 +2534,16 @@ static int w_001AFCA0(void *ctx)
                                     s_state.d810700 == 0 ? AREA00_CELLS_PATH : AREA01_CELLS_PATH,
                                     EM_COLLISION_WORLD_SDK_PATH) != 0)
             return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
+        /* The list words 001AAD00's passes read are the listed records'
+         * pool addresses (001B1B70 pushes the record's address). On the
+         * route from AREA11 its Roger binding serves them and stays bound
+         * (em_area11_roger.c ready()); an area entered without AREA11 (a
+         * LOAD GAME from the boot's title, docs/SAVE_GAME.md section 6.4)
+         * has none, and every list slot would read as unbound. */
+        if (!em_collision_world_owners()->address_of) {
+            static const EmCollisionWorldOwners owners = {NULL, NULL, arrival_pool_address, NULL};
+            em_collision_world_bind_owners(&owners);
+        }
         /* 001FB9F0 pages its area ids by D_00810700/701: the registry scope
          * of the arrival (the interaction host's clear above left none). */
         em_sfx_set_area(s_state.d810700, s_state.d810701);

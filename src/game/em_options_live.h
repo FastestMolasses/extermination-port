@@ -108,9 +108,11 @@ int em_options_live_render(EmOptionsLive *live, EmGfx *gfx);
 void em_options_live_deactivate(EmOptionsLive *live);
 /* For tests and logs: the calls the last call made to `callee`. */
 unsigned em_options_live_calls(const EmOptionsLive *live, uint32_t callee);
-/* For tests: `size` bytes at `address` of the binding's own card buffers
- * (D_00821500, D_00821980, D_008219D0, D_00822010, D_00822050, D_00822690,
- * D_00275C94..9F). 0, or -1 outside them. */
+/* For tests: `size` bytes at `address` of the card buffers (D_00821500,
+ * D_00821980, D_008219D0, D_00822010, D_00822050, D_00822690,
+ * D_00275C94..9F): one process-wide copy that every binding shares and
+ * that outlives em_options_live_free, as the original's one .bss copy.
+ * 0, or -1 outside them. */
 int em_options_live_card_bytes(const EmOptionsLive *live, uint32_t address, void *dst, uint32_t size);
 /* For tests: start those buffers from a recording's bytes (the game starts
  * them zero, as the boot leaves the original's .bss). 0, or -1. */

@@ -75,6 +75,12 @@ void em_game_install(void);
  * player defaults and area 11.0 instead of the debug save-state fixture. */
 void em_game_install_new(void);
 
+/* 001AC070 state 4 for a loaded game on the boot's title (its LOAD GAME:
+ * state 5's result 2, D_00275BE0 = 1): the game task replaces the title
+ * task as for the boot's New Game, the progress block kept (the slot's),
+ * no opening. Must run inside the title task's dispatch. 0, or -1. */
+int em_game_install_loaded_001AC070(void);
+
 /* Release everything the game loaded (GPU meshes, models). Call after
  * em_frame_run() returns, before the gfx device is destroyed. */
 void em_game_shutdown(void);

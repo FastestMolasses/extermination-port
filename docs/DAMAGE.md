@@ -168,9 +168,10 @@ D_00275BDC values and 001AC480 in both contexts against em_startup.
   the 0x5D floor kills first.
 - **The load screen's slot choice** (dmg_05 stops before it): the title's
   LOAD GAME runs the memory-card screen since chain step OPTIONS
-  (OPTIONS.md section 4.3; the side run dmg_load); a chosen slot (002267A0)
-  and a load (00227300) fault, and LOAD GAME on the boot's title (no AREA11
-  world) fails the run.
+  (OPTIONS.md section 4.3; the side run dmg_load); a chosen slot and a load
+  run since the save lane (SAVE_GAME.md sections 6.1 and 6.3, the side run
+  dmg_load_game), and LOAD GAME on the boot's title since save2 round 5
+  (SAVE_GAME.md section 6.4).
 - **001755B0's landing sites** (0017C580 at 0x17C744 / 0x17C7F4, a landing
   with a drop -104 <= d <= -14.5 at gait 3): bound, oracle-tested, and
   entered by no run: dmg_06's landing is a walking jump (gait below 3) and no

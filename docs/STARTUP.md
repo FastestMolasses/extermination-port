@@ -4,8 +4,9 @@ The native entry point now runs the original startup sequence: warning, Sony,
 Deep Space, E900 movie, and the three-choice title. New Game requests E900 again
 before loading AREA11/sub0/entry0. Two developer switches start elsewhere
 (section "Developer switches"): `EM_NEW_GAME=1` enters the original New Game
-route without the frontend, and `EM_SKIP_STARTUP=1` selects the older debug
-fixture, which is not the New Game route.
+route without the frontend, `EM_START_AT=<name>` loads a start-point save
+through the boot title's LOAD GAME, and `EM_SKIP_STARTUP=1` selects the older
+debug fixture, which is not the New Game route.
 
 Source evidence is maintained in the sibling decomp's local docs/STARTUP.md.
 The original PS2 executable and local runtime are authoritative. The old and
@@ -205,6 +206,11 @@ samples including lookahead, and advances 0.5 per ordinary tick.
   takes the vblanks its code waits for (em_movie_field.h; FIRST_LEVEL_EXIT.md
   section 7); the skip gate is the decoder's count (002036E0: D_002DF740 +8
   >= 11, pictures 0..11 shown with START held from the start).
+- The fixture `loadgame` (`make test-title-load-game`, docs/SAVE_GAME.md
+  section 6.4) presses Down at title menu tick 13 and CROSS at tick 15 (the
+  boot title's LOAD GAME), then plays the card screen's slot 0 / Yes on the
+  card `EM_TEST_MEMCARD_ROOT` names and waits for control in the loaded
+  area.
 - The New Game fixtures (`newgame`, `newgame-control`, `newgame-skip`,
   `newgame-level`) press CROSS at title menu tick 15 (2026-10-16; 14
   before). The New Game movie's iteration then has D_00810E80 = 1, as in the
@@ -383,6 +389,141 @@ run headless). `src/game/em_new_game_switch.{h,c}`, `em_frontend_install_new_gam
 
 ```sh
 EM_NEW_GAME=1 build/extermination
+```
+
+### EM_START_AT=<name>: start at an area through LOAD GAME
+
+Added 2026-10-21 (side lane save2, round 6; the user's decision of
+2026-10-19, "Like LOAD GAME"): start a run at a start point by loading its
+start-point save through the original's own load path. Off by default
+(unset or empty). Its name does not end in TEST, so the window stays
+(`EM_HEADLESS=1` still makes the run headless). `src/game/em_start_at.{h,c}`,
+`em_frontend_install`.
+
+| Name | Where the player starts | The card |
+|---|---|---|
+| `area01` | AREA01, the arrival from AREA11 (41.0, 0.0, -565.6) | `build/start_saves/area01` |
+| `area00` | AREA00, the arrival from AREA01 | `build/start_saves/area00` |
+| `area01-revisit` | AREA01 again, the arrival from AREA00 | `build/start_saves/area01-revisit` |
+
+The cards are the start-point saves `make start-saves` builds with the
+original save writer (docs/SAVE_GAME.md section 7); they are disc- and
+recording-derived and stay in the ignored `build/`.
+
+- **What runs:** the whole boot as on any run (the warning, Sony and Deep
+  Space screens, the attract E900 movie, the title menu), with the presses
+  of the title load test (`EM_STARTUP_TEST=loadgame`, the same code): START
+  on the movie from 2 s, the menu fixture's moves, Down to LOAD GAME at
+  menu tick 13 and its CROSS at tick 15; on the card screen 00225AC0(0) /
+  00227300 slot 1 on port 0 and Yes (tools/test_card_screen_reference.py's
+  policy). Then the original route: 001AC070 state 5's read 00228B60 of the
+  slot into D_00810700, state 4's 001AB790(001ACEC0) with D_00275BE0 = 1
+  (`em_game_install_loaded_001AC070`), and the loaded game's chain into the
+  block's area, placed at the save's load pose (001B07C0(0), section 6.3 of
+  docs/SAVE_GAME.md). The title presses (START on the movie, the menu's
+  moves and CROSS) are injected into the title's input (the menu's input is
+  the fixture's alone); the keyboard and a controller still reach the other
+  frames before the card screen (the logos, the movie, the fade into the
+  card screen). On the card
+  screen the driven presses replace the pad (the outer input layer,
+  `em_input_set_filter`: the keyboard's and a controller's buttons and
+  sticks), from the screen's fade idle to the loaded game's handoff. From
+  the handoff on the pad is the player's (the same release in a test run
+  and a developer's run).
+- **What differs from a player's LOAD GAME:** only the host. The memory
+  card is the start-point card, served read-only for the whole run
+  (`em_memcard_set_read_only`: the boot check makes nothing and prints
+  `memory card: <card> served read-only`; an Open in any mode but read, and
+  Mkdir, fault, so a save in that run fail-stops instead of writing the
+  card). The frames from the boot to control in the loaded
+  area run unpaced (`em_frame_set_unpaced`, the pacing EM_UNCAPPED=1 skips;
+  the frames are the same), then paced: about 2 s from the first frame to
+  control on the M1, where the 1607 paced frames take 26.8 s. If control
+  does not come within 6000 world frames of the handoff, the run says so and
+  goes on paced.
+- **Refusals** (exit 1 before any window, the reason on stderr): an
+  unknown name; with `EM_NEW_GAME=1`, or with a fixture that drives the pad
+  or chooses another route, input or card, set at all (even empty):
+  `EM_SKIP_STARTUP`, every name ending in `TEST` but `EM_START_AT_TEST` and
+  `EM_INPUT_TEST` (`EM_STARTUP_TEST`, the `EM_*_TEST` scripts such as
+  `EM_AIM_FIRE_TEST`, `EM_NEW_GAME_STATE_TEST`, `EM_AUDIO_TEST`), every
+  `EM_CAPTURE*` (the capture scripts inject input), `EM_SCENE`,
+  `EM_TEST_MEMCARD_ROOT`, `EM_INPUT_RECORD`, `EM_INPUT_PLAY`,
+  `EM_STARTUP_MENU_WAIT`, the level smoke's `EM_LEVEL_SMOKE_UNTIL`,
+  `EM_AIM_PAD_SCRIPT` and `EM_A01_ARRIVAL_TICKS`,
+  `EM_AREA01_EXPLORE_SCRIPT` / `_PHASE`, `EM_CLIP_DEMO`,
+  `EM_CONTROL_LOW_GAIT`, `EM_MOVE_LEGS` and `EM_MOVE_EXPECT`
+  (`fixture_set` in em_start_at.c); a card
+  that is not built (no `start.json`); a stale or changed card: a file
+  `start.json` lists is missing, is not a regular file or does not have the
+  SHA-256 it records, slot1 holds another file (names beginning with `.`,
+  which the card's own listing skips, aside), slot2 is not empty,
+  `start.json` is another name's or has no load pose (a card from before
+  save2 round 4), or the slot is not one 0x640-byte block that sums to zero
+  with the name's area byte, the head `start.json` records with +0xF = 1
+  and the load pose `start.json` records. Rebuild with `make start-saves`
+  (`make test-start-saves` also compares the cards with a fresh build from
+  the recordings).
+- **Compatible** (every other `EM_*` variable the source reads;
+  tools/test_start_at.py checks that each is refused or named here): the
+  host's `EM_HEADLESS`, `EM_UNCAPPED`, `EM_MUTE`, `EM_INPUT_TEST` (prints
+  the pad's changes), the disc-drive timing `EM_PS2_DRIVE_REPLAY` and
+  `EM_IOP_TICK_PHASE`, the GS head's `EM_GS_BANDS`, `EM_GS_EARLY_OPS`,
+  `EM_GS_EARLY_PARSE`, `EM_GS_LIST`, `EM_GS_SPEC`, `EM_GS_SPEC_CHECK`,
+  `EM_GS_TEXCACHE`, `EM_GS_THREADS` (the same bytes); the presentation's
+  `EM_HUD_FORCE`, `EM_HUD_HOVER` and the data path `EM_AIM_FIRE_TABLES`;
+  the observers (traces, dumps, counters, captures) `EM_AREA_CHANGE_LOG`,
+  `EM_BOX_DUMP`, `EM_CAMERA_TRACE`, `EM_CAM_PRINT`, `EM_COLL_WORLD_DUMP`,
+  `EM_CONTROL_TRACE`, `EM_DIAG_DIGESTS`, `EM_FB_CAPTURE_TICKS`,
+  `EM_FRAME_TIMING`, `EM_FRAME_TRACE`, `EM_GS_LIST_COUNTERS`,
+  `EM_GS_SPEC_COUNTERS`, `EM_GS_TC_COUNTERS`, `EM_GS_TEX_COUNTERS`,
+  `EM_GS_Z_COUNTERS`, `EM_LOG_AIM_RECORDS`, `EM_PRESENT_LOG`,
+  `EM_PRESENT_PX`, `EM_PROBE_TRACE`, `EM_RAND_TRACE`,
+  `EM_STARTUP_CAPTURE_DIR`, `EM_STATUS_PAGES_TRACE`, `EM_STEP_TRACE`; and
+  the ones that work only under a refused fixture: `EM_LEVEL_SMOKE_FB_CAPTURE`,
+  `EM_LEVEL_SMOKE_HUB_CAPTURE`, `EM_LEVEL_SMOKE_MESSAGE_CAPTURE`,
+  `EM_LEVEL_SMOKE_PAGES_CAPTURE`, `EM_LEVEL_SMOKE_PAGES_DEBUG`,
+  `EM_LEVEL_SMOKE_PAGE_CAPTURE`, `EM_LEVEL_SMOKE_PHASE_CAPTURE`,
+  `EM_REPLAY_AUDIO`, `EM_REPLAY_CAPTURE`, `EM_REPLAY_CAPTURE_EVERY`,
+  `EM_REPLAY_MAX_OVERRUN`, `EM_AUDIO_FILE`. `EM_CARRY_TEST` and
+  `EM_BLOCKER_TEST` are load-time self-tests (em_collision.c's
+  constructor): they run and exit before main, so the switch is never read.
+- **Test instrumentation:** `EM_START_AT_TEST=1` (headless) prints the
+  whole progress block after the read, the handoff, the placement and at
+  control, runs the handback probe (from control it holds L3 through the
+  test buttons, which are ORed into the pad before the outer input layer,
+  and requires it in D_00810E70 within 10 ticks: a driven pad still in
+  place would erase it), and quits 60 ticks after control;
+  `EM_START_AT_DIR=<dir>` (only with it) reads the card from
+  `<dir>/<name>`.
+- **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):
+  `EM_START_AT=area01 EM_START_AT_TEST=1` checked as `make
+  test-title-load-game` checks its copy (the screen's result 2, the handoff
+  into area 01 00 04, the placement at the slot's load pose, the health,
+  control in AREA01, and all 0x640 bytes of the block equal to the slot
+  after the read, the handoff and the placement, and at control but for the
+  world frame counter D_00810750), the card server's read-only line and
+  the handback probe; the switch alone, headless, without `EM_UNCAPPED`,
+  reaches control in AREA01 without quitting, faster than paced frames
+  could, with the read-only line; the card unchanged by both; and the
+  refusals (the names, every refused fixture the source reads and nine
+  changed copies of the card). Mutants killed: the boot paced, the
+  SHA-256 check dropped, the load pose check dropped, the pad not released
+  at the handoff, the card not set read-only.
+  `EM_TEST_FULL=1` also runs `area00` and `area01-revisit` and reports how
+  far each gets, unasserted. At save2 round 6 (2026-10-21, this branch):
+  `area00` hands off into area 00 00 00 and places the player at its load
+  pose (-40.347, -35.0, -1340.620), then the static world refuses a run
+  larger than RUN_MAX (at 00297710) and the frames run slowly in the GS
+  head's drawing, with no control within 300 s; `area01-revisit` hands
+  off into area 01 00 00 and places him at (-40.0, -35.0, -1261.887) with
+  the slot's health 90.0, then the scene faults at 00823CD0 (code 2,
+  fail-stop). Both areas are still being finished on port main (the
+  drawbridge run).
+
+```sh
+make start-saves                      # once, and after the recordings change
+EM_START_AT=area01 build/extermination
 ```
 
 ### EM_SKIP_STARTUP=1: the older debug fixture
@@ -653,9 +794,9 @@ sample data, but its current dry mixer does not reproduce SPU2 ADSR, Gaussian
 interpolation, reverb or hardware voice allocation. The memory cards are the
 host directories data/memcard/slot1 and slot2 (em_memcard, docs/OPTIONS.md
 section 5): the boot's card check creates them, and the card screen's GetInfo /
-Sync answer from them; saving and loading a game (the card's files) are not
-on the first level's path and fault. Load Game after a death runs the original
-memory-card screen (docs/OPTIONS.md section 4.3; on the boot's title it fails:
-no AREA11 binding exists yet); the Option and attract services remain pending
+Sync answer from them; loading a game reads the card's files
+(docs/SAVE_GAME.md section 6), saving one is not bound yet. Load Game runs the original
+memory-card screen after a death (docs/OPTIONS.md section 4.3) and on the
+boot's title (on the title's own binding, docs/SAVE_GAME.md section 6.4); the Option and attract services remain pending
 rather than manufacturing an outcome. Windows/Linux movie backends and
 other existing gameplay approximations also remain unfinished.

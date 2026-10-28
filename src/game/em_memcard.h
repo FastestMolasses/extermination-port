@@ -106,6 +106,11 @@ typedef struct {
  * relative to the working directory). Kept across em_memcard_reset. */
 void em_memcard_set_root(const char *dir);
 const char *em_memcard_root(void);
+/* A read-only card (EM_START_AT's start-point card, em_start_at.h): the
+ * boot check makes nothing (both slot directories must exist), and an Open
+ * with any mode but 1 (read) faults, Mkdir included, so nothing on the card
+ * is ever changed. Off by default; kept across em_memcard_reset. */
+void em_memcard_set_read_only(int on);
 
 /* A word the SDK stores through a pointer its caller passed. */
 typedef struct {

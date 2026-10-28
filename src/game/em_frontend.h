@@ -22,6 +22,10 @@ int em_frontend_title_menu(unsigned *cursor);
  * Test driver use (the level smoke's dmg_load). */
 void em_frontend_title_state(unsigned *state, unsigned *sub);
 int em_frontend_failed(void);
+/* EM_STARTUP_TEST=loadgame (test instrumentation): at the head of every
+ * world frame after the boot title's LOAD GAME, the wait for the
+ * placement and control in the loaded area. Inert otherwise. */
+void em_frontend_load_test_before_frame(void);
 /* What the game reads of the frontend after New Game (the movie service of
  * 001AD360 step 1): {installed, the stored selector D_00275C78 (-1 none),
  * a movie open, failed}. tools/test_new_game_switch.py compares it. */

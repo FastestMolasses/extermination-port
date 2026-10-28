@@ -50,11 +50,14 @@ static int fail(const char *why)
 }
 
 static char root[512] = EM_MEMCARD_DIR;
+static int read_only;
 
 void em_memcard_set_root(const char *dir)
 {
     snprintf(root, sizeof root, "%s", dir ? dir : EM_MEMCARD_DIR);
 }
+
+void em_memcard_set_read_only(int on) { read_only = on != 0; }
 
 const char *em_memcard_root(void) { return root; }
 
@@ -90,6 +93,17 @@ static int present(int port)
 int em_memcard_boot_check(void)
 {
     ensure();
+    if (read_only) {
+        /* A read-only card is used as it is: nothing is made. The line is
+         * the card server's own state (tools/test_start_at.py checks it). */
+        printf("memory card: %s served read-only (the boot check makes nothing; an Open but in read mode, "
+               "and Mkdir, fail-stop)\n", root);
+        for (int port = 0; port < 2; ++port) {
+            if (!present(port)) return 0;
+            M.known[port] = 1;
+        }
+        return 1;
+    }
     if (strcmp(root, EM_MEMCARD_DIR) == 0 && mkdir("data", 0700) && errno != EEXIST) return 0;
     if (mkdir(root, 0700) && errno != EEXIST) return 0;
     for (int port = 0; port < 2; ++port) {
@@ -282,6 +296,8 @@ int em_memcard_00114360(const EmMemcardMemory *m, int32_t port, int32_t slot, ui
     if (busy(v0)) return 0;
     char text[NAME_MAX_SDK + 1];
     if (card_name(m, port, slot, name, 0, text) < 0) return -1;
+    if (read_only && mode != 1)
+        return fail("a Mkdir, a create or a write Open on the read-only card (EM_START_AT's start-point card)");
     if (mode == 0x40) {
         /* 00114448's Open: the server makes the directory */
         char path[1200];

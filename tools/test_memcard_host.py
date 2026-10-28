@@ -92,6 +92,7 @@ def build_lib():
     m.em_memcard_call.argtypes = [C.c_uint32, C.POINTER(C.c_uint64), C.c_uint, C.POINTER(Memory),
                                   C.POINTER(C.c_uint64)]
     m.em_memcard_set_root.argtypes = [C.c_char_p]
+    m.em_memcard_set_read_only.argtypes = [C.c_int]
     m.em_memcard_fault.restype = C.c_char_p
     m.em_memcard_is_sdk.argtypes = [C.c_uint32]
     return m
@@ -482,6 +483,36 @@ def unit(tmp):
     refused(OPEN, (0, 0, 0xFFFFFF00, 0x203), 'outside the caller')
     refused(0x114510, (0, 0, 0), 'not a libmc entry')
     refused(GETINFO, (0, 0, TYPE, FREE_WORD, FORMAT_WORD), 'free count')
+    # A read-only card (EM_START_AT's start-point card, em_memcard_set_read_only):
+    # the boot check makes nothing, reads answer, every other Open mode and Mkdir
+    # fault, and the card's files are unchanged.
+    ro = Path(tmp) / 'read_only'
+    (ro / 'slot1' / DIR).mkdir(parents=True)
+    (ro / 'slot1' / DIR / 'f').write_bytes(b'abc')
+    LIB.em_memcard_set_read_only(1)
+    try:
+        LIB.em_memcard_reset()
+        LIB.em_memcard_set_root(str(ro).encode())
+        assert LIB.em_memcard_boot_check() == 0 and not (ro / 'slot2').exists(), 'the read-only boot check made slot2'
+        (ro / 'slot2').mkdir()
+        assert LIB.em_memcard_boot_check() == 1
+        m.put(BUF, b'\0' * 4)
+        assert do(OPEN, 0, 0, name(DIR + '/f'), 1) == 0 and sync() == (2, 0)
+        assert do(READ, 0, BUF, 3) == 0 and sync() == (5, 3) and bytes(m.ram[BUF:BUF + 3]) == b'abc'
+        assert do(CLOSE, 0) == 0 and sync() == (3, 0)
+        for target, args in ((OPEN, (0, 0, name(DIR + '/f'), 2)), (OPEN, (0, 0, name(DIR + '/f'), 3)),
+                             (OPEN, (0, 0, name(DIR + '/f'), 0x201)), (OPEN, (0, 0, name(DIR + '/g'), 0x203)),
+                             (MKDIR, (0, 0, name('NEWDIR')))):
+            LIB.em_memcard_reset()
+            assert LIB.em_memcard_boot_check() == 1
+            rc, _, fault = call(target, args, rd, wr)
+            n[0] += 1
+            assert rc == -1 and fault and 'read-only card' in fault, (hex(target), args, fault)
+        files = sorted(str(q.relative_to(ro)) for q in ro.rglob('*'))
+        assert files == ['slot1', 'slot1/' + DIR, 'slot1/' + DIR + '/f', 'slot2'], files
+        assert (ro / 'slot1' / DIR / 'f').read_bytes() == b'abc'
+    finally:
+        LIB.em_memcard_set_read_only(0)
     LIB.em_memcard_reset()
     return n[0]
 

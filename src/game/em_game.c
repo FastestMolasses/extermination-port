@@ -163,6 +163,7 @@
  * loop quits (see move_test_script). Combine with EM_CAPTURE to grab a
  * mid-walk frame (the move test suppresses the capture path's early quit).
  */
+#include "game/em_frontend.h"
 #include "game/em_game.h"
 
 #include <dirent.h>
@@ -834,6 +835,7 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
 void em_game_legacy_variant_head(int cutscene)
 {
     em_new_game_state_test_before_frame();
+    em_frontend_load_test_before_frame();
     em_opening_control_test_before_frame();
     if (cutscene)
         return;
@@ -1471,8 +1473,11 @@ static void game_demo_vitals(void)
     em_scene_state()->d81085C = 60.0f;
 }
 
-/* Process-level game-state init shared by both entries: g cleared, the
- * env-selected captures and self-tests read. No task is registered. */
+/* Process-level game-state init shared by the entries: g cleared, the
+ * env-selected captures and self-tests read. No task is registered, and
+ * the progress block is not touched: the New Game entries and the fixture
+ * store the demo vitals after it (game_demo_vitals), a loaded game keeps
+ * the slot's. */
 static void game_install_state(void)
 {
     player_pose_unload();
@@ -1490,7 +1495,6 @@ static void game_install_state(void)
                                  .infection = 60.0f, .mag = 4,
                                  .mag_max = 30, .reserve = 120,
                                  .battery = 4, .battery_max = 6 };
-    game_demo_vitals();
     g.capture_path = getenv("EM_CAPTURE");
     const char *cf = getenv("EM_CAPTURE_FRAME");
     g.capture_frame = cf ? atoi(cf) : 60;   /* default = the historical
@@ -1586,6 +1590,7 @@ static void game_install_state(void)
 void em_game_install(void)
 {
     game_install_state();
+    game_demo_vitals();
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
     /* That reset stores 001AF2C0's health 100 / infection 0 in the block;
@@ -1611,6 +1616,7 @@ void em_game_install(void)
 void em_game_install_new(void)
 {
     game_install_state();
+    game_demo_vitals();
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", AREA11_SCENE_DIR);
     em_opening_runtime_request();
     em_opening_control_test_begin();
@@ -1620,6 +1626,27 @@ void em_game_install_new(void)
         (void)em_task_replace_current(em_scene_task_001ACEC0);
     else
         (void)em_task_register(0, em_scene_task_001ACEC0);
+}
+
+/* 001AC070 state 4 for a loaded game on the boot's title (state 5's
+ * 00225AC0(0) returned 2 there: LOAD GAME read the slot into D_00810700,
+ * 001AF150 ran, D_00275BE0 = 1): 001AB790(001ACEC0) replaces the title task
+ * with the game task, its record cleared, as em_game_install_new does for
+ * the boot's New Game. The game state starts as at that New Game
+ * (game_install_state) except for the progress block, which is the slot's:
+ * no demo vitals, no opening request, no New Game fixtures. The chain then
+ * runs as after a death's LOAD GAME (em_game_reinstall_loaded_001AC070):
+ * 001AD1A0, state 2 without 001AD230 / 001AD360, 001ADF50 on the block's
+ * area, the placement from the load pose. 0, or -1. */
+int em_game_install_loaded_001AC070(void)
+{
+    if (em_scene_state()->d275BE0 != 1 || !em_task_current()) {
+        fprintf(stderr, "em_game: 001AC070 state 4 (a loaded game) without D_00275BE0 = 1 "
+                        "or outside the title task\n");
+        return -1;
+    }
+    game_install_state();
+    return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
 }
 
 void em_game_shutdown(void)

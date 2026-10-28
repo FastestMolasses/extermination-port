@@ -4,6 +4,7 @@
  */
 #include "game/em_memcard.h"
 #include "game/em_frontend.h"
+#include "game/em_start_at.h"
 #include "game/em_area01_terminal_status.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_options_live.h"
@@ -20,6 +21,13 @@
 #include "game/em_bgm.h"
 #include "game/em_movie_field.h"
 #include "game/em_movie_sound.h"
+#include "game/em_gs_texture.h"
+#include "game/em_module_loader.h"
+#include "game/em_status_background.h"
+#include "game/em_render_context_live.h"
+#include "game/em_pad_actuator.h"
+#include "game/em_player.h"
+#include "game/em_game_internal.h"
 #include "em_input.h"
 #include "em_movie.h"
 
@@ -63,6 +71,9 @@ static struct {
     unsigned captured;
     uint32_t load_serial;  /* the title's load screen (001AC070 state 5) */
     int load_drawn;        /* this tick's 00225AC0 call left a draw stream */
+    int card_close;        /* the boot title's card binding closes after this tick's draw */
+    int load_test;         /* EM_STARTUP_TEST=loadgame: the boot title's LOAD GAME */
+    int start_at;          /* EM_START_AT=<name> (em_start_at.h): the same LOAD GAME on a start-point card */
     const char *capture_dir;
     const char *test;
     char error[512];
@@ -73,14 +84,24 @@ static struct {
  * and "newgame-level" (the S13 level smoke, em_level_smoke_test.c). */
 static int new_game_test(const char *test)
 {
-    return strcmp(test, "newgame") == 0 || strcmp(test, "newgame-control") == 0 ||
-           strcmp(test, "newgame-level") == 0 || strcmp(test, "newgame-skip") == 0;
+    return test && (strcmp(test, "newgame") == 0 || strcmp(test, "newgame-control") == 0 ||
+           strcmp(test, "newgame-level") == 0 || strcmp(test, "newgame-skip") == 0);
 }
+
+/* The boot title's LOAD GAME is driven (the title load test, EM_START_AT)
+ * and reported (block lines, the placement, control and the quit: the test,
+ * and EM_START_AT under EM_START_AT_TEST=1). */
+static int load_drive(void) { return f.load_test || f.start_at; }
+static int load_report(void) { return f.load_test || (f.start_at && em_start_at_report()); }
+static const char *load_prefix(void) { return f.load_test ? "startup test: loadgame" : "startup: EM_START_AT"; }
 
 static uint32_t le32(const unsigned char *p)
 {
     return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
+
+static void load_test_block(const char *when);
+static void load_pad_release(void);
 
 static void fail(const char *message)
 {
@@ -282,7 +303,8 @@ static int movie_pump(void *unused)
         if (f.movie_pts >= 2.0 && f.playing_selector == 0) capture(8, "intro");
     }
     uint16_t held = em_frame_input()->held;
-    if (f.test && !f.reinstalled && (strcmp(f.test, "skip") == 0 || new_game_test(f.test)) &&
+    if (!f.reinstalled && (f.start_at || (f.test && (strcmp(f.test, "skip") == 0 || new_game_test(f.test) ||
+                                                    f.load_test))) &&
         f.movie_pts >= 2.0)
         held |= EM_PAD_START;
     /* EM_NEW_GAME=1: START is held from the movie's first picture, so the
@@ -390,6 +412,158 @@ static int boot_resources(void)
     return ready;
 }
 
+/* The boot's title has no world, so no AREA11 binding of the card screen
+ * (em_area11_interaction_host_options, which serves the title after a
+ * death). Its LOAD GAME runs the same translation (em_options_live, the
+ * card screen 00225AC0(0) and 00227300 under it) on a binding of its own
+ * (docs/SAVE_GAME.md section 6.4):
+ *   - the GS memory: the status pages' file (em_gs_texture) cleared, since
+ *     the boot's GS holds only the title's own uploads, which the file does
+ *     not hold; the card screen's module 0x2A load (00225AC0 m[1] 2,
+ *     001FF080(0, 0x2A)) runs the live loader's own steps, and its one chunk
+ *     is applied as that module's step (the same chain check as the status
+ *     runtime's, docs/MODULE_LOADER.md finding 1). A draw that needs a block
+ *     the upload did not write is refused: the screen faults.
+ *   - the workers as the AREA11 binding's: the cues 0 / 1 / 4 (0020CD40 /
+ *     60 / A0: the system sound set, not exported: silent, reported once
+ *     per cue while em_sfx_cue_state is 0, as status_sound),
+ *     the colour fades, 001FBC50 / 001FABB0, 001D2830, 001B61C0; 00200970(1)
+ *     is not reached on the title (00225AC0 calls it only when 0x70003B90 is
+ *     2, the game task's value; the title clears it every tick) and faults.
+ * Opened at the load entry, closed after the screen's last draw (the loader
+ * chain released before any game task can bind its own). The card code's
+ * buffers are not the binding's: em_options_live holds them once per
+ * process, so a close and a new open keep them, as the original's .bss. */
+static struct {
+    EmGsTexture *gs;
+    EmOptionsLive *options;
+    int hooked;
+} s_card;
+
+static uint32_t card_le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* 001FF3F0 state 3's send of module 0x2A's chunk (00200830 of D_00275C74). */
+static int card_chain(void *context, uint32_t chain, const uint8_t *bytes, uint32_t size)
+{
+    (void)context;
+    EmModuleLoader *ml = em_module_loader_live();
+    const EmTask *record = em_module_loader_record(ml);
+    const EmStatusSceneLoader *ld = em_module_loader_state(ml);
+    if (!bytes || !record || !ld || record->user[0] != 0 || record->user[6] != 0x2A || chain != ld->d275C74)
+        return -1;
+    const uint8_t *h = ld->header;
+    if (card_le32(h) != 0x2A || (h[0x0E] | h[0x0F] << 8) != 1 || card_le32(h + 0x10) != 0 ||
+        size < card_le32(h + 0x24))
+        return -1;
+    return em_gs_texture_apply(s_card.gs, 0x2A) ? 0 : -1;
+}
+
+static int card_sound(void *context, int32_t id, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)context;
+    if ((id != 0 && id != 1 && id != 4) || a1 != 0x1000 || a2 != 0x1000 || a3 != 0x1000) return -1;
+    /* As the AREA11 binding's status_sound: reported only while the cue
+     * has no exported sample (em_sfx_cue_state 0), once per cue. */
+    static unsigned reported;
+    if (!em_sfx_cue_state((unsigned)id) && !(reported & (1u << id))) {
+        reported |= 1u << id;
+        fprintf(stderr, "startup: the card screen's cue 0x%X has no exported sample "
+                        "(system sound set, WP-14); silent\n", (unsigned)id);
+    }
+    em_sfx_play((unsigned)id);
+    return 0;
+}
+
+static int card_module_load(void *context, uint32_t module)
+{
+    (void)context;
+    return module == 0x2A && em_module_loader_request_001FF080(em_module_loader_live(), 0, 0x2A) == 0;
+}
+
+static int card_restore(void *context)
+{
+    (void)context;
+    fprintf(stderr, "startup: 00200970(1) on the boot's title (0x70003B90 is 0 there)\n");
+    return 0;
+}
+
+static int card_fade(void *context, int out, int32_t a0, int32_t a1)
+{
+    (void)context;
+    em_frame_fade_start_colour(out ? 1 : -1, (int16_t)a0, (uint8_t)a1);
+    return 1;
+}
+
+static int card_stop_sounds(void *context)
+{
+    (void)context;
+    return em_scene_bindings_001FBC50() == 0;
+}
+
+static int card_stop_streams(void *context)
+{
+    (void)context;
+    return em_scene_bindings_001FABB0() == 0;
+}
+
+static int card_draw_context(void *context, int32_t a0, int32_t a1)
+{
+    (void)context;
+    return em_rcl_001D2830(a0, a1) >= 0;
+}
+
+static int card_rumble(void *context, int32_t big, int32_t small, int32_t duration, int32_t force)
+{
+    (void)context;
+    return em_pad_actuator_001B61C0((uint8_t)big, (uint8_t)small, duration, force) == 0;
+}
+
+static void card_close(void)
+{
+    if (s_card.hooked) em_module_loader_set_chain_hook(em_module_loader_live(), NULL, NULL);
+    s_card.hooked = 0;
+    em_options_live_free(s_card.options);
+    em_gs_texture_free(s_card.gs);
+    s_card.options = NULL;
+    s_card.gs = NULL;
+}
+
+static int card_open(void)
+{
+    static const EmOptionsHost host = {NULL, card_sound, card_module_load, card_restore, card_fade,
+                                       card_stop_sounds, card_stop_streams, card_draw_context, card_rumble};
+    EmModuleLoader *ml = em_module_loader_live();
+    if (!ml) return 0;
+    if (!s_card.options) {
+        s_card.gs = em_gs_texture_load("assets/status_pages/status_pages.emsp");
+        if (!s_card.gs) {
+            fprintf(stderr, "startup: assets/status_pages/status_pages.emsp is missing "
+                            "(python3 tools/export_status_pages.py)\n");
+            return 0;
+        }
+        em_gs_texture_clear(s_card.gs);
+        /* 0020A7A0's sine 0011E2A8 reads the SDK tables of the user's ELF. */
+        if (!em_status_background_load_sdk("assets/sdk_math_tables.emsm") ||
+            !(s_card.options = em_options_live_create(s_card.gs, &host))) {
+            card_close();
+            return 0;
+        }
+    }
+    em_module_loader_set_chain_hook(ml, card_chain, NULL);
+    s_card.hooked = 1;
+    return 1;
+}
+
+/* The card screen's binding of this title: the AREA11 one after a death,
+ * the boot title's own before any game. */
+static EmOptionsLive *load_options(void)
+{
+    return f.reinstalled ? em_area11_interaction_host_options() : s_card.options;
+}
+
 /* The title's load screen (docs/OPTIONS.md section 4.3): 001AC070 state
  * 2's load verdict runs 00225A00 (the card record D_00810040 cleared) and
  * sets D_00275BE0 = 1; state 5 then calls 00225AC0(0) every tick through
@@ -398,15 +572,20 @@ static int boot_resources(void)
  * I/O em_memcard): 1 (the screen's exit) goes back to the menu, 2 (a game
  * loaded: 00227300's LOAD GAME read the slot into D_00810700, the whole
  * block one storage) runs 001AF150 and hands off to 001AC070 state 4 with
- * id 1, the game task for a loaded game (docs/SAVE_GAME.md section 6.3). The
- * boot's title has no AREA11 binding yet: the
- * load entry there faults (no recording; the first level reaches the load
- * screen from the title after a death, decomp CAPTURES_C10.md dmg_05). */
+ * id 1, the game task for a loaded game (docs/SAVE_GAME.md section 6.3).
+ * After a death the binding is the AREA11 host's; on the boot's title it is
+ * the title's own (s_card above, section 6.4). The first level's recordings
+ * reach the load screen from the title after a death (decomp CAPTURES_C10.md
+ * dmg_05); no recording of the boot title's load screen exists. */
 static void load_begin(uint32_t serial)
 {
     f.load_serial = 0;
-    if (!em_area11_interaction_host_options()) {
-        fail("the load screen 00225AC0 has no options binding (the boot's title: no AREA11 world)");
+    if (!f.reinstalled && !card_open()) {
+        fail("the boot title's load screen 00225AC0 could not be bound");
+        return;
+    }
+    if (!load_options()) {
+        fail("the load screen 00225AC0 has no options binding");
         return;
     }
     if (em_area01_terminal_reset(em_scene_state()) != 0) {
@@ -419,7 +598,7 @@ static void load_begin(uint32_t serial)
 
 static void load_frame(void)
 {
-    EmOptionsLive *options = em_area11_interaction_host_options();
+    EmOptionsLive *options = load_options();
     EmSceneState *scene = em_scene_state();
     EmTask *task = em_task_current();      /* 001AC070 in slot 0 */
     if (!f.load_serial || !options || !task || task != em_task_slot(0)) {
@@ -462,6 +641,9 @@ static void load_frame(void)
     if (r != 0) {
         const uint32_t serial = f.load_serial;
         f.load_serial = 0;
+        /* The boot title's binding goes after this tick's draw; 00225AC0
+         * loads module 0x2A again at the next entry. */
+        if (!f.reinstalled) f.card_close = 1;
         em_startup_complete(&f.flow, serial, (int)r);
     }
 }
@@ -522,13 +704,26 @@ static void notify(void *unused, const EmStartupEvent *event)
          * task; id 1 is a loaded game (D_00275BE0 = 1). The intro movie of
          * a New Game is requested later by the chain itself, at 001AD360
          * step 1 (em_frontend_movie_request). */
+        if (event->id != 0 && load_report()) load_test_block("read");
+        card_close();
         if (event->id != 0) {
             /* A loaded game (state 5's 00225AC0(0) returned 2): the same
              * 001AB790(001ACEC0) with D_00275BE0 = 1, whose chain enters the
-             * block's area (em_game_reinstall_loaded_001AC070). The load
-             * screen runs only on the title after a death (load_begin). */
-            if (!f.reinstalled || em_game_reinstall_loaded_001AC070() != 0)
+             * block's area: after a death em_game_reinstall_loaded_001AC070,
+             * on the boot's title em_game_install_loaded_001AC070 (the game
+             * state as at the boot's New Game, the block the slot's). */
+            if ((f.reinstalled ? em_game_reinstall_loaded_001AC070() : em_game_install_loaded_001AC070()) != 0)
                 fail("001AC070 state 4: the game task for a loaded game");
+            else if (load_drive())
+                printf("%s: the loaded game's handoff at engine frame %u, area %02X %02X %02X\n", load_prefix(),
+                       em_frame_counter(), em_scene_state()->d810700, em_scene_state()->d810701,
+                       em_scene_state()->d810702);
+            if (load_report()) load_test_block("handoff");
+            /* EM_START_AT: the pad is the player's from the handoff on, in
+             * a report run (EM_START_AT_TEST=1) as in a developer's run;
+             * the report run's handback probe (em_frontend_load_test_
+             * before_frame, phase 5) checks it. */
+            if (f.start_at) load_pad_release();
             return;
         }
         /* After a death the same handoff replaces this task with the game
@@ -560,6 +755,259 @@ static void notify(void *unused, const EmStartupEvent *event)
     em_startup_complete(&f.flow, event->serial, ready ? 1 : -1);
 }
 
+/* EM_STARTUP_TEST=loadgame (test input only; tools/test_title_load_game.py)
+ * and EM_START_AT=<name> (em_start_at.h; the same presses):
+ * the boot's title, LOAD GAME (load_test's menu presses), then on the card
+ * screen the policy of tools/test_card_screen_reference.py (slot 0 on port 0,
+ * Yes; the level smoke's DS_LOAD_SLOT) once the screen is up with the fade
+ * idle and 60 ticks: each press is the card record's game word as pad
+ * buttons (em_pad_swap), held two ticks, then the policy waits until the
+ * record D_00810040 changes (30 ticks at most, 40 presses at most). After
+ * the handoff the world frames (em_frontend_load_test_before_frame) wait
+ * for the placement and control in the loaded area, then 60 ticks. */
+static struct {
+    int phase;          /* 0 the title, 1 the screen up, 2 pressing, 3 the game */
+    int ticks, hold, tries, presses;
+    uint8_t mc[0x18];
+    uint32_t placed_counter, control_counter;
+    int handback;       /* EM_START_AT_TEST: the handback probe saw its button */
+} lt;
+
+/* EM_START_AT_TEST's handback probe button (L3: no use in a first-level
+ * area's play, and the run quits 60 ticks after control). */
+#define HANDBACK_PROBE EM_PAD_L3
+
+/* The whole progress block D_00810700..D_00810D3F as hex, for the test's
+ * byte-for-byte comparison with the slot's EX_DATA.00. */
+static void load_test_block(const char *when)
+{
+    const uint8_t *b = em_scene_progress_at(em_scene_state(), 0x00810700u, 0x640u);
+    if (!b) {
+        fprintf(stderr, "%s: FAIL: the progress block is not one canonical storage\n", load_prefix());
+        fail("the progress block is not one canonical storage");
+        return;
+    }
+    printf("%s: block %s ", load_prefix(), when);
+    for (unsigned i = 0; i < 0x640u; i++) printf("%02X", b[i]);
+    printf("\n");
+}
+
+/* The driven pad: the outer input layer (em_input_set_filter) replaces
+ * the whole pad, the keyboard's and a physical controller's, with these
+ * buttons and centred sticks while the drive holds it. */
+static struct {
+    int on;
+    uint16_t buttons;
+} drive;
+
+static void load_pad_filter(EmPadState *pad, void *user)
+{
+    (void)user;
+    const EmPadState driven = {drive.buttons, 0, 0, 0, 0};
+    *pad = driven;
+}
+
+static void load_test_pad(uint16_t buttons)
+{
+    drive.buttons = buttons;
+    if (!drive.on) {
+        em_input_set_filter(load_pad_filter, NULL);
+        drive.on = 1;
+    }
+}
+
+static void load_pad_release(void)
+{
+    if (drive.on) em_input_set_filter(NULL, NULL);
+    drive.on = 0;
+    drive.buttons = 0;
+}
+
+static void load_test_fail(const char *why)
+{
+    fprintf(stderr, "%s: FAIL at engine frame %u: %s\n", load_prefix(), em_frame_counter(), why);
+    fail(why);
+}
+
+static void load_test_after_frame(void)
+{
+    unsigned major = 0, sub = 0;
+    em_frontend_title_state(&major, &sub);
+    const uint8_t *mc = em_scene_state()->d810040;
+    if (lt.phase == 0) {
+        if (major == 5 && mc[0] == 1 && em_frame_transition()->substate == 0) {
+            lt.phase = 1;
+            lt.ticks = 0;
+            printf("%s: the card screen up at engine frame %u (card %u %u %u)\n", load_prefix(),
+                   em_frame_counter(), mc[0], mc[1], mc[0x15]);
+        } else if (++lt.ticks > 4000) {
+            load_test_fail("the boot title's load screen did not come up");
+        }
+        return;
+    }
+    if (lt.phase == 1) {
+        load_test_pad(0);
+        if (++lt.ticks >= 60) {
+            lt.phase = 2;
+            lt.ticks = 0;
+        }
+        return;
+    }
+    if (lt.phase != 2) return;
+    if (major != 5) {
+        if (!lt.presses) {
+            load_test_fail("the load screen ended before a press");
+            return;
+        }
+        load_test_pad(0);
+        lt.phase = 3;
+        lt.ticks = 0;
+        printf("%s: the load screen ends at engine frame %u (title state %u, card %u %u %u %u) after %d "
+               "presses\n", load_prefix(), em_frame_counter(), major, mc[0], mc[1], mc[0x15], mc[0x16], lt.presses);
+        return;
+    }
+    if (lt.hold > 0 && lt.hold < 3) {
+        if (++lt.hold == 3) load_test_pad(0);
+        return;
+    }
+    if (lt.hold == 3) {
+        load_test_pad(0);
+        if (memcmp(lt.mc, mc, sizeof lt.mc) == 0 && ++lt.ticks <= 30) return;
+        lt.hold = lt.ticks = 0;
+        return;
+    }
+    const uint8_t screen = mc[1], step = mc[2], st3 = mc[3], yes = mc[9], cur = mc[0xA];
+    uint16_t word = 0;
+    if (screen == 2) {
+        if (step == 0) word = cur > 0 ? 0x1000 : 0x40;
+        else if (step == 1 && st3 == 1) word = yes == 0 ? 0x8000 : 0x40;
+    } else if (screen == 4) {
+        if (step == 0) word = cur > 0 ? 0x1000 : 0x40;
+        else if (step == 1 && st3 == 1) word = 0x40;
+    }
+    load_test_pad(0);
+    if (!word) {
+        if (++lt.ticks > 2000) load_test_fail("the load screen's load did not end");
+        return;
+    }
+    if (++lt.tries > 40) {
+        load_test_fail("the load screen's presses had no effect");
+        return;
+    }
+    printf("%s: press %04X at engine frame %u (card %u %u %u %u %u %u)\n", load_prefix(), word,
+           em_frame_counter(), mc[0], screen, step, st3, yes, cur);
+    memcpy(lt.mc, mc, sizeof lt.mc);
+    ++lt.presses;
+    load_test_pad(em_pad_swap(word));
+    lt.hold = 1;
+    lt.ticks = 0;
+}
+
+static uint8_t load_test_task_byte(unsigned offset)
+{
+    EmTask *task = (EmTask *)em_task_slot(0);
+    const uint8_t *b = task ? em_scene_task_byte(task->user, offset) : NULL;
+    return b ? *b : 0xFF;
+}
+
+static float load_test_f32(const uint8_t *p)
+{
+    float v;
+    memcpy(&v, p, 4);
+    return v;
+}
+
+/* EM_START_AT without EM_START_AT_TEST: the run is the player's after the
+ * handoff; the placement and control are only reported, and the frames are
+ * paced again at control (or when it does not come). */
+static void start_at_give_up(const char *why)
+{
+    fprintf(stderr, "%s: %s at engine frame %u; the run goes on paced\n", load_prefix(), why, em_frame_counter());
+    em_frame_set_unpaced(0);
+    lt.phase = 6;
+}
+
+void em_frontend_load_test_before_frame(void)
+{
+    if (!load_drive() || f.failed || lt.phase < 3 || lt.phase > 5) return;
+    const EmSceneState *sc = em_scene_state();
+    const EmPlayerLiveActor *a = player_states_actor();
+    const int report = load_report();
+    /* The title load test keeps its pad driven (and zero) to the end;
+     * EM_START_AT released it at the handoff. */
+    if (report && !f.start_at) load_test_pad(0);
+    if (lt.phase == 3) {
+        if (sc->d275BE0 == 0 && load_test_task_byte(EM_SCENE_TASK_08) == 3 &&
+            load_test_task_byte(EM_SCENE_TASK_09) == 1 && a) {
+            /* 001B07C0(0) with D_00275BE0 == 1 placed the player from the
+             * load pose D_00810710 / 720 and 001B0460 cleared it. */
+            const uint8_t *pose = em_scene_progress_at((EmSceneState *)sc, 0x00810710u, 0x20);
+            lt.placed_counter = em_frame_counter();
+            lt.phase = 4;
+            printf("%s: placed at engine frame %u in area %02X %02X %02X at (%.3f,%.5f,%.3f) "
+                   "heading %.5f, the load pose (%.3f,%.5f,%.3f) heading %.5f, health %.1f\n",
+                   load_prefix(), lt.placed_counter, sc->d810700, sc->d810701, sc->d810702, g.pos[0], g.pos[1], g.pos[2], g.yaw,
+                   pose ? load_test_f32(pose) : -1.0f,
+                   pose ? load_test_f32(pose + 4) : -1.0f, pose ? load_test_f32(pose + 8) : -1.0f,
+                   pose ? load_test_f32(pose + 0x14) : -1.0f, sc->d810858);
+            if (report) load_test_block("placed");
+        } else if (++lt.ticks > 6000) {
+            if (report) load_test_fail("no placement in the loaded area");
+            else start_at_give_up("no placement in the loaded area");
+        }
+        return;
+    }
+    if (lt.phase == 4) {
+        if (sc->spad3B8D == 0 && !player_pose_owned() && !em_game_player_interact_busy() &&
+            load_test_task_byte(EM_SCENE_TASK_0B) == 1 && a && em_live_u8(a, 4) == 1) {
+            lt.control_counter = em_frame_counter();
+            lt.phase = 5;
+            lt.ticks = 0;
+            printf("%s: control in the loaded area %02X at engine frame %u (%.3f,%.5f,%.3f) heading %.5f "
+                   "health %.1f\n", load_prefix(), sc->d810700, lt.control_counter,
+                   load_test_f32(a->bytes + 0xA0), load_test_f32(a->bytes + 0xA4), load_test_f32(a->bytes + 0xA8),
+                   load_test_f32(a->bytes + 0xC4), sc->d810858);
+            if (report) load_test_block("control");
+            if (f.start_at) em_frame_set_unpaced(0);
+            if (f.start_at && !report) lt.phase = 6;
+        } else if (++lt.ticks > 6000) {
+            if (report) load_test_fail("no control in the loaded area");
+            else start_at_give_up("no control in the loaded area");
+        }
+        return;
+    }
+    if (lt.phase == 5 && f.start_at && report && !lt.handback) {
+        /* EM_START_AT_TEST's handback probe: from control the probe holds
+         * HANDBACK_PROBE through the test buttons (em_input_set_test_
+         * buttons), ORed into the pad before the outer input layer; a
+         * driven pad (em_input_set_filter) would erase it. It must reach
+         * the unpacked held mask D_00810E70 (em_frame_input) within 10
+         * ticks: the pad is the player's. */
+        if (lt.ticks == 1) em_input_set_test_buttons(HANDBACK_PROBE);
+        if (lt.ticks >= 1 && (em_frame_input()->held & HANDBACK_PROBE)) {
+            em_input_set_test_buttons(0);
+            lt.handback = 1;
+            printf("%s: the pad is the player's after the handoff: a held %04X reached D_00810E70 at engine "
+                   "frame %u\n", load_prefix(), (unsigned)HANDBACK_PROBE, em_frame_counter());
+        } else if (lt.ticks > 10) {
+            em_input_set_test_buttons(0);
+            load_test_fail("the pad is not the player's after the handoff (a held button did not reach "
+                           "D_00810E70: the driven pad is still installed)");
+            return;
+        }
+    }
+    if (lt.phase == 5 && ++lt.ticks >= 60) {
+        if (f.start_at && report && !lt.handback) {
+            load_test_fail("no handback probe");
+            return;
+        }
+        lt.phase = 6;
+        printf("%s: PASS (the boot title's LOAD GAME, area %02X, control at engine frame %u)\n", load_prefix(),
+               sc->d810700, lt.control_counter);
+        em_frame_request_quit();
+    }
+}
+
 static void startup_task(void)
 {
     if (em_startup_audio_tick() != 0) fail("startup audio event queue overflow");
@@ -589,7 +1037,7 @@ static void startup_task(void)
     int expected_cursor = -1;
     /* The fixtures drive the boot's title only; after a death the player's
      * pad (the level smoke's driver) drives it. */
-    if (f.test && !f.reinstalled && em_startup_view(&f.flow, &input).interactive) {
+    if ((f.test || f.start_at) && !f.reinstalled && em_startup_view(&f.flow, &input).interactive) {
         /* End-to-end fixture: exercise the rendered menu through the same
          * state-machine input boundary as the frame's unpacked pad. */
         input.held = input.pressed = 0;
@@ -612,6 +1060,14 @@ static void startup_task(void)
          * (tools/test_new_game_switch.py: title routes of both field
          * parities and dwells; below the 30-tick menu test). */
         if (f.menu_ticks == 15 + f.menu_wait && new_game_test(f.test))
+            input.held = input.pressed = EM_PAD_CROSS;
+        /* EM_STARTUP_TEST=loadgame: Down to LOAD GAME at tick 13, its
+         * CROSS at tick 15 (the boot title's load entry, state 5). */
+        if (load_drive() && f.menu_ticks == 13) {
+            input.held = input.pressed = EM_PAD_DOWN;
+            expected_cursor = 1;
+        }
+        if (load_drive() && f.menu_ticks == 15)
             input.held = input.pressed = EM_PAD_CROSS;
     }
     em_startup_tick(&f.flow, &input);
@@ -647,12 +1103,17 @@ static void startup_task(void)
     }
     /* The load screen's draw stream of this tick's 00225AC0 call. */
     if (f.load_drawn) {
-        if (em_options_live_render(em_area11_interaction_host_options(), gfx) != 1)
+        if (em_options_live_render(load_options(), gfx) != 1)
             fail("the load screen's draw stream");
         const uint8_t *card = em_scene_state()->d810040;
         if (card[0] == 1 && card[0x15] == 1 && em_frame_transition()->substate == 0)
             capture(1u << 10, "load_screen");   /* the slot choice, idle */
     }
+    if (f.card_close) {
+        f.card_close = 0;
+        card_close();
+    }
+    if (load_drive()) load_test_after_frame();
     f.interactive = view.interactive;
     f.cursor = view.cursor;
     /* The level smoke drives the title after a death with the pad (its
@@ -728,12 +1189,22 @@ void em_frontend_install(void)
     f.installed = 1;
     f.capture_dir = getenv("EM_STARTUP_CAPTURE_DIR");
     f.test = getenv("EM_STARTUP_TEST");
+    f.load_test = f.test && strcmp(f.test, "loadgame") == 0;
     /* Test input only (EM_STARTUP_TEST runs): the host card folder for the
      * whole run, set before the boot's card check (the level smoke's
      * dmg_load_game loads a copy of a start-point card). */
     const char *card = f.test ? getenv("EM_TEST_MEMCARD_ROOT") : NULL;
     if (card && card[0])
         em_memcard_set_root(card);
+    /* EM_START_AT=<name> (em_start_at.h, checked at launch): the start-point
+     * card, read-only, for the whole run; the boot runs unpaced to the
+     * loaded area's control. */
+    if (em_start_at_name()) {
+        f.start_at = 1;
+        em_memcard_set_root(em_start_at_card_root());
+        em_memcard_set_read_only(1);
+        em_frame_set_unpaced(1);
+    }
     const char *wait = f.test ? getenv("EM_STARTUP_MENU_WAIT") : NULL;
     f.menu_wait = wait ? (unsigned)strtoul(wait, NULL, 10) : 0;
     if (f.menu_wait > 14)
@@ -779,6 +1250,7 @@ void em_frontend_install_new_game(void)
 
 void em_frontend_shutdown(void)
 {
+    card_close();
     em_startup_audio_stop();
     em_frame_set_movie_pump(NULL, NULL);
     em_frame_set_movie_vblank(NULL, NULL);

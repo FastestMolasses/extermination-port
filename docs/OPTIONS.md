@@ -24,7 +24,7 @@ original's; no instruction of the original is reproduced here.
 | Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1) and LOAD GAME through its read into the progress block (one storage since save2 round 2) to the result 2; r == 2 then faults at 001D2610 (not bound) | test-options-reference; opt_07; test-options-card-live |
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
-| The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick, its r == 2: 001AF150 and state 4's loaded game | live (section 4.3; the loaded game: SAVE_GAME.md section 6.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load, dmg_load_game |
+| The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick, its r == 2: 001AF150 and state 4's loaded game | live (section 4.3; the loaded game: SAVE_GAME.md section 6.3); on the boot's title too, on the title's own binding (SAVE_GAME.md section 6.4) | test-title-menu-reference, test-options-reference; dmg_load, dmg_load_game; test-title-load-game |
 | Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated and dispatched, but its callers are not wired and its save mode stops at the free count, Format, the New Game block and the full-block Write (SAVE_GAME.md section 6.1) | decomp save_scan.json; test-save-reference |
 
 ## 2. Opening and closing
@@ -105,12 +105,14 @@ step (d810118, spad3B74, spad3B94 / 96); their earlier copies are gone:
 The boot's 001AB430 (em_scene_settings_001AB430) stores the defaults.
 
 The card screen past the slot choice (the save lane's binding, SAVE_GAME.md
-section 6.1) adds: the binding's own storage for the card code's .bss /
+section 6.1) adds: one process-wide storage for the card code's .bss /
 .sbss buffers (GetDir's table D_00821500, the header D_00821980, the staging
-blocks D_008219D0 / D_00822050 / D_00822690, the slot path D_00822010; zero
-at the binding's creation, as the boot leaves .bss; nothing else reads them),
-the slot rows' text D_00275C94..9F (one 12-byte buffer: the play time's text
-runs past D_00275C94's 4 bytes into D_00275C98, see section 7), read-only
+blocks D_008219D0 / D_00822050 / D_00822690, the slot path D_00822010, and
+the slot rows' text D_00275C94..9F, one 12-byte buffer: the play time's text
+runs past D_00275C94's 4 bytes into D_00275C98, see section 7), shared by
+every binding and kept across the screen's entries, as the original's one
+copy (zero at process start, as the boot leaves .bss; nothing else reads
+them; SAVE_GAME.md section 6.4), read-only
 per-call copies of em_area_title's place names D_002671C0, their strings and
 D_00289B40, and the card code's .data windows in the EMSP.
 
@@ -158,9 +160,10 @@ slot into D_00810700) runs 001AF150 in that tick and the flow goes to state
 (SAVE_GAME.md section 6.3; the side run dmg_load_game). The title flow also does what 001AC070 does at every entry that the
 screen reads: 0x70003B90 = 0 (the game task writes 2) and the pad words
 D_00810E74 / E70 / E50 from the frame's step C (em_frame_scene_input). The
-boot's title has no AREA11 world and no binding: LOAD GAME there fails the
-run with a message (no recording; the first level reaches the load screen
-only after a death). The title's OPTIONS entry (00200A40) is not on the
+boot's title has no AREA11 world: its LOAD GAME runs the same screen on a
+binding of the title's own (SAVE_GAME.md section 6.4; no recording, the
+first level's recordings reach the load screen only after a death). The
+title's OPTIONS entry (00200A40) is not on the
 first level's recordings and stays pending.
 
 ### 4.4 Mono
@@ -258,7 +261,9 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   host's clock; the two agree if no timeline plays while the card screen
   runs, which no recording shows (SAVE_GAME.md section 6.1).
 - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.
-- **The title's OPTIONS entry** (00200A40) and LOAD GAME on the boot's title.
+- **The title's OPTIONS entry** (00200A40). LOAD GAME on the boot's title
+  runs since save2 round 5 (SAVE_GAME.md section 6.4), checked against the
+  original code's steps only (no recording loads a game).
 
 ## 8. Curiosity
 

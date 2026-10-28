@@ -18,11 +18,12 @@ instruction of the original is reproduced here.
 | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
 | The progress block as one storage | D_00810700..D_00810D3F, which 00228B60 reads into and a save's Write reads (section 6.1) | every byte one storage (em_scene_state.h; save2 round 2); 001AF2C0's effect on all 0x640 bytes | test-continue-reset-reference, test-options-card-live |
 | LOAD GAME after the read: the title | 001AC070 state 5's r == 2 (001AF150, D_00275BE0 = 1), state 4's 001AB790(001ACEC0); 001ACEC0 state 0 / 2, 001ADF50 on the block's area, 0x1AE040 state 0's 001B07C0(0) from the load pose, 001B0460's clear (section 6.3) | wired (save2 round 3): the title's LOAD GAME after a death enters the slot's area | the side run dmg_load_game (`make test-level-smoke-damage`) |
+| LOAD GAME on the boot's title | the same 001AC070 states 2 / 5 / 4 and 00225AC0(0) before any game (section 6.4) | wired (save2 round 5): the card screen on the boot title's own binding (the GS memory cleared, module 0x2A's upload applied), then the loaded game's handoff em_game_install_loaded_001AC070 into the slot's area | `make test-title-load-game` |
 | LOAD GAME after the read: the options | 0022A650's r == 2 (001AEBA0, 001AF150, 001D2610, D_00275BE0 = 1, the game task to 3 / 5) | not bound: 001D2610 fail-stops | - |
-| The host card | em_memcard: GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
+| The host card | em_memcard (since save2 round 6 also read-only, for EM_START_AT): GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
 | The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
 | Start-point saves | the save terminal's pose step (00159B90's two copies 00102948) and the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6; the load pose since save2 round 4) | test-start-saves, dmg_load_game |
-| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
+| `EM_START_AT` | the boot title's LOAD GAME (001AC070, section 6.4) on a start-point save | built (save2 round 6; docs/STARTUP.md "Developer switches"): the start-point card read-only, the title load test's presses, the boot unpaced to control; area01 reaches control in AREA01; area00 and area01-revisit are placed at their load poses, then stop (section 8) | `make test-start-at`, test-memcard-host (the read-only card) |
 
 Next steps: section 8.
 
@@ -621,9 +622,9 @@ port runs it (save2 round 3):
   cleared record. The port: the EM_STARTUP_NEW_GAME event with id 1 calls
   em_game_reinstall_loaded_001AC070 (em_game.c): the task replaced as for
   New Game, D_00275BE0 left 1, the port's stand-ins outside the route
-  cleared as for New Game, the opening not requested. The load screen runs
-  only on the title after a death (the boot's title faults at it: no
-  AREA11 binding), so the handoff refuses a cold title.
+  cleared as for New Game, the opening not requested. On the boot's title
+  (no game yet) the handoff is em_game_install_loaded_001AC070 (section
+  6.4).
 - **001ACEC0**: state 0 runs 001AD1A0 (screen module 3, 001D19D0) and,
   D_00275BE0 being 1, goes to state 2, which sets +8 = 3, +9 = 5: no
   001AD230 (no 001AF2C0 reset: the block is the slot's) and no 001AD360 (no
@@ -681,9 +682,113 @@ test-spawn-place-reference covers both arms of 001B07C0). Equivalent: a
 skipped 001AF150 (the card's settings are the defaults the run already
 has).
 
+### 6.4 LOAD GAME on the boot's title
+
+The original's title runs the same LOAD GAME before any game: 001AC070
+state 2's load verdict (00225A00, D_00275BE0 = 1), state 5's 00225AC0(0)
+every tick, the result 2's 001AF150 and state 4's 001AB790(001ACEC0). The
+port had bound the card screen only on the title after a death, through the
+AREA11 interaction host's options binding; the boot's title failed the run
+there. Since save2 round 5 (em_frontend.c):
+
+- **The card screen's binding of the boot title** (s_card): the same
+  translation (em_options_live, 00225AC0 and 00227300 under it) over a GS
+  memory of its own. The GS memory is the status pages' file
+  (em_gs_texture) cleared (em_gs_texture_clear: no block known), since the
+  boot's GS holds only the title's own uploads, which the file does not
+  hold. The screen's module load (00225AC0 m[1] 2: D_00275BD8 = 1,
+  001FF080(0, 0x2A)) runs the live loader's own steps; its one chunk (the
+  same header and chain checks as the status runtime's page modules,
+  docs/MODULE_LOADER.md finding 1) is applied as module 0x2A's step. A draw
+  that needs a block the upload did not write is refused, so the screen
+  faults rather than draw from a guess. That check covers the textured
+  draws em_gs_texture serves (00207E40 through em_page_draw): none of them
+  is refused in the run below, so every one comes from module 0x2A's
+  upload. The text runs (001CC1E0 / 001FC770 through em_message_live) are
+  not checked by it: their glyphs come from the port's glyph atlas, as
+  they do after a death. The workers are the AREA11 binding's: the cues 0 /
+  1 / 4 (0020CD40 / 60 / A0) of the system sound set, which no exporter
+  produces yet (silent, reported once per cue while it has no exported
+  sample, em_sfx_cue_state 0, as status_sound after a death), the colour
+  fades, 001FBC50 / 001FABB0, 001D2830, 001B61C0. 00200970(1) is not
+  reached on the title (00225AC0 calls it only when 0x70003B90 is 2, the
+  game task's value; 001AC070 clears it every tick) and would fault. The
+  binding opens at the load entry and closes after the screen's last draw,
+  releasing the loader's chain before any game task binds its own.
+- **The card buffers are one storage** (em_options_live.c card_bss): the
+  .bss buffers D_00821500 (GetDir's table), D_00821980, D_008219D0,
+  D_00822010, D_00822050, D_00822690 and the .sbss slot-row text
+  D_00275C94..9F. The original has one copy of each, which keeps its
+  contents across the card screen's entries. The port now holds them once
+  per process, shared by the boot title's binding and the AREA11 host's
+  and not freed with a binding, so closing the boot title's binding (on
+  either result, also r = 1, back to the menu) and opening it again keeps
+  them, as the original does; zero at process start, as the boot leaves
+  the original's .bss. Before, each binding had its own copy, which
+  started zero at each open. No test cancels the screen and enters it
+  again yet; the one storage makes the original's behaviour hold by
+  construction rather than by a check of which buffer is written first.
+- **The handoff**: state 4 with id 1 runs em_game_install_loaded_001AC070
+  (em_game.c): the game task replaces the title task as for the boot's New
+  Game (the game state as at that New Game, game_install_state), the
+  progress block kept, which is the slot's, and no opening request. The
+  demo vitals, which the New Game entries store before 001AF2C0 resets the
+  block, are not stored: game_demo_vitals moved out of game_install_state
+  into the New Game and fixture entries, which store them as before. The
+  chain then runs as in section 6.3.
+- **A port binding the route had hidden**: the collision world's list
+  words (the listed records' pool addresses, which 001AAD00's passes read)
+  were served only by the binding AREA11's Roger makes at his first tick
+  (em_area11_roger.c ready()), which stays bound for the rest of the run.
+  An area entered without AREA11 had none, and its first close-out faulted
+  at 001AA140 (every list slot unbound). The arrival areas' collision load
+  (em_scene_bindings.c w_001AFCA0) now binds the scene pool's addresses
+  when no binding is there; on the route from AREA11 Roger's stays.
+
+`make test-title-load-game` (tools/test_title_load_game.py, the fixture
+EM_STARTUP_TEST=loadgame in em_frontend.c): the boot, the attract movie
+skipped by START, Down to LOAD GAME and its CROSS, then the card screen with
+the policy of test_card_screen_reference (slot 0 on port 0, Yes) on a copy
+of the area01 start-point card (build/title_load_game/card, test input
+only), then until control in the loaded area and 60 ticks. No recording of
+a load exists, so it checks the original code's steps against the slot: the
+screen's end with +0 = 3 and the result 2 (+0x16), then state 4; the
+handoff's area bytes equal the slot's +0..+2; the placement equals the
+slot's load pose (D_00810710..718, D_00810724; start.json's too) and the
+block in memory still holds it; the health equals the slot's D_00810858;
+control in that area; the card folder unchanged. The whole progress block
+D_00810700..D_00810D3F (the fixture's "block" lines) is compared with the
+slot's EX_DATA.00 byte for byte four times: after the read (state 4,
+before the handoff), after the handoff, at the placement and at control.
+The first three must equal the slot in all 0x640 bytes. At control one
+original write is listed and allowed: the world frame counter D_00810750,
+which 001AE5E0 and 001AE6B0 (em_scene_frame.c) bump by one per world frame;
+it must equal the slot's value plus the frames from the placement to
+control. The chain's other steps on the block between the read and
+control store only what the slot already holds in this run (001AF150 only
+reads it; the area streamer 001FFCD0 stores its latches D_00810703 / 704
+from D_00810700 / 701, the area the slot was saved in; 001B07C0 stores
+D_00810706 back masked with 1), and the test requires that: a step that
+stores anything else fails it. Negative control in the
+same run: an empty card (both slots empty folders) must hand off no game.
+Run 2026-10-21: PASS (AREA01 01 00 04, four presses, placed at (41.0, 0.0,
+-565.6) heading -1.43411, health 100, control at engine frame 1607; the
+block equal to the slot after the read, the handoff and the placement, and
+at control but for D_00810750, +1; about 3 s). Mutants, each failing it:
+the chunk not applied as module 0x2A's step (the load screen's draw is
+refused), the demo vitals stored on the loaded install (health 75 against
+the slot's 100), the arrival's pool binding dropped (the close-out fault at
+001AA140), and only the demo infection stored on the loaded install
+(D_0081085C = 60.0 after game_install_state: the block at the handoff
+differs from the slot at D_0081085E..85F, where the health check alone had
+passed it). The load screen drawn on the
+boot title was looked at once (the slot choice: the LOAD title, the button
+legend and the two slot rows); no recording of that screen exists to
+compare it with.
+
 ## 7. Start-point saves (round 6)
 
-What `EM_START_AT` is to load (not wired yet, section 8): one memory card
+What `EM_START_AT` loads (docs/STARTUP.md "Developer switches", since save2 round 6): one memory card
 per start point, made by the ORIGINAL save writer from the state a fork
 route recording starts its area from. `tools/build_start_saves.py`
 (`make start-saves`) builds them into `build/start_saves/<name>/`, which is
@@ -761,7 +866,8 @@ terminal's pose step and the writer's code make of the block at the
 arrival frame, a frame the tool chooses; it is not a save the original
 made, and the original never saves at these places. Loading one through
 the title's LOAD GAME enters its area at the arrival's pose (section 6.3,
-the side run dmg_load_game on the area01 card).
+the side run dmg_load_game on the area01 card; on the boot's title,
+`EM_START_AT=<name>`, `make test-start-at`).
 
 `make test-start-saves` (`tools/test_start_saves.py`) builds all three into
 a temporary folder and checks each card again from the recording files
@@ -784,12 +890,14 @@ every arrival block.
 ## 8. Next steps
 
 In order (the title's loaded game is done, section 6.3; the start-point
-saves' load pose, section 7, since save2 round 4): 0022A650's r == 2 (001D2610,
-unbound); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
-em_memcard on `build/start_saves/<name>` and the title's LOAD GAME on slot
-0 of port 0 (at the boot's title, which has no AREA11 binding for the load
-screen yet), off by default, refusing an unknown name or a card that is not
-built; the save terminal's Yes path (0020CDC0, request 6) and the save
+saves' load pose, section 7, since save2 round 4; LOAD GAME on the boot's
+title, section 6.4, since save2 round 5; `EM_START_AT=<name>`, docs/STARTUP.md
+"Developer switches", since save2 round 6: area01 reaches control in AREA01;
+area00 is placed at its load pose, then the static world refuses a run
+larger than RUN_MAX at 00297710 and no control comes within 300 s;
+area01-revisit is placed at its load pose, then faults at 00823CD0, both
+areas still being finished on port main): 0022A650's r == 2 (001D2610,
+unbound); the save terminal's Yes path (0020CDC0, request 6) and the save
 mode's leaves (GetInfo's free count, Format 00114D18, 001AF2C0, block_copy
 00121870, the icon container *D_0028A4A0 as a window); a fork recording of
 a save at AREA01's save terminal on a separate, formatted card file (the

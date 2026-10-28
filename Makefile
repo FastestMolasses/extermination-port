@@ -30,7 +30,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_movie_field.c src/game/em_movie_sound.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
-           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
+           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c src/game/em_start_at.c \
            src/game/em_opening_face.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
@@ -1501,6 +1501,26 @@ start-saves:
 
 test-start-saves:
 	python3 tools/test_start_saves.py
+
+# LOAD GAME on the boot's title (docs/SAVE_GAME.md section 6.4): boot,
+# LOAD GAME, the card screen on a copy of the area01 start-point card
+# (start-saves), into control in AREA01, checked against the slot (the
+# whole 0x640-byte progress block); the same run on an empty card must not
+# hand off a game (about 3 s).
+.PHONY: test-title-load-game
+test-title-load-game: $(BIN)
+	python3 tools/test_title_load_game.py
+
+# EM_START_AT=<name>, the developer switch (docs/STARTUP.md "Developer
+# switches"): area01 through the boot title's LOAD GAME on the start-point
+# card itself (read-only) into control in AREA01, checked as
+# test-title-load-game checks its copy; the switch alone headless; the card
+# unchanged; the refusals (unknown name, other switches, missing, stale or
+# changed cards). Needs start-saves. EM_TEST_FULL=1 also reports how far
+# area00 and area01-revisit get (about 11 s).
+.PHONY: test-start-at
+test-start-at: $(BIN)
+	python3 tools/test_start_at.py
 
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model

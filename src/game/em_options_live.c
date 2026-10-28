@@ -28,7 +28,8 @@ enum { MAX_VIEWS = 160, STACK_BASE = 0x01FF0000u, STACK_SIZE = 0x10000u, CALLS =
 #define NUMBER_SIZE 0x10u
 /* The card screen past the slot choice and the save / load code below it
  * (em_card_original, em_save_original; docs/SAVE_GAME.md): their .bss and
- * .sbss buffers, held here (nothing else reads them). */
+ * .sbss buffers, held here once per process (card_bss below; nothing else
+ * reads them). */
 #define D_00821500 0x00821500u /* GetDir's table, 0x12 entries of 0x40 */
 #define D_00821980 0x00821980u /* the header file's 0x48 bytes */
 #define D_008219D0 0x008219D0u /* a slot's staging copy (a new directory) */
@@ -40,6 +41,17 @@ enum { MAX_VIEWS = 160, STACK_BASE = 0x01FF0000u, STACK_SIZE = 0x10000u, CALLS =
 #define D_002671A0 0x002671A0u /* the slot rows' 001FC770 config */
 #define BLOCK_SIZE 0x640u
 #define TITLE_REGIONS 8u
+
+/* The card buffers above (D_00821500..D_00822690 in .bss, D_00275C94..9F
+ * in .sbss): ONE copy for the whole process, as the original has one, so
+ * their contents last across the card screen's entries and are the same
+ * for every binding (the boot title's and the AREA11 host's, em_frontend.c
+ * s_card and em_area11_interaction_host.c). Zero at process start, as the
+ * original's .bss is at boot; no instance clears or frees them. */
+static struct {
+    uint8_t getdir[0x480], header[0x48], name[0x40], card_text[CARD_TEXT_SIZE];
+    uint8_t stage_load[BLOCK_SIZE], stage_save[BLOCK_SIZE], stage_new[BLOCK_SIZE];
+} card_bss;
 
 struct EmOptionsLive {
     EmOptionsHost host;
@@ -54,8 +66,6 @@ struct EmOptionsLive {
     /* binder-owned storage of originals no other port module holds */
     uint8_t style[8];   /* D_00275828..2F: +0 colour, +4 glyph, +5 flag */
     uint8_t string[STRING_SIZE], number[NUMBER_SIZE];
-    uint8_t getdir[0x480], header[0x48], name[0x40], card_text[CARD_TEXT_SIZE];
-    uint8_t stage_load[BLOCK_SIZE], stage_save[BLOCK_SIZE], stage_new[BLOCK_SIZE];
     uint8_t stack[STACK_SIZE];
     /* the area-title module's bytes (the place names and D_00289B40),
      * copied per call and compared after it */
@@ -163,13 +173,13 @@ static void build_views(EmOptionsLive *l, const EmOptionsFrame *f)
     view(l, 0x00275C58u, 0x18, em_memcard_globals(0x00275C58u, 0x18));
     view(l, 0x00264E30u, 0x0C, em_memcard_globals(0x00264E30u, 0x0C));
     view(l, 0x00275840u, 0x08, em_memcard_globals(0x00275840u, 0x08));
-    view(l, D_00821500, sizeof l->getdir, l->getdir);
-    view(l, D_00821980, sizeof l->header, l->header);
-    view(l, D_008219D0, BLOCK_SIZE, l->stage_save);
-    view(l, D_00822010, sizeof l->name, l->name);
-    view(l, D_00822050, BLOCK_SIZE, l->stage_load);
-    view(l, D_00822690, BLOCK_SIZE, l->stage_new);
-    view(l, D_00275C94, CARD_TEXT_SIZE, l->card_text);
+    view(l, D_00821500, sizeof card_bss.getdir, card_bss.getdir);
+    view(l, D_00821980, sizeof card_bss.header, card_bss.header);
+    view(l, D_008219D0, BLOCK_SIZE, card_bss.stage_save);
+    view(l, D_00822010, sizeof card_bss.name, card_bss.name);
+    view(l, D_00822050, BLOCK_SIZE, card_bss.stage_load);
+    view(l, D_00822690, BLOCK_SIZE, card_bss.stage_new);
+    view(l, D_00275C94, CARD_TEXT_SIZE, card_bss.card_text);
     uint32_t toff = 0;
     for (unsigned i = 0; i < l->title_count; ++i) {
         memcpy(l->title_copy + toff, l->titles[i].bytes, l->titles[i].size);
@@ -886,14 +896,15 @@ void em_options_live_deactivate(EmOptionsLive *l)
     if (l) em_page_draw_deactivate(l->draw);
 }
 
-static uint8_t *card_buffer(const EmOptionsLive *cl, uint32_t address, uint32_t size)
+static uint8_t *card_buffer(const EmOptionsLive *l, uint32_t address, uint32_t size)
 {
-    EmOptionsLive *l = (EmOptionsLive *)cl;
+    (void)l;
     const struct { uint32_t base, size; uint8_t *bytes; } own[] = {
-        {D_00821500, sizeof l->getdir, l->getdir}, {D_00821980, sizeof l->header, l->header},
-        {D_008219D0, BLOCK_SIZE, l->stage_save}, {D_00822010, sizeof l->name, l->name},
-        {D_00822050, BLOCK_SIZE, l->stage_load}, {D_00822690, BLOCK_SIZE, l->stage_new},
-        {D_00275C94, CARD_TEXT_SIZE, l->card_text}};
+        {D_00821500, sizeof card_bss.getdir, card_bss.getdir},
+        {D_00821980, sizeof card_bss.header, card_bss.header},
+        {D_008219D0, BLOCK_SIZE, card_bss.stage_save}, {D_00822010, sizeof card_bss.name, card_bss.name},
+        {D_00822050, BLOCK_SIZE, card_bss.stage_load}, {D_00822690, BLOCK_SIZE, card_bss.stage_new},
+        {D_00275C94, CARD_TEXT_SIZE, card_bss.card_text}};
     for (unsigned i = 0; i < sizeof own / sizeof own[0]; ++i)
         if (address >= own[i].base && (uint64_t)address + size <= (uint64_t)own[i].base + own[i].size)
             return own[i].bytes + (address - own[i].base);
