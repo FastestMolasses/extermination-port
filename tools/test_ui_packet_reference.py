@@ -631,6 +631,18 @@ def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font
                 angle = fan_angles[k] if fan_angles else 0
                 out.append((at, B_1D66A0, (1, *FAN_REST_A1, *a2, *a3, angle)))
             at += 0x870
+        elif (tid == 1 and qwc == 3 and q(ram, at + 0x20) == 0x1000000000008001 and q(ram, at + 0x28) == 0xE
+              and q(ram, at + 0x38) == 0x40):
+            # 00207D90 (SCISSOR_1 by A+D; DATABASE's 00213CC0): its packed
+            # word is rebuilt from the decoded corners, so a corner the
+            # 16-bit fields cannot hold (a negative one) refuses
+            packed = q(ram, at + 0x30)
+            x0, x1, y0, y1 = packed & 0xFFFF, (packed >> 16) & 0xFFFF, (packed >> 32) & 0xFFFF, packed >> 48
+            if x0 | x1 << 16 | y0 << 32 | y1 << 48 != packed or ram[at + 0x10:at + 0x1C] != bytes(12) \
+                    or lo32(q(ram, at + 0x18) >> 32) != 0x50000002:
+                raise RuntimeError(f'scissor at {at:#x}: not 00207D90\'s packet')
+            out.append((at, B_7D90, (1, x0, y0, x1, y1)))
+            at += 0x40
         elif tid == 1 and qwc == 4 and q(ram, at + 0x20) == 0x4400000000008001:
             d40, d48 = lo32(q(ram, at + 0x40)), lo32(q(ram, at + 0x48))
             out.append((at, B_7F80, (1, d40 & 0xFFFF, d40 >> 16, d48 & 0xFFFF, d48 >> 16, lo32(q(ram, at + 0x38)))))

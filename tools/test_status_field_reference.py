@@ -11,7 +11,9 @@ A. The status pages. ../Extermination/build/status_field_capture/<beat>/
    route beat 01 (the battery take: the ITEM / BATTERY page with the take
    notice) and 03 (the panel's BATTERY page), and the ITEM root from the
    fork state slot12_status_root (ROOT_FRAMES) and its children EQUIPMENT
-   and EVENT, open and leaving with Circle (PAGE_FRAMES), replayed in the fork to
+   and EVENT, open and leaving with Circle (PAGE_FRAMES), and DATABASE from
+   the fork state slot14_status_hub (DATABASE_FRAMES: the list, the record,
+   the scroll's scissor, a blank entry, Circle), replayed in the fork to
    frame T, then at step V (001D21E0) of iterations T and T + 1 the EE RAM,
    the GS memory after list T (vram_after.bin) and, in a second run with
    list T's first tag made END, the GS memory list T starts from
@@ -40,7 +42,8 @@ B. The column probes (GS_EXACT.md 3.4): ../Extermination/build/
    matters, XYOFFSET X at 1025 and 1024.5 pixels). Each packet through the
    model in both modes: nothing refused, every pixel of every test equal.
 
-Quick (default): A at 01_battery f0300 and one ITEM root frame, and B.
+Quick (default): A at 01_battery f0300, one ITEM root frame, one EQUIPMENT
+frame and DATABASE's scroll frame, and B.
 EM_TEST_FULL=1: every captured frame. A difference fails.
 """
 from __future__ import annotations
@@ -76,9 +79,20 @@ PAGE_FRAMES = [('slot12_status_root_equipment', 60), ('slot12_status_root_event'
                ('slot12_status_root_equipment_bg3421', 60), ('slot12_status_root_equipment_bg3421', 61),
                ('slot12_status_root_event_bg3511', 62), ('slot12_status_root_event_bg3511', 63),
                ('slot12_status_root_equipment_circle', 72)]
-QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_equipment', 60)]
+# DATABASE (STATUS_FIELD.md 3g): the fork state slot14_status_hub, the stick
+# down, Cross (the page), Cross on id 0 (its record), Cross, right, up (the
+# scroll: 00213CC0's SCISSOR_1 packets), Cross on a blank entry, Circle
+# (capture.py CAPTURE_INPUTS): the list, the record, the next category, the
+# scroll, state 3, the Circle frame; and with D_002655A0 set to the port's
+# (CAPTURE_WRITE) of frames 6989, 7019, 7095 and 7109
+DB = 'slot14_status_hub_database'
+DATABASE_FRAMES = [(DB, 45), (DB, 70), (DB, 115), (DB, 128), (DB, 156), (DB, 182),
+                   (DB + '_bg6989', 44), (DB + '_bg6989', 45), (DB + '_bg7019', 70), (DB + '_bg7019', 71),
+                   (DB + '_bg7095', 128), (DB + '_bg7095', 129), (DB + '_bg7109', 156), (DB + '_bg7109', 157)]
+QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_equipment', 60),
+         (DB, 128)]
 FRAMES = [('01_battery', 230), ('01_battery', 300), ('01_battery', 400),
-          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES + PAGE_FRAMES
+          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES + PAGE_FRAMES + DATABASE_FRAMES
 # The column probes (B), each a batch folder under CAP.
 PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout',
           'probe_open/p14_rows', 'probe_open/p15_rows_holdout']

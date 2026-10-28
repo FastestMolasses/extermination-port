@@ -2068,8 +2068,14 @@ pool's free list (item 5): those are port work that needs no new recording
      EVENT (em_status_pages_live's packet sink; the side run's 100 frames
      of theirs presented as GS fields, four of them 0 pixels off fork
      captures given the port's D_002655A0 and the Circle frame off none);
-     HEALING (its health gauge's 002082B0 arcs), DATABASE, SPR4, MAP, the
-     hub, the page transitions and the other pages still draw with the GPU
+     since step 3g (STATUS_FIELD.md 3g) the hub's DATABASE page (00214020:
+     its list, records, category steps, the scroll's 00207D90 SCISSOR_1
+     packets, blank entries; the side run's 329 frames of its two hub
+     visits and the key take presented as GS fields, the last visit's
+     pages exactly the original's visit's, eight frames 0 pixels off fork
+     captures given the port's D_002655A0 and its Circle frame off none);
+     HEALING (its health gauge's 002082B0 arcs), SPR4, MAP, the hub, the
+     page transitions and the other pages still draw with the GPU
      renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7

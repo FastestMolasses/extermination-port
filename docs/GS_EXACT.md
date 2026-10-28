@@ -115,8 +115,9 @@ fault (section 6).
   binary32 from the left corner, four columns a step (3.4, since
   2026-10-20), and with it the status pages' whole GS lists: bit-exact on
   all 5 captured frames of the original's BATTERY page, all 4 of its
-  ITEM root (with its sixteen additive Gouraud fans, 001D66A0) and all 7
-  of EQUIPMENT / EVENT (their Circle frame included) in strict
+  ITEM root (with its sixteen additive Gouraud fans, 001D66A0), all 7
+  of EQUIPMENT / EVENT (their Circle frame included) and all 14 of
+  DATABASE (its scroll's SCISSOR_1 window included) in strict
   mode too (all of local memory; section 7, `test_status_field_reference`),
   and
   every one of the 2,048 sprites of the four designed column probes (one of
@@ -1159,7 +1160,11 @@ from a cold cache; docs/STATUS_FIELD.md):
   at the loop top before them: STATUS_FIELD.md 3e; and seven of the ITEM
   children EQUIPMENT and EVENT from the same state, four with the port's
   D_002655A0 written and one the frame Circle leaves EQUIPMENT on:
-  STATUS_FIELD.md 3f). List T is walked from its start
+  STATUS_FIELD.md 3f; and fourteen of the hub's DATABASE page from the
+  fork state slot14_status_hub, its list, a record, the next category,
+  the scroll, a blank entry's state 3 and the Circle frame, eight of them
+  with the port's D_002655A0 written: STATUS_FIELD.md 3g). List T is
+  walked from its start
   D_0028F700 + (slot << 14) in the EE image taken at step V of iteration
   T + 1 (DMA CNT / NEXT / REF / REFS / CALL / RET / END, VIF NOP and
   FLUSH* skipped, DIRECT kept, any other VIF code refused); the GS state it
@@ -1173,14 +1178,17 @@ from a cold cache; docs/STATUS_FIELD.md):
   p10_cols`, `probe_open/p11_open`, `p12_open` and the held-out
   `p13_holdout`; 3.4): every pixel of every test equal and nothing refused,
   in both modes.
-Quick: frame 01 f300, one ITEM root frame, one EQUIPMENT frame and the
-probes; EM_TEST_FULL=1: all sixteen frames.
+Quick: frame 01 f300, one ITEM root frame, one EQUIPMENT frame,
+DATABASE's scroll frame and the probes; EM_TEST_FULL=1: all thirty
+frames.
 Result (2026-10-20): every frame bit-exact in both modes (each BATTERY list
 changes 73,624 to 80,514 words of local memory: the field and the glyph and
 CLUT uploads it rewrites; each ITEM root list, 1,553 primitives with 1,024
 Gouraud triangles, 87,473 to 110,639; each EQUIPMENT / EVENT list, 525 or
 549 primitives, 76,488 to 105,443; the Circle frame's, the clear alone,
-113,029), nothing refused; every probe pixel
+113,029; each DATABASE list, 530 to 548 primitives, 77,228 to 107,786,
+its Circle frame's 114,688: 2026-10-21), nothing refused; every probe
+pixel
 equal. Before the
 column rule was settled strict mode refused 12 sprites on the beat 01
 frames and on 03 f440 and 9 on 03 f500 (88,944 field pixels left undrawn
@@ -1624,8 +1632,8 @@ is drawn since: above.)
 
 **Frame cost.** Section 10.2.
 
-**GIF frames: the BATTERY page, the ITEM root, EQUIPMENT and EVENT
-(2026-10-20 / 21, STATUS_FIELD.md 3d, 3e and 3f).** A
+**GIF frames: the BATTERY page, the ITEM root, EQUIPMENT, EVENT and
+DATABASE (2026-10-20 / 21, STATUS_FIELD.md 3d to 3g).** A
 status frame whose list is VIF DIRECT data only goes to the model whole:
 `em_gs_world_gif_frame` (em_gfx_gs_gif_frame in the backend) takes the GIF
 data of the kicked list, the head included, checks it as the recorder
@@ -1633,10 +1641,10 @@ checks a world frame (a host-to-local transfer in the stream, the glyph
 uploads, makes its blocks resident), runs it on the model that holds the GS
 registers on the game's thread, and presents its field as a list frame's.
 The BATTERY page's frames take this path (em_status_gs_page), since
-step 3e the ITEM root's and since step 3f EQUIPMENT's and EVENT's (a bound
+step 3e the ITEM root's, since step 3f EQUIPMENT's and EVENT's (a bound
 page's frame that built no packet, the Circle frame, too: its list is the
-head alone); the hub and the other pages are still drawn by the GPU
-renderer.
+head alone) and since step 3g the hub's DATABASE page's; the hub and the
+other pages are still drawn by the GPU renderer.
 
 ## 10. The fb2 reference frames and the pixel harness
 
@@ -2672,7 +2680,7 @@ picture, covering 65 rows with rows 31 and 191 half band, half picture
 is still the GPU's (host-resolution glyphs, not the GS's pixels): drawing
 it through the GS model is FIRST_LEVEL_AUDIT.md 1b item 2. The
 frames the GPU draws whole (the status pages but the BATTERY page, the
-ITEM root, EQUIPMENT and EVENT, the options screen) take the
+ITEM root, EQUIPMENT, EVENT and DATABASE, the options screen) take the
 placement at begin_frame from the registers the previous iteration's step U
 stored, with BGCOLOR over the rectangle first: in the one frame after the
 offset changes they show the old position (a field frame shows the new one

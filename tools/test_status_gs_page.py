@@ -86,9 +86,33 @@ FRAMES) and the user's font export.
    (chosen of the captures' field parity: FRAME_1 FBP 0x38, then 0) must
    equal them in every call, their written bytes equal the builders' and
    the capture's, and their presented fields and pictures (the second run)
-   equal the displayed fields.
+   equal the displayed fields. A DATABASE frame and the empty frames next
+   to one are section 8's.
 
-About 16 s (the game run; EM_TEST_FULL=1 about 2.5 to 5.5 min: three more runs; --item alone, sections 6 and 7, about 1.5 min); --dump FILE --run-log FILE reuse a run.
+8. DATABASE (00214020; STATUS_FIELD.md section 3g; the same run as 6): a
+   bound page frame whose calls after the background (0020A7A0's 513
+   calls, or 514 while its layer 2 burst runs: background_calls) open with
+   002131B0's blend 0 and first sprite is DATABASE's; an empty one is the
+   page of the bound frame next to it. Its frames form three visits (runs
+   of consecutive frames, the side run's order): the first hub visit (the
+   list, right, Cross on a blank entry, Circle), the key 0x32 take's (its
+   record and list) and the last hub visit, whose steps are those of the
+   original's visit (fork state slot14_status_hub, capture.py
+   CAPTURE_INPUTS: the stick down, Cross, Cross on id 0's record, Cross,
+   right, up at the top (the scroll, 00213CC0's two SCISSOR_1 packets),
+   Cross on a blank entry, Circle; every list of loop tops 33..182 by
+   capture_lists.py). Every page of the first visit after the background
+   is a page of the original's visit, and the last visit's distinct pages
+   are exactly the original's; the take's frames by structure only (no
+   capture). Every DATABASE frame is presented as a GS field and every
+   one with packets opens with the background and 002131B0's packets; the
+   empty ones (Circle, the take's first frame) present the displayed field
+   of the original's Circle frame (f0182, no slot-1 packet). The
+   written-background pairs (the list, the record, the scroll, the blank
+   entry's state 3) as in 7: every call, the written bytes, the presented
+   field and picture.
+
+About 16 s (the game run; EM_TEST_FULL=1 about 2.5 to 5.5 min: three more runs; --item alone, sections 6 to 8, about 2 min); --dump FILE --run-log FILE reuse a run.
 """
 from __future__ import annotations
 
@@ -126,6 +150,19 @@ PAGES_REST = {'EQUIPMENT': ('slot12_status_root_equipment', 60), 'EVENT': ('slot
 PAGES_INJECTED = {'EQUIPMENT': [('slot12_status_root_equipment_bg3421', 60), ('slot12_status_root_equipment_bg3421', 61)],
                   'EVENT': [('slot12_status_root_event_bg3511', 62), ('slot12_status_root_event_bg3511', 63)]}
 PAGES_CIRCLE = ('slot12_status_root_equipment_circle', 72)
+# DATABASE (section 8): the original's hub visit (slot14_status_hub, capture.py
+# CAPTURE_INPUTS: the stick down, Cross, Cross on id 0 (its record), Cross,
+# right, up (the scroll), Cross on a blank entry, Circle), every list of it
+# (the light captures lists/fTTTT.bin, DB_VISIT), its Circle frame, and the
+# written-background pairs (D_002655A0 of port frame N; frames N + 1, N + 2)
+DB_BEAT = 'slot14_status_hub_database'
+DB_BASE = (DB_BEAT, 45)            # a full capture of the same session (the fonts, the RAM under the lists)
+DB_VISIT = (33, 182)               # loop top 33: the page opens (state 0); 182: Circle (no slot-1 packet)
+DB_CIRCLE = (DB_BEAT, 182)
+DB_INJECTED = {'list': [(DB_BEAT + '_bg6989', 44), (DB_BEAT + '_bg6989', 45)],
+               'record': [(DB_BEAT + '_bg7019', 70), (DB_BEAT + '_bg7019', 71)],
+               'scroll': [(DB_BEAT + '_bg7095', 128), (DB_BEAT + '_bg7095', 129)],
+               'blank': [(DB_BEAT + '_bg7109', 156), (DB_BEAT + '_bg7109', 157)]}
 
 FAILS = t.FAILS
 
@@ -257,6 +294,47 @@ def written_mask(lib, ram: bytes, context: int, start: int, port: bytes, calls) 
     return builds[0] == builds[1], builds[0]
 
 
+def light(base: dict, beat: str, T: int) -> list:
+    """The calls of a light list capture (build/status_field_capture/database/
+    capture_lists.py: lists/fTTTT.bin, the list's 16 KB slot and its slot-1
+    chain at loop top T) over the RAM of a full capture of the same session."""
+    raw = (t.CAP / beat / 'lists' / f'f{T:04d}.bin').read_bytes()
+    if raw[:4] != b'SFLL':
+        raise SystemExit(f'test_status_gs_page: FAIL ({beat} lists f{T:04d} has no SFLL head)')
+    start, first, end, _ = struct.unpack_from('<4I', raw, 4)
+    ram = bytearray(base['ram'])
+    ram[start:start + 0x4000] = raw[20:20 + 0x4000]
+    ram[first:end] = raw[20 + 0x4000:]
+    f2, e2 = t.find_chain(ram, start)
+    if (f2, e2) != (first, end):
+        raise SystemExit(f'test_status_gs_page: FAIL ({beat} lists f{T:04d}: the chain is not where it was read)')
+    calls = t.decode(ram, first + 0x30, end - 0x30, base['blocks'], *base['fonts'], base['inv'])
+    return [(w, a) for _, w, a in calls]
+
+
+def background_calls(cs: list) -> int:
+    """The number of 0020A7A0's calls a frame opens with: 00207D00(1, 0),
+    layers 0 and 1's 512 sprites on the page's tile TEX0, then layer 2's one
+    sprite on it only while its burst runs (em_status_background.h; the
+    original-instruction oracle test_status_background_reference). 0: the
+    frame does not open with the background."""
+    if len(cs) < 513 or cs[0] != (t.B_7D00, (1, 0)) or cs[1][0] != t.B_7E40:
+        return 0
+    tex0 = cs[1][1][6]
+    if any(w != t.B_7E40 or a[6] != tex0 or a[3:5] != (0x100, 0x80) for w, a in cs[1:513]):
+        return 0
+    return 514 if len(cs) > 513 and cs[513][0] == t.B_7E40 and cs[513][1][6] == tex0 else 513
+
+
+def database(cs: list) -> bool:
+    """A DATABASE (00214020) frame: after the background, 002131B0's blend 0
+    and its first frame sprite (0x7000, 0x7BA0, 256 x 128; EQUIPMENT's and
+    EVENT's plates start at 0x7B40)."""
+    n = background_calls(cs)
+    return (n > 0 and len(cs) > n + 1 and cs[n] == (t.B_7D00, (1, 0)) and cs[n + 1][0] == t.B_7E40
+            and cs[n + 1][1][1:5] == (0x7000, 0x7BA0, 0x100, 0x80))
+
+
 def status_pages(lib, rlib, report: dict) -> None:
     """Sections 6 and 7 of the docstring: one status_pages run, then one
     more with frame captures at the frames whose pictures are compared."""
@@ -281,6 +359,7 @@ def status_pages(lib, rlib, report: dict) -> None:
     plog = present_log(OUT / 'present.log')
     shots = item_root(lib, port, bgs, plog, ref, context, report)
     shots += item_pages(lib, port, bgs, plog, ref, context, report)
+    shots += database_page(lib, port, bgs, plog, ref, context, report)
     # the presented pictures, the overlay pass included
     import test_fb2_pixels as F
     lines = [json.loads(x) for x in (OUT / 'ticks.jsonl').open()]
@@ -405,9 +484,24 @@ def item_root(lib, port, bgs, plog, ref, context, report: dict) -> list:
     return injected(lib, ref, context, plog, '6', ROOT_INJECTED, (n0 + 1, n0 + 2), by_fc, res['injected'])
 
 
+def page_of(port) -> dict[int, str]:
+    """{frame: 'database' or 'item'} for the bound page frames (flag 8): a
+    DATABASE frame by its calls (database()); an empty one is the page of
+    the bound frame just before it (a Circle frame leaving the page) or,
+    with none there, of the one just after it (the first frame of a page a
+    take opens: DATABASE's state 0 with the request returns before any
+    leaf)."""
+    bound = {fc: [(w, a) for _, w, a in calls] for fc, st, en, fl, b, calls in port if fl & 8}
+    kind = {fc: ('database' if database(cs) else 'item') for fc, cs in bound.items() if cs}
+    out = {}
+    for fc, cs in bound.items():
+        out[fc] = kind.get(fc) or kind.get(fc - 1) or kind.get(fc + 1) or 'item'
+    return out
+
+
 def item_pages(lib, port, bgs, plog, ref, context, report: dict) -> list:
     """Section 7 of the docstring."""
-    pages = [p for p in port if p[3] & 8]
+    pages = [p for p in port if p[3] & 8 and page_of(port).get(p[0]) == 'item']
     res: dict = {'frames': len(pages), 'injected': {}}
     report['item_pages'] = res
     print(f'  7: {len(pages)} EQUIPMENT / EVENT frames')
@@ -469,12 +563,105 @@ def item_pages(lib, port, bgs, plog, ref, context, report: dict) -> list:
     return shots
 
 
+def database_page(lib, port, bgs, plog, ref, context, report: dict) -> list:
+    """Section 8 of the docstring."""
+    which = page_of(port)
+    frames = [p for p in port if which.get(p[0]) == 'database']
+    res: dict = {'frames': len(frames), 'injected': {}}
+    report['database'] = res
+    print(f'  8: {len(frames)} DATABASE frames')
+    if not frames:
+        fail('8: no DATABASE frame was dumped')
+        return []
+    base = capture(*DB_BASE)
+    visit_o = {T: light(base, DB_BEAT, T) for T in range(DB_VISIT[0], DB_VISIT[1] + 1)}
+    circle = capture(*DB_CIRCLE)
+    if circle['calls'] or visit_o[DB_VISIT[1]]:
+        fail(f'8: {DB_CIRCLE[0]} f{DB_CIRCLE[1]:04d}: the original\'s Circle frame builds slot-1 packets')
+    if visit_o[DB_BASE[1]] != base['calls']:
+        fail(f'8: the light capture f{DB_BASE[1]:04d} is not the full capture of the same frame')
+    # the visits: runs of consecutive DATABASE frames (the side run's order:
+    # the first hub visit, the key 0x32 take's, the last hub visit, whose
+    # steps are the original's visit's)
+    visits: list[list] = []
+    for p in frames:
+        if visits and p[0] == visits[-1][-1][0] + 1:
+            visits[-1].append(p)
+        else:
+            visits.append([p])
+    if len(visits) < 2:
+        fail(f'8: {len(visits)} DATABASE visits, not the first and the last hub visit')
+        return []
+    after = lambda cs: tuple(cs[background_calls(cs):])
+    o_pages = {after(cs) for T, cs in visit_o.items() if cs}
+
+    def pages_of(visit):
+        out: dict = {}
+        for fc, st, en, fl, b, calls in visit:
+            if calls:
+                out.setdefault(after([(w, a) for _, w, a in calls]), []).append(fc)
+        return out
+    first_p, last_p = pages_of(visits[0]), pages_of(visits[-1])
+    for name, pp in (('first', first_p), ('last', last_p)):
+        unmatched = [fcs for k, fcs in pp.items() if k not in o_pages]
+        if unmatched:
+            fail(f'8: frames of the {name} hub visit equal no frame of the original\'s visit after the background: '
+                 f'{unmatched}')
+    missing = [T for T, cs in visit_o.items() if cs and after(cs) not in last_p]
+    if missing:
+        fail(f'8: frames of the original\'s visit no frame of the last hub visit equals after the background: '
+             f'{missing}')
+    if not all(database([(w, a) for _, w, a in calls]) for *_, calls in frames if calls):
+        fail('8: a DATABASE frame does not open with the background and 002131B0\'s first packets')
+    kinds: dict[str, int] = {}
+    for p in frames:
+        k = plog.get(p[0], ('none',))[0]
+        kinds[k] = kinds.get(k, 0) + 1
+    if kinds != {'field': len(frames)}:
+        fail(f'8: the DATABASE frames are presented as {kinds}, not all as GS fields')
+    empty = [p[0] for p in frames if not p[5]]
+    disp_circle = fnv64((circle['d'] / 'displayed_field_T2.rgba').read_bytes())
+    bad = [fc for fc in empty if plog.get(fc, ('none',))[0] != 'field' or plog[fc][3] != disp_circle]
+    if bad:
+        fail(f'8: empty DATABASE frames {bad} do not present the field of {DB_CIRCLE[0]} f{DB_CIRCLE[1]:04d}')
+    rest = sum(1 for v in visits[1:-1] for p in v if p[5])
+    circles = [p[0] for v in (visits[0], visits[-1]) for p in v if not p[5]]
+    opening = [p[0] for v in visits[1:-1] for p in v if not p[5]]
+    span = lambda v: f'{v[0][0]}..{v[-1][0]}'
+    print(f'  8: the first hub visit ({span(visits[0])}): its {len(first_p)} distinct pages after the background '
+          f'are pages of the original\'s visit; the last ({span(visits[-1])}): its {len(last_p)} are exactly the '
+          f'{len(o_pages)} of the original\'s visit (loop tops {DB_VISIT[0]}..{DB_VISIT[1]}, every list); every '
+          f'frame presented as a GS field; {len(empty)} empty (the Circle frames {circles}, the take\'s first '
+          f'frame {opening}) presenting the field of {DB_CIRCLE[0]} f{DB_CIRCLE[1]:04d}; {rest} more (the key '
+          f'0x32 take\'s record and list, {", ".join(span(v) for v in visits[1:-1])}) by structure only')
+    res.update({'visits': [span(v) for v in visits], 'first_distinct_pages': len(first_p),
+                'last_distinct_pages': len(last_p), 'original_distinct_pages': len(o_pages), 'presented': kinds,
+                'circle_frames': circles, 'take_first_frames': opening, 'by_structure': rest})
+    by_fc = {p[0]: p for p in frames}
+    where = f'{DB_CIRCLE[0]} f{DB_CIRCLE[1]:04d}'
+    res['injected'][where] = {'frame': empty[0] if empty else None}
+    shots = [('8', where, empty[0], circle, res['injected'])] if empty else []
+    for name, keys in DB_INJECTED.items():
+        first = capture(*keys[0])
+        if (first['info'].get('write') or {}).get('at_loop_top') != keys[0][1] - 1:
+            fail(f'8: {keys[0][0]}: its capture wrote no D_002655A0 at loop top {keys[0][1] - 1}')
+            continue
+        n0 = written_bg('8', first, bgs)
+        if n0 is None or n0 + 1 not in by_fc or n0 + 2 not in by_fc:
+            fail(f'8: {name}: the port frame holding the written D_002655A0 is {n0}, not a DATABASE frame N with '
+                 f'N + 1 and N + 2 DATABASE frames')
+            continue
+        print(f'  8: {name}: N = {n0} holds the written D_002655A0')
+        shots += injected(lib, ref, context, plog, '8', keys, (n0 + 1, n0 + 2), by_fc, res['injected'])
+    return shots
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--dump', type=Path, help='reuse an EM_STATUS_GS_DUMP file instead of running the game')
     ap.add_argument('--run-log', type=Path, help='the reused run\'s log (its hub_draws count)')
     ap.add_argument('--item', action='store_true',
-                    help='sections 6 and 7 (the status_pages run: the ITEM root, EQUIPMENT and EVENT) only')
+                    help='sections 6 to 8 (the status_pages run: the ITEM root, EQUIPMENT, EVENT and DATABASE) only')
     args = ap.parse_args()
     if args.item:
         OUT.mkdir(parents=True, exist_ok=True)
@@ -701,7 +888,7 @@ def main() -> int:
         return 1
     print(f'test_status_gs_page: PASS ({len(recs)} live frames decode into the builders\' packets; route 01 '
           f'f300 / f400 built byte for byte by the live page and presented as the displayed field'
-          f'{"; the ITEM root, EQUIPMENT and EVENT (sections 6, 7)" if FULL and args.dump is None else ""}; '
+          f'{"; the ITEM root, EQUIPMENT, EVENT and DATABASE (sections 6 to 8)" if FULL and args.dump is None else ""}; '
           f'{dt:.1f} s)')
     return 0
 

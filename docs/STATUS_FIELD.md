@@ -12,9 +12,10 @@ letterbox bars, the fade) stays as it is.
 
 Since step 3d (section 3d) the Original profile draws the BATTERY page's
 frames as the original's GS field, since step 3e (section 3e) the ITEM
-root's and since step 3f (section 3f) the ITEM children EQUIPMENT's and
-EVENT's. The rest of this section is the state before them, which still
-holds for the hub and the other pages. Those status frames have no GS field in the port: they are drawn
+root's, since step 3f (section 3f) the ITEM children EQUIPMENT's and
+EVENT's and since step 3g (section 3g) the hub's DATABASE page's. The rest
+of this section is the state before them, which still holds for the hub
+and the other pages. Those status frames have no GS field in the port: they are drawn
 whole by the GPU renderer
 (em_status_runtime_render: em_battery_ui, em_item_ui, em_status_hub_ui,
 em_page_draw, em_status_models), at host resolution, from the leaf calls
@@ -607,6 +608,126 @@ scrolled list, EVENT with an event item (its 0020CCB0 marker), and the
 transitions into and out of the pages (0020EE50 state 3's module-load
 frames, the frames after the Circle frame): section 5.
 
+## 3g. Step 3, fifth part: DATABASE in the GS field (2026-10-21)
+
+The Original profile now draws every frame of the hub's DATABASE page
+(00214020, page 3 of the hub) as the original's GS draws it and presents
+that field: the category list, a record, the category step, the list's
+scroll (state 2) and a blank entry (state 3), the frame Circle leaves on,
+and the key take's record and list.
+
+**What the original's list is (measured).** Hidden fork runs from the
+state slot14_status_hub (section 4: the stick down, Cross; Cross on the
+first entry, id 0, the one record owned there; Cross; right; up with the
+cursor at the top; Cross on a blank entry; Circle) show DIRECT-only lists
+(no VU1 code). The page opens at loop top 33 (state 0 runs into state 1
+in one iteration; loop tops 30..32, the last frames of the page module's
+load, page core phase 3 step 1 from loop top 12, build no slot-1
+packet); its list is 0020A7A0's background, 002131B0's frame
+(blend 0, four sprites, blend 3, two or three), 002134C0's arrows or (the
+record) its page numbers, 001CBA50(1, 0x870 / 0x898, 0x7AC, 0x10, 0x10,
+the number, D_00275870), and the message service's glyph runs (the
+category title, the entries' names, the record's text): 571 calls the
+list (536 primitives), 665 the record (548), 547 the next category and
+state 3 (531), 549 the scroll: 00213CC0's two 00207D90 packets, the list
+window (70, 70)-(490, 165) and then the whole field (0, 0)-(512, 224),
+with nothing between them on these frames (the nine help lines are blank
+entries, which draw no glyph). Circle (state 1's 0x20 test) returns before
+any leaf: the head alone, one primitive, at loop top 182. Every list of
+loop tops 30..186 was captured (light: the list's slot and its chain,
+`capture_lists.py`, section 4): the visit shows 8 distinct pages after the
+background (the list, the record, the frame Cross leaves the record on,
+right held, the next category and state 3, up held, the first scroll
+frame, the scroll). The CPU GS model draws all fourteen full captures
+bit-exact in both modes, all of local memory (`make
+test-status-field-reference`), and the builders rebuild their chains byte
+for byte (`make test-ui-packet-reference`, whose decoder now reads
+00207D90's packet).
+
+**The background's length.** 0020A7A0 draws 513 calls, or 514 while
+layer 2's burst runs (its timer negative: em_status_background.h, the
+original-instruction oracle `test-status-background-reference`). Every
+earlier compared frame had the burst; the side run's last DATABASE visit
+has frames without it (port frames 7060..7157), so test_status_gs_page
+now finds the background's length frame by frame (background_calls) where
+it compares DATABASE pages.
+
+**The binding.** em_status_pages_live binds 00214020 to its sink
+(bound_page) and the sink gains 00207D90 (`scissor`; em_status_gs_page's
+s_scissor, em_uip_00207D90): on a bound page 00207D90 builds its packet
+at its call time, as the other leaves do, before em_page_draw records it
+for the GPU renderer (a page not bound records it only, as before).
+002134C0's page numbers are 001CBA50 runs with a style record (D_00275870)
+and go to the BATTERY page's verified s_text through p_text. 00213A00's
+and 00213CC0's help lines (001FCF60) are the message service's glyph runs
+(bound since 3b).
+
+**The side run.** The status_pages side run's first DATABASE visit (the
+list, right, Cross on a blank entry) is kept, and a second visit with the
+original's visit's steps is added at the end of the script (START, the
+list, Cross on id 0, Cross, right, up, Cross, Circle twice, START), so
+every frame before it keeps its place and the written-background pairs of
+3e and 3f stay valid.
+
+Proof:
+
+- `make test-status-gs-page EM_TEST_FULL=1` (section 8 of the test, the
+  same status_pages run as sections 6 and 7; `--item` alone runs the
+  three, about 2 min): every one of the run's 329 DATABASE frames (its
+  three visits: 2894..2981, the key take's 5648..5711, 6982..7158) is
+  presented as a GS field, and every one that built packets opens with
+  the background and 002131B0's packets. The first hub visit's 3 distinct pages after the
+  background are pages of the original's visit; the last visit's 8 are
+  exactly the original's 8 (both ways). The empty frames (the Circle
+  frames 2981 and 7158, and the key take's first frame 5648, whose state
+  0 with the request returns before any leaf) present the displayed field
+  of the original's Circle frame f0182. The original was given the
+  port's D_002655A0 of port frames 6989 (the list), 7019 (the record),
+  7095 (the scroll; no burst) and 7109 (state 3) at loop top T - 1
+  (capture.py CAPTURE_WRITE, the only write): port frames N + 1 / N + 2
+  equal the captures T / T + 1 (44 / 45, 70 / 71, 128 / 129, 156 / 157)
+  in every call (571, 665, 548, 546), the written bytes equal the
+  builders' and the capture's, their presented fields hash equal to the
+  displayed fields, and the presented pictures, the overlay pass included,
+  are 0 of 114,688 pixels off at all eight and at the Circle frame 7158.
+- `make test-level-smoke-side` (check_status_pages): the side run's 329
+  DATABASE page calls, the new visit's record, scroll and blank entry
+  included, replayed through the original instructions, every callee
+  entry and view byte equal.
+- `make test-status-field-reference EM_TEST_FULL=1`: 30 lists bit-exact
+  (14 of them DATABASE's); `make test-ui-packet-reference EM_TEST_FULL=1`:
+  30 captured chains rebuilt byte for byte and drawn to the displayed
+  field.
+- Mutations of the live binding (test_status_gs_page --item):
+  5 of 5 killed (DATABASE not bound, 00207D90 not sunk, its corners
+  transposed, the text runs not sunk, the text run's style record
+  dropped; the last two kill the record frames, whose page numbers are
+  001CBA50 runs).
+- **Unchanged elsewhere.** Against a build of the same tree with only
+  DATABASE unbound (the side run's new script included): the main route
+  through the AREA01 arrival, its 13,813-tick log identical and all
+  15,070 committed frames of the same kind and field hash; the
+  status_pages side run, its 5,922-tick log identical and of its
+  7,180 committed frames exactly the 329 DATABASE frames differ (GPU
+  frames before, GS fields now). The GPU renderer (EM_GPU_RENDERER=1): the
+  side run's tick log and present log identical and the presented frames
+  at seven DATABASE ticks (the first visit's list; the last visit's list,
+  record, scroll, state 3 and Circle frame; the key take's record)
+  byte-identical (one run against that build, not a
+  committed test). `make test-status-runtime`, `test-status-gs-page`,
+  `test-status-pages-reference`, `test-item-ui-reference`,
+  `test-level-smoke` and `test-level-smoke-side` pass; `make all` 0
+  warnings.
+
+Not compared by pixels: the key 0x32 take's record and list (no capture:
+the original's take of the key is not captured; checked by structure),
+the take's first frame (it builds no slot-1 packet in the port; the
+original's is not captured),
+DATABASE's entry with more than one record page (its arrows and the
+page turn), and the transitions into and out of the page (loop tops
+30..32 build no slot-1 packet in the original; the port's frames there
+are not bound pages): section 5.
+
 ## 4. The captures (decomp, ignored)
 
 - `build/status_field_capture/capture.py <beat> <T> ...` (and
@@ -650,6 +771,22 @@ frames, the frames after the Circle frame): section 5.
   (`slot12_status_root_equipment_circle`, f0072: the Circle frame).
   `build/status_field_capture/pages/explore.py` (the page core's bytes
   each frame of a schedule) found the frames.
+- DATABASE (section 3g): from `state:slot14_status_hub`, the schedule
+  `build/status_field_capture/database/schedule_rest.json` (stick (0x80,
+  0xFF) from frame 0, Cross 0x4000 at 8-9, neutral from 10; Cross at 50,
+  80; right 0x20 at 100; up 0x10 at 120; Cross at 150; Circle 0x2000 at
+  180; each two frames) with `CAPTURE_INPUTS_TAG=database`: frames 45 (the
+  list), 70 (the record), 115 (the next category), 128 (the scroll), 156
+  (state 3), 182 (the Circle frame) in `slot14_status_hub_database`; with
+  CAPTURE_WRITE of the port's D_002655A0 of frames 6989 / 7019 / 7095 /
+  7109, frames 44, 45 / 70, 71 / 128, 129 / 156, 157
+  (`..._database_bg6989` and so on). `database/capture_lists.py <state>
+  <schedule> <a> <b> <out>` (light: per loop top a checkpoint, the list's
+  16 KB slot and its slot-1 chain at step V of the next iteration,
+  `lists/fTTTT.bin`; about 17 seconds a frame, 17 MB for 157 frames): every
+  list of loop tops 30..186 in `slot14_status_hub_database/lists`.
+  `database/explore.py` (the page core's bytes each frame of a schedule)
+  found the frames.
 - The status hub (`state:slot14_status_hub`) draws 001B0000's models
   through the VU1: its GS stream is the fork's GS dump, which `capture.py`
   records in its third pass (not yet run to completion: the hub run's
@@ -674,18 +811,21 @@ not commit to the decomp).
    section 3e) the ITEM root (0020F170 / 0020F2A0 and 0020AC70's fans,
    001D66A0) drawn and presented as the GS field; (done, section 3f)
    em_status_pages_live's sink and EQUIPMENT / EVENT drawn and presented
-   as the GS field, their Circle frame included. Still to bind: HEALING
+   as the GS field, their Circle frame included; (done, section 3g)
+   DATABASE (00214020) with the sink's 00207D90. Still to bind: HEALING
    (00208AD0's health gauge: its 002082B0 arcs need a translated builder
-   first), DATABASE (00214020) and SPR4 (00211970: its 0020AC70 fans go
-   through em_uip_001D66A0, its 00207D90 SCISSOR_1 through
-   em_uip_00207D90), MAP (00208040's flat triangle and 001B0000's models:
+   first), SPR4 (00211970: its 0020AC70 fans go
+   through em_uip_001D66A0, its 00207D90 SCISSOR_1 through the sink's
+   scissor, bound in 3g), MAP (00208040's flat triangle and 001B0000's models:
    VU1, item 4), the hub's 2D layer (em_status_hub_ui; with its models,
    item 4) and DRAW_OTHER, each with its 0020A7A0 at call time and each
    list checked for VU1 code with a capture first; the page transitions
    (0020EE50 state 3's module-load frames, the frames after a Circle);
    then the video comparison's segments 8 and 14 are compared again. The ITEM root's lit frames by pixels: a designed capture
    that also writes the port's trail ring (D_00821300, D_00275C90) and
-   hover byte.
+   hover byte. DATABASE's key take (the record 0x32 and its list) and an
+   entry with two record pages by pixels: a capture of the original's take
+   or a designed write of the entry's ownership byte.
 4. The hub and the pages with models (001B0000's units through the object
    kernel's GS output, as the world frames draw them), with GS-dump
    captures; segment 5.

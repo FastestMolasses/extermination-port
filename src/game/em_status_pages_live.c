@@ -398,9 +398,10 @@ int em_status_pages_live_sunk(const EmStatusPagesLive *l)
     return l && l->sunk;
 }
 
+/* EQUIPMENT, EVENT (STATUS_FIELD.md 3f) and DATABASE (3g). */
 static int bound_page(uint32_t page)
 {
-    return page == 0x00214570u || page == 0x00215870u;
+    return page == 0x00214570u || page == 0x00215870u || page == 0x00214020u;
 }
 
 /* A leaf that has no packet builder yet: on a bound page it faults. */
@@ -436,6 +437,16 @@ static int page_rectangle(EmStatusPagesLive *l, int32_t slot, int32_t x0, int32_
                     s_sink->rectangle(s_sink->context, slot, x0, y0, x1, y1, rgba) != 1))
         return 0;
     return em_page_draw_rectangle(l->draw, slot, x0, y0, x1, y1, rgba);
+}
+
+/* 00207D90(slot, x0, y0, x1, y1): SCISSOR_1 (DATABASE's 00213CC0 scroll). */
+static int page_scissor(EmStatusPagesLive *l, int32_t slot, int32_t x0, int32_t y0, int32_t x1,
+                        int32_t y1)
+{
+    if (l->sunk &&
+        (!s_sink->scissor || s_sink->scissor(s_sink->context, slot, x0, y0, x1, y1) != 1))
+        return 0;
+    return em_page_draw_scissor(l->draw, slot, x0, y0, x1, y1);
 }
 
 /* 0020A7A0(tex0): on a bound page stepped here (the sink), drawn by the
@@ -763,7 +774,7 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
     case 0x00207E40u:
         return ok0(page_sprite(l, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
     case 0x00207D90u: /* (slot, x0, y0, x1, y1): SCISSOR_1's SCAX0, SCAY0, SCAX1, SCAY1 */
-        return ok0(unsunk(l, target) && em_page_draw_scissor(l->draw, I(0), I(1), I(2), I(3), I(4)));
+        return ok0(page_scissor(l, I(0), I(1), I(2), I(3), I(4)));
     case 0x001281C0u:
         if (nf < 1)
             return -1;

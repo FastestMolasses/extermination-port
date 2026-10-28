@@ -236,6 +236,19 @@ static int s_rectangle(void *ctx, int32_t slot, int32_t x0, int32_t y0, int32_t 
     return done(&u, em_uip_00207F80(&u, slot, x0, y0, x1, y1, rgba), "00207F80");
 }
 
+/* 00207D90(slot, x0, y0, x1, y1): SCISSOR_1 (DATABASE's 00213CC0 scroll:
+ * the list's window, then the whole field again; STATUS_FIELD.md 3g). */
+static int s_scissor(void *ctx, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
+{
+    (void)ctx;
+    if (G.fault) return 0;
+    if (!active()) return 1;
+    EmUip u;
+    if (!uip(&u)) return 0;
+    G.frame_page = 1;
+    return done(&u, em_uip_00207D90(&u, slot, x0, y0, x1, y1), "00207D90");
+}
+
 /* 00209280's text: 001CBA50(1, x, y, w, h, text, style) or 001CC1E0(1, x,
  * y, w, h, text, style) over the style record's bytes. */
 static int s_text(void *ctx, int proportional, int32_t x, int32_t y, int32_t w, int32_t h, const char *text,
@@ -317,10 +330,11 @@ static int i_sprite(void *ctx, int32_t slot, int32_t x, int32_t y, int32_t w, in
 static const EmStatusItemSink k_item_sink = {NULL, i_background, i_blend, i_sprite, s_fan};
 
 /* ---- the bound status pages' leaves (em_status_pages_live's sink) --------
- * EQUIPMENT 00214570 and EVENT 00215870 (STATUS_FIELD.md 3f): 0020A7A0,
- * 00207D00, 00207E40, 00207F80 (0020CCB0's marker) and the text runs
- * 001CBA50 / 001CC1E0 (0020B210's rows, the description) as the BATTERY
- * page's above. */
+ * EQUIPMENT 00214570 and EVENT 00215870 (STATUS_FIELD.md 3f) and DATABASE
+ * 00214020 (3g): 0020A7A0, 00207D00, 00207E40, 00207F80 (0020CCB0's
+ * marker), 00207D90 (DATABASE's scroll) and the text runs 001CBA50 /
+ * 001CC1E0 (0020B210's rows, the description; DATABASE's page numbers) as
+ * the BATTERY page's above. */
 static int p_background(void *ctx, uint64_t tex0, uint32_t *token)
 {
     G.frame_pages = 1;
@@ -346,11 +360,18 @@ static int p_rectangle(void *ctx, int32_t slot, int32_t x0, int32_t y0, int32_t 
     return s_rectangle(ctx, slot, x0, y0, x1, y1, rgba);
 }
 
+static int p_scissor(void *ctx, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
+{
+    G.frame_pages = 1;
+    return s_scissor(ctx, slot, x0, y0, x1, y1);
+}
+
 /* 001CBA50(1, x, y, w, h, text, style) or 001CC1E0(1, ...): s_text (the
- * BATTERY page's) over the style record's 8 bytes. Not reached by the
- * first level's EQUIPMENT / EVENT frames (their text is the message
- * service's glyph runs: STATUS_FIELD.md 3f); a slot other than 1 or no
- * style record (style 0) is a form no capture shows: it faults. */
+ * BATTERY page's) over the style record's 8 bytes. Reached by DATABASE's
+ * record (002134C0(t, 1)'s page numbers: 001CBA50 with D_00275870;
+ * STATUS_FIELD.md 3g), not by the first level's EQUIPMENT / EVENT frames
+ * (their text is the message service's glyph runs: 3f); a slot other than
+ * 1 or no style record (style 0) is a form no capture shows: it faults. */
 static int p_text(void *ctx, int proportional, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
                   const char *text, const uint8_t *style)
 {
@@ -361,7 +382,8 @@ static int p_text(void *ctx, int proportional, int32_t slot, int32_t x, int32_t 
     return s_text(ctx, proportional, x, y, w, h, text, record);
 }
 
-static const EmStatusPagesSink k_pages_sink = {NULL, p_background, p_blend, p_sprite, p_rectangle, p_text};
+static const EmStatusPagesSink k_pages_sink = {NULL,        p_background, p_blend, p_sprite,
+                                               p_rectangle, p_scissor,    p_text};
 
 /* ---- 001CCB10: the glyph strip page and its CLUT ----------------------------
  * The boot's 001CCB10 (decomp src/func_001CCB10.c, func_001CCBD0.c,
@@ -386,7 +408,8 @@ int em_sgp_field_claim(void)
 {
     if (!G.field_on || G.fault) return 0;
     if (!G.frame_page) {
-        fault("a status page frame (BATTERY, ITEM root, EQUIPMENT, EVENT) whose page built no slot-1 packets",
+        fault("a status page frame (BATTERY, ITEM root, EQUIPMENT, EVENT, DATABASE) whose page built no slot-1 "
+              "packets",
               NULL);
         return -1;
     }
