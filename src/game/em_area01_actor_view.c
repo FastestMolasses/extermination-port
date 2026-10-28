@@ -247,3 +247,14 @@ const uint8_t *em_area01_actor_view_slot_words(EmArea01ActorView *v,uint32_t add
     for(unsigned i=offset;i<offset+size;++i)if(mask[i])return NULL;
     return v->record[index].image+offset;
 }
+
+const uint8_t *em_area01_actor_view_image(const EmArea01ActorView *v, uint32_t node)
+{
+    if (!v || v->fault || !v->pool || node < EM_ACTOR_POOL_BASE ||
+        (node - EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE) return NULL;
+    const unsigned i = (node - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE;
+    if (i >= EM_ACTOR_POOL_CAPACITY) return NULL;
+    const EmActor *a = &v->pool->records[i];
+    const EmArea01ActorRecordView *r = &v->record[i];
+    return r->touched && a->allocated && r->generation == a->generation ? r->image : NULL;
+}

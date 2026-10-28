@@ -65,6 +65,11 @@ uint32_t em_aim_fire_flash_fault(void);
 /* A record 001AFA90 has just allocated for 001F4F40 (its +0x10 not yet
  * stored): its storage starts unwritten. 0, or -1. */
 int em_aim_fire_flash_claim(EmActor *actor);
+/* A claimed node whose +0xD0..+0x10F another composition wrote before the
+ * claim (the AREA01 spawners 0x8287C0 / 0x8237D0 store the matrix and
+ * +0x100..+0x10C, then +0x10 = 001F5040): those 64 bytes become the node's
+ * and readable. 0, or -1. */
+int em_aim_fire_flash_seed_d0(EmActor *actor, const uint8_t d0[64]);
 /* 1 when `actor` is a claimed muzzle node of this generation. */
 int em_aim_fire_flash_owns(const EmActor *actor);
 /* The node whose behaviour runs (its slots receive 001AF780's pops); NULL

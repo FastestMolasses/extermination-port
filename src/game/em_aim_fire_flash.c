@@ -122,6 +122,15 @@ int em_aim_fire_flash_claim(EmActor *actor)
 
 int em_aim_fire_flash_owns(const EmActor *actor) { return S.attached && flash_of(actor) != NULL; }
 
+int em_aim_fire_flash_seed_d0(EmActor *actor, const uint8_t d0[64])
+{
+    Flash *f = actor && d0 ? flash_of(actor) : NULL;
+    if (!f) return -1;
+    memcpy(f->mD0, d0, 64);
+    memset(f->wD0, 1, 64);
+    return 0;
+}
+
 void em_aim_fire_flash_set_current(EmActor *actor) { S.current = actor ? flash_of(actor) : NULL; }
 
 static void *span(u32 address, size_t size, u32 base, size_t count, void *bytes)

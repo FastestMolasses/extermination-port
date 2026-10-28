@@ -3358,10 +3358,11 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         }
     }
     /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
-     * 001B0CD0): em_aim_fire_runtime adopted it at the allocation; its
-     * behaviour 001F5040 is bound there (em_aim_fire_flash). */
+     * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
+     * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
+     * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
     if (s_state.d810700 == 1 && fn == 0x001F5040u) {
-        if (!em_aim_fire_flash_owns(a))
+        if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;
         a->callback = fn;
         return em_aim_fire_runtime_bind_flash(a);

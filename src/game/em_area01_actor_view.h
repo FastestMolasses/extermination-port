@@ -77,6 +77,9 @@ int em_area01_actor_view_touch(EmArea01ActorView *v, uint32_t node);
  * requested uninitialized projection. Provider project() must itself be a
  * read-only observation (serialization buffers in provider ctx are fine). */
 int em_area01_actor_view_snapshot(EmArea01ActorView *v, uint32_t address, uint32_t size, void *out);
+/* The view's own image of a touched record (its bytes outside EmActor's
+ * fields live only here), or NULL. Read only; valid until the next touch. */
+const uint8_t *em_area01_actor_view_image(const EmArea01ActorView *v, uint32_t node);
 
 /* Read-only held bone-slot words (+110), for an external target query.
  * Borrows existing private storage or its shared owner's projection; no

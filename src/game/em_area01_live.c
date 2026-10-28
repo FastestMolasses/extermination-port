@@ -509,6 +509,9 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     /* 00102870(dst, v; f12): the AREA01 revisit beam's (001E2BA0) quadword
      * divide, em_area00_low's translation (as em_aim_fire_runtime's). */
     case 0x00102870u: rc=c->na<2 || c->nf<1 ? -1 : em_area00_low_00102870(&low,a0,a1,c->f[0]);break;
+    /* 00128830(a0; f12, f13, f14): the AREA01 revisit creatures' (0x824340)
+     * hop, em_area00_low's translation (byte-matched decomp C). */
+    case 0x00128830u: rc=c->na<1 || c->nf<3 ? -1 : em_area00_low_00128830(&low,a0,c->f[0],c->f[1],c->f[2]);break;
     default: rc=-1;break;
     }
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
@@ -518,7 +521,7 @@ static int low_entry_handles(uint32_t fn)
     switch(fn) {
     case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
     case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
-    case 0x0012DE90u: case 0x00102870u:
+    case 0x0012DE90u: case 0x00102870u: case 0x00128830u:
         return 1;
     default:
         return 0;
@@ -665,6 +668,21 @@ static int muzzle_worker(void *ctx,uint32_t fn,uint32_t sp,const EmArea00FxRegs 
     int rc=em_aim_fire_runtime_adopt_flash(a);
     if(em_area01_live_resume(l)<0)return -1;
     return rc;
+}
+/* A class-0xC record whose +0x10 an AREA01 spawner set to 001F5040 without
+ * 001F4F40 (0x8287C0's child, 0x8237D0's node): adopted at its rebind, its
+ * +0xD0..+0x10F (stored by the spawner before the +0x10 store, held by the
+ * actor view's image) seeded into em_aim_fire_flash. */
+int em_area01_live_adopt_flash(EmArea01Live *l,EmActor *a)
+{
+    if(!l || !l->bound || !a)return -1;
+    const uint32_t node=em_actor_pool_address(l->host.pool,a);
+    const uint8_t *image=em_area01_actor_view_image(&l->actors,node);
+    uint8_t d0[64];
+    if(!image)return -1;
+    memcpy(d0,image+0xD0,64);
+    if(em_aim_fire_runtime_adopt_flash(a)<0)return -1;
+    return em_aim_fire_flash_seed_d0(a,d0);
 }
 static int muzzle_001F4F40(EmArea01Live *l,EmArea01Call *c)
 {

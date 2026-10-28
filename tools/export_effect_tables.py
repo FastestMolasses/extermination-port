@@ -196,9 +196,10 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           # delays, a byte per spot index 0..4 (index 4 reads 0x2758CC).
           (0x002758C8, 5),
           # 0019C6F0's per-area room-list table D_0024D7C0 (a word per area
-          # byte D_00810700) and AREA01's three room-list words D_002758D0
-          # (the revisit's 0x825950 calls 0019C6F0(0x29, 0 / 1)).
-          (0x0024D7C0, 0x68), (0x002758D0, 0xC),
+          # byte D_00810700): AREA01's word D_0024D7C4 (the area-0 and other
+          # words are other exports' or unread), and AREA01's three room-list
+          # words D_002758D0 (the revisit's 0x825950 calls 0019C6F0(0x29, ..)).
+          (0x0024D7C4, 4), (0x002758D0, 0xC),
           # D_0024D6B0: 001B0CD0's four 0x10-byte vectors (a1 & 3), the
           # revisit's 0x826010 probe.
           (0x0024D6B0, 0x40))

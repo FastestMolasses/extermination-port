@@ -93,6 +93,10 @@ int em_area01_live_head_record(EmArea01Live *, uint32_t address, uint8_t record[
 const uint8_t *em_area01_live_head_bytes(EmArea01Live *, uint32_t address, uint32_t size);
 /* Outermost call only. Nested translated calls use runtime_call directly. */
 int em_area01_live_call(EmArea01Live *, EmArea01Call *);
+/* A class-0xC record an AREA01 spawner pointed at 001F5040 (0x8287C0,
+ * 0x8237D0): em_aim_fire_runtime adopts it, its +0xD0..+0x10F seeded from
+ * this view's image. 0, or -1. */
+int em_area01_live_adopt_flash(EmArea01Live *, EmActor *);
 /* A scene service that already owns the active transaction may dispatch
  * a nested original caller using the same call-local stack. */
 int em_area01_live_call_active(EmArea01Live *, EmArea01Call *);
