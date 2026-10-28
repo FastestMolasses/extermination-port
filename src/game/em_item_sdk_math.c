@@ -172,14 +172,21 @@ float em_item_sdk_cosine(float angle)
 }
 
 /* 0011CB90's integer digit-by-digit square root, including final tie-even
- * correction. The UI's0011E748 wrapper takes this nonnegative path. */
+ * correction. The UI's 0011E748 wrapper takes the nonnegative path; the
+ * two special forms are the byte-matched function's: an all-ones exponent
+ * (a normal value on the EE) gives x * x + x, and a negative nonzero x gives
+ * (x - x) / (x - x), both on the EE FPU (no NaN). */
 float em_item_sdk_sqrt(float value)
 {
     uint32_t input = bits(value);
+    if ((input & 0x7f800000) == 0x7f800000)
+        return add(multiply(value, value), value);
     if (!(input & 0x7fffffff))
         return value;
-    if (input >= 0x7f800000)
-        return NAN;
+    if (input & 0x80000000) {
+        const float d = subtract(value, value);
+        return em_ee_div(d, d);
+    }
     int exponent = (int)(input >> 23);
     if (!exponent) {
         unsigned shifts = 0;
