@@ -169,11 +169,11 @@ static inline int l15f_c_00187EC0(L15F *o, int32_t a0, int32_t a1)
     return 0;
 }
 
-static inline int l15f_c_001AF890(L15F *o, uint32_t a0, int32_t a1)
+static inline int l15f_c_001AF890(L15F *o, uint32_t a0)
 {
     if (l15f_failed(o)) return -1;
     if (!o->h->w_001AF890) return l15f_latch(o, 0x001AF890u, EM_LEVEL15_FOUNTAIN_FAULT_NULL_WORKER);
-    if (o->h->w_001AF890(o->h->ctx, a0, a1) < 0) return l15f_latch(o, 0x001AF890u, EM_LEVEL15_FOUNTAIN_FAULT_WORKER_FAILED);
+    if (o->h->w_001AF890(o->h->ctx, a0) < 0) return l15f_latch(o, 0x001AF890u, EM_LEVEL15_FOUNTAIN_FAULT_WORKER_FAILED);
     return 0;
 }
 

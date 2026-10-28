@@ -73,11 +73,14 @@ static EmScriptResult skip_to_end(EmScript *script, unsigned char *record,
 EmScriptResult em_script_tick(EmScript *script, EmScriptResolve resolve,
                              EmScriptExecute execute, void *context)
 {
-    if (script->active <= 0) return EM_SCRIPT_FINISHED;
     /* Valid programs yield or finish in a few instructions. A bad
      * exported jump must fail instead of hanging the native main loop.
      * This execution bound is a host validation policy, not a game timer. */
     for (unsigned commands = 0; commands < 256; ++commands) {
+        /* 001BA1F0 re-tests the count at the top of every pass of its
+         * result-2 loop, so a handler that ends the script stops the
+         * chain before the next record runs. */
+        if (script->active <= 0) return EM_SCRIPT_FINISHED;
         unsigned char *record = resolve(context,script->pc);
         if (!record) return EM_SCRIPT_FAULT;
         EmScriptCommandResult result = execute(context,script,record);
