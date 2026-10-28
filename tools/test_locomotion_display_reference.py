@@ -271,7 +271,7 @@ WORKER_FIELDS = (
     ('actions', 'test'), ('ladder', 'test'), ('heading', 'heading'), ('row_request', 'blend'),
     ('request', 'request'), ('arbiter', 'arbiter'), ('clip_frames', 'frames'), ('probes', 'probes'),
     ('floor', 'floor'), ('clearance', 'test'), ('fall_check', 'actor'), ('motor', 'actor'),
-    ('translate', 'actor_int'), ('use_scan', 'floor'), ('use_accepted', 'actor'), ('handoff', 'actor'),
+    ('translate', 'actor_int'), ('use_scan', 'test'), ('use_accepted', 'actor'), ('handoff', 'actor'),
     ('reentry', 'actor_int'), ('foot_stop', 'actor'), ('sound', 'sound'), ('effect', 'effect'),
     ('wrap', 'wrap'), ('mode', 'mode'),
 )
@@ -518,9 +518,9 @@ class Oracle:
         r = lambda n: ee.r[4 + n] & MASK
         f = lambda n: ee.f[12 + n] & MASK
         if name in ('actions', 'ladder', 'clearance', 'fall_check', 'motor', 'use_accepted', 'handoff',
-                    'foot_stop'):
+                    'foot_stop', 'use_scan'):
             return (name, r(0))
-        if name in ('heading', 'floor', 'translate', 'reentry', 'use_scan'):
+        if name in ('heading', 'floor', 'translate', 'reentry'):
             return (name, r(0), r(1))
         if name == 'row_request':
             return (name, r(0), f(0))

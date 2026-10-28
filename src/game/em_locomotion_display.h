@@ -102,8 +102,9 @@ typedef struct EmLocoWorkers {
     int (*motor)(void *context, EmPlayerLiveActor *actor);
     /* 00178B90(p, arg): the translation along +C4 by +38. */
     int (*translate)(void *context, EmPlayerLiveActor *actor, int arg);
-    /* 00184BA0(p, arg): the Use scan; *result nonzero = a target took it. */
-    int (*use_scan)(void *context, EmPlayerLiveActor *actor, int arg, int *result);
+    /* 00184BA0(p): the Use scan; *result nonzero = a target took it. It
+     * takes only the record (byte-matched 001612D0). */
+    int (*use_scan)(void *context, EmPlayerLiveActor *actor, int *result);
     /* 001798D0(p): the accepted-Use reset. */
     int (*use_accepted)(void *context, EmPlayerLiveActor *actor);
     /* 0017C540(p): the walk hand-off; 0017C440(p, arg): the re-entry. */

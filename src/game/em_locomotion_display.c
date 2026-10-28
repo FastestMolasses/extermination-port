@@ -706,7 +706,7 @@ static int walk(EmLocoHost *h, EmPlayerLiveActor *a)
         if (result != 0) return 0;
         if (*h->scene.d810E74 & *h->scene.spad3B76) {                       /* 001613D8 */
             int taken = 0;
-            CALL(h, 0x00184BA0u, w->use_scan(w->context, a, 1, &taken));
+            CALL(h, 0x00184BA0u, w->use_scan(w->context, a, &taken));
             if (taken != 0) {
                 CALL(h, 0x001798D0u, w->use_accepted(w->context, a));      /* 001613F4 */
                 put8(a, 5, 0x25);
