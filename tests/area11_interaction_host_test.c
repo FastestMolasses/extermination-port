@@ -24,6 +24,7 @@
 #include "game/em_pickup.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_player_stage_live.h"
 #include "game/em_locomotion_display.h"
 #include "game/em_player_ladder_climb.h"
 #include "game/em_player_record_pose.h"
@@ -246,6 +247,9 @@ void em_sfx_play(unsigned cue) { assert(em_sfx_cue_state(cue)); ++sounds; }
 void em_sfx_play_at(unsigned cue, const float *position, float radius)
 { assert(position && radius > 0); em_sfx_play(cue); }
 void em_sfx_stop_all(void) {}
+/* The EVENT page's 00182B30 on the live player (em_player_stage_live is not
+ * linked here; no scenario reaches EVENT's Cross on a found device). */
+int em_player_stage_live_00182B30(int *result) { (void)result; return -1; }
 /* The stream calls the host's status frame and interaction frame make
  * (em_scene_bindings.c binds them to the stream lanes, em_stream_live; the
  * lanes have their own tests): the status open's 001FBC50, 001FABB0 and

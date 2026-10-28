@@ -21,7 +21,7 @@ original's; no instruction of the original is reproduced here.
 | Brightness | 00202BA0 (the calibration picture, screen module 0x2B) | live | test-options-reference; opt_04 |
 | Button config | 00202D10, then 001AF470 over the masks 0x70003B74..83 | live (the masks are canonical; the player reads them there) | test-options-reference, test-startup-load-gaps-reference (001AF470); opt_05 |
 | Default | 00201C50 | live | test-options-reference; opt_06 |
-| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1) and LOAD GAME through its read into the progress block (one storage since save2 round 2) to the result 2; r == 2 then faults at 001D2610 (not bound) | test-options-reference; opt_07; test-options-card-live |
+| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1) and LOAD GAME through its read into the progress block (one storage since save2 round 2) to the result 2; r == 2 then runs 001AEBA0, 001AF150 and 001D2610 (bound 2026-10-28) and the game task's area read of the loaded block (not run end to end) | test-options-reference; opt_07; test-options-card-live |
 | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
 | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
 | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick, its r == 2: 001AF150 and state 4's loaded game | live (section 4.3; the loaded game: SAVE_GAME.md section 6.3); on the boot's title too, on the title's own binding (SAVE_GAME.md section 6.4) | test-title-menu-reference, test-options-reference; dmg_load, dmg_load_game; test-title-load-game |
@@ -41,9 +41,11 @@ Every frame of state 2 runs 0022A650 through the binding (w_0022A650) and
 draws its stream in the same tick; the world is frozen (no 001D1EA0 runs),
 as on the game-over screen. Its result: 1 closes (001AF1C0, the cue 0xD,
 001FAE70(0)); 2 (a game loaded, through 00227300's LOAD GAME, which reads
-the slot into the progress block D_00810700) runs 001AEBA0 and 001AF150 and
-faults at 001D2610, not bound yet (SAVE_GAME.md sections 6.1 and 8); 3
-(quit, Yes) runs 001AD140.
+the slot into the progress block D_00810700) runs 001AEBA0, 001AF150 and
+001D2610 (the render context's zoom, bound 2026-10-28), then D_00275BE0 = 1
+and the game task's +8 = 3 / +9 = 5: the area read of the loaded block, as
+the title's load (SAVE_GAME.md section 6.3; not run end to end); 3 (quit,
+Yes) runs 001AD140.
 
 ## 3. The translations and their oracle
 
@@ -248,7 +250,8 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
   storage since save2 round 2), the done message and the fade, to the
   result 2; on the title the loaded game then enters its area
   (SAVE_GAME.md section 6.3); from the options, what follows the result
-  (001D2610) is not bound.
+  (001D2610 and the game task's area read) is bound since 2026-10-28 but
+  not run end to end.
   002267A0 is dispatched but unreachable on the host card (it runs only
   when GetInfo stops reporting a PS2 card).
 - **The row text and the timeline clock** (open question): the slot rows'
