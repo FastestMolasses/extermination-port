@@ -165,10 +165,13 @@ static int w_00174AB0(void *c, EmPlayerLiveActor *a)
 }
 
 /* 0015B530's routines that are not bound. */
+/* 001837B0 is em_player_floor's em_player_001837B0, which the closure
+ * binder installs over this stub when the area has its original collision
+ * world (em_player_closure_live.c); without one its callees are unbound. */
 static int stub_001837B0(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
-    return unbound("001837B0 (0015B530 +5 = 1; untranslated)");
+    return unbound("001837B0 (0015B530 +5 = 1; no original collision world, so its callees are unbound)");
 }
 static int stub_00162DB0(void *c, EmPlayerLiveActor *a)
 {

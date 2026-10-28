@@ -488,6 +488,32 @@ typedef struct EmPlayerArrivalWorkers {
 } EmPlayerArrivalWorkers;
 int em_player_00183250(void *workers, EmPlayerLiveActor *actor);
 
+/* ---- 001837B0: 0015B530's routine for +5 = 1 ------------------------------
+ * Translated from the byte-matched decomp C (src/func_001837B0.c). By the
+ * phase +6:
+ *   0: +6 = 1, +7 = 0, 0017B5C0(p) (the walk entry clip), then as phase 1;
+ *   1: when bit 0x8000 of the word +0x200 is clear: +6 += 1, +0x25C = 0,
+ *      +0x1F0 = 1, +0x1F1 = 1;
+ *   2: 0017BC40(p), 0017C030(p), 00178B90(p, 1); then, when +0x1F0 is 0,
+ *      +5 = 0 and +6 = 0;
+ *   any other phase: nothing.
+ * Then, whatever the phase: s = 0011E2A8(+0x9C) (sinf, read after the
+ * switch's calls), +0xB4 = +0xB4 - (+0x38 * s) (stored), +0xB4 += -0.2
+ * (0xBE4CCCCD), 00175900(p, 1), 001796C0(p). Every FPU operation is the EE
+ * model's (em_ee_float.h). A missing worker is a fault before any write. */
+typedef struct EmPlayerStateOneWorkers {
+    void *context;
+    int (*entry_clip)(void *context, EmPlayerLiveActor *actor);                     /* 0017B5C0 */
+    int (*motor)(void *context, EmPlayerLiveActor *actor);                          /* 0017BC40 */
+    int (*display)(void *context, EmPlayerLiveActor *actor);                        /* 0017C030 */
+    int (*translate)(void *context, EmPlayerLiveActor *actor, int arg);             /* 00178B90 */
+    /* 0011E2A8: sinf on raw bits. */
+    int (*sine)(void *context, uint32_t x, uint32_t *result);
+    int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result); /* 00175900 */
+    int (*fall_check)(void *context, EmPlayerLiveActor *actor);                     /* 001796C0 */
+} EmPlayerStateOneWorkers;
+int em_player_001837B0(void *workers, EmPlayerLiveActor *actor);
+
 /* ---- 001764E0 radial wall probes, 001756E0 clearance release ------------ */
 
 typedef struct EmPlayerProbeActor {

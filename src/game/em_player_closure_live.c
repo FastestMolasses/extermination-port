@@ -170,6 +170,8 @@ static struct {
     /* 00183250 (0015B610's +5 = 1) and its workers over the record. */
     EmPlayerArrivalWorkers arrival;
     Slot major5_00183250;
+    /* 001837B0 (0015B530's +5 = 1) and its workers over the record. */
+    EmPlayerStateOneWorkers state_one;
 } L;
 
 /* 0x70003B74..0x70003B83, the button masks (the scene's one storage). */
@@ -2955,6 +2957,33 @@ static void bind_loco(void)
                                           L.foot_38B0 };
 }
 
+/* 001837B0's callees on the locomotion host (em_locomotion_display) and the
+ * SDK sinf on raw bits. */
+static int s1_entry_clip(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; IN3A20();
+    int r = em_loco_0017B5C0(&L.loco, a);
+    OUT3A20();
+    if (r < 0 && L.loco.fault) fprintf(stderr, "player closure: 001837B0's 0017B5C0 faulted at 0x%08X\n",
+                                       (unsigned)L.loco.fault);
+    return r;
+}
+static int s1_display(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; IN3A20();
+    int r = em_loco_0017C030(&L.loco, a);
+    OUT3A20();
+    if (r < 0 && L.loco.fault) fprintf(stderr, "player closure: 001837B0's 0017C030 faulted at 0x%08X\n",
+                                       (unsigned)L.loco.fault);
+    return r;
+}
+static int s1_sine(void *c, uint32_t x, uint32_t *out)
+{
+    (void)c;
+    *out = fbits(w_sin(NULL, bfloat(x)));
+    return L.sdk->fault ? -1 : 0;
+}
+
 /* ---- 00187350: the footstep dispatch on the record (census L12) ----------------
  * em_player_floor's translation over the record's fields. Its workers are
  * the closure's: 00179B90 and 00122BB8 the shared LCG, 001FBD50(p, id, 0,
@@ -3259,6 +3288,17 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     slot(&L.major5_00183250, em_player_00183250, &L.arrival, NULL, NULL, NULL, "00183250");
     major5->routine[EM_PLAYER_MAJOR5_00183250] = slot_run;
     major5->routine_context[EM_PLAYER_MAJOR5_00183250] = &L.major5_00183250;
+
+    /* 0015B530's 001837B0 (+5 = 1): 0017B5C0 / 0017C030 on the
+     * locomotion host, 0017BC40 the record-level motor, 00178B90 / 00175900 /
+     * 001796C0 on the record and the SDK's 0011E2A8; the locomotion host's
+     * scene words are refreshed first, as for the idle / walk states. */
+    L.state_one = (EmPlayerStateOneWorkers){ NULL, s1_entry_clip, lw_motor, s1_display, w_translate,
+                                             s1_sine, w_floor, w_fall_check };
+    slot(&L.major4[EM_PLAYER_MAJOR4_001837B0], em_player_001837B0, &L.state_one, NULL, loco_pre, NULL,
+         "001837B0");
+    major4->routine[EM_PLAYER_MAJOR4_001837B0] = slot_run;
+    major4->routine_context[EM_PLAYER_MAJOR4_001837B0] = &L.major4[EM_PLAYER_MAJOR4_001837B0];
 
     L.bound = 1;
     return 0;
