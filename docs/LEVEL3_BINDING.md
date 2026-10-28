@@ -33,7 +33,15 @@ a01r_01 exact for 1,631 rows, where it stops on the unbound 001C9E40 that
   anchors:** the arrival's drive-replay anchor (`extra_anchors`) and
   EM_RAND_REPLAY (`--rand-replay`, `--no-rand-replay`); without them it
   diverged in a00_09 (the creatures) and faulted at 001E2E80.
-- Receipts: `build/frontier/r02`.
+- **After merging `revisit` (c450912: 001C9E40, 001EDAF0, the actor
+  view's reused records) the same run is exact through a01r_00 (1,382
+  rows) and a01r_01 rows 0..8078 of 8,122** (the op0D cinematic and the
+  ramp frames included). At row 8079 the message and request bytes differ
+  (`msg` 4 against 0, D_008106B0 0x00 against 0x01) and the run stops at
+  frame 9597: owner 001BB0E0's node 007A5930 fails at 007A64F0 (the record
+  view: a record no longer allocated or reused). That is the revisit's lane
+  (R1, AREA01_REVISIT.md).
+- Receipts: `build/frontier/r03` (r02, the run before the merge, removed).
 
 **2026-10-28, iteration 24: AREA00 plays through a00_10 to its return to
 AREA01 (the harness: "PASS 40 live phases through a00_10"). The arrival and
@@ -80,7 +88,8 @@ a00_10 frame 15254, where the owner 008266A0's node 007B9380 fails at
   `build/fork_refs/probes_1028_e007`: 691 pairs, the last 2 after the feed
   loop's end, a 133-vblank stall, gate 686, end 1510; the replayed beat
   equal to the recording on all 1,095 rows).
-- Receipts: `build/frontier/i24`.
+- Receipts: the iteration-24 run `build/frontier/i25` (the same code plus
+  iteration 24's; i24 removed).
 
 **2026-10-28, iteration 22 (`revisit` merged, a fast-forward: R1's single
 `em_coll_segment_0019AA80` and the one hull home `assets/player_hull.emom`
@@ -119,8 +128,8 @@ still differs).
 - Checks: `test-chain-page` (two passes in one page, a target CALLed twice),
   `test-gs-world`, `test-dof-pass-reference`, `test-ramp-pass-reference`,
   New Game control 9.599849; not run: the first-level smokes and
-  EM_TEST_FULL. Receipts: the iteration-23 run `build/frontier/i24` (the
-  same code plus iteration 23's; i23 removed).
+  EM_TEST_FULL. Receipts: the iteration-24 run `build/frontier/i25` (the
+  same code plus iterations 23 and 24; i23 and i24 removed).
 
 **2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's
 attack on the player included); the run stops at a00_09 frame 13345, where
