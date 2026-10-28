@@ -1106,6 +1106,48 @@ static int handler_001EBC30(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* 001EDAF0 (byte-matched decomp C; the AREA01 revisit's event, decomp
+ * census first run a01r_01 f1682): em_area02_misc's translation
+ * (test_area02_misc_reference.py) over handler_hazard's views: it rewrites
+ * +0x20..+0x3C of the three descriptors D_00257510 / D_002575A0 /
+ * D_00257630 (001EEEB0's window, HAZARD_EFFECT_WINDOWS), steps the work
+ * block's LCG (+0x1F4) and eases its +0x1F8, and submits each descriptor
+ * through 001CFB50 / 001CFBE0 (impact_worker). */
+static int misc_impact_worker(void *ctx, EmArea02MiscCall *c)
+{
+    EmArea00HudCall h;
+    memset(&h, 0, sizeof h);
+    h.fn = c->fn; h.sp = c->sp; h.na = c->na; h.nf = c->nf;
+    memcpy(h.a, c->a, sizeof h.a);
+    memcpy(h.f, c->f, sizeof h.f);
+    const int rc = impact_worker(ctx, &h);
+    c->v0 = h.v0; c->f0 = h.f0;
+    return rc;
+}
+static int handler_001EDAF0(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001EDAF0u,"effect 001EDAF0 without its node");
+    uint8_t *sources=(uint8_t *)em_effects_live_window(0x00257510u,0x1B0u);
+    if(!sources)return fail(0x00257510u,"001EDAF0's descriptors not delivered");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea02MiscRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x1F4u,4,(uint8_t *)&work->seed_copy},
+        {at+0x1F8u,4,(uint8_t *)&work->step},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {0x00257510u,0x1B0u,sources},
+    };
+    ImpactCall call={node,at};
+    EmArea02Misc owner;
+    memset(&owner,0,sizeof owner);
+    owner.regions=regions;owner.region_count=sizeof regions/sizeof *regions;
+    owner.call=misc_impact_worker;owner.ctx=&call;owner.sp=HANDLER_SP;
+    if(em_area02_misc_001EDAF0(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001EDAF0u,"effect 001EDAF0 fault (em_area02_misc)");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
@@ -1121,6 +1163,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EEBA0u || handler == 0x001EEEB0u || handler == 0x001ECFB0u)
         return handler_hazard(handler, node, depth, work);
     if (handler == 0x001EF510u) return handler_001EF510(node, depth, work);
+    if (handler == 0x001EDAF0u) return handler_001EDAF0(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -1193,7 +1236,8 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00256280u || source == 0x00256310u ||
                               source == 0x00256EE0u || source == 0x00256F70u ||
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
-                              source == 0x00257510u || source == 0x00257630u || source == 0x00257870u ||
+                              source == 0x00257510u || source == 0x002575A0u || /* 001EDAF0's middle row */
+                              source == 0x00257630u || source == 0x00257870u ||
                               source == 0x00257900u || source == 0x002571B0u || source == 0x00257240u ||
                               source == 0x002572D0u || source == 0x00257990u || source == 0x00257A20u ||
                               source == 0x00257AB0u ||
