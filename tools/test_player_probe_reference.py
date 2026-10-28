@@ -62,7 +62,7 @@ MOVE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_float), C.POINTER(C.c_f
                       C.POINTER(ProbeHit))
 SWEEP_FN = MOVE_FN
 COLUMN_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_float), C.c_float, C.POINTER(ProbeHit))
-SHOVE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_float))
+SHOVE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(ProbeActor), C.POINTER(C.c_float), C.POINTER(C.c_float))
 GATE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p)
 POSE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_float)
 MATH1_FN = C.CFUNCTYPE(C.c_float, C.c_void_p, C.c_float)
@@ -89,7 +89,10 @@ class Probe(Floor):
                                        o.vector(o.r[5]), o.r[6]),
             SWEEP: lambda o: o.scripted('sweep', o.vector(o.r[5]), o.vector(o.r[6]), o.r[7]),
             COLUMN_PROBE: lambda o: o.scripted('column', o.vector(o.r[5]), o.load(o.r[6] + 4), o.r[7]),
-            HULL_SHOVE: lambda o: o.record_call('hull_shove', o.vector(o.r[6])),
+            # 00176180 is a boundary here (tools/test_player_hull_shove_reference.py
+            # executes it): its target and D_00281B50 (00176390's copy of
+            # the first hit's delta, which the native passes as `delta`).
+            HULL_SHOVE: lambda o: o.record_call('hull_shove', o.vector(o.r[6]), o.vector(0x281B50)),
             POSE: lambda o: o.record_call('pose', o.f[12]),
             SQRT: lambda o: o.ret_float(LIBC.sqrtf(number(o.f[12]))),
             ATAN: lambda o: o.ret_float(LIBC.atanf(number(o.f[12]))),
@@ -163,8 +166,8 @@ class NativeProbes:
         self.log.append(('column', start, bits(height), 6))
         return self.take(out)
 
-    def hull_shove(self, _, target):
-        self.log.append(('hull_shove', self.vec(target)))
+    def hull_shove(self, _, actor, delta, target):
+        self.log.append(('hull_shove', self.vec(target), self.vec(delta)))
         return 0
 
     def target_shove(self, _):

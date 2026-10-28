@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_area11_boxes.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_collision_world.h"
@@ -526,6 +527,8 @@ int em_player_stage_live_bind(void)
         /* 001756E0's 00174A50(p, 12.0) in the probe set. */
         em_collision_world_bind_player_pose(em_player_stage_row_request, &live.host,
                                             player_states_actor_mut());
+        /* 00176180's 0x700031F0 store (the carry flag's one storage). */
+        em_collision_world_bind_carry31F0(em_area11_boxes_carry31F0());
         /* The FLOOR state closure and the Use roots (census L02 / L04 / L09;
          * em_player_closure_live.c binds every state callback with the
          * translations the module docs name). */

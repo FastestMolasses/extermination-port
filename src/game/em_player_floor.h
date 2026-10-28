@@ -628,8 +628,11 @@ typedef struct EmPlayerProbeWorkers {
                  EmPlayerProbeHit *hit);
     /* 001760C0(actor, at, 1, height) -> 0019AB20 over at .. at + (0,height,0). */
     int (*column)(void *context, const float at[3], float height, EmPlayerProbeHit *hit);
-    /* 00176180(actor, kind, target): the class-2 hull shove (unported). */
-    int (*hull_shove)(void *context, const float target[3]);
+    /* 00176180(actor, kind, target): the class-2 hull shove, with
+     * D_00281B50 = `delta` (00176390's copy of the first hit's 0x700031C0);
+     * it corrects actor->position x/z (em_player_00176180 translates it). */
+    int (*hull_shove)(void *context, EmPlayerProbeActor *actor, const float delta[3],
+                      const float target[3]);
     /* 001762E0's area-2 target shove when its gate passes (unported). */
     int (*target_shove)(void *context);
     /* 00174A50(actor, 12.0): the idle row request after a clearance change. */

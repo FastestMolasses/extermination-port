@@ -153,10 +153,14 @@ static int probe_column(void *context, const float at[3], float height, EmPlayer
     return kind;
 }
 
-static int probe_hull_shove(void *context, const float target[3])
+/* The legacy probe set (before FLOOR engages) keeps the fail-stop: its
+ * sweep is not the original 0019AFE0, so em_player_00176180 is bound only
+ * in the collision world's probe set. */
+static int probe_hull_shove(void *context, EmPlayerProbeActor *actor, const float delta[3],
+                            const float target[3])
 {
-    (void)context; (void)target;
-    probe_fault("00176180 class-2 hull shove is not bound");
+    (void)context; (void)actor; (void)delta; (void)target;
+    probe_fault("00176180 class-2 hull shove is not bound on the legacy probe set");
     return 0;
 }
 

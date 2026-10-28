@@ -627,7 +627,7 @@ static int probe_response(EmPlayerProbeActor *a, const EmPlayerProbeScene *scene
         }
         uint8_t mask = kNeighbours[lane];
         if (!(scene->previous_obstruction & mask) && !(a->obstruction & mask)) {
-            if (!w->hull_shove || w->hull_shove(w->context, target) < 0) return -1;
+            if (!w->hull_shove || w->hull_shove(w->context, a, hit->delta, target) < 0) return -1;
         }
         return 0;
     }

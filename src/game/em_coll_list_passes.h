@@ -2,7 +2,8 @@
  * 001AAD00 (census lane L08; docs/COLL_LIST_PASSES.md).
  *
  * Hand translations of the original routines below. All are byte-matched
- * decomp C except 001A7870 (NEARMISS; its .s is the authority). Where the
+ * decomp C except 001A7870 (NEARMISS; its .s is the authority) and
+ * 001A8CE0 (read from the instructions). Where the
  * byte-matched C declares a callee with fewer arguments than the call site
  * passes, the .s decides: 001A9F60 calls 001A9E00(player, entry) and
  * 001A9B10 calls 001A99E0(outer, inner) (the entry is still in the second
@@ -31,6 +32,10 @@
  *   001A9000          class-0xD type-5 x class-4 -> 001A8F40 / 001A8E80
  *   001A97B0          class-0xD x class-2 -> 001A9360 / 001A96F0 / 001A9480
  *   001A9B10          class-2 type-0 x class-4 type-7 -> 001A99E0
+ *   pair callees      001A8840, 001A8970, 001A8E80, 001A8F40, 001A9360,
+ *                     001A96F0, 001A9480, 001A99E0, 001A9C40, 001A8CE0,
+ *                     001A9E00, 001AA000 and 0021BD10 (each also a
+ *                     worker adapter, em_coll_list_passes_<address>)
  *   001AAD00's hooks  the nine calls above in the original order
  *                     (em_coll_list_passes_001AAD00_hooks); its list swap is
  *                     em_actor_class_lists_swap_001AAD00 (em_actor_collision)
@@ -107,6 +112,9 @@ typedef struct EmCollListGlobals {
     uint8_t d810702;                     /* D_00810702 */
     uint8_t d81070A;                     /* D_0081070A (001A8660's table pick) */
     uint32_t s38A0[4];                   /* 0x700038A0..0x700038AC (raw bits) */
+    uint8_t d810707;                     /* D_00810707 (001A8840's gate) */
+    uint32_t s38B0[4];                   /* 0x700038B0..0x700038BC (raw bits; 00183C40's point) */
+    uint32_t s3A20, s3A24;               /* 0x70003A20 / 0x70003A24 (raw bits) */
 } EmCollListGlobals;
 
 /* Read-only data from the user's ELF. D_0024A740 (and D_0024A780 =
@@ -187,6 +195,34 @@ int em_coll_list_001A8CE0(EmCollListPasses *p, uint32_t self, uint32_t other);
  * executes the original). */
 int em_coll_list_001A99E0(EmCollListPasses *p, uint32_t outer, uint32_t inner);
 
+/* The remaining pair callees and 001A8660's 0021BD10, translated from the
+ * byte-matched decomp C (2026-10-28; the .c says what each does):
+ *   001A8840(player, entry)  001A8BE0 type 3: the box contact, 00187EC0
+ *   001A8970(player, entry)  001A8BE0 type 5: the gates, the +0x34
+ *                            behaviour and the follow-up commit (one path
+ *                            reads the caller's f20 and faults, 0x1A8AC4)
+ *   001A8E80(outer, inner)   001A9000: the x/z and height gates
+ *   001A8F40(outer, inner)   001A9000: the scratch distance test
+ *   001A9360(outer, inner)   001A97B0 type 5: 00183C40, the distance test,
+ *                            001A91C0 and the normal into +0x70
+ *   001A96F0(outer, inner)   001A97B0 type 3: the box test
+ *   001A9480(outer, inner)   001A97B0 other: the distance test, the
+ *                            D_0024A840 node scan for type 0xB
+ *   001A9E00(player, entry)  001A9F60: the circle push-out
+ *   001AA000(a, b, ga, gb)   001AA140: the circle push-out with a height
+ *                            test
+ *   0021BD10()               the player's +0 == 1 and 0021BB00 == 0 */
+int em_coll_list_001A8840(EmCollListPasses *p, uint32_t a0, uint32_t a1);
+int em_coll_list_001A8970(EmCollListPasses *p, uint32_t a0, uint32_t a1);
+int em_coll_list_001A8E80(EmCollListPasses *p, uint32_t a, uint32_t b);
+int em_coll_list_001A8F40(EmCollListPasses *p, uint32_t a0, uint32_t a1);
+int em_coll_list_001A9360(EmCollListPasses *p, uint32_t a0, uint32_t a1);
+int em_coll_list_001A96F0(EmCollListPasses *p, uint32_t a, uint32_t b);
+int em_coll_list_001A9480(EmCollListPasses *p, uint32_t a0, uint32_t a1);
+int em_coll_list_001A9E00(EmCollListPasses *p, uint32_t a0, uint32_t a1);
+int em_coll_list_001AA000(EmCollListPasses *p, uint32_t a, uint32_t b, uint32_t ga, uint32_t gb);
+int em_coll_list_0021BD10(EmCollListPasses *p, int *result);
+
 /* 001AAD00's nine hooks in the original order: 001A9D20, 001A8DA0,
  * 001A9F60(player), 001AA140, 001A7870, 001A8BE0(player), 001A9000,
  * 001A97B0, 001A9B10. Stops at the first fault. The list swap that follows
@@ -217,6 +253,18 @@ int em_coll_list_passes_001A9C40(void *context, EmCollListPasses *passes, uint32
 int em_coll_list_passes_001A8CE0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
 /* EmCollListWorkers.w_001A99E0 over em_coll_list_001A99E0. */
 int em_coll_list_passes_001A99E0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+/* The EmCollListWorkers slots over the translations above. */
+int em_coll_list_passes_001A8840(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A8970(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A8E80(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A8F40(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A9360(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A96F0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A9480(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001A9E00(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+int em_coll_list_passes_001AA000(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b,
+                                 uint32_t a1f0, uint32_t b1f0);
+int em_coll_list_passes_0021BD10(void *context, EmCollListPasses *passes, int *result);
 /* EmCollListWorkers.normalize over em_effect_original_00102760 (the
  * verified translation of the SDK routine); `context` is unused. */
 int em_coll_list_passes_normalize(void *context, float out[4], const float in[4]);
