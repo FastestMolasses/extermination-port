@@ -153,8 +153,8 @@ int em_status_pages_0020BC50(EmArea01Ui *s, uint32_t t, uint32_t rows, uint64_t 
  *   3: frame, list flags 0x401, arrows; t[6] -= 1; at 0 or on 0x5060
  *      (with the back cue on 0x5060): request cleared, t[5] = 1, t[6] = 0,
  *      D_00282240 = 3.
- * (The NEARMISS C passes 0020B0D0 (0, t); the instructions pass (t,
- * D_00265B80) as the other pages do.) */
+ * 0020B0D0 takes (t, D_00265B80) as on the other pages (the byte-matched
+ * src/func_00214570.c; the old readable C passed (0, t)). */
 int em_status_pages_00214570(EmArea01Ui *s, uint32_t t)
 {
     if (sp_begin(s, 0x00214570u) < 0) return -1;

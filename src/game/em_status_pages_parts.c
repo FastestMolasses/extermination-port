@@ -3,8 +3,8 @@
  * 002177B0 and 00217FA0. The five share one list-page skeleton; what each
  * lists, how Cross is checked and what Yes commits differ and are spelled
  * out per page below. Hand translation of the original functions (boot
- * ELF SCUS-97112), from the instructions (the decomp's NEARMISS C differs
- * in 002177B0's Cross check: docs/STATUS_PAGES.md section 2);
+ * ELF SCUS-97112), from the instructions; the decomp's byte-matched C of
+ * all five (002177B0's Cross check included) agrees with it;
  * docs/STATUS_PAGES.md. */
 #include "game/em_status_pages_internal.h"
 
@@ -390,8 +390,8 @@ int em_status_pages_00218640(EmArea01Ui *s, uint32_t t)
 /* ------------------------------------------------------------------ */
 /* 002177B0: MULTIPLE ATTACHMENT (module 0x30), base 0xA; the list holds
  * k - 0xA for each set byte 0x810C6E + (k - 0xA), k = 0xA..0xE; t[0x12] =
- * D_00810CA4 + 0xA (0xFF when CA4 is 0xFF). Cross, from the instructions
- * (the NEARMISS C differs, section 2): with k = the entry under the cursor
+ * D_00810CA4 + 0xA (0xFF when CA4 is 0xFF). Cross (as the byte-matched
+ * src/func_002177B0.c): with k = the entry under the cursor
  * (0020BEF0) and c = k - 2, when c < 3 (unsigned): D_0081070B = c and the
  * wanted id is 0xC when all of D_00810C70 / C71 / C72 are set, else t[0x12];
  * when not: the wanted id is k + 0xA. It accepts (t[0x13] = the id, stored

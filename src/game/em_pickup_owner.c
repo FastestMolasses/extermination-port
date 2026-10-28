@@ -134,8 +134,8 @@ int em_pickup_owner_00219550_state0(EmPickupState0 *r, uint8_t item3, const EmPi
         return -1;
     }
     /* +0x03 == 0 (the original tests it again after the bind; the decomp's
-     * NEARMISS C inverts this test), +0x2E == 3 and D_00810C64[+0x2E] held:
-     * +0x2E = 0x14. */
+     * byte-matched src/func_00219550.c agrees), +0x2E == 3 and
+     * D_00810C64[+0x2E] held: +0x2E = 0x14. */
     if (r->subtype == 0 && r->flags2 == 3 && item3 != 0) r->flags2 = 0x14;
     if (h->place_001C6380(h->context) < 0) return -1;
     r->status = 1;                            /* +0x00 */

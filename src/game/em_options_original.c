@@ -1297,7 +1297,8 @@ static uint32_t poll_slot(EmArea01Ui *s, uint32_t m, uint32_t port)
  *     2, m[2] = 0 (slot 2); -1 -> 0; -2 / -3 -> 001FE8D0; other -> the
  *     flag 0 and the same step. Returns 0.
  *   1: 002267A0(m) (past the recordings: a callee): 1 -> m[1] = 2; 2 -> 2;
- *     anything else 0 (the NEARMISS C returns the value itself).
+ *     anything else 0 (as the byte-matched src/func_00226070.c; the old
+ *     readable C returned the value itself).
  *   2 (the slot choice): the lines (no card: 0xB; else 0xA, then slot 1's
  *     line 3 with its bar when m[0x48] is 0, slot 2's line 4 with its bar
  *     when m[0x48] is 1); with both cards Up / Down (pressed 0x1000 /
