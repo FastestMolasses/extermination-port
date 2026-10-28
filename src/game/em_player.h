@@ -45,6 +45,10 @@ struct EmPoseHost;
 int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStageScene *scene,
                        struct EmPlayerStageGlobals *globals);
 int player_pose_record_ready(void);
+/* 0015C420's default pose on the record at the first stage after the wipe
+ * (the record words player_pose_attach leaves as the wipe left them: the
+ * clip clock +3C among them). 0 (written, or nothing pending), or -1. */
+int player_pose_rebuild_default(void);
 /* 00182DF0 on the record (em_player_stage_00182DF0 with its context, bound
  * by em_player_stage_live): the one release both takeovers run. */
 void player_pose_set_release_worker(int (*worker)(void *, EmPlayerLiveActor *), void *context);

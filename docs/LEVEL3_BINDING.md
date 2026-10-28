@@ -14,6 +14,32 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 23: the AREA00 arrival is exact on all 4,017 rows,
+a00_00..a00_09 on every row, and a00_10 through row 675; the run stops at
+a00_10 frame 15254, where the owner 008266A0's node 007B9380 fails at
+007B9490 right after the exit movie (next unit).**
+
+- **The arrival's row-0 clock (the last arrival row) was the default
+  pose's timing.** 001AF5C0's wipe leaves the record's pose words 0, and
+  0015C420 writes the default pose (bone_init_default_2 on clip 0, the
+  clock +3C = 80.0) on the first stage after it; the port wrote it at the
+  area bind (player_pose_attach), one iteration early. The route captures
+  show it at both arrivals: AREA00 a01_07 rows 539 / 540 and AREA01 route
+  15 rows 749 / 750 hold 0.0 then 80.0. player_pose_attach still makes the
+  pose (the frame's display and node channels need it) but puts the
+  record's bytes back as the wipe left them; `player_pose_rebuild_default`
+  writes them at the rebuild stage (em_player.c, before the entry stance).
+  Checks: area-load reference (New Game's 13 task states), first-control
+  reference (56 callbacks), New Game control 9.599849.
+- **Movie selector 3 is AREA00's exit movie `\MOVIE\E007.PSS`** (the
+  shaft door's script at a00_10 row 672), exported locally
+  (`export_movie.py --disc-path /MOVIE/E007.PSS`, STARTUP.md step 71) with
+  its field facts from a fork probe (decomp
+  `build/fork_refs/probes_1028_e007`: 691 pairs, the last 2 after the feed
+  loop's end, a 133-vblank stall, gate 686, end 1510; the replayed beat
+  equal to the recording on all 1,095 rows).
+- Receipts: `build/frontier/i24`.
+
 **2026-10-28, iteration 22 (`revisit` merged, a fast-forward: R1's single
 `em_coll_segment_0019AA80` and the one hull home `assets/player_hull.emom`
 kept): a00_09 is exact on all 2,028 rows and a00_10 through row 672; the

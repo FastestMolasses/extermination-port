@@ -1226,6 +1226,10 @@ void player_states_stage(void)
         return;
     }
     if (live.rebuild) {
+        if (player_pose_rebuild_default() < 0) {
+            live_fault("0015C420's default pose on the record");
+            return;
+        }
         player_states_entry_stance();
         /* 0015BA50's switch with +4 = 0 (the first stage after the
          * 001AF5C0 wipe) is 0015C420 alone: no advance, no state callback.

@@ -29,6 +29,7 @@ static struct {
     void *release_context;
     int (*end_hook)(void *);
     void *end_context;
+    int rebuild_default;   /* the record words of the default pose wait for 0015C420 */
     int started;
     int idle_phase;
     int idle_fidget;
@@ -279,6 +280,16 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
     /* 0015C420: +9 = +0xC once the node records are allocated (the node
      * count 001CB590 publishes and 001DA6A0 reads). */
     em_live_set_u8(actor, 0x09, em_live_u8(actor, 0x0C));
+    /* The record words the default pose writes (+20C, the clip clock +3C,
+     * ...) are 0015C420's, on the first stage after the wipe: the wipe's
+     * iteration leaves them as 001AF5C0 cleared them (the route captures:
+     * AREA01's arrival row 749 and AREA00's arrival row 539 hold clock 0.0,
+     * their next rows 80.0). The pose is made here (the display of the
+     * frame and the node channels need it); the record's bytes are put back
+     * after it, and player_pose_rebuild_default writes them again at the
+     * first stage. */
+    static uint8_t wiped[EM_PLAYER_ACTOR_SIZE];
+    memcpy(wiped, actor->bytes, sizeof wiped);
     if (!record_default() || em_player_record_pose_skeleton(&source.record) < 0) {
         source.valid = 0;
         source.legacy = 0;
@@ -298,7 +309,18 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
         g.idle_t = 0;
         (void)publish_current();   /* the display, once the player model is loaded */
     }
+    memcpy(actor->bytes, wiped, sizeof wiped);
+    source.rebuild_default = 1;
     return 1;
+}
+
+/* 0015C420's default pose on the record (the first stage after the wipe):
+ * the record words player_pose_attach put back. 0, or -1. */
+int player_pose_rebuild_default(void)
+{
+    if (!source.rebuild_default) return 0;
+    source.rebuild_default = 0;
+    return record_default() ? 0 : -1;
 }
 
 int player_pose_record_ready(void)

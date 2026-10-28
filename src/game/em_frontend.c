@@ -172,7 +172,7 @@ static void draw_texture(unsigned w, unsigned h)
  * docs/FIRST_LEVEL_EXIT.md), selector 2 \MOVIE\E006S1.PSS (AREA00's switch
  * movie: the area script host's op 0x0F for the owner 00825920 at route_a00
  * a00_08; docs/LEVEL3_BINDING.md). The port decodes the remux of each file
- * (tools/export_movie.py) and selector 4 E008S4 (below); the other five are not on the route
+ * (tools/export_movie.py), selector 3 E007 and selector 4 E008S4 (below); the other four are not on the route
  * played so far and are not exported (a request for one fails).
  * Each movie's field-clock facts (em_movie_field.h; GS_EXACT.md 10.4): its
  * pictures (the fork's sends: 4,761 pairs in the New Game movie, 2,305 in
@@ -186,7 +186,11 @@ static void draw_texture(unsigned w, unsigned h)
  * a01r_01 rows 1069 -> 1070), decomp build/fork_refs/probes_1028_e008s4/
  * a01r_01: 315 pairs, the last 2 after the feed loop's end, a 129-vblank
  * stall, gate 1084, end 1839; the replay of the recorded beat equalled the
- * recording on all 1,077 rows). */
+ * recording on all 1,077 rows; E007, selector 3, AREA00's exit movie (the
+ * shaft door's script at a00_10 row 672), decomp build/fork_refs/
+ * probes_1028_e007/a00_10: 691 pairs, the last 2 after the feed loop's
+ * end, a 133-vblank stall, gate 686, end 1510; the replay equalled the
+ * recording on all 1,095 rows). */
 static const struct {
     const char *path;
     const char *name;
@@ -195,7 +199,7 @@ static const struct {
     {"assets/startup/intro.mov", "E900.PSS", {4761, 2, 9618}},   /* 0: \MOVIE\E900.PSS */
     {"assets/movies/e001.mov", "E001.PSS", {2305, 2, 4731}},     /* 1: \MOVIE\E001.PSS */
     {"assets/movies/e006s1.mov", "E006S1.PSS", {741, 2, 1604}},  /* 2: \MOVIE\E006S1.PSS */
-    {NULL, "E007.PSS", {0, 0, 0}},                               /* 3: not on the route so far */
+    {"assets/movies/e007.mov", "E007.PSS", {691, 2, 1510}},      /* 3: \MOVIE\E007.PSS */
     {"assets/movies/e008s4.mov", "E008S4.PSS", {315, 2, 755}},   /* 4: \MOVIE\E008S4.PSS */
 };
 
