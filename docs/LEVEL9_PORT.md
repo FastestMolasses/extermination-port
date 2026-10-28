@@ -45,7 +45,7 @@ comments (pre-2026-09-23 claims, never compared with the original).
 | 001BA7F0 | 236 | BM | a13_00 f572 | hook only (`em_roger_actor_original.c` w_001BA7F0) | translated |
 | AREA13 0x823940 | 208 | C | a13_00 f6996 | none | translated |
 | 001BDCA0, 001BDD70 | 208, 228 | BM | a13_01 f398, f524 | hook only (`em_level8_port_lift.c`, 001BDE60's hooks) | translated |
-| 001DE920 | 1,160 | NM | a13_01 f521 | hook only (`em_render_context.c` w_001DE920) | translated (instructions) |
+| 001DE920 | 1,160 | NM | a13_01 f521 | bound live since 2026-10-28: the render context's 001DDAA0 worker (`em_render_context_live.c` rcl_001DE920, RENDER_CONTEXT.md 8.6) | translated (instructions) |
 | 001E5AC0 | 3,328 | NM | a13_01 f521 | hook only (`em_weather.h` draw kind 2) | translated (instructions) |
 | 001E7050 | 692 | NM | a13_01 f521 | none (a comment in `em_area01_render_gs.h`) | translated (instructions) |
 | AREA13 0x823FE0 | 124 | C | a13_01 f521 | hook only (`em_camera_area11_specials.c` w_00823FE0, the call from 00195130's area-0xD case; CAMERA_AREA11_SPECIALS.md) | translated |
@@ -410,7 +410,11 @@ description.
 
 ## Binding
 
-Nothing calls these entries. To run them live a host must:
+One entry is bound: 001DE920, the render context's 001DDAA0 worker since
+2026-10-28 (`em_render_context_live.c` rcl_001DE920 supplies `bytes` over
+that module's storage with a private stack window, and binds its callees;
+RENDER_CONTEXT.md section 8.6). Nothing calls the others. To run them live
+a host must:
 
 - supply `bytes` over the scene's original-byte storage (the actor pool,
   the player and camera blocks, the AREA13 overlay's data (the scripts, the

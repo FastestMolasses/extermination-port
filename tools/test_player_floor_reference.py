@@ -1430,6 +1430,184 @@ def takeover_section(elf, native, rng, result):
     result['takeover_cases'] = samples
 
 
+# ---------- 001833F0 / 00183440 / 001834E0, 0015B610's +5 = 2 / 3 / 4 routines
+
+MAJOR5_HOLD, MAJOR5_RELEASE, MAJOR5_GLIDE = 0x1833F0, 0x183440, 0x1834E0
+CRAWL_SPAWN = 0x16BAE0
+TABLE32_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.POINTER(C.c_uint32))
+GLIDE_TABLE = tuple(range(0x2487B0, 0x2487BC, 4)) + tuple(range(0x2487C0, 0x2487CC, 4))
+
+
+class Major5ClimbWorkers(C.Structure):
+    """EmPlayerMajor5ClimbWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('climb', ACTOR_FN), ('spad3B8D', C.POINTER(C.c_uint8))]
+
+
+class Major5GlideWorkers(C.Structure):
+    """EmPlayerMajor5GlideWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('request', REQUEST_FN), ('crawl', TRANSLATE_FN),
+                ('drop', DROP_FN), ('floor', FLOOR_FN), ('table32', TABLE32_FN),
+                ('spad3B8D', C.POINTER(C.c_uint8))]
+
+
+def elf_word(elf, address):
+    return struct.unpack_from('<I', elf, address - 0x100000 + 0x300)[0]
+
+
+def major5_climb_case(elf, native, fn, raw, spad3B8D, major_after, flags_after):
+    """001833F0 / 00183440 over `raw`: 001662D0 hooked (it records +0x23F /
+    +0x24C as it sees them, then stores `major_after` at +4 and
+    `flags_after` at +0x200, so the reloads after the call show)."""
+    oracle = Floor(elf)
+    log = []
+    def climb(o):
+        log.append(('climb', o.r[4] & 0xffffffff, o.load(ACTOR + 0x23F, 1), o.load(ACTOR + 0x24C)))
+        o.save(ACTOR + 4, major_after, 1)
+        o.save(ACTOR + 0x200, flags_after)
+        o.r[2] = 0
+    oracle.calls.update({CLIMB_STATE: climb})
+    oracle.write(ACTOR, bytes(raw))
+    oracle.save(0x70003B8D, spad3B8D, 1)
+    oracle.call(fn, ACTOR)
+
+    mine = []
+    def n_climb(_, a):
+        b = a.contents.bytes
+        mine.append(('climb', ACTOR, b[0x23F], struct.unpack_from('<I', bytes(b), 0x24C)[0]))
+        b[4] = major_after
+        struct.pack_into('<I', b, 0x200, flags_after)
+        return 0
+    keep = [ACTOR_FN(n_climb)]
+    cell = C.c_uint8(spad3B8D)
+    workers = Major5ClimbWorkers(None, keep[0], C.pointer(cell))
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    native_fn = native.em_player_001833F0 if fn == MAJOR5_HOLD else native.em_player_00183440
+    name = '%08X' % fn
+    assert native_fn(C.byref(workers), C.byref(live)) == 0
+    assert mine == log, (name + ' calls', mine, log)
+    assert cell.value == oracle.load(0x70003B8D, 1), (name + ' 0x70003B8D', cell.value)
+    return compare_image(oracle, live, name)
+
+
+def major5_glide_case(elf, native, raw, spad3B8D, done, crawl_b0):
+    """001834E0 over `raw`: 001749A0, 0016BAE0 (which stores `crawl_b0` at
+    +0xB0, so the read after it shows), 00179880 and 00175900 (answering
+    `done`) hooked and recorded."""
+    oracle = Floor(elf)
+    log = []
+    def request(o):
+        log.append(('request', sx32(o.r[5]), o.r[6] & 0xffffffff, o.f[12] & 0xffffffff))
+        o.r[2] = 0
+    def crawl(o):
+        log.append(('crawl', o.r[5] & 0xffffffff))
+        o.save(ACTOR + 0xB0, crawl_b0)
+        o.r[2] = 0
+    def drop(o):
+        log.append(('drop', (o.r[5] - o.r[4]) & 0xffffffff, o.load(ACTOR + 0x2EC)))
+        o.r[2] = 0
+    def floor(o):
+        log.append(('floor', o.r[5] & 0xffffffff))
+        o.r[2] = done & 0xffffffff
+    oracle.calls.update({REQUEST_CLIP: request, CRAWL_SPAWN: crawl, DROP_P: drop, FLOOR_SERVICE: floor})
+    oracle.write(ACTOR, bytes(raw))
+    oracle.save(0x70003B8D, spad3B8D, 1)
+    oracle.call(MAJOR5_GLIDE, ACTOR)
+
+    mine, reads = [], []
+    def n_crawl(_, a, arg):
+        mine.append(('crawl', arg & 0xffffffff))
+        struct.pack_into('<I', a.contents.bytes, 0xB0, crawl_b0)
+        return 0
+    def n_table(_, address, out):
+        reads.append(address)
+        out[0] = elf_word(elf, address)
+        return 0
+    keep = [
+        REQUEST_FN(lambda _, a, c, flags, blend: (mine.append(('request', c, flags, bits(blend))), 0)[1]),
+        TRANSLATE_FN(n_crawl),
+        DROP_FN(lambda _, a, at: (mine.append(('drop', at, struct.unpack_from('<I', bytes(a.contents.bytes),
+                                                                             0x2EC)[0])), 0)[1]),
+        FLOOR_FN(lambda _, a, search, out: (mine.append(('floor', search)), out.__setitem__(0, done), 0)[2]),
+        TABLE32_FN(n_table),
+    ]
+    cell = C.c_uint8(spad3B8D)
+    workers = Major5GlideWorkers(None, *keep, C.pointer(cell))
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    assert native.em_player_001834E0(C.byref(workers), C.byref(live)) == 0
+    assert mine == log, ('001834E0 calls', mine, log)
+    assert set(reads) <= set(GLIDE_TABLE), ('001834E0 read outside D_002487B0..C8', reads)
+    assert cell.value == oracle.load(0x70003B8D, 1), ('001834E0 0x70003B8D', cell.value)
+    return compare_image(oracle, live, '001834E0')
+
+
+def major5_section(elf, native, rng, result):
+    """001833F0 / 00183440 / 001834E0 (0015B610's +5 = 2 / 3 / 4 routines),
+    executed, against em_player_001833F0 / _00183440 / _001834E0: +4 after
+    the climb state 1 and not; bit 0x1000 of +0x200 set and clear with
+    +0x268 below and at / above 3.0 (the 4.0 boundary after the add); every
+    001834E0 phase 0..5 and others, its timer at 0 and not, 00175900 zero
+    and nonzero; random positions (the glide divisions) and the boundary
+    floats."""
+    for name in ('001833F0', '00183440', '001834E0'):
+        getattr(native, 'em_player_' + name).argtypes = [C.c_void_p, C.POINTER(LiveActor)]
+    samples = reference_mode.pick(600, 30)
+    paths = set()
+    specials = [0x40400000, 0x40400001, 0x403FFFFF, 0x40800000, 0x7F800000, 0xFF800000, 0x00000001,
+                0x80000000, 0x7FC00000, 0xC0800000]
+    for case in range(samples):
+        for fn in (MAJOR5_HOLD, MAJOR5_RELEASE):
+            raw = bytearray(rng.randrange(256) for _ in range(0x320))
+            major_after = (1, 0)[case % 2] if case < 4 else rng.choice([1, 1, 0, 2, 4, 0xFF])
+            flags_after = rng.getrandbits(32)
+            if case % 3 == 0: flags_after |= 0x1000
+            elif case % 3 == 1: flags_after &= ~0x1000
+            v268 = rng.choice(specials) if case % 2 else struct.unpack('<I', struct.pack('<f',
+                                                                       rng.uniform(-2.0, 6.0)))[0]
+            struct.pack_into('<I', raw, 0x268, v268)
+            image = major5_climb_case(elf, native, fn, raw, rng.choice([1, 2, 4, 0xFF]), major_after,
+                                      flags_after)
+            if fn == MAJOR5_HOLD:
+                paths.add(('hold', major_after == 1))
+            elif flags_after & 0x1000:
+                paths.add(('release', image[4] == 1 and image[5] == 0xC))
+            else:
+                paths.add(('release', 'clear'))
+        raw = bytearray(rng.randrange(256) for _ in range(0x320))
+        raw[6] = case % 7 if case < 21 else rng.choice([0, 1, 1, 2, 2, 3, 4, 5, 5, 6, 0xFF])
+        timer = (0, 1, rng.randrange(0x10000))[case % 3]
+        struct.pack_into('<H', raw, 0x28, timer)
+        for k in range(3):
+            if rng.random() < 0.7:
+                struct.pack_into('<f', raw, 0xB0 + 4 * k, rng.uniform(-600.0, 600.0))
+            if rng.random() < 0.7:
+                struct.pack_into('<f', raw, 0x2E0 + 4 * k, rng.uniform(-5.0, 5.0))
+        flags = rng.getrandbits(32)
+        flags = flags | 0x1000 if case % 2 else flags & ~0x1000
+        struct.pack_into('<I', raw, 0x200, flags)
+        done = (0, 1, -1, 2)[case % 4]
+        crawl_b0 = struct.unpack('<I', struct.pack('<f', rng.uniform(-600.0, 600.0)))[0]
+        major5_glide_case(elf, native, raw, rng.choice([1, 4, 0xFF]), done, crawl_b0)
+        phase = raw[6]
+        if phase in (1, 2): paths.add(('glide', phase, timer == 0))
+        elif phase == 4: paths.add(('glide', 4, bool(flags & 0x1000)))
+        elif phase == 5: paths.add(('glide', 5, done != 0))
+        elif phase in (0, 3): paths.add(('glide', phase))
+        else: paths.add(('glide', 'other'))
+    need = {('hold', True), ('hold', False), ('release', True), ('release', False), ('release', 'clear'),
+            ('glide', 0), ('glide', 3), ('glide', 'other')}
+    need |= {('glide', p, t) for p in (1, 2, 4, 5) for t in (True, False)}
+    assert need <= paths, sorted(map(str, need - paths))
+    # A missing worker is a fault before any write.
+    raw = bytearray(0x320)
+    for fn, workers in ((native.em_player_001833F0, Major5ClimbWorkers()),
+                        (native.em_player_00183440, Major5ClimbWorkers()),
+                        (native.em_player_001834E0, Major5GlideWorkers())):
+        live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+        assert fn(C.byref(workers), C.byref(live)) == -1
+        assert bytes(live.bytes) == bytes(raw)
+    result['major5_cases'] = samples
+
+
 # ---------------------------------------------------- real worlds, +214
 
 # The native floor service over the actor-collision ground worker, beside the
@@ -1874,6 +2052,9 @@ def main():
 
     # 4c-2c. 001838B0 / 00183910 (0015B530's +5 = 0xC / 0x17 routines).
     takeover_section(elf, native, rng, result)
+
+    # 4c-2d. 001833F0 / 00183440 / 001834E0 (0015B610's +5 = 2 / 3 / 4 routines).
+    major5_section(elf, native, rng, result)
 
     # 4c-3. The first-contact one-shots (00187DC0 / 00187EA0).
     first_contact_section(elf, native, result)

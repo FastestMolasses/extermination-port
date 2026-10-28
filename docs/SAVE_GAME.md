@@ -19,7 +19,7 @@ instruction of the original is reproduced here.
 | The progress block as one storage | D_00810700..D_00810D3F, which 00228B60 reads into and a save's Write reads (section 6.1) | every byte one storage (em_scene_state.h; save2 round 2); 001AF2C0's effect on all 0x640 bytes | test-continue-reset-reference, test-options-card-live |
 | LOAD GAME after the read: the title | 001AC070 state 5's r == 2 (001AF150, D_00275BE0 = 1), state 4's 001AB790(001ACEC0); 001ACEC0 state 0 / 2, 001ADF50 on the block's area, 0x1AE040 state 0's 001B07C0(0) from the load pose, 001B0460's clear (section 6.3) | wired (save2 round 3): the title's LOAD GAME after a death enters the slot's area | the side run dmg_load_game (`make test-level-smoke-damage`) |
 | LOAD GAME on the boot's title | the same 001AC070 states 2 / 5 / 4 and 00225AC0(0) before any game (section 6.4) | wired (save2 round 5): the card screen on the boot title's own binding (the GS memory cleared, module 0x2A's upload applied), then the loaded game's handoff em_game_install_loaded_001AC070 into the slot's area | `make test-title-load-game` |
-| LOAD GAME after the read: the options | 0022A650's r == 2 (001AEBA0, 001AF150, 001D2610, D_00275BE0 = 1, the game task to 3 / 5) | not bound: 001D2610 fail-stops | - |
+| LOAD GAME after the read: the options | 0022A650's r == 2 (001AEBA0, 001AF150, 001D2610, D_00275BE0 = 1, the game task to 3 / 5) | bound (2026-10-28): 001D2610 is the render context's em_rcl_001D2610 (w_001D2610); the game task then runs the area read of the title's load (section 6.3). Not run end to end (no side run loads from the options) | test-scene-frame-reference (the r == 2 arm), test-render-context-live-reference (em_rcl_001D2610) |
 | The host card | em_memcard (since save2 round 6 also read-only, for EM_START_AT): GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
 | The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
 | Start-point saves | the save terminal's pose step (00159B90's two copies 00102948) and the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6; the load pose since save2 round 4) | test-start-saves, dmg_load_game |
@@ -896,8 +896,9 @@ title, section 6.4, since save2 round 5; `EM_START_AT=<name>`, docs/STARTUP.md
 area00 is placed at its load pose, then the static world refuses a run
 larger than RUN_MAX at 00297710 and no control comes within 300 s;
 area01-revisit is placed at its load pose, then faults at 00823CD0, both
-areas still being finished on port main): 0022A650's r == 2 (001D2610,
-unbound); the save terminal's Yes path (0020CDC0, request 6) and the save
+areas still being finished on port main): a side run of LOAD GAME from
+the options (0022A650's r == 2 is bound since 2026-10-28, never run end to
+end); the save terminal's Yes path (0020CDC0, request 6) and the save
 mode's leaves (GetInfo's free count, Format 00114D18, 001AF2C0, block_copy
 00121870, the icon container *D_0028A4A0 as a window); a fork recording of
 a save at AREA01's save terminal on a separate, formatted card file (the

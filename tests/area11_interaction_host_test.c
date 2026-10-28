@@ -24,6 +24,7 @@
 #include "game/em_pickup.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_player_stage_live.h"
 #include "game/em_locomotion_display.h"
 #include "game/em_player_ladder_climb.h"
 #include "game/em_player_record_pose.h"
@@ -138,6 +139,19 @@ void em_status_background_frame(struct EmGfx *g)
     assert(g);
     ++background_frames;
 }
+/* No status sink is bound here (em_status_gs_page is not linked): the
+ * render steps the background itself, so a stepped draw is a failure. */
+int em_status_background_render_step(struct EmGfx *g, uint32_t token, float u, float v, float w, float h)
+{
+    (void)g; (void)token; (void)u; (void)v; (void)w; (void)h;
+    return 0;
+}
+/* The Original profile's GS frame is off in this fixture (no GS model, no
+ * GS page fields): every status page is drawn by the GPU renderer's path. */
+int em_gfx_gs_world_enabled(EmGfx *g) { (void)g; return 0; }
+int em_gfx_gs_upload(EmGfx *g, const uint8_t *chain, size_t bytes) { (void)g; (void)chain; (void)bytes; return 0; }
+int em_sgp_field_claim(void) { return 0; }
+int em_sgp_field_claim_page(void) { return 0; }
 /* The hub's 00209DF0 draw (em_status_hub_ui): its arcs and CB4 reserve. */
 int16_t em_weapon_reserve(void) { return 60; }
 /* em_weapon's C61 / C62 / CB4 storage the status pages view. */
@@ -233,6 +247,14 @@ void em_sfx_play(unsigned cue) { assert(em_sfx_cue_state(cue)); ++sounds; }
 void em_sfx_play_at(unsigned cue, const float *position, float radius)
 { assert(position && radius > 0); em_sfx_play(cue); }
 void em_sfx_stop_all(void) {}
+/* The EVENT page's 00182B30 on the live player (em_player_stage_live is not
+ * linked here; no scenario reaches EVENT's Cross on a found device). */
+int em_player_stage_live_00182B30(int *result) { (void)result; return -1; }
+/* HEALING kind 2's 0015C750 on the live player (em_player_closure_live is
+ * not linked here; no scenario reaches it). */
+int em_player_closure_live_0015C750(uint32_t d8106C8, int (*table16)(void *, uint32_t, int16_t *),
+                                    void *table_context, uint8_t *d810707)
+{ (void)d8106C8; (void)table16; (void)table_context; (void)d810707; return -1; }
 /* The stream calls the host's status frame and interaction frame make
  * (em_scene_bindings.c binds them to the stream lanes, em_stream_live; the
  * lanes have their own tests): the status open's 001FBC50, 001FABB0 and

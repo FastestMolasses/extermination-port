@@ -5,8 +5,10 @@ Original executable SHA-256:
 
 Lane "player-equipment" (census gap lane **L28-player-equipment**,
 docs/FIRST_LEVEL_CENSUS.md section 5). This document covers what the
-original routines do, the translations `src/game/em_player_equipment.c/.h`
-and `src/game/em_player_equipment_sprite.c/.h`, how they bind, and the
+original routines do, the translations `src/game/em_player_equipment.c/.h`,
+`src/game/em_player_equipment_sprite.c/.h` and (since 2026-10-28) the
+variant routines `src/game/em_player_equipment_variants.c/.h`, how they
+bind, and the
 evidence. **Live since 2026-09-25** (census L26 / L27 / L28 / L39 step):
 `em_equipment_live` binds the seven nodes and `em_effects_live` binds
 001CD520 (section 4 is the binding, section 8 the live evidence).
@@ -28,6 +30,10 @@ evidence. **Live since 2026-09-25** (census L26 / L27 / L28 / L39 step):
 | 0015D2F0 camera-mode code | BM | stand-in (em_weapon.c assumes variant 0) | translated, live | `em_player_equipment_0015D2F0` |
 | 001CD520 depth-faded sprite | NEARMISS (21.9%) | unverified (em_status_models.c `w_001CD520`, a fault) | translated from the listing, live | `em_player_equipment_001CD520` |
 | 001607D0 action machine | BM | verified-unbound | unchanged: binding notes only (section 4.6) | `em_player_weapon_001607D0` (em_player_weapon_states_a) |
+| 00188C70 flavour 1 variant 0x15 | BM | fault (`x_node`) | translated, bound (2026-10-28, section 4.7) | `em_player_equipment_00188C70` |
+| 00189090 / 00189330 flavour 2 variants 1 / 2 | BM | fault (`x_node`) | translated, bound (section 4.7) | `em_player_equipment_00189090` / `_00189330` |
+| 001899C0 flavour 2 variant 3, with 00189630 / 00189730 | BM | fault (`x_node`) | translated, bound (section 4.7) | `em_player_equipment_001899C0` |
+| 00189A20 flavour 2 variant 0xC | BM | fault (`x_node`) | translated, bound (section 4.7) | `em_player_equipment_00189A20` |
 
 "Verified" means: `tools/test_player_equipment_reference.py` executes the
 original instructions and compares every modelled byte, every worker call
@@ -261,12 +267,17 @@ original does not call 001AF890 there).
 | w_001F4010 | `em_equipment_live_set_casing` -> `em_aim_fire_runtime_001F4010` (the frame the node staged goes to the composition's 0x700036A0, then em_area02_misc_001F4010; AIM_FIRE.md section 9.2); in ordinary play since 2026-10-02 |
 | w_001AA840, w_0019B2C0, w_00189EC0, w_face_record, w_001F00A0, w_0018A180, w_0019A570, w_00189FE0, w_001EFF10 (the knife, flavour 4) | (AIMLIVE) `em_equipment_live_set_world` -> `em_aim_fire_runtime_world_*`: each original through the composition with the node's staged 0x700038A0..0x700038DF copied in and back and D_00275B40 = the knife's bones (0019B2C0 is em_coll_move_probe_0019B2C0; the face record of a cell hit is the walker's D_700030B0 words; 0019A570 the live segment walker; AIM_FIRE.md section 9.3; 0018A180's 001B61C0 goes to em_pad_actuator through the composition); in ordinary play since 2026-10-02 |
 | w_00187780 (the gun lamp) | `em_equipment_live_set_lamp` -> `em_aim_fire_binding_run_lamp`: em_aim_fire_lamp's 00187780 through the composition with D_00275B40 = the node's +0x110 (AIM_FIRE.md section 10.2); since 2026-10-02 |
-| w_001B61C0 (the node's own call) and every untranslated callee: w_001EFEB0, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20 | faults (none ran in any census label or AIM capture) |
+| w_001B61C0 (00188630's rumbles after the mode 1..5 one-shots) | `em_pad_actuator_001B61C0` (the pad block D_00810E40; the player states' same translation) |
+| w_001EFEB0 (00188630 mode 4) | `em_gun_rest_001EFEB0` (the security gun lane's translation of the byte-matched C) over the node's staged 0x700036A0 matrix: `em_effects_live_001EF9D0(id, matrix row 3, 1.0)`, then the matrix into the new effect record's +0xD0 (`em_effects_live_node_field`) |
+| w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20 | the variant translations (section 4.7) over the node, its slot's variant bytes and the equipment's views |
 
-None of the faulting callees ran in any census label or AIM capture (the
-ten AIM side runs reach none of them, LEVEL_SMOKE.md "The AIM replays");
-the knife's bit 0 and a camera mode other than 0 are not reachable on the
-idle / walk states.
+Since 2026-10-28 no worker of the nodes faults by design. The workers
+bound that day (001B61C0, 001EFEB0 and the five variants) ran in no census
+label or AIM capture (the ten AIM side runs reach none of them,
+LEVEL_SMOKE.md "The AIM replays"); every capture holds D_00810CA4..CA7 =
+0xFF, 5, 0, 7 (section 7), so the flavour-2 variants 1, 2, 3 and 0xC are
+not spawned in the first level. The knife's bit 0 and a camera mode other
+than 0 are not reachable on the idle / walk states.
 
 ### 4.3 Data
 
@@ -303,6 +314,57 @@ idle / walk states.
 (the glow markers) over the render context's packet chain
 (EFFECT_MANAGER.md section 8). em_status_models' `w_001CD520` still faults
 (no status-model caller reaches it).
+
+### 4.7 The variant routines (2026-10-28)
+
+`em_player_equipment_variants.c` translates the byte-matched decomp C of
+the five routines 00188A50 / 00188DF0 hand a node to (and 001899C0's unit
+callees 00189630 / 00189730):
+- **00188C70** (flavour 1, +0x0D 0x15): D_008106CC != 0 frees the node
+  (+0x04 = 3). Otherwise, while the player is in state 1 with +0x275 = 4,
+  action 0x33 and its clip +0x20C one of D_00248BA0 / D_00248C80, by the
+  clip time +0x3C (at most 50.0): 39.0 exactly seeds 001F4010(9) from work
+  bone 0's world matrix itself; from 8.0 to 27.0 bone 0's world is the
+  player's bone 19; above 27.0 the node's +0x01 is cleared. Every other
+  frame bone 0's world is the player's bone 4 and its row 3 is D_0024A340 x
+  that matrix (001026A0).
+- **00189090** (variant 1): every work bone's world = the player's bone 4,
+  then +0x05: 0 waits for +0x275 = 3, +0x274 and D_00810CA8; 1 at clip time
+  21.0 plays 001FBD50(player, 0x5DF, 0, 300.0) and clears +0x70..+0x7C and
+  +0x28; 2 at 12.0 seeds 001F4010(7) (0x700036A0 = bone 0's world, its row
+  3 = D_0024A330 x it) and falls into 3: until 2.0, +0x70 += D_0024A360[+0x28],
+  that vector x bone 0's world is added to bone 1's world row 3, +0x28 += 1.
+- **00189330** (variant 2): the same bone copy, then six states on +0x05
+  (0x275 = 1 and action 0x33; the clip D_00248B9A / D_00248C7A; at 52.0 the
+  001F4010(8) seed from D_0024A310, +0x70 += 0.1 each frame; until 7.0;
+  until 1.0 with +0x70 -= 0.1; back to 0 when the action leaves 0x33), the
+  push through 001028B8 on bone 1's whole world row 3.
+- **001899C0** (variant 3): 00189630 (+0x06: work bone 2's +0x70 rolls by
+  +0x38 = 0x3D567750 for 20 frames from clip time 20.0) and 00189730
+  (+0x05: work bone 1's +0x74 dips by -0.07875798 over 8 frames, is set to
+  -0.63006383, then six 001F4010(8) seeds from work bone 2 on the even
+  frames of 0x70003B68, rows D_0024A410[rand() & 1][1..6] of D_0024A3B0,
+  then rises over 8 frames), both sharing the node's +0x28 and +0x38 as in
+  the original; then the +0xD0 placement and 001C9610.
+- **00189A20** (variant 0xC): the +0xD0 placement and 001C9610, then six
+  states on +0x05 with an 8-frame countdown on +0x28 and a ramp of
+  +-0.1573875 on +0x70 added to work bone 1's world row 3.
+
+The node bytes only these routines use (+0x06, +0x2A, +0x38, +0x70..+0x7F)
+are `EmPlayerEquipmentVariantBytes`, kept per slot by em_equipment_live.
+D_00275B40 is the node's own bone array, as for the other node routines.
+The live workers: 001026A0 / 001028B8 / 001C9610 / 001F4010 are the
+equipment's own (section 4.2); 001FBD50 is `em_sfx_play_at` at the player
+record's +0xB0 (the player's other 001FBD50 bindings); 00122BB8 is the
+shared LCG `em_random_next`. The tables are the ELF window D_0024A220..4AF
+and the halfwords D_00248B98..A7 / D_00248C78..87; 0x70003B68 is the
+scene's spad3B68; D_00810CA8 the progress block's.
+
+A table index outside the window faults (BAD_INDEX). The original reads
+whatever lies there; one such state is synthetic only (00189630 leaving
++0x28 negative while 00189730 is in its state 3 indexes D_0024A410 at -1
+and forms a vector address outside the EE memory), and the oracle checks
+that the port faults there.
 
 ### 4.6 001607D0
 
@@ -370,6 +432,22 @@ Default run: about 5 s (quick mode: 1,000 unit cases). `EM_TEST_FULL=1`:
 6,000 unit cases, every 0015D2F0 combination and 915 sprite cases, about
 25 s. Both pass.
 
+`make test-player-equipment-variants-reference`
+(`tools/test_player_equipment_variants_reference.py`, section 4.7) executes
+the original instructions of 00188C70, 00189090, 00189330, 001899C0 (with
+00189630 and 00189730 unhooked) and 00189A20 over a synthetic image (the
+player record, its bone 4 / 19 records, the node and three work bones,
+D_008106CC, D_00810CA8, 0x70003B68, the scratchpad windows) and compares
+the node bytes +0x01, +0x04..+0x06, +0x28, +0x2A, +0x38, +0x70..+0x7F,
++0xD0..+0x10F, the work bones' +0x70..+0x7B and world matrices, the
+scratchpad 0x700036A0..DF and 0x700038A0..AF and the worker calls
+(001026A0 / 001028B8 evaluated by the original SDK routines on both sides;
+001C9610, 001F4010 with the 16 words handed, 001FBD50, 00122BB8 scripted).
+Every original store must fall in a compared range; the jal targets must
+be exactly the hooks, the two unit callees and copy_qw4; all 126 outcomes
+of the 63 conditional branches are reached. Default run (2026-10-28):
+1,200 cases and the wild-index boundary case, about 3 s, PASS.
+
 ## 7. Limits
 
 - The clip test of 001CD520 is not part of the measured float model
@@ -384,9 +462,9 @@ Default run: about 5 s (quick mode: 1,000 unit cases). `EM_TEST_FULL=1`:
   ticked from those states, not replayed through the beat. No capture has
   the lamp on, a knife hit, an equipment change or a camera mode other
   than 0.
-- The untranslated callees in section 4.2 have no port code; they are
-  faulting stubs, safe because neither the route nor any state the port
-  can enter today reaches them (4.2).
+- The variant routines (section 4.7) and the 001B61C0 / 001EFEB0 bindings
+  are checked against the original code only: no capture runs a flavour-2
+  variant 1, 2, 3 or 0xC, a flavour-1 variant 0x15 or a mode 1..5 shot.
 - The nodes' own draw (001CAA00 over each model) is the port's since the
   player step, except in the opening's reported frames (the port's player
   mesh carries the models there, OWNER_DRAW.md section 10). Equipment 0x36

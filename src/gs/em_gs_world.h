@@ -164,6 +164,25 @@ int em_gs_world_preparse(EmGsWorld *w, const void *env, size_t env_bytes, const 
 int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
                            uint64_t display_frame, uint64_t display_scissor);
 
+/* A frame whose whole GS list is GIF data, transfers included (the status
+ * pages' frames: a list of VIF DIRECT data only, its glyph texel uploads in
+ * the list itself; docs/STATUS_FIELD.md section 3d): `gif` is every GIF
+ * packet the kicked list sends, in order, the head (the draw environment
+ * and the clear) included. Waits for the frame before, checks the stream as
+ * the recorder checks a world frame (every textured vertex kick's TEX0 known
+ * and reading only resident or drawn memory; a host-to-local transfer's
+ * destination blocks resident from the transfer on; PSMCT32 / PSMT8 / PSMT4
+ * transfers only), then runs it whole through the model that holds the GS
+ * registers (the parser, or the direct worker), strict mode, on the calling
+ * thread: the GS registers go on from it, as the GS's do. Its field is
+ * (display_frame's FBP, FBW) at the height display_scissor gives, with the
+ * XYOFFSET_1 the stream leaves when its FRAME_1 is that buffer (unknown
+ * otherwise); the frame counts as handed and waited for at once. 0, or -1
+ * (the fault latched: a refusal, a span fault, a malformed packet, a read of
+ * memory no upload wrote). */
+int em_gs_world_gif_frame(EmGsWorld *w, const void *gif, size_t bytes, uint64_t display_frame,
+                          uint64_t display_scissor);
+
 /* Waits until the workers have drawn the frame handed to them (if any) and
  * checks it: 0, or -1 (a refused primitive, a span fault, a malformed
  * packet: the fault latched). */

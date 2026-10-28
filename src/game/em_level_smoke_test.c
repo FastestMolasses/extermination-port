@@ -1124,7 +1124,8 @@ static int panel_no_battery_frame(void)
  * the map: MAP opens zoomed on map 8 (its two model nodes lit and drawn),
  * R1 zooms, the D-pad pans, Circle to the list, Cross zooms again (the
  * player's marker, the current map), Circle twice to the hub; then MAP from
- * the hub with map 8 owned.
+ * the hub with map 8 owned; then DATABASE again (its first record, a
+ * category step, the scroll and a blank entry: STATUS_FIELD.md 3g).
  * Every page call is traced (EM_STATUS_PAGES_TRACE) and the checker replays
  * each through the original instructions (tools/test_status_pages_live.py).
  * Every value here is test input, not game behaviour. */
@@ -1226,6 +1227,19 @@ static const PageStep k_page_steps[] = {
     STICK(0, -1), HOVER(3, "hub hover 3 (MAP, map 8 owned)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
     WAIT(3, 1, -1, "Cross opens MAP"), HOLD(20), PRESS(EM_PAD_CROSS), HOLD(20),
     PRESS(EM_PAD_CIRCLE), HOLD(10), BACK(1, -1, -1, "Circle returns from MAP to the hub"),
+    HOLD(10), PRESS(EM_PAD_START), CHECK(CHECK_CLOSED, "START closes the status screen"),
+    /* DATABASE again, last (so every frame before it keeps its place):
+     * START, hub hover 1, the category list, Cross (the first entry, id 0:
+     * its record, state 4), Cross (back to the list), D-pad right (the next
+     * category), D-pad up (the cursor at the top: the list scrolls, state
+     * 2, 00213CC0's scissor), Cross (a blank entry: state 3), Circle twice
+     * to the hub, START. The original's frames of the same steps are fork
+     * captures (STATUS_FIELD.md 3g). */
+    HOLD(30), PRESS(EM_PAD_START), WAIT(1, -1, -1, "START opens the hub"),
+    STICK(0, 1), HOVER(1, "hub hover 1 (DATABASE)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 3, -1, "Cross opens DATABASE"), HOLD(30), PRESS(EM_PAD_CROSS), HOLD(30),
+    PRESS(EM_PAD_CROSS), HOLD(20), PRESS(EM_PAD_RIGHT), HOLD(20), PRESS(EM_PAD_UP), HOLD(30),
+    PRESS(EM_PAD_CROSS), HOLD(30), BACK(1, -1, -1, "Circle returns from DATABASE to the hub"),
     HOLD(10), PRESS(EM_PAD_START), CHECK(CHECK_CLOSED, "START closes the status screen"),
     {SP_END, 0, 0, 0, 0, 0, 0, 0, 0, NULL},
 };

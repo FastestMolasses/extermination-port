@@ -22,6 +22,7 @@
 #include "game/em_pickup_motion.h"
 #include "game/em_pickup_original.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_player_stage_live.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_props.h"
 #include "game/em_random.h"
@@ -700,6 +701,30 @@ static int page_player_0015C700(void *context, int (*table16)(void *, uint32_t, 
     return player_pose_0015C700(em_scene_state()->d810858, word, table16, table_context) ? 0 : -1;
 }
 
+/* 00182B30(D_008102B0): the live player record through the player stage's
+ * own translation (em_player_stage_live_00182B30). */
+static int page_player_00182B30(void *context, int32_t *result)
+{
+    (void)context;
+    int r = 0;
+    if (em_player_stage_live_00182B30(&r) < 0) return -1;
+    *result = r;
+    return 0;
+}
+
+/* 0015C750(D_008102B0): the closure's em_area02_misc_0015C750 binding over
+ * the live record (em_player_closure_live_0015C750), with 001B0070()'s word
+ * D_008106C8 from the canonical request block. */
+static int page_player_0015C750(void *context, int (*table16)(void *, uint32_t, int16_t *),
+                                void *table_context, uint8_t *d810707)
+{
+    (void)context;
+    const uint8_t *c8 = em_scene_req_at(em_scene_state(), 0x008106C8u);
+    const uint32_t word = (uint32_t)c8[0] | (uint32_t)c8[1] << 8 | (uint32_t)c8[2] << 16 |
+                          (uint32_t)c8[3] << 24;
+    return em_player_closure_live_0015C750(word, table16, table_context, d810707);
+}
+
 /* The MAP page's 001B0000 models at their place in the page's draw
  * stream (em_status_pages_live): the walk's queued draws on 0020DFA0's
  * camera (as the hub's), clipped to the page's SCISSOR_1 window. */
@@ -885,6 +910,21 @@ int em_area11_interaction_host_face_tick_001D0C70(void)
     EmFaceSlot slot;
     if (em_area11_interaction_host_player_face(&slot) < 0) return -1;
     return em_face_slot_001D0C70(&slot) < 0 ? fail("001D0C70 (the face slot at the player's +0x90)") : 0;
+}
+
+int em_area11_interaction_host_data16(uint32_t address, int16_t *value)
+{
+    if (!value || !world.loaded || !world.status) return -1;
+    EmStatusPagesLive *pages = em_status_runtime_pages(world.status);
+    const EmGsDataWindow *w;
+    const unsigned n = pages ? em_gs_texture_windows(em_status_pages_live_gs(pages), &w) : 0;
+    for (unsigned i = 0; i < n; ++i)
+        if (w[i].size >= 2u && address >= w[i].address && address - w[i].address <= w[i].size - 2u) {
+            const uint8_t *p = w[i].bytes + (address - w[i].address);
+            *value = (int16_t)(uint16_t)(p[0] | p[1] << 8);
+            return 0;
+        }
+    return -1;
 }
 
 /* The player stage's 00182DF0 released the owner's player (the panel's,
@@ -1393,7 +1433,8 @@ static int load_status(const char *directory,const EmItemMath *math,
     {
         static const EmStatusPagesHost pages_host = {NULL, page_sound, page_present,
                                                      page_find_device, page_player_0015C700,
-                                                     pages_models_draw};
+                                                     pages_models_draw, page_player_00182B30,
+                                                     page_player_0015C750};
         EmStatusPagesLive *pages =
             em_status_pages_live_load("assets/status_pages/status_pages.emsp", &pages_host);
         if (!pages)

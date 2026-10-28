@@ -2326,6 +2326,181 @@ int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGs
     return 0;
 }
 
+/* The blocks of a host-to-local transfer's destination rectangle (BITBLTBUF,
+ * TRXPOS, TRXREG as the list set them) are written from here on: resident,
+ * as an upload's. PSMCT32, PSMT8 and PSMT4 only. 0, or -1 (the fault latched). */
+static int gif_frame_transfer(EmGsWorld *w, const uint64_t *regs, uint64_t trxdir)
+{
+    if ((trxdir & 3u) != 0u) return fail(w, "a GIF frame's transfer that is not host to local", trxdir);
+    const uint64_t bb = regs[EM_GS_BITBLTBUF - 0x50], pos = regs[EM_GS_TRXPOS - 0x50],
+                   rg = regs[EM_GS_TRXREG - 0x50];
+    const uint32_t dbp = (uint32_t)(bb >> 32) & 0x3FFFu, dbw = (uint32_t)(bb >> 48) & 0x3Fu;
+    const uint32_t dpsm = (uint32_t)(bb >> 56) & 0x3Fu;
+    const uint32_t dx = (uint32_t)(pos >> 32) & 0x7FFu, dy = (uint32_t)(pos >> 48) & 0x7FFu;
+    const uint32_t rw = (uint32_t)rg & 0xFFFu, rh = (uint32_t)(rg >> 32) & 0xFFFu;
+    if (((pos >> 59) & 3u) != 0u) return fail(w, "a GIF frame's transfer with a pixel order other than 0", pos);
+    if (dpsm != EM_GS_PSMCT32 && dpsm != EM_GS_PSMT8 && dpsm != EM_GS_PSMT4)
+        return fail(w, "a GIF frame's transfer in a format the frame check does not take", dpsm);
+    for (uint32_t y = dy; y < dy + rh; ++y)
+        for (uint32_t x = dx; x < dx + rw; ++x) {
+            const uint32_t b = dpsm == EM_GS_PSMCT32 ? em_gs_addr32(dbp, dbw, x, y, 0) * 4u / 256u
+                             : dpsm == EM_GS_PSMT8   ? em_gs_addr8(dbp, dbw, x, y) / 256u
+                                                     : em_gs_addr4(dbp, dbw, x, y) / 512u;
+            if (b < BLOCKS) w->resident[b] = 1;
+        }
+    return 0;
+}
+
+/* The recorder's checks over a GIF frame's stream (PACKED, REGLIST and IMAGE
+ * tags): its texture state (tex_state), every textured vertex kick's reads
+ * (textured_kick: resident or drawn memory), and its host-to-local
+ * transfers, whose blocks are resident from the transfer on. 0, or -1. */
+static int gif_frame_check(EmGsWorld *w, const uint8_t *p, size_t bytes)
+{
+    uint64_t regs[3] = {0, 0, 0};   /* BITBLTBUF, TRXPOS, TRXREG */
+    size_t off = 0;
+    while (off + 16u <= bytes) {
+        uint64_t lo, hi;
+        memcpy(&lo, p + off, 8);
+        memcpy(&hi, p + off + 8, 8);
+        off += 16u;
+        const unsigned nloop = (unsigned)(lo & 0x7FFFu), flg = (unsigned)((lo >> 58) & 3u);
+        unsigned nreg = (unsigned)(lo >> 60);
+        if (!nreg) nreg = 16u;
+        if (flg == 0u) {
+            if ((lo >> 46) & 1u) tex_state(w, EM_GS_PRIM, lo >> 47);
+            if (off + (size_t)nloop * nreg * 16u > bytes) return fail(w, "a GIF frame's PACKED data past the end", off);
+            for (unsigned l = 0; l < nloop; ++l)
+                for (unsigned r = 0; r < nreg; ++r, off += 16u) {
+                    const unsigned desc = (unsigned)(hi >> (4u * r)) & 15u;
+                    uint64_t v, v_hi;
+                    memcpy(&v, p + off, 8);
+                    memcpy(&v_hi, p + off + 8, 8);
+                    unsigned reg = desc;
+                    int kick = 0;
+                    if (desc == 0xEu) {
+                        reg = (unsigned)(v_hi & 0xFFu);
+                        kick = reg == EM_GS_XYZ2 || reg == EM_GS_XYZF2;
+                        if (reg >= EM_GS_BITBLTBUF && reg <= EM_GS_TRXREG) regs[reg - EM_GS_BITBLTBUF] = v;
+                        if (reg == EM_GS_TRXDIR && gif_frame_transfer(w, regs, v) < 0) return -1;
+                        if (reg == EM_GS_HWREG) return fail(w, "a GIF frame's HWREG transfer", off);
+                    } else if (desc == EM_GS_XYZ2 || desc == EM_GS_XYZF2) {
+                        kick = !((v_hi >> 47) & 1u);
+                    } else if (desc > EM_GS_CLAMP_2) {
+                        continue;   /* FOG, XYZF3 / XYZ3, NOP: no texture state */
+                    }
+                    tex_state(w, reg, v);
+                    if (kick) {
+                        if (!w->prim_known)
+                            return fail(w, "a vertex kick in a GIF frame whose PRIM the check does not know", off);
+                        if (textured_kick(w, w->prim) < 0) return -1;
+                    }
+                }
+        } else if (flg == 1u) {
+            const size_t count = (size_t)nloop * nreg, need = ((count + 1u) / 2u) * 16u;
+            if (off + need > bytes) return fail(w, "a GIF frame's REGLIST data past the end", off);
+            for (size_t i = 0; i < count; ++i) {
+                const unsigned desc = (unsigned)(hi >> (4u * (unsigned)(i % nreg))) & 15u;
+                uint64_t v;
+                memcpy(&v, p + off + i * 8u, 8);
+                if (desc > EM_GS_CLAMP_2) continue;   /* FOG, XYZF3 / XYZ3, A+D and NOP (skipped) */
+                tex_state(w, desc, v);
+                if (desc == EM_GS_XYZ2 || desc == EM_GS_XYZF2) {
+                    if (!w->prim_known)
+                        return fail(w, "a vertex kick in a GIF frame whose PRIM the check does not know", off);
+                    if (textured_kick(w, w->prim) < 0) return -1;
+                }
+            }
+            off += need;
+        } else {
+            if (off + (size_t)nloop * 16u > bytes) return fail(w, "a GIF frame's IMAGE data past the end", off);
+            off += (size_t)nloop * 16u;
+        }
+    }
+    return off == bytes ? 0 : fail(w, "a GIF frame that is not whole GIF packets", off);
+}
+
+int em_gs_world_gif_frame(EmGsWorld *w, const void *gif, size_t bytes, uint64_t display_frame,
+                          uint64_t display_scissor)
+{
+    if (!w) return -1;
+    if (w->fault[0]) return -1;
+    if (w->recording) return fail(w, "a GIF frame inside a recorded world frame", bytes);
+    if (!gif || !bytes || bytes % 16u) return fail(w, "a GIF frame that is not whole quadwords", bytes);
+    if (!w->memory_loaded) return fail(w, "a GIF frame before the GS memory image", bytes);
+    /* the frame before is drawn first (the workers and the memory are one) */
+    if (em_gs_world_wait(w) < 0) return -1;
+    /* the recorder's checks, over a recording that is then dropped (the
+     * orderings it notes are the workers', and the workers take no part) */
+    em_gs_world_begin(w);
+    const int checked = gif_frame_check(w, gif, bytes);
+    Job *j = &w->job[w->rec];
+    w->recording = 0;
+    j->op_count = 0;
+    j->gif_used = 0;
+    if (checked < 0) return -1;
+    /* the stream on the model that holds the GS registers (the parser, or
+     * the direct worker), on this thread while the workers wait: as the GS
+     * runs the list, transfers included */
+    EmGs *gs = front(w);
+    const uint32_t refusals = gs->refusals, refused = gs->refused_prims, span_faults = gs->span_faults;
+    const uint64_t prims = gs->drawn_prims, pixels = gs->drawn_pixels;
+    const double t0 = now_ns(), c0 = cpu_now_ns();
+    /* the parser draws nothing and keeps no decoded textures (tc_off): for
+     * this frame it draws, with a cache of its own, empty at the start
+     * (memory changed under it) and dropped again at the end */
+    const int tc_off = gs->tc_off;
+    if (gs == &w->parser) {
+        em_gs_memory_written(gs, 0, BLOCKS);
+        gs->tc_off = 0;
+    }
+    const size_t used = em_gs_gif(gs, gif, bytes);
+    em_gs_flush(gs);
+    if (gs == &w->parser) {
+        em_gs_memory_written(gs, 0, BLOCKS);
+        gs->tc_off = tc_off;
+    }
+    /* the other models' decoded textures over what this frame wrote */
+    workers_memory_written(w, 0, BLOCKS);
+    checked_reset(w);
+    if (used != bytes) return fail(w, "a GIF packet of the GIF frame is malformed", used);
+    if (gs->refusals != refusals || gs->refused_prims != refused) {
+        char what[192];
+        snprintf(what, sizeof what, "GIF frame: the GS model refused a primitive: %s", gs->reason);
+        return fail(w, what, gs->refusals - refusals);
+    }
+    if (gs->span_faults != span_faults)
+        return fail(w, "a span fault (an unmeasured span boundary decides the grid)", gs->span_faults - span_faults);
+    j->list = 1;
+    j->frame = display_frame;
+    j->height = (uint32_t)(display_scissor >> 48 & 0x7FFu) + 1u;
+    if (field_check(w, j->frame, j->height) < 0) return -1;
+    /* the field's draw offset: the XYOFFSET_1 the stream left, when its
+     * FRAME_1 is the displayed buffer (FBP and FBW); unknown otherwise */
+    j->xyoffset_known = (gs->ctx[0].frame & 0x3F01FFu) == (display_frame & 0x3F01FFu);
+    j->xyoffset = j->xyoffset_known ? gs->ctx[0].xyoffset : 0;
+    (void)mark_drawn(w, (uint32_t)j->frame & 0x1FFu, (uint32_t)(j->frame >> 16) & 0x3Fu, j->height);
+    read_rows(w, j, 0, j->height - 1u);
+    w->run = j;
+    w->rec ^= 1;
+    w->busy = 0;
+    w->field_w = 64u * ((uint32_t)(j->frame >> 16) & 0x3Fu);
+    w->field_h = j->height;
+    w->field_frame = j->frame;
+    w->field_xyoffset = j->xyoffset;
+    w->field_xyoffset_known = j->xyoffset_known;
+    w->have_field = 1;
+    w->stats.writes = 0;
+    w->stats.prims = gs->drawn_prims - prims;
+    w->stats.pixels = gs->drawn_pixels - pixels;
+    w->stats.span_faults = 0;
+    w->stats.refused = 0;
+    w->stats.ns = now_ns() - t0;
+    w->stats.cpu_max_ns = w->stats.cpu_sum_ns = cpu_now_ns() - c0;
+    w->stats.runs++;
+    return 0;
+}
+
 uint64_t em_gs_world_field_xyoffset(const EmGsWorld *w) { return w ? w->field_xyoffset : 0; }
 int em_gs_world_field_xyoffset_known(const EmGsWorld *w) { return w && w->have_field && w->field_xyoffset_known; }
 

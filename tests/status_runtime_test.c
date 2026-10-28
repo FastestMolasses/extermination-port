@@ -130,6 +130,44 @@ int em_status_background_render(struct EmGfx *g, float u, float v, float w, floa
     (void)h;
     return 1;
 }
+/* No item sink is bound here (em_status_runtime_set_item_sink): the render
+ * steps the background, so a stepped draw is a failure. */
+int em_status_background_render_step(struct EmGfx *g, uint32_t token, float u, float v, float w, float h)
+{
+    (void)g;
+    (void)token;
+    (void)u;
+    (void)v;
+    (void)w;
+    (void)h;
+    return 0;
+}
+/* The Original profile's GS frame is off in this fixture (no GS model, no
+ * GS page fields): every status page is drawn by the GPU renderer's path. */
+EmGfx *em_frame_gfx(void)
+{
+    return NULL;
+}
+int em_gfx_gs_world_enabled(EmGfx *g)
+{
+    (void)g;
+    return 0;
+}
+int em_gfx_gs_upload(EmGfx *g, const uint8_t *chain, size_t bytes)
+{
+    (void)g;
+    (void)chain;
+    (void)bytes;
+    return 0;
+}
+int em_sgp_field_claim(void)
+{
+    return 0;
+}
+int em_sgp_field_claim_page(void)
+{
+    return 0;
+}
 /* The hub's ordered 2D layer: this fixture never binds the hub (its hub
  * pages run the other_page hooks), so nothing may flush it. */
 void em_gfx_overlay_backdrop_flush(EmGfx *g)

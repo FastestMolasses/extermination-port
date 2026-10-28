@@ -15,6 +15,11 @@ EmItemUI *em_item_ui_load(const char *path);
 void em_item_ui_free(EmItemUI *ui);
 /* Invalidate when another inventory page takes the shared UI texture slot. */
 void em_item_ui_deactivate(EmItemUI *ui);
+/* This frame's 0020A7A0 ran at its call time (0020F170 through the live
+ * packet sink, em_status_background_live_step; docs/STATUS_FIELD.md): the
+ * next render draws that step's sprites (token) instead of stepping the
+ * shared background again. */
+void em_item_ui_background_stepped(EmItemUI *ui, uint32_t token);
 /* Returns1 rendered,0 malformed/unavailable resource or required worker.
  * hover0..5 is original D930 output. The message phase/group is owned by
  * EmItemRoot; pass help_line−1 when its presenter is inactive. */

@@ -38,4 +38,19 @@ typedef int (*EmItemTrailEmit)(void *context, const int32_t xy[3][2], unsigned i
 int em_item_trail_step(EmItemTrail *trail, const EmItemStick *stick, float x, float y,
                        const EmItemMath *math, EmItemTrailEmit emit, void *context);
 
+/* 0020AC70's 00208AB0 calls (001D66A0(1, pos, colour, D_00273580, angle)),
+ * for the GS packet builder (em_uip_001D66A0; docs/STATUS_FIELD.md): pos
+ * the vector 0020AC70 builds ({x + 0.8 (44 x_i), y + 0.5 (44 y_i), 28 +
+ * 16 z_i, 28}), colour the int it stores three times (float_to_int(16 (1 +
+ * z_i))), angle the slot's (f12), trig the four sin / cos worker results
+ * 001D66A0 computes first (sin angle, cos angle, sin pi/32, cos pi/32), the
+ * same values the fan's triangles are computed from. Called once per fan,
+ * before its triangles. Return 1, or anything else to abort. */
+typedef int (*EmItemTrailFan)(void *context, const float pos[4], int32_t colour, float angle,
+                              const float trig[4]);
+/* em_item_trail_step with a fan sink (NULL: none). */
+int em_item_trail_step_fans(EmItemTrail *trail, const EmItemStick *stick, float x, float y,
+                            const EmItemMath *math, EmItemTrailEmit emit, EmItemTrailFan fan,
+                            void *context);
+
 #endif

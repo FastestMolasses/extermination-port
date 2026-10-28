@@ -106,6 +106,11 @@ int em_area11_interaction_host_player(void *unused);
 /* 001D0C70 for the player stage's 00183090 (0x70003B8F == 2): 001D0720 on
  * the face slot at the player's +0x90. 0, or -1 (latched). */
 int em_area11_interaction_host_face_tick_001D0C70(void);
+/* A .data halfword by original address from the status pages' exported
+ * windows (tools/export_status_pages.py: D_00248A00..0F and D_002754C0..DF,
+ * the clip pairs 0015C7C0 and 0015C9D0 read). 0, or -1 when the pages are
+ * not loaded or the address is outside the windows (not latched). */
+int em_area11_interaction_host_data16(uint32_t address, int16_t *value);
 /* player_pose_set_takeover_end_hook worker: the stage's 00182DF0 released
  * the owner's player; its token ends. 1, or -1 (latched). */
 int em_area11_interaction_host_staged_released(void *unused);

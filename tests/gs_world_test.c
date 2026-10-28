@@ -53,7 +53,8 @@
  * first), also parsed early, whole or handing over. Also the refusals:
  * a transfer register, an IMAGE packet and a texture outside the uploads
  * fault, and so do a field declared outside a recording, a second other
- * field, and a kick whose head draws another field than the declared one. */
+ * field, and a kick whose head draws another field than the declared one.
+ * And GIF frames (gif_frames): a whole list's GIF data, a transfer in it. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1121,6 +1122,157 @@ static void own_clut_cases(int full)
     free(got);
 }
 
+/* GIF frames (em_gs_world_gif_frame, the status pages' frames): a world
+ * frame, then a GIF frame whose stream is a head (the field 0x38, a half
+ * line), a clear, a host-to-local transfer of a 16 x 16 PSMCT32 texture to
+ * block 0x2800 (no upload wrote it) and bilinear UV sprites from it and
+ * from the resident texture, then another world frame. The GIF frame's
+ * field is the stream run on one EmGs over the memory before it, with its
+ * XYOFFSET; 1, 2, 3 and 8 workers leave the same fields and memory; its
+ * transfer makes block 0x2800 resident (a later GIF frame reads it); a
+ * sprite reading unwritten memory, and a GIF frame inside a recording,
+ * fault. */
+static size_t gif_stream(uint8_t *out, uint32_t tbp, int transfer)
+{
+    size_t n = 0;
+    const uint64_t envw[][2] = {
+        { EM_GS_FRAME_1, FRAME_FIELD(0x38) }, { EM_GS_ZBUF_1, 0x101000070ull },
+        { EM_GS_XYOFFSET_1, (uint64_t)(1792 * 16) | (uint64_t)(1936 * 16 + 8) << 32 },
+        { EM_GS_SCISSOR_1, 511ull << 16 | 223ull << 48 }, { EM_GS_PRMODECONT, 1 }, { EM_GS_COLCLAMP, 1 },
+        { EM_GS_DTHE, 0 }, { EM_GS_TEST_1, 0x30000 }, { EM_GS_PRIM, 0x6 },
+        { EM_GS_RGBAQ, 0x80102030 }, { EM_GS_XYZ2, (uint64_t)(1792 * 16) | (uint64_t)(1936 * 16) << 16 },
+        { EM_GS_XYZ2, (uint64_t)((1792 + 512) * 16) | (uint64_t)((1936 + 224) * 16) << 16 },
+    };
+    n += ad_packet(out + n, envw, sizeof envw / sizeof envw[0]);
+    if (transfer) {
+        const uint64_t trx[][2] = {
+            { EM_GS_BITBLTBUF, (uint64_t)tbp << 32 | 1ull << 48 }, { EM_GS_TRXPOS, 0 },
+            { EM_GS_TRXREG, 16 | 16ull << 32 }, { EM_GS_TRXDIR, 0 },
+        };
+        n += ad_packet(out + n, trx, 4);
+        const uint64_t img[2] = { 64u | 0x8000u | (2ull << 58), 0 };   /* IMAGE, 64 quadwords */
+        memcpy(out + n, img, 16);
+        n += 16;
+        for (uint32_t i = 0; i < 256; ++i) {
+            const uint32_t px = (i * 37u) | (i * 11u) << 8 | (255u - i) << 16 | 0x80u << 24;
+            memcpy(out + n + 4u * i, &px, 4);
+        }
+        n += 1024;
+    }
+    for (unsigned k = 0; k < 6; ++k) {
+        const uint64_t tex0 = k & 1 ? TEX_RESIDENT : ((uint64_t)tbp | 1ull << 14 | 4ull << 26 | 4ull << 30 | 1ull << 34);
+        const int x0 = 13 + 70 * (int)k, y1 = 200 - 9 * (int)k;
+        const uint64_t spr[][2] = {
+            { EM_GS_TEX0_1, tex0 }, { EM_GS_TEX1_1, 0x60 }, { EM_GS_CLAMP_1, 0 }, { EM_GS_PRIM, 0x116 },
+            { EM_GS_RGBAQ, 0x80808080 }, { EM_GS_UV, 3u | 5u << 16 },
+            { EM_GS_XYZ2, (uint64_t)((1792 + x0) * 16 + 5) | (uint64_t)((1936 + y1) * 16 + 3) << 16 },
+            { EM_GS_UV, (uint64_t)(16u * 15u + 7u) | (uint64_t)(16u * 13u + 1u) << 16 },
+            { EM_GS_XYZ2, (uint64_t)((1792 + x0 + 61) * 16 + 9) | (uint64_t)((1936 + 3 + (int)k) * 16 + 11) << 16 },
+        };
+        n += ad_packet(out + n, spr, sizeof spr / sizeof spr[0]);
+    }
+    return n;
+}
+
+static unsigned g_gif_px;
+static void gif_run(unsigned workers, uint8_t *fields /* 3 fields */, uint8_t *mem_out)
+{
+    char nb[8];
+    snprintf(nb, sizeof nb, "%u", workers);
+    setenv("EM_GS_THREADS", nb, 1);
+    EmGsWorld *w = em_gs_world_create();
+    CHECK(w && em_gs_world_workers(w) == workers);
+    CHECK(em_gs_world_memory_load(w, image_one) == 0);
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    static uint8_t gif[8192];
+    record_world(w, 21u, 0, 0);
+    head(env, &env_n, clr, &clr_n, 0, 0);
+    CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+    CHECK(em_gs_world_wait(w) == 0);
+    memcpy(fields, em_gs_world_field(w, NULL, NULL, NULL), 512 * 224 * 4);
+    /* the memory the GIF frame starts from, and the stream on one EmGs */
+    uint8_t *ref = malloc(EM_GS_MEM_BYTES);
+    CHECK(ref);
+    memcpy(ref, em_gs_world_memory(w), EM_GS_MEM_BYTES);
+    const size_t n = gif_stream(gif, 0x2800, 1);
+    CHECK(!em_gs_world_resident(w, 0x2800));
+    CHECK(em_gs_world_gif_frame(w, gif, n, FRAME_FIELD(0x38), 223ull << 48) == 0);
+    CHECK(em_gs_world_wait(w) == 0);
+    CHECK(em_gs_world_resident(w, 0x2800));
+    uint64_t xy = 0;
+    CHECK(em_gs_world_handed_xyoffset(w, &xy) == 1 && xy == ((uint64_t)(1792 * 16) | (uint64_t)(1936 * 16 + 8) << 32));
+    uint32_t fw, fh;
+    uint64_t frame;
+    const uint8_t *fld = em_gs_world_field(w, &fw, &fh, &frame);
+    CHECK(fld && fw == 512 && fh == 224 && (frame & 0x1FF) == 0x38 && em_gs_world_field_xyoffset_known(w));
+    memcpy(fields + 512 * 224 * 4, fld, 512 * 224 * 4);
+    EmGs g;
+    em_gs_init(&g, ref);
+    g.strict = 1;
+    CHECK(em_gs_gif(&g, gif, n) == n);
+    em_gs_flush(&g);
+    CHECK(g.refusals == 0 && g.refused_prims == 0 && g.span_faults == 0);
+    g_gif_px = 0;
+    for (uint32_t y = 0; y < 224; ++y)
+        for (uint32_t x = 0; x < 512; ++x) {
+            uint32_t a;
+            memcpy(&a, ref + 4u * em_gs_addr32(0x38 * 32, 8, x, y, 0), 4);
+            uint32_t b;
+            memcpy(&b, fld + 4u * (y * 512u + x), 4);
+            CHECK(a == b);
+            g_gif_px += (a & 0xFFFFFFu) != 0x102030u;   /* not the clear */
+        }
+    em_gs_release(&g);
+    free(ref);
+    /* a later GIF frame reads the transferred block without a transfer */
+    const size_t n2 = gif_stream(gif, 0x2800, 0);
+    CHECK(em_gs_world_gif_frame(w, gif, n2, FRAME_FIELD(0x38), 223ull << 48) == 0);
+    /* then a world frame again */
+    record_world(w, 22u, 0, 0);
+    head(env, &env_n, clr, &clr_n, 0, 0);
+    CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+    CHECK(em_gs_world_wait(w) == 0);
+    memcpy(fields + 2 * 512 * 224 * 4, em_gs_world_field(w, NULL, NULL, NULL), 512 * 224 * 4);
+    memcpy(mem_out, em_gs_world_memory(w), EM_GS_MEM_BYTES);
+    em_gs_world_destroy(w);
+}
+
+static void gif_frames(void)
+{
+    static uint8_t f[4][3 * 512 * 224 * 4];
+    uint8_t *m[4];
+    const unsigned counts[4] = { 1, 2, 3, 8 };
+    for (unsigned i = 0; i < 4; ++i) {
+        m[i] = malloc(EM_GS_MEM_BYTES);
+        CHECK(m[i]);
+        gif_run(counts[i], f[i], m[i]);
+    }
+    for (unsigned i = 1; i < 4; ++i) {
+        CHECK(memcmp(f[i], f[0], sizeof f[0]) == 0);
+        CHECK(memcmp(m[i], m[0], EM_GS_MEM_BYTES) == 0);
+    }
+    for (unsigned i = 0; i < 4; ++i) free(m[i]);
+    CHECK(g_gif_px > 1000);
+    /* the refusals: a sprite reading memory no upload wrote; a GIF frame in
+     * a recording */
+    setenv("EM_GS_THREADS", "1", 1);
+    static uint8_t gif[8192];
+    EmGsWorld *w = em_gs_world_create();
+    CHECK(w && em_gs_world_memory_load(w, image_one) == 0);
+    size_t n = gif_stream(gif, 0x3000, 0);
+    CHECK(em_gs_world_gif_frame(w, gif, n, FRAME_FIELD(0x38), 223ull << 48) < 0);
+    CHECK(strstr(em_gs_world_fault(w), "no upload wrote"));
+    em_gs_world_destroy(w);
+    w = em_gs_world_create();
+    CHECK(w && em_gs_world_memory_load(w, image_one) == 0);
+    em_gs_world_begin(w);
+    n = gif_stream(gif, 0x2800, 1);
+    CHECK(em_gs_world_gif_frame(w, gif, n, FRAME_FIELD(0x38), 223ull << 48) < 0);
+    CHECK(strstr(em_gs_world_fault(w), "inside a recorded world frame"));
+    em_gs_world_destroy(w);
+}
+
 int main(void)
 {
     (void)system("mkdir -p build/gs_world_test");
@@ -1330,7 +1482,10 @@ int main(void)
     refusals();
     field_refusals();
     head_probe();
-    printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
+    gif_frames();
+    printf("gs_world_test: PASS (GIF frames: a transfer and its texture in the stream, the field of one EmGs "
+           "(%u pixels drawn), the same fields and memory with 1, 2, 3 and 8 workers, 2 refusals; "
+           "1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
            "over two world frames "
            "with the target pass, the depth-of-field pass (%u and %u field pixels blended, the Z buffer "
            "untouched) and a list frame, and the same with every block uploaded (1 and 8 workers); 5 refusals, "
@@ -1349,7 +1504,7 @@ int main(void)
            "of uploaded memory, then its first draw (%u pixels drawn after the read): two segments; each the "
            "same with one worker drawing the list and %s workers; CLUT loads from the frame's own spans (%u pixels "
            "of the last palette, %u loads counted): the same with one worker drawing the list, %s, parsed early "
-           "whole (3 workers, one drawing the list) and handing over after 37 ops (8))\n", g_host_workers,
+           "whole (3 workers, one drawing the list) and handing over after 37 ops (8))\n", g_gif_px, g_host_workers,
            blended[0], blended[1], MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8",
            full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1", clut_px, eops[0], eops[1],
            pwaits[0], pwaits[1], pwaits[8], g_barrier_px[0], g_barrier_px[1], g_barrier_px[2], full ? "3 and 8" : "3", g_own_px,

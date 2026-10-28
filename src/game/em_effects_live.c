@@ -62,8 +62,11 @@ typedef struct {
     int kind;
     EmEffectOriginalNode e;     /* 001EF9D0's bytes and 001EA240's */
     EmHeadSpriteOriginal h;     /* 001F0120's and 001E2560's */
-    uint32_t parent24;          /* KIND_OTHER: first written by its actual spawner */
-    int parent24_valid;
+    /* +0x24 of a node that is not a head sprite is e.w24, valid once
+     * e.w24_written: stored by its spawner, either the translation
+     * (001EFE00 / 001F0060) or an owner writing through
+     * em_effects_live_node_field (certified by em_effects_live_node_written).
+     * A head sprite's +0x24 is h.owner. */
 } Slot;
 
 static struct {
@@ -430,9 +433,9 @@ void *em_effects_live_node_field(uint32_t address, size_t size, int write)
         if (s->kind == KIND_HEAD) return field_span(&s->h.owner,offset,size,0x24,4);
         if (write) {
             if (offset != 0x24 || size != 4) return NULL;
-            return &s->parent24;
+            return &s->e.w24;
         }
-        return s->parent24_valid ? field_span(&s->parent24,offset,size,0x24,4) : NULL;
+        return s->e.w24_written ? field_span(&s->e.w24,offset,size,0x24,4) : NULL;
     }
     FIELD(a->w20,0x20); FIELD(a->flags2,0x2E); FIELD(a->w30,0x30); FIELD(a->h36,0x36);
     FIELD(s->e.live38,0x38); FIELD(a->h52,0x52); FIELD(a->kind,0x54);
@@ -461,7 +464,7 @@ int em_effects_live_node_written(uint32_t address, size_t size)
         (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE != 0x24 ||
         !em_effects_live_node_field(address,size,1)) return -1;
     Slot *s=&S.slot[(address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE];
-    if (s->kind != KIND_HEAD) s->parent24_valid=1;
+    if (s->kind != KIND_HEAD) s->e.w24_written=1;
     return 0;
 }
 size_t em_effects_live_node_regions(uint32_t address, EmEffectsLiveNodeRegion *regions, size_t capacity)
@@ -1663,6 +1666,38 @@ int em_effects_live_001EFD20_result(uint32_t id, const float pos[4], uint32_t *o
 
 int em_effects_live_001EFD20(uint32_t id, const float pos[4])
 { return em_effects_live_001EFD20_result(id, pos, NULL); }
+
+int em_effects_live_001EFE00(uint32_t id, const float b0[4], const float c0[4], uint32_t w14,
+                             uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001EFE00(&S.e, id, b0, c0, w14, &n);
+    return spawn_result(status, 0x001EFE00u, n, out);
+}
+
+int em_effects_live_001F00A0(uint32_t id, const float pos[4], const float dir[4], int32_t owner,
+                             uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001F00A0(&S.e, id, pos, dir, owner, &n);
+    return spawn_result(status, 0x001F00A0u, n, out);
+}
+
+int em_effects_live_001F0060(uint32_t id, uint32_t owner, uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001F0060(&S.e, id, owner, &n);
+    return spawn_result(status, 0x001F0060u, n, out);
+}
 
 int em_effects_live_001F0460(int32_t n, const float m[16])
 {

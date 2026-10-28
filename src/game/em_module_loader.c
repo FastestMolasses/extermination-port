@@ -230,6 +230,7 @@ struct EmModuleLoader {
     EmStatusSceneFault fault, io_fault;
     uint32_t dispatches, reads, unmeasured;
     int in_dispatch; /* the views are copied into `ld` while a dispatch runs */
+    int player_packet; /* em_module_loader_00200890's send is in progress */
     /* the comparison-only drive replay (em_module_loader_set_drive_replay) */
     EmModuleLoaderReplayRead *replay;
     uint32_t replay_n, replay_served, replay_near, replay_missed;
@@ -484,7 +485,7 @@ static int dma_send(void *ctx, uint32_t base, uint32_t chain)
         return fail(&ml->io_fault, 0x00101F08u, EM_STATUS_SCENE_FAULT_BAD_INDEX);
     /* The area streamer's sends (record +8 == 1) go to the area's consumer,
      * the bank streamer's to the page consumer. */
-    const int area = ml->record && ml->record->user[0] == 1;
+    const int area = ml->player_packet || (ml->record && ml->record->user[0] == 1);
     EmModuleLoaderChainHook hook = area ? ml->area_chain_hook : ml->chain_hook;
     void *hook_ctx = area ? ml->area_chain_ctx : ml->chain_ctx;
     if (!hook)
@@ -578,6 +579,21 @@ static int w_packet(void *ctx)
     return em_module_loader_packet_00200890(&ml->sdk, *ml->views.d810707, *ml->views.d810C60,
                                             &ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0], NULL,
                                             &ml->io_fault);
+}
+
+int em_module_loader_00200890(EmModuleLoader *ml)
+{
+    if (!ml)
+        return -1;
+    ml->player_packet = 1;
+    const int rc = w_packet(ml);
+    ml->player_packet = 0;
+    return rc < 0 ? -1 : 0;
+}
+
+int em_module_loader_player_packet(const EmModuleLoader *ml)
+{
+    return ml && ml->player_packet;
 }
 
 /* 002009E0(p, off) (byte-matched C): FlushCache(2) (the EE caches are not

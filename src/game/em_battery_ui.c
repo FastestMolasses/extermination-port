@@ -16,11 +16,18 @@ typedef struct {
 } Sprite;
 
 typedef struct {
-    uint8_t kind, mode, proportional;
+    uint8_t kind, mode, proportional, stepped;
     int32_t xy[4];
-    uint32_t rgba, text;
+    uint32_t rgba, text, token;
     uint64_t tex0;
 } Call;
+
+static const EmBatteryUISink *s_sink;
+
+void em_battery_ui_set_sink(const EmBatteryUISink *sink)
+{
+    s_sink = sink;
+}
 
 struct EmBatteryUI {
     uint8_t *data, *pixels;
@@ -155,6 +162,12 @@ int em_battery_ui_background(EmBatteryUI *ui, uint64_t tex0)
     if (!c)
         return 0;
     c->tex0 = tex0;
+    if (s_sink) {
+        if (!s_sink->background || !s_sink->draw_background ||
+            s_sink->background(s_sink->context, tex0, &c->token) != 1)
+            return refuse(ui);
+        c->stepped = 1;
+    }
     return 1;
 }
 
@@ -167,6 +180,8 @@ int em_battery_ui_blend(EmBatteryUI *ui, int32_t slot, int32_t mode)
         return 0;
     ui->mode = (unsigned)mode;
     c->mode = (uint8_t)mode;
+    if (s_sink && (!s_sink->blend || s_sink->blend(s_sink->context, slot, mode) != 1))
+        return refuse(ui);
     return 1;
 }
 
@@ -184,6 +199,8 @@ int em_battery_ui_sprite(EmBatteryUI *ui, int32_t slot, int32_t x, int32_t y, in
     c->xy[3] = h;
     c->rgba = rgba;
     c->tex0 = tex0;
+    if (s_sink && (!s_sink->sprite || s_sink->sprite(s_sink->context, slot, x, y, w, h, rgba, tex0) != 1))
+        return refuse(ui);
     return 1;
 }
 
@@ -200,6 +217,8 @@ int em_battery_ui_rectangle(EmBatteryUI *ui, int32_t slot, int32_t x0, int32_t y
     c->xy[2] = x1;
     c->xy[3] = y1;
     c->rgba = rgba;
+    if (s_sink && (!s_sink->rectangle || s_sink->rectangle(s_sink->context, slot, x0, y0, x1, y1, rgba) != 1))
+        return refuse(ui);
     return 1;
 }
 
@@ -240,6 +259,8 @@ int em_battery_ui_text(EmBatteryUI *ui, int proportional, int32_t x, int32_t y, 
     c->text = ui->arena_used;
     memcpy(ui->arena + ui->arena_used, text, length);
     ui->arena_used += (unsigned)length;
+    if (s_sink && (!s_sink->text || s_sink->text(s_sink->context, proportional, x, y, w, h, text, style) != 1))
+        return refuse(ui);
     return 1;
 }
 
@@ -285,6 +306,10 @@ static int render_call(EmBatteryUI *ui, EmGfx *gfx, const Call *c)
         if (!tile)
             return 0;
         em_status_background_frame(gfx);
+        if (c->stepped) /* stepped at its call time (the sink) */
+            return s_sink && s_sink->draw_background &&
+                   s_sink->draw_background(s_sink->context, gfx, c->token, (float)tile->u, (float)tile->v,
+                                           (float)tile->w, (float)tile->h) == 1;
         return em_status_background_render(gfx, (float)tile->u, (float)tile->v, (float)tile->w,
                                            (float)tile->h);
     }

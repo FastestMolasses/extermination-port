@@ -282,6 +282,8 @@ def build():
     lib.em_module_loader_packet_00200890.restype = C.c_int
     lib.em_module_loader_sdk.argtypes = [C.c_void_p]
     lib.em_module_loader_sdk.restype = C.POINTER(Sdk)
+    lib.em_module_loader_00200890.argtypes = [C.c_void_p]
+    lib.em_module_loader_player_packet.argtypes = [C.c_void_p]
     lib.em_module_loader_orphaned.argtypes = [F]
     lib.em_module_loader_open.argtypes = [C.c_char_p]
     lib.em_module_loader_open.restype = C.c_void_p
@@ -1093,6 +1095,27 @@ def check_packet_after_load(elf, lib, full_pack):
         # D_0028A4B0 (slot 8) is the payload's first byte; the other four
         # packets start inside it (8 of the 9 selections).
         assert inside == 8 and words[0] == w.drive.delivered[-1][0], (inside, hex(words[0]))
+        # The live entry (0015C1F0's call during play, no load task running):
+        # the same send over the views' D_00810707 / D_00810C60, routed to the
+        # area chain hook with em_module_loader_player_packet() set; the page
+        # hook is never used.
+        routed = []
+        page = CHAIN(lambda _, chain, data, size: routed.append(('page', chain)) or -1)
+        area = CHAIN(lambda _, chain, data, size: routed.append(
+            ('area', chain, lib.em_module_loader_player_packet(w.ml),
+             hashlib.sha256(C.string_at(data, size)).hexdigest())) or 0)
+        lib.em_module_loader_set_chain_hook(w.ml, page, None)
+        lib.em_module_loader_set_area_chain_hook(w.ml, area, None)
+        for d707, c60 in itertools.product((0, 1, 2), (0, 1, 2)):
+            w.sent_o.clear(); routed.clear()
+            o.save(0x810707, d707, 1); o.save(0x810C60, c60, 1)
+            w.area[0x810707].value, w.area[0x810C60].value = d707, c60
+            o.r[29] = 0x7F0F0000
+            o.call(PACKET)
+            assert lib.em_module_loader_00200890(w.ml) == 0, ('live 00200890', d707, c60)
+            assert lib.em_module_loader_player_packet(w.ml) == 0
+            assert [(r[0], r[1], r[2]) for r in routed] == [('area', w.sent_o[0][0], 1)], (routed, w.sent_o)
+            assert routed[0][3] == w.sent_o[0][2], ('live 00200890 bytes', d707, c60)
     finally:
         w.close()
     return 9

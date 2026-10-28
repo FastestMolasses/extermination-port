@@ -3,7 +3,7 @@
 
 The oracle below is our own bounded EE interpreter. It executes the ORIGINAL
 instructions of the pinned boot ELF (the user's config/SCUS_971.12):
-001EFD90, 001EFD20, 001EF9D0, 001EF940, 001D80E0, 001D8100, 001F0460,
+001EFD90, 001EFD20, 001EFE00, 001F00A0, 001F0060, 001EF9D0, 001EF940, 001D80E0, 001D8100, 001F0460,
 001EA240, 001CCF70, 001CD370, 001CD390 and every SDK leaf they reach
 (001029C0, 00102918, 001026A0, 00102760, 00102718, 001031E0, 00102948,
 copy_qw4, 001029E8, 00102A60, 00102BB0, 00102B08, 00102C58, 001B1470,
@@ -434,7 +434,7 @@ class Node(C.Structure):
     _fields_ = [('b03', C.c_uint8), ('state', C.c_uint8), ('b09', C.c_uint8), ('b0C', C.c_uint8),
                 ('subtype', C.c_uint8), ('callback', C.c_uint32), ('live38', C.c_int32),
                 ('pos', C.c_uint32 * 4), ('rot', C.c_uint32 * 4), ('matrix', C.c_uint32 * 16),
-                ('work', Work), ('freed', C.c_uint8)]
+                ('work', Work), ('freed', C.c_uint8), ('w24', C.c_uint32), ('w24_written', C.c_uint8)]
 
 
 class Tables(C.Structure):
@@ -504,6 +504,9 @@ def build_lib():
     lib.em_effect_original_001EFD90.argtypes = [P(Effect), C.c_uint32, FP, FP, P(P(Node))]
     lib.em_effect_original_001EFD20.argtypes = [P(Effect), C.c_uint32, FP, P(P(Node))]
     lib.em_effect_original_001EF9D0.argtypes = [P(Effect), C.c_uint32, FP, C.c_float, P(P(Node))]
+    lib.em_effect_original_001EFE00.argtypes = [P(Effect), C.c_uint32, FP, FP, C.c_uint32, P(P(Node))]
+    lib.em_effect_original_001F00A0.argtypes = [P(Effect), C.c_uint32, FP, FP, C.c_int32, P(P(Node))]
+    lib.em_effect_original_001F0060.argtypes = [P(Effect), C.c_uint32, C.c_uint32, P(P(Node))]
     lib.em_effect_original_001F0460.argtypes = [P(Effect), C.c_int32, FP]
     lib.em_effect_original_001EA240.argtypes = [P(Effect), P(Node)]
     lib.em_effect_original_001CCF70.argtypes = [P(Effect), FP, P(C.c_int32)]
@@ -548,6 +551,7 @@ class World:
         self.o_sfx, self.n_sfx = 0, 0
         self.nodes = {}                 # original address -> native Node
         self.addr_of = {}               # id(native node address) -> original address
+        self.init24 = {}                # original address -> +0x24 before the case
         self.allowed = set()
         self.n_handlers = []
         # native state mirrors the RAM
@@ -628,6 +632,9 @@ class World:
         self.nodes[a] = n
         self.addr_of[C.addressof(n)] = a
         self.allowed |= node_bytes_allowed(a)
+        # +0x24: 001EFE00 / 001F0060 store it (Node.w24 / w24_written)
+        self.allowed |= set(range(a + 0x24, a + 0x28))
+        self.init24[a] = e.load(a + 0x24)
         return n
 
     def addr(self, ptr):
@@ -752,6 +759,9 @@ class World:
                 assert got == want, (label, hex(a), name, [hex(x) for x in want], [hex(x) for x in got])
             for name, off in WORK_FIELDS:
                 assert e.load(a + off) == getattr(n.work, name) & M32, (label, hex(a), name)
+            want24 = n.w24 if n.w24_written else self.init24[a]
+            assert e.load(a + 0x24) == want24, (label, hex(a), '+0x24', hex(e.load(a + 0x24)), hex(want24),
+                                                n.w24_written)
         # tables
         assert bytes(self.tables.bytes) == bytes(e.ram[TABLE:TABLE_END]), (label, 'table bytes')
         # globals
@@ -817,8 +827,15 @@ def put_vec(world, a, values):
     world.ee.write(a, struct.pack('<%dI' % len(values), *values))
 
 
+def rng_owner(id_, pos):
+    """The owner word 001F00A0 / 001F0060 pass on (deterministic per case)."""
+    return (id_ * 0x9E3779B1 + (pos[0] if pos else 0)) & M32
+
+
 def spawn_case(lib, elf, beat, label, fn, id_, pos, rot, rands, allocs, sfx=(), glob=None):
-    """001EFD90 (fn 'D90'), 001EFD20 ('D20') or 001EF9D0 ('9D0', pos may be None)."""
+    """001EFD90 (fn 'D90'), 001EFD20 ('D20'), 001EF9D0 ('9D0', pos may be None),
+    001EFE00 ('E00': the owner record carries pos / rot), 001F00A0 ('A0') or
+    001F0060 ('060')."""
     ram, spad = beat
     w = World(lib, elf, ram, spad, rands=rands, allocs=allocs, sfxpos=sfx)
     try:
@@ -833,7 +850,22 @@ def spawn_case(lib, elf, beat, label, fn, id_, pos, rot, rands, allocs, sfx=(), 
         out = C.POINTER(Node)()
         pa, pp = vec_ptr(pos or [0, 0, 0, 0])
         ra, rp = vec_ptr(rot or [0, 0, 0, 0])
-        if fn == 'D90':
+        O = SCRATCH + 0x200           # 001EFE00's owner record: +0x14, +0xB0, +0xC0
+        w14 = rot[2] ^ 0x5A5A0000 if rot else 0x00810000
+        put_vec(w, O + 0x14, [w14])
+        put_vec(w, O + 0xB0, pos or [0, 0, 0, 0])
+        put_vec(w, O + 0xC0, rot or [0, 0, 0, 0])
+        owner = sx(rng_owner(id_, pos))
+        if fn == 'E00':
+            orig = lambda ee: (ee.call(0x1EFE00, (id_, O)), ee.u32(2))[1]
+            nat = lambda: lib.em_effect_original_001EFE00(C.byref(w.effect), id_, pp, rp, w14, C.byref(out))
+        elif fn == 'A0':
+            orig = lambda ee: (ee.call(0x1F00A0, (id_, P, R, owner & M32)), ee.u32(2))[1]
+            nat = lambda: lib.em_effect_original_001F00A0(C.byref(w.effect), id_, pp, rp, owner, C.byref(out))
+        elif fn == '060':
+            orig = lambda ee: (ee.call(0x1F0060, (id_, owner & M32)), ee.u32(2))[1]
+            nat = lambda: lib.em_effect_original_001F0060(C.byref(w.effect), id_, owner & M32, C.byref(out))
+        elif fn == 'D90':
             orig = lambda ee: (ee.call(0x1EFD90, (id_, P, R)), ee.u32(2))[1]
             nat = lambda: lib.em_effect_original_001EFD90(C.byref(w.effect), id_, pp, rp, C.byref(out))
         elif fn == 'D20':
@@ -1087,15 +1119,21 @@ def spawn_sweep(lib, elf, beat, counts):
     ids = [0x80000000 | i for i in range(0xAA)]
     cases = []
     for id_ in ids:
-        for fn in ('D90', 'D20', '9D0'):
+        for fn in ('D90', 'D20', '9D0', 'E00', 'A0', '060'):
             cases.append((id_, fn))
+
     for id_ in (0x80000026, 0x8000002C, 0x80000067):
         for fn in ('D90', 'D20', '9D0'):
             for _ in range(3):
                 cases.append((id_, fn))
     cases += [(i, fn) for i in (0, 1, 5, 0x20) for fn in ('D90', 'D20')]  # area table ids (D_00810700 = 11)
-    total = len(cases)
+    # the player stage's owner spawns (0021C200 / 0021C440 / 0021D4E0 /
+    # 0015D100 / the flame contact): every run, twice each
+    owner = [(id_, fn) for id_ in (0x80000048, 0x80000044, 0x8000001B, 0x80000061, 0x80000062,
+                                   0x80000063, 0x80000027) for fn in ('E00', 'A0', '060') for _ in range(2)]
+    total = len(cases) + len(owner)
     cases = select(cases, pick(len(cases), 180), 0x1EFD90, axes=(lambda c: c[0] & 0xFF, lambda c: c[1]))
+    cases += owner
     n = 0
     for id_, fn in cases:
         pos = [fbits(rng.uniform(-50, 50)) for _ in range(3)] + [rng.choice((ONE, 0))]
@@ -1109,6 +1147,8 @@ def spawn_sweep(lib, elf, beat, counts):
                 (0x275C38, rng.choice((0, rng.getrandbits(32))), 4)]
         if fn == '9D0' and rng.random() < 0.3:
             pos = None
+        if fn == 'E00' and rng.random() < 0.2:
+            pos[1] = fbits(rng.choice((1e-39, -0.0, 3.4e38, -10.0)))   # the +10.0 boundaries
         w, _ = spawn_case(lib, elf, beat, ('spawn', hex(id_), fn), fn, id_, pos, rot, rands, allocs, sfx, glob)
         w.ee.restore()
         n += 1
@@ -1362,7 +1402,7 @@ def main():
     out = ROOT / 'build/effect_original_reference'
     report = dict(status='PASS', elf_sha256=ELF_SHA, cases=counts,
                   captured=[(b, hex(a), s) for b, a, s in captured],
-                  original_functions=['001EFD90', '001EFD20', '001EF9D0', '001EF940', '001D80E0', '001D8100',
+                  original_functions=['001EFD90', '001EFD20', '001EFE00', '001F00A0', '001F0060', '001EF9D0', '001EF940', '001D80E0', '001D8100',
                                       '001D7FA0 (via em_point_light_register)', '001F0460', '001EA240',
                                       '001CCF70', '001CD370', '001CD390', '001029C0', '00102918', '001026A0',
                                       '00102760', '00102718', '001031E0', '00102948', 'copy_qw4', '001029E8',

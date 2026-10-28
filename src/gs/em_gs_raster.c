@@ -1875,85 +1875,151 @@ static inline int wy(const EmGsContext *c, int32_t y) { return y - (int)bits(c->
 /* ------------------------------------------------------------------------
  * 6. Sprites (section 3.4)
  *
- * The row coordinate of a UV sprite (FST 1) is accumulated in binary32,
- * one step a row (measured: the depth-of-field captures, decomp
- * build/dof_capture, whose blend sprite stretches 256 texel rows over 224
- * rows; section 3.4). In texel units (V / 16 and Y / 16, both exact):
- *   step  = (v1 - v0) / (y1 - y0)                      (one rounding)
- *   v     = v0 + (first - y0) * step                   (the product and the
- *           sum rounded separately) at the sprite's first covered row
- *   v    += step                                       (every next row)
- * and the coordinate in 1/16 texel is floor(16 v). Scaling by powers of two
- * is exact, so the same holds in 1/16 units. Where (v1 - v0) / (y1 - y0) is
- * dyadic every value is exact and this is floor of the exact value, as
- * before; where it is not, the accumulated rounding can leave a row one
- * 1/16 texel below an exact integer value, which is what the captures show
- * (and a product from the start, a double accumulation or blocks of four
- * rows do not). The column coordinate stays floor of the exact value: no
- * capture tells it from the same accumulation, and strict mode refuses a
- * sprite where the two would differ (sprite_uv_settled). */
+ * The row coordinate V of a UV sprite (FST 1) is accumulated in binary32,
+ * one step a row, from the TOP corner (the one with the lower Y, with its
+ * V, whatever the order the corners are given in), starting at the first
+ * row drawn (the first covered row, or the scissor's top row when the
+ * sprite starts above it); for bilinear sampling the value accumulated is
+ * the coordinate the filter reads, V - 0.5 texel (h = 0.5; nearest: h =
+ * 0), as the column rule's W. In texels and pixels (V / 16, Y / 16: exact),
+ * each operation rounded to binary32:
+ *   d   = (vB - vT) / (yB - yT)
+ *   v   = (vT - h) + (ys - yT) * d          at ys, the first row drawn
+ *   v  += d                                 every next row
+ * and the coordinate in 1/16 texel is floor(16 v) (+ 8 for bilinear, which
+ * the filter takes off again). Measured (2026-10-20): the depth-of-field
+ * captures (decomp build/dof_capture: 256 texel rows over 224 rows, the
+ * corners top to bottom, the first row drawn; section 3.4), the status
+ * pages' captures, and the designed fork probe probe_rows.py p14_rows
+ * (decomp build/status_field_capture: 448 UV sprites, every drawn row equal;
+ * the corners given bottom to top, starts above the scissor, the BATTERY
+ * page background's live sprites that the rule before left open) and the
+ * held-out probe_rows2.py p15_rows_holdout (captured after the rule was
+ * written down: random sprites of every kind, bilinear and nearest, both
+ * axes at once, and 64 sprites whose start's sum order changes a drawn row:
+ * every pixel equal). The rule before (from the corner given first, at the
+ * first covered row, V itself accumulated) fits 226 of p14_rows' 448
+ * sprites; from the top corner and the first drawn row with V itself 388;
+ * a fused start at most 340; fixed point (the column rule's shape, 16- to
+ * 24-bit steps, lanes of 1 to 8 rows) at most 223; the start's sum taken as
+ * vT + ((ys - yT) d - h) leaves 512 pixels of p15_rows_holdout off.
+ *
+ * The column coordinate U (measured 2026-10-20: the status pages' fork
+ * captures, decomp build/status_field_capture, and four designed probes in
+ * the fork, probe_cols.py p10_cols, probe_open.py p11_open, probe_open2.py
+ * p12_open and the held-out probe_holdout.py p13_holdout: 2,048 UV sprites
+ * of height 1, about 360,000 decoded columns, every one equal;
+ * docs/GS_EXACT.md section 3.4) is 16.16 fixed point, W in 2^-16 texel,
+ * set up in binary32 from the LEFT corner (the one with the lower X, with
+ * its U) whatever the order the corners are given in; for bilinear sampling
+ * W is the coordinate the filter reads, U - 0.5 texel (h = 0.5; nearest:
+ * h = 0). In texels and pixels (U / 16, X / 16: exact), each operation
+ * rounded to binary32:
+ *   d   = (uR - uL) / (xR - xL)
+ *   W0  = trunc(((uL - h) + (xs - xL) * d) * 2^16)      toward zero, so a
+ *         start below half a texel rounds UP
+ *   G   = trunc(d * 2^18)                               four columns
+ *   L_k = trunc((k * d) * 2^16), k = -3 .. 3            a lane's offset
+ * at xs, the first column drawn (the first covered column, or the
+ * scissor's left column when the sprite starts left of it). The columns go
+ * four at a time, in groups aligned to window x mod 4 (whatever XYOFFSET's
+ * X: p13_holdout phase1 at 1025 px and phase_half at 1024.5 px): lane L of
+ * the group holding xs (r = xs mod 4) is W0 + L_(L - r), each next group adds
+ * G. The 1/16-texel coordinate is floor(W / 2^12) (+ 8 for bilinear, which
+ * the filter takes off again). Over many groups this is close to an 18-bit
+ * step truncated toward zero (the rule before; it left 19 probe columns
+ * open, all within 79 columns of the start); the start, the lanes inside a
+ * group and the binary32 step are where it differs (a start in double
+ * precision leaves 152 columns of p11_open off, an exact-integer step and
+ * lanes 7 of p13_holdout's, a start as (uL + p d) - h 1 and one fused
+ * multiply-add 67). The start's sum as uL + (p d - h), which fits those
+ * four probes too, leaves 72 pixels of p15_rows_holdout's cols_assoc off
+ * (64 sprites found by search where the two orders differ at a drawn
+ * column; 2026-10-20): the sum is (uL - h) + p d. */
 static inline float uv_texels(uint32_t q4) { return (float)q4 * 0.0625f; }   /* 1/16 texel -> texel: exact */
 
-/* The accumulation's start: t0 + (first - a0) * step, the product and the
- * sum rounded separately (two statements: never contracted into one fused
- * multiply-add). */
-static float uv_start(float t0, float a0, float step, int first)
+/* The row rule above for one sprite: the start value v at ys (the first
+ * row drawn) and the step d, for corners (q0, Y0), (q1, Y1) as given (V in
+ * 1/16 texel, Y in 12.4 window), bilinear or not. Each binary32 operation
+ * is its own statement: never contracted into a fused multiply-add. */
+static float uv_row_start(uint32_t q0, uint32_t q1, int Y0, int Y1, int ys, int bil, float *step)
 {
-    const float off = (float)first - a0;        /* exact */
-    const float prod = off * step;
-    return t0 + prod;
+    const int top = Y0 <= Y1;
+    const uint32_t qT = top ? q0 : q1, qB = top ? q1 : q0;
+    const int YT = top ? Y0 : Y1, YB = top ? Y1 : Y0;
+    const float vT = uv_texels(qT), vB = uv_texels(qB);
+    const float yT = (float)YT * 0.0625f, yB = (float)YB * 0.0625f;
+    const float span = yB - yT, rise = vB - vT;
+    const float d = rise / span;
+    const float h = bil ? 0.5f : 0.0f;
+    const float pre = (float)ys - yT;            /* exact */
+    const float prod = pre * d;
+    const float base = vT - h;
+    *step = d;
+    return base + prod;
 }
 
-/* Strict mode (section 6): 0 when a UV sprite's drawn texel coordinates
- * depend on a rule no capture settles. The row rule above is measured for
- * corners given top to bottom whose first covered row is drawn; this checks
- * the alternatives the captures do not tell apart: the accumulation started
- * at the scissor's first row when the sprite starts above it, its start as
- * one fused multiply-add, the start from the top corner's value when the
- * corners run upward. For the columns it checks the same accumulation (and
- * those variants of it) against the exact value the model uses. 1: every
- * alternative gives every drawn pixel the same coordinate. */
-static int uv_axis_settled(uint32_t q0, uint32_t q1, int A0, int A1, int lo, int hi, int exact_model)
+/* The 1/16-texel V of the accumulated value v. */
+static inline int64_t uv_row_v16(float v, int bil)
 {
-    if (A1 == A0) return 1;
-    const int first = (int)floordiv64((A0 < A1 ? A0 : A1) + 15, 16);
-    const float t0 = uv_texels(q0), t1 = uv_texels(q1), a0 = (float)A0 * 0.0625f, a1 = (float)A1 * 0.0625f;
-    const float step = (t1 - t0) / (a1 - a0);
-    float m = uv_start(t0, a0, step, first);                  /* the row rule */
-    float c = fmaf((float)first - a0, step, t0);              /* a fused start */
-    float r = A1 < A0 ? uv_start(t1, a1, step, first) : m;    /* from the top corner */
-    float b = 0.0f;                                           /* started at `lo` */
-    for (int p = first; p <= hi; ++p) {
-        if (p == lo && lo > first) b = uv_start(t0, a0, step, lo);
-        if (p >= lo) {
-            const int64_t mine = (int64_t)floorf(m * 16.0f);
-            const int64_t want = exact_model
-                ? (int64_t)q0 + floordiv64(((int64_t)q1 - (int64_t)q0) * (16 * (int64_t)p - A0), A1 - A0)
-                : mine;
-            if (mine != want || (int64_t)floorf(c * 16.0f) != want || (int64_t)floorf(r * 16.0f) != want ||
-                (lo > first && (int64_t)floorf(b * 16.0f) != want))
-                return 0;
-            b += step;
-        }
-        m += step;
-        c += step;
-        r += step;
+    const float v16 = v * 16.0f;                 /* exact: a power of two */
+    return (int64_t)floorf(v16) + (bil ? 8 : 0);
+}
+
+/* The column rule above for one sprite. */
+typedef struct {
+    int64_t w0, step4;
+    int64_t lane[7];                 /* L_k, k = -3 .. 3 */
+    int xb, r, bil, flat;
+} UvCols;
+
+/* The rule's state from xs (the first column drawn) for corners (q0, X0),
+ * (q1, X1) as given (U in 1/16 texel, X in 12.4 window), bilinear or not.
+ * Each binary32 operation is its own statement: never contracted into a
+ * fused multiply-add. */
+static void uv_cols_init(UvCols *c, uint32_t q0, uint32_t q1, int X0, int X1, int xs, int bil)
+{
+    const int left = X0 <= X1;
+    const uint32_t qL = left ? q0 : q1, qR = left ? q1 : q0;
+    const int XL = left ? X0 : X1, XR = left ? X1 : X0;
+    c->bil = bil;
+    c->flat = XL == XR;
+    c->r = xs & 3;
+    c->xb = xs - c->r;
+    if (c->flat) {
+        c->w0 = (int64_t)qL << 12;
+        c->step4 = 0;
+        memset(c->lane, 0, sizeof c->lane);
+        return;
     }
-    return 1;
+    const float uL = uv_texels(qL), uR = uv_texels(qR);
+    const float xL = (float)XL * 0.0625f, xR = (float)XR * 0.0625f;
+    const float span = xR - xL, rise = uR - uL;
+    const float d = rise / span;
+    const float h = bil ? 0.5f : 0.0f;
+    const float pre = (float)xs - xL;            /* exact */
+    const float prod = pre * d;
+    const float base = uL - h;
+    const float s = base + prod;
+    const float w0 = s * 65536.0f;               /* exact: a power of two */
+    c->w0 = (int64_t)w0;                         /* C: toward zero */
+    const float g4 = d * 262144.0f;              /* exact */
+    c->step4 = (int64_t)g4;
+    for (int k = -3; k <= 3; ++k) {
+        const float kd = (float)k * d;
+        const float lk = kd * 65536.0f;          /* exact */
+        c->lane[k + 3] = (int64_t)lk;
+    }
 }
 
-static int sprite_uv_settled(const Draw *d, const EmGsVertex *v0, const EmGsVertex *v1)
+
+/* The 1/16-texel U of window column x (x >= the group start of xs). */
+static inline int64_t uv_cols_u16(const UvCols *c, int x)
 {
-    if (!d->tme || !d->fst) return 1;
-    const int X0 = wx(d->c, v0->x), Y0 = wy(d->c, v0->y), X1 = wx(d->c, v1->x), Y1 = wy(d->c, v1->y);
-    int px0 = (int)floordiv64((X0 < X1 ? X0 : X1) + 15, 16), px1 = (int)floordiv64((X0 < X1 ? X1 : X0) + 15, 16) - 1;
-    int py0 = (int)floordiv64((Y0 < Y1 ? Y0 : Y1) + 15, 16), py1 = (int)floordiv64((Y0 < Y1 ? Y1 : Y0) + 15, 16) - 1;
-    if (px0 < d->sx0) px0 = d->sx0;
-    if (px1 > d->sx1) px1 = d->sx1;
-    if (py0 < d->sy0) py0 = d->sy0;
-    if (py1 > d->sy1) py1 = d->sy1;
-    if (px0 > px1 || py0 > py1) return 1;                    /* draws nothing */
-    return uv_axis_settled(v0->v, v1->v, Y0, Y1, py0, py1, 0) && uv_axis_settled(v0->u, v1->u, X0, X1, px0, px1, 1);
+    if (c->flat) return c->w0 >> 12;
+    const int off = x - c->xb;
+    const int64_t w = c->w0 + c->lane[(off & 3) - c->r + 3] + c->step4 * (int64_t)(off >> 2);
+    return floordiv64(w, (int64_t)1 << 12) + (c->bil ? 8 : 0);
 }
 
 /* The alpha test's comparison (TEST.ATST against AREF) for a fragment alpha
@@ -2089,7 +2155,6 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
     int xa = X0 < X1 ? X0 : X1, xb = X0 < X1 ? X1 : X0, ya = Y0 < Y1 ? Y0 : Y1, yb = Y0 < Y1 ? Y1 : Y0;
     int px0 = (int)floordiv64(xa + 15, 16), px1 = (int)floordiv64(xb + 15, 16) - 1;
     int py0 = (int)floordiv64(ya + 15, 16), py1 = (int)floordiv64(yb + 15, 16) - 1;
-    const int first_row = py0;                 /* the first covered row: the accumulation's start */
     if (px0 < d->sx0) px0 = d->sx0;
     if (px1 > d->sx1) px1 = d->sx1;
     if (py0 < d->sy0) py0 = d->sy0;
@@ -2116,19 +2181,13 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
             qq = stq_trunc_q(qq, E);
         }
     }
-    /* UV: the row coordinate accumulated in binary32 from the first covered
-     * row (above), through the rows above the scissor too; every band takes
-     * every step, so the bands draw what one EmGs draws */
+    /* UV: the row coordinate accumulated in binary32 from the first row
+     * drawn (above); every band takes every step, so the bands draw what
+     * one EmGs draws */
     float vrow = 0.0f, vstep = 0.0f;
     const int vacc = d->tme && d->fst && Y1 != Y0;
-    if (vacc) {
-        const float ft0 = uv_texels(v0->v), ft1 = uv_texels(v1->v);
-        const float fa0 = (float)Y0 * 0.0625f, fa1 = (float)Y1 * 0.0625f;
-        vstep = (ft1 - ft0) / (fa1 - fa0);
-        vrow = uv_start(ft0, fa0, vstep, first_row);
-        for (int y = first_row; y < py0; ++y)
-            vrow += vstep;
-    }
+    if (vacc)
+        vrow = uv_row_start(v0->v, v1->v, Y0, Y1, py0, d->mmag, &vstep);
     /* The column coordinate depends on x and the primitive only, so it is
      * computed once per column, by the same expression as per pixel (the
      * same bits), on the first row this band draws (a band that draws no
@@ -2136,12 +2195,14 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
      * (0..2047). */
     int64_t ucol[2048];
     int ucol_ready = 0;
+    UvCols ucols;
+    uv_cols_init(&ucols, v0->u, v1->u, X0, X1, px0, d->mmag);   /* px0: xs, the first column drawn; FST 1 only */
     for (int y = py0; y <= py1; y++, vrow += vstep) {
         if (!own_row(gs, y))
             continue;
         if (d->tme) {
             if (d->fst) {
-                fr.V16 = vacc ? (int64_t)floorf(vrow * 16.0f) : (int64_t)v0->v;
+                fr.V16 = vacc ? uv_row_v16(vrow, d->mmag) : (int64_t)v0->v;
             } else {
                 double t = (Y1 == Y0) ? 0.0 : (double)(16 * y - Y0) / (double)(Y1 - Y0);
                 fr.V16 = stq_div(t0 + (t1 - t0) * t, qq, (int)d->th);
@@ -2150,8 +2211,7 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
                 for (int x = px0; x <= px1; x++) {
                     int64_t U16;
                     if (d->fst) {
-                        U16 = (X1 == X0) ? (int64_t)v0->u
-                            : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
+                        U16 = (X1 == X0) ? (int64_t)v0->u : uv_cols_u16(&ucols, x);
                     } else {
                         double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
                         U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
@@ -2759,7 +2819,6 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
     int xa = X0 < X1 ? X0 : X1, xb = X0 < X1 ? X1 : X0, ya = Y0 < Y1 ? Y0 : Y1, yb = Y0 < Y1 ? Y1 : Y0;
     int px0 = (int)floordiv64(xa + 15, 16), px1 = (int)floordiv64(xb + 15, 16) - 1;
     int py0 = (int)floordiv64(ya + 15, 16), py1 = (int)floordiv64(yb + 15, 16) - 1;
-    const int first_row = py0;
     if (px0 < d->sx0) px0 = d->sx0;
     if (px1 > d->sx1) px1 = d->sx1;
     if (py0 < d->sy0) py0 = d->sy0;
@@ -2780,14 +2839,8 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
     }
     float vrow = 0.0f, vstep = 0.0f;
     const int vacc = d->fst && Y1 != Y0;
-    if (vacc) {
-        const float ft0 = uv_texels(v0->v), ft1 = uv_texels(v1->v);
-        const float fa0 = (float)Y0 * 0.0625f, fa1 = (float)Y1 * 0.0625f;
-        vstep = (ft1 - ft0) / (fa1 - fa0);
-        vrow = uv_start(ft0, fa0, vstep, first_row);
-        for (int y = first_row; y < py0; ++y)
-            vrow += vstep;
-    }
+    if (vacc)
+        vrow = uv_row_start(v0->v, v1->v, Y0, Y1, py0, d->mmag, &vstep);   /* draw_sprite's */
     SpK k;
     sp_k(d, &k);
     /* plot_dst's Z clamped to the format (Z32 or Z24 where Z is read or written) */
@@ -2803,6 +2856,8 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
      * on the first row this band draws, as draw_sprite computes its U */
     int32_t col_a[2048], col_b[2048];
     uint8_t col_f[2048];
+    UvCols ucols;
+    uv_cols_init(&ucols, v0->u, v1->u, X0, X1, px0, d->mmag);   /* px0: xs, the first column drawn; FST 1 only */
     int ready = 0;
     uint64_t zfail = 0, samples = 0, drawn = 0;
     for (int y = py0; y <= py1; y++, vrow += vstep) {
@@ -2810,7 +2865,7 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
             continue;
         int64_t V16;
         if (d->fst) {
-            V16 = vacc ? (int64_t)floorf(vrow * 16.0f) : (int64_t)v0->v;
+            V16 = vacc ? uv_row_v16(vrow, d->mmag) : (int64_t)v0->v;
         } else {
             double t = (Y1 == Y0) ? 0.0 : (double)(16 * y - Y0) / (double)(Y1 - Y0);
             V16 = stq_div(t0 + (t1 - t0) * t, qq, (int)d->th);
@@ -2819,8 +2874,7 @@ static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw
             for (int x = px0; x <= px1; x++) {
                 int64_t U16;
                 if (d->fst) {
-                    U16 = (X1 == X0) ? (int64_t)v0->u
-                        : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
+                    U16 = (X1 == X0) ? (int64_t)v0->u : uv_cols_u16(&ucols, x);
                 } else {
                     double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
                     U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
@@ -3591,14 +3645,7 @@ static void vertex_kick(EmGs *gs, int draw)
         gs->queue[gs->queued++] = v;
         if (gs->queued == 2) {
             if (draw && setup_counted(gs, &d, kind)) {
-                if (kind == 6 && gs->strict && !sprite_uv_settled(&d, &gs->queue[0], &gs->queue[1])) {
-                    /* refused: drawn by nothing, counted as refused (section 6) */
-                    refuse(gs, EM_GS_REFUSE_UNMEASURED, "unmeasured: a UV sprite's texel coordinates (3.4)");
-                    gs->drawn_prims--;
-                    gs->refused_prims++;
-                } else {
-                    queue_prim(gs, &d, kind, &gs->queue[0], &gs->queue[1], NULL);
-                }
+                queue_prim(gs, &d, kind, &gs->queue[0], &gs->queue[1], NULL);
             }
             gs->queued = 0;
         }

@@ -543,6 +543,52 @@ typedef struct EmPlayerTakeoverDropWorkers {
 } EmPlayerTakeoverDropWorkers;
 int em_player_00183910(void *workers, EmPlayerLiveActor *actor);
 
+/* ---- 001833F0 / 00183440: 0015B610's routines for +5 = 2 / 3 -------------
+ * Translated from the byte-matched decomp C (src/func_001833F0.c,
+ * src/func_00183440.c). Both write +0x23F = 2, then the word +0x24C (0 for
+ * 001833F0, 1 for 00183440), then run 001662D0(p) (the climb state).
+ * 001833F0: when +4 (read after the call) is 1, 0x70003B8D = 0.
+ * 00183440: when bit 0x1000 of the word +0x200 is set, +0x268 += 1.0, and
+ * when that is not below 4.0: 0x70003B8D = 0, +4 = 1, +5 = 0xC, +6 = 0,
+ * +0x1F0 = 0x17. Every FPU operation is the EE model's (em_ee_float.h). A
+ * missing worker is a fault before any write. */
+typedef struct EmPlayerMajor5ClimbWorkers {
+    void *context;
+    int (*climb)(void *context, EmPlayerLiveActor *actor);                     /* 001662D0 */
+    uint8_t *spad3B8D;                                                         /* 0x70003B8D */
+} EmPlayerMajor5ClimbWorkers;
+int em_player_001833F0(void *workers, EmPlayerLiveActor *actor);
+int em_player_00183440(void *workers, EmPlayerLiveActor *actor);
+
+/* ---- 001834E0: 0015B610's routine for +5 = 4 (the scripted glide) --------
+ * Translated from the byte-matched decomp C (src/func_001834E0.c). By the
+ * phase +6 (0..5; any other phase does nothing):
+ *   0: +6 += 1, +7 = 0, 001749A0(p, 0x180, 0, 8.0), 0016BAE0(p, 1), the
+ *      halfword +0x28 = 120 and +0x2E0..+0x2E8 = (A - +0xB0..+0xB8) / 120.0
+ *      with A the floats D_002487B0 / B4 / B8;
+ *   1: the halfword +0x28 is stored less one; at the old value 0: +6 += 1,
+ *      +0xB0..+0xB8 = A, +0x28 = 30 and +0x2E0..+0x2E8 = (B - +0xB0..) / 30.0
+ *      with B = D_002487C0 / C4 / C8; otherwise +0xB0..+0xB8 += +0x2E0..;
+ *   2: as 1, but the expiry snaps +0xB0..+0xB8 to B and arms nothing;
+ *   3: +6 += 1 and 001749A0(p, 0x181, 0, 4.0);
+ *   4: when bit 0x1000 of the word +0x200 is set: +6 += 1 and the word
+ *      +0x2EC = -0.2 (0xBE4CCCCD);
+ *   5: 00179880(p, p + 0x2EC), then when 00175900(p, 0) is nonzero:
+ *      0x70003B8D = 0, +4 = 1, +5 = 0, +6 = 0, +0x1F0 = 0.
+ * `table32` reads the words D_002487B0..C8 (the record pose's table region
+ * in the live binding). Every FPU operation is the EE model's. A missing
+ * worker is a fault before any write. */
+typedef struct EmPlayerMajor5GlideWorkers {
+    void *context;
+    int (*request)(void *context, EmPlayerLiveActor *actor, int clip, int flags, float blend); /* 001749A0 */
+    int (*crawl)(void *context, EmPlayerLiveActor *actor, int arg);                           /* 0016BAE0 */
+    int (*drop)(void *context, EmPlayerLiveActor *actor, unsigned at);       /* 00179880(p, p + at) */
+    int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result);           /* 00175900 */
+    int (*table32)(void *context, uint32_t address, uint32_t *bits);         /* D_002487B0..C8 */
+    uint8_t *spad3B8D;                                                       /* 0x70003B8D */
+} EmPlayerMajor5GlideWorkers;
+int em_player_001834E0(void *workers, EmPlayerLiveActor *actor);
+
 /* ---- 001764E0 radial wall probes, 001756E0 clearance release ------------ */
 
 typedef struct EmPlayerProbeActor {
@@ -582,8 +628,11 @@ typedef struct EmPlayerProbeWorkers {
                  EmPlayerProbeHit *hit);
     /* 001760C0(actor, at, 1, height) -> 0019AB20 over at .. at + (0,height,0). */
     int (*column)(void *context, const float at[3], float height, EmPlayerProbeHit *hit);
-    /* 00176180(actor, kind, target): the class-2 hull shove (unported). */
-    int (*hull_shove)(void *context, const float target[3]);
+    /* 00176180(actor, kind, target): the class-2 hull shove, with
+     * D_00281B50 = `delta` (00176390's copy of the first hit's 0x700031C0);
+     * it corrects actor->position x/z (em_player_00176180 translates it). */
+    int (*hull_shove)(void *context, EmPlayerProbeActor *actor, const float delta[3],
+                      const float target[3]);
     /* 001762E0's area-2 target shove when its gate passes (unported). */
     int (*target_shove)(void *context);
     /* 00174A50(actor, 12.0): the idle row request after a clearance change. */

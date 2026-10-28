@@ -244,6 +244,14 @@ const EmTask *em_module_loader_record(const EmModuleLoader *ml);
  * it with em_module_loader_failed every frame. */
 int em_module_loader_orphaned(EmStatusSceneFault *fault);
 
+/* 00200890() outside the load task: 0015C1F0's call during play (0021C190,
+ * major2) over the live views' D_00810707 / D_00810C60 and the slot words
+ * D_0028A4B0..C0 the area load relocated. The send goes to the area chain
+ * hook, during which em_module_loader_player_packet() is 1. 0, or -1 (the
+ * fault is latched as for a dispatch's). */
+int em_module_loader_00200890(EmModuleLoader *ml);
+int em_module_loader_player_packet(const EmModuleLoader *ml);
+
 /* The host drive as an EmModuleLoaderSdk (for 00200890 / 00200970 callers
  * and tests); valid while `ml` is open. */
 const EmModuleLoaderSdk *em_module_loader_sdk(const EmModuleLoader *ml);

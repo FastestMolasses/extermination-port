@@ -99,9 +99,91 @@ int em_status_background_render(EmGfx *gfx, float u, float v, float w, float h)
     return 1;
 }
 
+/* The sprites of the last call-time step (em_status_background_live_step):
+ * two 32 x 8 grids and the burst sprite at most. */
+enum { STEP_SPRITES = 2 * 32 * 8 + 1 };
+typedef struct {
+    const EmStatusBackgroundEmit *emit;
+    uint32_t count;
+    int32_t xywh[STEP_SPRITES][4];
+    uint32_t rgba[STEP_SPRITES];
+} Step;
+static Step s_step;
+static uint32_t s_step_token;
+
+static int step_mode(void *context, int slot, int value)
+{
+    const Step *st = &s_step;
+    if (!mode(context, slot, value)) return 0;
+    return !st->emit || !st->emit->mode || st->emit->mode(st->emit->context, slot, value) == 1;
+}
+
+static int step_sprite(void *context, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba)
+{
+    (void)context;
+    Step *st = &s_step;
+    if (st->count >= STEP_SPRITES) return 0;
+    st->xywh[st->count][0] = x;
+    st->xywh[st->count][1] = y;
+    st->xywh[st->count][2] = w;
+    st->xywh[st->count][3] = h;
+    st->rgba[st->count++] = rgba;
+    return !st->emit || !st->emit->sprite || st->emit->sprite(st->emit->context, x, y, w, h, rgba) == 1;
+}
+
+int em_status_background_live_step(const EmStatusBackgroundEmit *emit, uint32_t *token)
+{
+    if (!token || !s_sdk_ready)
+        return 0;
+    if (!s_ready) {
+        em_status_background_init(&s_state);
+        s_ready = 1;
+    }
+    s_step.emit = emit;
+    s_step.count = 0;
+    ++s_step_token; /* any earlier token is stale from here on */
+    Draw draw = {NULL, 0, 0, 0, 0, &s_sdk};
+    const EmStatusBackgroundWorkers workers = {&draw, sine, random_word, step_mode, step_sprite};
+    s_sdk.fault = 0;
+    const int ok = em_status_background_step(&s_state, &workers) == 1 && !s_sdk.fault;
+    s_step.emit = NULL;
+    if (!ok) {
+        if (s_sdk.fault)
+            fprintf(stderr, "status background: 0011E2A8 faulted at %08X\n", (unsigned)s_sdk.fault);
+        s_step.count = 0;
+        return 0;
+    }
+    ++s_steps;
+    *token = s_step_token;
+    return 1;
+}
+
+int em_status_background_render_step(EmGfx *gfx, uint32_t token, float u, float v, float w, float h)
+{
+    if (!gfx || token != s_step_token)
+        return 0;
+    Draw draw = {gfx, u, v, w, h, &s_sdk};
+    for (uint32_t i = 0; i < s_step.count; i++)
+        if (!sprite(&draw, s_step.xywh[i][0], s_step.xywh[i][1], s_step.xywh[i][2], s_step.xywh[i][3],
+                    s_step.rgba[i]))
+            return 0;
+    return 1;
+}
+
 unsigned long em_status_background_live_steps(void)
 {
     return s_steps;
+}
+
+void em_status_background_live_state(EmStatusBackground *out)
+{
+    if (!out)
+        return;
+    if (!s_ready) {
+        em_status_background_init(&s_state);
+        s_ready = 1;
+    }
+    *out = s_state;
 }
 
 void em_status_background_frame(EmGfx *gfx)

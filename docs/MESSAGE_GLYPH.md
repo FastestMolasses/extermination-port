@@ -80,6 +80,15 @@ fault and later calls refuse; text without a terminator inside the supplied
 bytes, a run that would fill the 0x80-byte buffer (the original would lose
 its terminator), and a missing config fault.
 
+## The packets (since 2026-10-20)
+
+Every 001CC8A0 upload and 001CC3B0 flush the live service's runs make also
+builds the original's packet in the render context's slot-1 arena at its
+call time, through em_message_live's glyph sink (`em_message_live_set_glyph_sink`,
+bound by `em_status_gs_page`; the builders em_uip_001CC8A0 / em_uip_001CC3B0,
+docs/STATUS_FIELD.md sections 3a and 3b). The draw below is unchanged; the
+packets are what the status pages' GS frame will draw.
+
 ## The draw boundary
 
 `em_hud_glyph_strip` draws a flush through the tall-font atlas
@@ -113,14 +122,23 @@ the GS's own sample, the integer point of its row under the field's draw
 offset (OFY 1936.5 on a half-line field), with the sprite's coverage, U
 and V as the floor of their exact values in 1/16 texel (the rows' 2 texels
 per row are dyadic; the columns' u_end = width + 1 span, 228 over 227 in
-the AREA01 title, is not, and the GS model's column rule takes the floor of
-the exact value), and the CLUT's ink colour: 001CC8A0 expands an ink bit
+the AREA01 title, is not; the GS model's column rule, GS_EXACT.md 3.4,
+reads the same texel as the floor of the exact value at every column of
+that shape, widths 1 to 512 from any start column), and the CLUT's ink colour: 001CC8A0 expands an ink bit
 to texel index 15, and the strip's TEX0 reads the CLUT 001CCB10 uploads
 (byte-matched; CBP 0x1B67), a grey ramp whose entry 15 is grey 240 at the
 GS's full alpha (`GLYPH_INK` in em_hud.c; the atlas keeps the coverage
 only). The AREA01 title at fb2 point 15 is exact since (it was a row off
 on either half line and 240 against 225 under the fade before). The skewed
 kind (markup tag 3, a triangle strip) keeps the host quad.
+
+**In the BATTERY page's GS field (2026-10-20, STATUS_FIELD.md 3d).** In a
+status frame the Original profile draws as the GS field (the BATTERY
+page), the strips are the list's own packets (em_status_gs_page's glyph
+sink: 001CC8A0's uploads to block 0x1B00 and 001CC3B0's passes, skewed ones
+included) and the CPU GS model draws them; em_message_live_render draws no
+GPU strip over such a frame. The CLUT they read is 001CCB10's, which the
+port's boot now uploads into the model (em_sgp_001CCB10).
 
 Not modelled at the boundary (renderer work, WP for the Original profile's GS
 path): the TEST and ALPHA registers, and the skewed kind's GS rasterisation.
@@ -154,7 +172,14 @@ the next 00207D00. The upload worker refuses a glyph the small-font atlas
 lacks, the flush worker a slot other than 1 (the page stream's): the
 frame is refused and the caller faults. The status pages' tall-font
 001CC1E0 calls go to `em_message_live_cc1e0`, as the options screen's
-do. This retired the page stream's stand-in text (`em_page_draw_text`,
+do. On a page drawn as the GS field (EQUIPMENT, EVENT, DATABASE, SPR4:
+STATUS_FIELD.md 3f to 3h) each 001CBA50 run also reaches
+`em_status_pages_live`'s sink at its call time, before the page stream
+records it, and `em_status_gs_page` builds its packets into the slot-1
+list (em_uip_001CBA50, the BATTERY page's s_text); a 001CC1E0 run's
+glyph packets reach that list through the message service's glyph sink
+(`em_message_live_set_glyph_sink`), so the pages' sink does not take it
+again. This retired the page stream's stand-in text (`em_page_draw_text`,
 which drew the glyphs straight from the atlas with alpha 1.0, ignored the
 style's +4 and +7 bytes and the packets, and faulted on a null style).
 `em_hud_text_color`'s other users (the hub, the BATTERY and ITEM pages)

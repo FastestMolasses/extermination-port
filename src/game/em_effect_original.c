@@ -848,6 +848,76 @@ int em_effect_original_001EFD20(EmEffectOriginal *e, uint32_t id, const float po
     return 0;
 }
 
+/* 001EFE00 (byte-matched C, src/func_001EFE00.c): 00102948 copies the
+ * owner's +0xB0 to a stack quadword; for id 0x80000027 its y is raised by
+ * 10.0 (EE add); 001EF9D0(id, that copy, 1.0). A node gets +0x24 = the
+ * owner's +0x14 word, then 00102948(node + 0xB0, owner + 0xB0) and
+ * 00102948(node + 0xC0, owner + 0xC0). */
+int em_effect_original_001EFE00(EmEffectOriginal *e, uint32_t id, const float b0[4],
+                                const float c0[4], uint32_t w14, EmEffectOriginalNode **out)
+{
+    if (out) *out = NULL;
+    if (!ready(e)) return -1;
+    NEED(out, 0x001EFE00u);
+    NEED(b0, 0x00102948u);
+    NEED(c0, 0x00102948u);
+    float pos[4];
+    em_sdk_vu0_00102948(pos, b0);
+    if (id == 0x80000027u)
+        pos[1] = bfloat(ee_add(fbits(pos[1]), 0x41200000u));   /* + 10.0 */
+    EmEffectOriginalNode *node = NULL;
+    if (em_effect_original_001EF9D0(e, id, pos, bfloat(FP_ONE), &node) < 0) return -1;
+    if (!node)
+        return 0;
+    node->w24 = w14;
+    node->w24_written = 1;
+    em_sdk_vu0_00102948(node->pos, b0);
+    em_sdk_vu0_00102948(node->rot, c0);
+    *out = node;
+    return 0;
+}
+
+/* 001F00A0 (byte-matched C, src/func_001F00A0.c): 001EF9D0(id, pos,
+ * dir[3]); a node gets 00102948(node + 0xB0, pos), 00102948(node + 0xC0,
+ * dir), +0xBC = 1.0 and +0x38 = owner. */
+int em_effect_original_001F00A0(EmEffectOriginal *e, uint32_t id, const float pos[4],
+                                const float dir[4], int32_t owner, EmEffectOriginalNode **out)
+{
+    if (out) *out = NULL;
+    if (!ready(e)) return -1;
+    NEED(out, 0x001F00A0u);
+    NEED(dir, 0x001F00A0u);   /* dir[3] is read before the call */
+    EmEffectOriginalNode *node = NULL;
+    if (em_effect_original_001EF9D0(e, id, pos, dir[3], &node) < 0) return -1;
+    if (!node)
+        return 0;
+    NEED(pos, 0x00102948u);
+    em_sdk_vu0_00102948(node->pos, pos);
+    em_sdk_vu0_00102948(node->rot, dir);
+    node->pos[3] = bfloat(FP_ONE);
+    node->live38 = owner;
+    *out = node;
+    return 0;
+}
+
+/* 001F0060 (byte-matched C, src/func_001F0060.c): 001EF9D0(id, 0, 1.0); a
+ * node gets +0x24 = owner. */
+int em_effect_original_001F0060(EmEffectOriginal *e, uint32_t id, uint32_t owner,
+                                EmEffectOriginalNode **out)
+{
+    if (out) *out = NULL;
+    if (!ready(e)) return -1;
+    NEED(out, 0x001F0060u);
+    EmEffectOriginalNode *node = NULL;
+    if (em_effect_original_001EF9D0(e, id, NULL, bfloat(FP_ONE), &node) < 0) return -1;
+    if (!node)
+        return 0;
+    node->w24 = owner;
+    node->w24_written = 1;
+    *out = node;
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* 001F0460 ring decals.                                                */
 /* ------------------------------------------------------------------ */

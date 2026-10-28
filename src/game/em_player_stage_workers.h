@@ -147,6 +147,11 @@ typedef struct EmPlayerStageCallees {
     int (*link1C)(void *context, uint32_t word, uint8_t value);
     /* 0011A070's body over the SFX driver: em_sfx_driver_stop(track, hard). */
     int (*sound_stop)(void *context, int track, int hard);
+    /* Not an original call: after 0021CBB0 has written the record that
+     * w001F00A0 returned (+D0..+10F, then the word +104), the record's
+     * storage owner takes those bytes. NULL when *record is the owner's
+     * own storage (the reference fixtures). */
+    int (*record_written)(void *context, uint8_t *record);
 } EmPlayerStageCallees;
 
 /* The context of every EmPlayerStageWorkers entry bound by
@@ -262,5 +267,15 @@ typedef int (*EmPlayerClipRequest)(void *context, EmPlayerLiveActor *actor, int 
 int em_player_0015C700(EmPlayerLiveActor *actor, uint32_t health_bits, uint32_t d8106C8,
                        EmPlayerTable16 table16, void *table_context, EmPlayerClipRequest request,
                        void *request_context);
+/* 0015C9D0(actor) (byte-matched C; 0015D100's low-health re-trigger, the
+ * mirror of 0015C7C0): the live clip +0x20C (lh) against D_00248A00 or
+ * D_00248A08 (-> D_00248A02), D_00248A04 (-> D_00248A06) and D_002754C0 /
+ * C4 / C8 / CC / D0 / D4 / D8 (-> the next halfword), in that order; the
+ * first match requests its pair through 001749A0(actor, clip, 0, 1.0). The
+ * halfwords are read as the original reads them, each compared clip loaded
+ * before its test and the requested one after the match. 0, or -1 on a
+ * worker failure. */
+int em_player_0015C9D0(EmPlayerLiveActor *actor, EmPlayerTable16 table16, void *table_context,
+                       EmPlayerClipRequest request, void *request_context);
 
 #endif

@@ -397,3 +397,67 @@ int em_gs_texture_decode(const EmGsTexture *gs, uint64_t tex0, uint8_t *rgba, si
     }
     return 1;
 }
+
+/* One 001CCE80-shaped transfer packet (7 quadwords: VIF NOP, NOP, FLUSH,
+ * DIRECT; the A+D tag with BITBLTBUF, TRXPOS, TRXREG, TRXDIR 0; the IMAGE
+ * tag) for one block's 8 x 8 PSMCT32 pixels at DBP `block`, DBW 1, behind a
+ * DMA tag (CNT, or END for the last), then the 64 pixels in raster order. */
+static void block_packet(uint8_t *out, uint32_t block, const uint8_t *bytes, int last)
+{
+    uint64_t q[2 + 14];
+    memset(q, 0, sizeof q);
+    q[0] = 0x17u | (uint64_t)(last ? 7u : 1u) << 28;          /* the DMA tag: 0x17 quadwords */
+    q[3] = (uint64_t)(6u + 0x10u | 0x50000000u) << 32 | 0x11000000u;
+    q[4] = 4u | (uint64_t)0x10000000u << 32;
+    q[5] = 0xEu;
+    q[6] = (uint64_t)block << 32 | (uint64_t)1u << 48;       /* BITBLTBUF: DBP, DBW 1, PSMCT32 */
+    q[7] = 0x50u;
+    q[8] = 0;                                                /* TRXPOS 0, 0 */
+    q[9] = 0x51u;
+    q[10] = 8u | (uint64_t)8u << 32;                         /* TRXREG 8 x 8 */
+    q[11] = 0x52u;
+    q[12] = 0;                                               /* TRXDIR: host to local */
+    q[13] = 0x53u;
+    q[14] = 0x10u | 0x8000u | (uint64_t)0x08000000u << 32;   /* IMAGE, 16 quadwords, EOP */
+    q[15] = 0;
+    memcpy(out, q, sizeof q);
+    for (uint32_t y = 0; y < 8; ++y)
+        for (uint32_t x = 0; x < 8; ++x)
+            memcpy(out + sizeof q + 4u * (y * 8u + x), bytes + 4u * ct32_word(x, y, 1), 4);
+}
+
+int em_gs_texture_step_chain(const EmGsTexture *gs, unsigned step, uint8_t **chain, size_t *size)
+{
+    if (!gs || !chain || !size)
+        return 0;
+    for (unsigned i = 0; i < gs->step_count; ++i) {
+        if (gs->steps[i].id != step)
+            continue;
+        const uint8_t *p = gs->steps[i].data;
+        const uint32_t runs = rd32(p);
+        uint64_t blocks = 0;
+        for (uint32_t r = 0, at = 4; r < runs; ++r) {
+            const uint32_t count = rd32(p + at + 4);
+            blocks += count;
+            at += 8 + count * 256;
+        }
+        const size_t per = 16u * (1u + 0x17u);
+        uint8_t *out = blocks ? malloc((size_t)blocks * per) : NULL;
+        if (!out)
+            return 0;
+        size_t n = 0;
+        uint64_t k = 0;
+        p += 4;
+        for (uint32_t r = 0; r < runs; ++r) {
+            const uint32_t first = rd32(p), count = rd32(p + 4);
+            p += 8;
+            for (uint32_t b = 0; b < count; ++b, ++k, n += per)
+                block_packet(out + n, first + b, p + (size_t)b * 256, k + 1 == blocks);
+            p += (size_t)count * 256;
+        }
+        *chain = out;
+        *size = n;
+        return 1;
+    }
+    return 0;
+}

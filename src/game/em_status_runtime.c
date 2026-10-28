@@ -1,11 +1,18 @@
 #include "game/em_status_runtime.h"
 #include "game/em_battery_ui.h"
+#include "game/em_item_root.h"
 #include "game/em_item_ui.h"
 #include "game/em_status_background.h"
 #include "game/em_module_loader.h"
+#include "game/em_frame.h"
+#include "game/em_gs_texture.h"
+#include "game/em_status_gs_page.h"
+#include "em_gfx.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+static int restore_gs(EmStatusRuntime *runtime);
 
 typedef struct {
     int32_t xy[3][2];
@@ -288,6 +295,67 @@ static int pages_tick(EmStatusRuntime *runtime, uint32_t address)
     return 1;
 }
 
+/* ---- the ITEM root's leaf calls through the live packet sink ---------- */
+
+static const EmStatusItemSink *s_item_sink;
+
+void em_status_runtime_set_item_sink(const EmStatusItemSink *sink)
+{
+    s_item_sink = sink;
+}
+
+static int item_background(void *context, uint64_t tex0)
+{
+    EmStatusRuntime *runtime = context;
+    uint32_t token = 0;
+    if (!s_item_sink->background || s_item_sink->background(s_item_sink->context, tex0, &token) != 1)
+        return 0;
+    em_item_ui_background_stepped(runtime->item, token);
+    return 1;
+}
+
+static int item_blend(void *context, int32_t slot, int32_t mode)
+{
+    (void)context;
+    return s_item_sink->blend && s_item_sink->blend(s_item_sink->context, slot, mode) == 1;
+}
+
+static int item_sprite(void *context, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                       uint32_t rgba, uint64_t tex0)
+{
+    (void)context;
+    return s_item_sink->sprite &&
+           s_item_sink->sprite(s_item_sink->context, slot, x, y, w, h, rgba, tex0) == 1;
+}
+
+static int item_fan(void *context, const float pos[4], int32_t colour, float angle,
+                    const float trig[4])
+{
+    (void)context;
+    return s_item_sink->fan && s_item_sink->fan(s_item_sink->context, pos, colour, angle, trig) == 1;
+}
+
+/* 0020AC70(self, {x, y}, reset): the ring step and its triangles for the
+ * GPU renderer (collect_triangle) and, with the sink, its 00207D00(1, 1)
+ * and the sixteen fans' packets. The blend packet is emitted before the
+ * ring step: the step writes no packet, so the order of the packets is the
+ * original's. */
+static int item_trail(void *context, float x, float y, int32_t reset)
+{
+    EmStatusRuntime *runtime = context;
+    EmItemStick stick;
+    if (reset != 0) /* 0020F2A0 passes 0 */
+        return 0;
+    runtime->triangle_count = 0;
+    if (s_item_sink && !item_blend(runtime, 1, 1))
+        return 0;
+    return em_item_stick_sample(&stick, runtime->input.stick_x, runtime->input.stick_y,
+                                &runtime->math) &&
+           em_item_trail_step_fans(&runtime->trail, &stick, x, y, &runtime->math,
+                                   collect_triangle, s_item_sink ? item_fan : NULL, runtime) &&
+           runtime->triangle_count == 512;
+}
+
 static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, unsigned argument)
 {
     EmStatusRuntime *runtime = context;
@@ -295,9 +363,15 @@ static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, u
     case EM_ITEM_RESET_INPUT:
         em_item_trail_reset(&runtime->trail);
         return 1;
-    case EM_ITEM_DRAW_BACKGROUND:
-        return 1; /* Submitted together with the following original ordered root commands. */
+    case EM_ITEM_DRAW_BACKGROUND: {
+        /* 0020F170. Without the sink the GPU render steps the background
+         * with the root commands (em_item_ui_render). */
+        const EmItemRootLeaves leaves = {runtime, item_background, item_blend, item_sprite, NULL};
+        return !s_item_sink || em_item_root_draw_0020F170(&leaves);
+    }
     case EM_ITEM_DRAW_ROOT: {
+        /* 0020F2A0: 0020D930, then (em_item_root_draw_0020F2A0) 0020AC70
+         * and the region sprites. */
         EmItemStick stick;
         if (!em_item_stick_sample(&stick, runtime->input.stick_x, runtime->input.stick_y,
                                   &runtime->math))
@@ -305,13 +379,14 @@ static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, u
         if (em_item_root_hover(item, stick.magnitude, stick.angle) && !sound(runtime, 5))
             return 0;
         runtime->draw_hover = item->hover;
-        runtime->triangle_count = 0;
-        if (!em_item_stick_sample(&stick, runtime->input.stick_x, runtime->input.stick_y,
-                                  &runtime->math) ||
-            !em_item_trail_step(&runtime->trail, &stick, 248, 208, &runtime->math, collect_triangle,
-                                runtime) ||
-            runtime->triangle_count != 512)
+        if (s_item_sink) {
+            const EmItemRootLeaves leaves = {runtime, item_background, item_blend, item_sprite,
+                                             item_trail};
+            if (!em_item_root_draw_0020F2A0(&leaves, item->hover))
+                return 0;
+        } else if (!item_trail(runtime, 248, 208, 0)) {
             return 0;
+        }
         runtime->draw_kind = DRAW_ITEM;
         return 1;
     }
@@ -441,8 +516,7 @@ static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent even
     case EM_STATUS_PAGE_PLAYER_TEXTURE:
         /* 00200970(1): the library slot 0x35 and the player texture packet
          * go back into the GS memory a page module overwrote. */
-        if (runtime->pages &&
-            !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), EM_GS_TEXTURE_RESTORE))
+        if (!restore_gs(runtime))
             return 0;
         return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
     case EM_STATUS_PAGE_HUB_TICK:
@@ -561,6 +635,30 @@ void em_status_runtime_bind_busy(EmStatusRuntime *runtime, uint8_t *d275BD8)
         runtime->d275BD8 = d275BD8;
 }
 
+/* 00200970(1): the status pages' GS memory gets the restore step (library
+ * slot 0x35 and the player texture packet), and so does the Original
+ * profile's GS model (the step's blocks as an upload chain,
+ * em_gs_texture_step_chain; em_gfx_gs_upload does nothing without the GS
+ * frame). 1, or 0. */
+static int restore_gs(EmStatusRuntime *runtime)
+{
+    if (!runtime->pages)
+        return 1;
+    EmGsTexture *gs = em_status_pages_live_gs(runtime->pages);
+    if (!em_gs_texture_apply(gs, EM_GS_TEXTURE_RESTORE))
+        return 0;
+    EmGfx *gfx = em_frame_gfx();
+    if (!gfx || !em_gfx_gs_world_enabled(gfx))
+        return 1;
+    uint8_t *chain = NULL;
+    size_t size = 0;
+    if (!em_gs_texture_step_chain(gs, EM_GS_TEXTURE_RESTORE, &chain, &size))
+        return 0;
+    const int rc = em_gfx_gs_upload(gfx, chain, size);
+    free(chain);
+    return rc == 0;
+}
+
 static uint32_t le32(const uint8_t *p)
 {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
@@ -611,7 +709,10 @@ static int loader_chain(void *context, uint32_t chain, const uint8_t *bytes, uin
     if (runtime->pages &&
         !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), record->user[6]))
         return -1;
-    return 0;
+    /* The chunk itself (the original's upload bytes) reaches the Original
+     * profile's GS model as the area load's uploads do (nothing without the
+     * GS frame): the status pages' GS field reads its texels there. */
+    return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
 }
 
 int em_status_runtime_bind_loader(EmStatusRuntime *runtime, EmModuleLoader *loader)
@@ -643,8 +744,7 @@ int em_status_runtime_restore(EmStatusRuntime *runtime)
 {
     if (!runtime || runtime->failed)
         return 0;
-    if (runtime->pages &&
-        !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), EM_GS_TEXTURE_RESTORE))
+    if (!restore_gs(runtime))
         return 0;
     return runtime->hooks.page_event(runtime->hooks.context, EM_STATUS_PAGE_PLAYER_TEXTURE, 0) == 1;
 }
@@ -884,19 +984,34 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
         result = result && em_status_hub_ui_render(runtime->hub, gfx, runtime->draw_help);
         break;
     }
-    case DRAW_BATTERY:
-        result = em_battery_ui_render(runtime->battery, gfx);
+    case DRAW_BATTERY: {
+        /* The Original profile's GS frame draws the page from its list at
+         * step V (em_status_gs_page, STATUS_FIELD.md section 3d). */
+        const int field = em_sgp_field_claim();
+        result = field < 0 ? 0 : field ? 1 : em_battery_ui_render(runtime->battery, gfx);
         break;
-    case DRAW_ITEM:
-        result = em_item_ui_render(runtime->item, gfx, runtime->draw_hover, runtime->draw_help,
-                                   render_trail, runtime);
+    }
+    case DRAW_ITEM: {
+        /* The Original profile's GS frame draws the ITEM root from its list
+         * at step V as it draws the BATTERY page (STATUS_FIELD.md 3e). */
+        const int field = em_sgp_field_claim();
+        result = field < 0   ? 0
+                 : field ? 1
+                         : em_item_ui_render(runtime->item, gfx, runtime->draw_hover,
+                                             runtime->draw_help, render_trail, runtime);
         break;
+    }
     case DRAW_OTHER:
         result = runtime->hooks.other_page_render(runtime->hooks.context, gfx, &runtime->page);
         break;
-    case DRAW_PAGE:
-        result = em_status_pages_live_render(runtime->pages, gfx);
+    case DRAW_PAGE: {
+        /* A bound page (EQUIPMENT, EVENT, DATABASE, SPR4: STATUS_FIELD.md
+         * 3f to 3h) is drawn by the Original profile's GS frame from its
+         * list at step V. */
+        const int field = em_status_pages_live_sunk(runtime->pages) ? em_sgp_field_claim_page() : 0;
+        result = field < 0 ? 0 : field ? 1 : em_status_pages_live_render(runtime->pages, gfx);
         break;
+    }
     default:
         break;
     }

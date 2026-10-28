@@ -9,7 +9,7 @@ instruction and table; none are embedded here. Routines executed unmodified:
   0017E7C0 hang side probe        0017DF70 / 0017DFB0 / 0017E0D0 / 0017E150 /
   0017E1D0 side clip requests     0017FF80 clip by +2F1      00182AF0 sound +0x100
   00177B80 ledge depth            0021E650 +7 countdown      0015C1F0 model kind
-  001EFE00 effect at the actor    00122BB8 rand (against em_random.c's state)
+  00122BB8 rand (against em_random.c's state)
 
 plus the leaves they call without a worker (00102948, 001031E0, 001281C0,
 0011DF78). Every callee that is a worker in the native module is hooked:
@@ -73,7 +73,7 @@ def B(word):
 SIZES = {0x1FBD50: 0x60, 0x1FBF50: 0x328, 0x1B15D0: 0x54, 0x182250: 0x190, 0x17E250: 0x2B8,
          0x17E510: 0x1CC, 0x17E7C0: 0x968, 0x17DF70: 0x38, 0x17DFB0: 0x120, 0x17E0D0: 0x78,
          0x17E150: 0x78, 0x17E1D0: 0x78, 0x17FF80: 0x74, 0x182AF0: 0x3C, 0x177B80: 0x168,
-         0x21E650: 0x1D4, 0x15C1F0: 0x118, 0x1EFE00: 0xAC, 0x122BB8: 0x30,
+         0x21E650: 0x1D4, 0x15C1F0: 0x118, 0x122BB8: 0x30,
          # the hang probes (also hooked as the routines above call them)
          0x1784E0: 0x13C, 0x17E6E0: 0xE0, 0x17F1C0: 0x78, 0x17F130: 0x90}
 # Leaves the translation performs inline or reuses directly (not workers).
@@ -97,13 +97,12 @@ HOOKS = {
     0x178910: ('ledge_top', 'script'), 0x17F130: ('blocked', 'script'), 0x1B61C0: ('cue', 'script'),
     0x182870: ('land_sound', 'script'), 0x21D490: ('w0021D490', 'script'),
     0x1CA6E0: ('bind_model', 'script'), 0x1C6150: ('bone_count', 'script'),
-    0x200890: ('w00200890', 'script'), 0x1EF9D0: ('spawn', 'script'),
+    0x200890: ('w00200890', 'script'),
 }
 NAME_ADDRESS = {name: address for address, (name, _) in HOOKS.items()}
 
 ACTOR = 0x680000
 HITNODE = 0x6D0000              # the node record *(0x700031D0) points at
-NODE_E = 0x6E0000               # the record the scripted 001EF9D0 hands out
 OUTS = 0x6F0000                 # 001FBF50's &a / &b
 VEC = 0x7F0E0000                # a stack-region vector (0017E250's arg1 from a stack copy)
 TABLE = 0x28A490                # D_0028A490
@@ -195,7 +194,7 @@ LAYOUT = {
     'ground': ('A', 'P4', 'X280', 'U'), 'edge': ('A', 'I', 'F', 'F'), 'grab': ('A',),
     'grab_33': ('A',), 'reach': ('A',), 'ledge_top': ('A', 'I'), 'blocked': ('A', 'I'),
     'cue': ('I', 'I', 'I', 'I'), 'land_sound': ('A', 'I'), 'w0021D490': ('A',),
-    'bind_model': ('A', 'U'), 'bone_count': ('U',), 'w00200890': (), 'spawn': ('U', 'P4', 'F'),
+    'bind_model': ('A', 'U'), 'bone_count': ('U',), 'w00200890': (),
 }
 # What a pass-through leaf produces: ('out', words) at its a0, or a register.
 PRODUCT = {'identity': ('out', 16), 'euler': ('out', 16), 'translate': ('out', 16),
@@ -236,7 +235,7 @@ def ee_entry(ee, name):
 def effect_for(rng, name, case):
     """What a scripted callee does: v0, record bytes (offset, size, value),
     hit record changes and, for 001EF9D0, the record it hands out."""
-    e = {'ret': 0, 'writes': [], 'node': [], 'point': [], 'spawn': None}
+    e = {'ret': 0, 'writes': [], 'node': [], 'point': []}
     chance = rng.random
     if name == 'move':
         e['ret'] = rng.choice((0, 1, 1, 2, 4))
@@ -270,9 +269,6 @@ def effect_for(rng, name, case):
         e['writes'].append((0x44, 4, rng.choice((0x01234560, 0x00ABCDE0, 0))))
     elif name == 'bone_count':
         e['ret'] = rng.choice((0, 1, 23, 56, 0xFF, 0x1FF))
-    elif name == 'spawn':
-        e['spawn'] = rng.choice((0, NODE_E, NODE_E))
-        e['ret'] = e['spawn']
     return e
 
 
@@ -304,20 +300,20 @@ class Script:
 # ======================================================================
 
 ENTRIES = ('gain', 'sound', 'sound300', 'aim', 'ahead', 'ahead_stack', 'above', 'side', 'DF70', 'DFB0',
-           'E0D0', 'E150', 'E1D0', 'FF80', 'AF0', 'depth', 'E650', 'C1F0', 'EFE00',
+           'E0D0', 'E150', 'E1D0', 'FF80', 'AF0', 'depth', 'E650', 'C1F0',
            'reach', 'edge', 'probe_ahead', 'blocked')
 ENTRY_ADDRESS = {'gain': 0x1FBF50, 'sound': 0x1FBD50, 'sound300': 0x1FBD50, 'aim': 0x182250, 'ahead': 0x17E250,
                  'ahead_stack': 0x17E250, 'above': 0x17E510, 'side': 0x17E7C0,
                  'DF70': 0x17DF70, 'DFB0': 0x17DFB0, 'E0D0': 0x17E0D0, 'E150': 0x17E150,
                  'E1D0': 0x17E1D0, 'FF80': 0x17FF80, 'AF0': 0x182AF0, 'depth': 0x177B80,
-                 'E650': 0x21E650, 'C1F0': 0x15C1F0, 'EFE00': 0x1EFE00,
+                 'E650': 0x21E650, 'C1F0': 0x15C1F0,
                  'reach': 0x1784E0, 'edge': 0x17E6E0, 'probe_ahead': 0x17F1C0, 'blocked': 0x17F130}
 # The leaves that are themselves hooked workers of the routines above: run
 # unhooked when they are the entry.
 LEAF_ENTRIES = ('reach', 'edge', 'probe_ahead', 'blocked')
 WEIGHTS = {'gain': 8, 'sound': 5, 'sound300': 3, 'aim': 5, 'ahead': 3, 'ahead_stack': 2, 'above': 3, 'side': 16,
            'DF70': 1, 'DFB0': 3, 'E0D0': 1, 'E150': 1, 'E1D0': 1, 'FF80': 2, 'AF0': 2,
-           'depth': 3, 'E650': 5, 'C1F0': 3, 'EFE00': 2,
+           'depth': 3, 'E650': 5, 'C1F0': 3,
            'reach': 3, 'edge': 3, 'probe_ahead': 2, 'blocked': 4}
 
 
@@ -492,7 +488,6 @@ class Oracle:
             ee.save(0x70003060 + 4 * i, case['ledge'][3 + i])
         for i in range(16): ee.save(0x70003070 + 4 * i, case['ledge_matrix'][i])
         for i in range(4): ee.save(VEC + 4 * i, case['vec'][i])
-        ee.write(NODE_E, bytes(0x110))
         ee.write(OUTS, bytes(8))
 
     def run(self, case):
@@ -519,8 +514,6 @@ class Oracle:
             floats = (case['blend'],)
         elif entry == 'depth':
             floats = (case['y'],)
-        elif entry == 'EFE00':
-            ints = (case['id'], ACTOR)
         elif entry in ('edge', 'blocked'):
             ints = (ACTOR, case['side'])
             if entry == 'edge':
@@ -539,7 +532,6 @@ class Oracle:
             'actor': ee.read(ACTOR, 0x320),
             'scratch': {name: [ee.load(address + 4 * i) for i in range(n)] for name, address, n in SCRATCH},
             'outs': (s32(ee.load(OUTS)), s32(ee.load(OUTS + 4))),
-            'node': ee.read(NODE_E, 0x110),
         }
 
 
@@ -569,10 +561,6 @@ class Ledge(C.Structure):
     _fields_ = [('point', U32 * 3), ('normal', U32 * 3), ('heading', U32), ('matrix', U32 * 16)]
 
 
-class View(C.Structure):
-    _fields_ = [('w24', P(U32)), ('pos', VP), ('rot', VP)]
-
-
 FN = {
     'identity': C.CFUNCTYPE(I32, VP, VP), 'euler': C.CFUNCTYPE(I32, VP, VP, VP, VP),
     'translate': C.CFUNCTYPE(I32, VP, VP, VP, VP), 'transform': C.CFUNCTYPE(I32, VP, VP, VP, VP),
@@ -599,14 +587,13 @@ FN = {
     'cue': C.CFUNCTYPE(I32, VP, I32, I32, I32, I32), 'land_sound': C.CFUNCTYPE(I32, VP, VP, I32),
     'w0021D490': C.CFUNCTYPE(I32, VP, VP), 'bind_model': C.CFUNCTYPE(I32, VP, VP, U32),
     'bone_count': C.CFUNCTYPE(I32, VP, U32, VP), 'w00200890': C.CFUNCTYPE(I32, VP),
-    'spawn': C.CFUNCTYPE(I32, VP, U32, VP, FLT, VP, VP),
 }
 WORKER_FIELDS = ('identity', 'euler', 'translate', 'transform', 'vadd', 'vsub', 'normalize', 'dot',
                  'sine', 'atan2', 'sqrt', 'wrap', 'side', 'submit', 'sound_base', 'request',
                  'clip_2F1_0', 'clip_2F1_1', 'ahead', 'move', 'sweep', 'column', 'ground',
                  'hit_node_word', 'hit_node_byte', 'hit_point_word', 'edge', 'grab', 'grab_33',
                  'reach', 'ledge_top', 'blocked', 'cue', 'land_sound', 'w0021D490', 'bind_model',
-                 'bone_count', 'w00200890', 'spawn')
+                 'bone_count', 'w00200890')
 HIT_READERS = ('hit_node_word', 'hit_node_byte', 'hit_point_word')
 
 
@@ -640,7 +627,6 @@ def build_native():
         'em_player_misc_00182AF0': [H, A],
         'em_player_misc_00177B80': [H, A, P(Ledge), FLT, P(I32)],
         'em_player_misc_0021E650': [H, A], 'em_player_misc_0015C1F0': [H, A],
-        'em_player_misc_001EFE00': [H, U32, A, P(U32)],
         'em_player_misc_001784E0': [H, A, P(I32)],
         'em_player_misc_0017E6E0': [H, A, I32, FLT, FLT, P(I32)],
         'em_player_misc_0017F1C0': [H, A, P(I32)],
@@ -663,8 +649,6 @@ def build_native():
         'em_player_misc_w_sound_100': [VP, A],
         'em_player_misc_w_depth': [VP, A, P(Ledge), FLT, P(C.c_int)],
         'em_player_misc_w_0021E650': [VP, A], 'em_player_misc_w_0015C1F0': [VP, A],
-        'em_player_misc_w_001EFE00': [VP, U32, A],
-        'em_player_misc_w_attach': [VP, A, U32, P(U32)],
     }
     for name, args in sig.items():
         getattr(native, name).argtypes = args
@@ -696,7 +680,6 @@ class Native:
         self.vec = (U32 * 4)(*case['vec'])
         self.node_bytes = bytearray(case['node'])
         self.point = list(case['point'])
-        self.node_e = (C.c_uint8 * 0x110)()
         self.keep, fields = [], {}
         for name in WORKER_FIELDS:
             fields[name] = FN[name]() if name == missing else FN[name](self.guard(name))
@@ -780,7 +763,7 @@ class Native:
         n_in = {'dot': 2, 'sine': 1, 'atan2': 2, 'sqrt': 1, 'wrap': 1, 'side': 3, 'submit': 4,
                 'sound_base': 1, 'clip_2F1_0': 1, 'clip_2F1_1': 1, 'ahead': 1, 'move': 3,
                 'sweep': 4, 'column': 4, 'ground': 3, 'edge': 4, 'grab': 1, 'grab_33': 1,
-                'reach': 1, 'ledge_top': 2, 'blocked': 2, 'bone_count': 1, 'spawn': 3}.get(name)
+                'reach': 1, 'ledge_top': 2, 'blocked': 2, 'bone_count': 1}.get(name)
         inputs = args if n_in is None else args[:n_in]
         entry = self.entry(name, inputs)
         self.log.append(entry)
@@ -805,17 +788,6 @@ class Native:
             self.node_bytes[offset:offset + size] = (value & ((1 << (8 * size)) - 1)).to_bytes(size, 'little')
         for i, value in e['point']:
             self.point[i] = value
-        if name == 'spawn':
-            node, view = args[3], args[4]
-            C.cast(node, P(U32))[0] = e['ret'] & MASK
-            if e['ret']:
-                v = C.cast(view, P(View))[0]
-                base = C.addressof(self.node_e)
-                v.w24 = C.cast(base + 0x24, P(U32))
-                v.pos = base + 0xB0
-                v.rot = base + 0xC0
-                C.cast(view, P(View))[0] = v
-            return 0
         if name == 'bone_count':
             C.cast(args[-1], P(C.c_uint8))[0] = e['ret'] & 0xFF
             return 0
@@ -859,7 +831,6 @@ class Native:
             result = n.em_player_misc_00177B80(H, A, C.byref(self.ledge), B(case['y']), C.byref(r))
         elif entry == 'E650': result = n.em_player_misc_0021E650(H, A)
         elif entry == 'C1F0': result = n.em_player_misc_0015C1F0(H, A)
-        elif entry == 'EFE00': result = n.em_player_misc_001EFE00(H, case['id'], A, C.byref(node))
         elif entry == 'reach': result = n.em_player_misc_001784E0(H, A, C.byref(r))
         elif entry == 'edge':
             result = n.em_player_misc_0017E6E0(H, A, case['side'], B(case['ex']), B(case['ey']), C.byref(r))
@@ -910,11 +881,6 @@ class Native:
         if entry == 'AF0': return n.em_player_misc_w_sound_100(X, A)
         if entry == 'E650': return n.em_player_misc_w_0021E650(X, A)
         if entry == 'C1F0': return n.em_player_misc_w_0015C1F0(X, A)
-        if entry == 'EFE00':
-            if pick == 0:
-                self.no_node = True
-                return n.em_player_misc_w_001EFE00(X, case['id'], A)
-            return n.em_player_misc_w_attach(X, A, case['id'], C.byref(node))
         raise AssertionError(entry)
 
     def products(self, r, a, b, node):
@@ -923,7 +889,7 @@ class Native:
             value = getattr(self.scratch, name)
             scratch[name] = list(value) if count > 1 else [value]
         return {'log': self.log, 'actor': bytes(self.live.bytes), 'scratch': scratch,
-                'r': r.value, 'outs': (a.value, b.value), 'node': bytes(self.node_e),
+                'r': r.value, 'outs': (a.value, b.value),
                 'node_value': node.value, 'no_return': self.no_return, 'no_node': self.no_node}
 
 
@@ -958,9 +924,6 @@ def compare(case, want, got, where):
         assert want['v0'] == got['r'], (where, 'return value', want['v0'], got['r'])
     if entry == 'gain':
         assert want['outs'] == got['outs'], (where, 'gains', want['outs'], got['outs'])
-    if entry == 'EFE00' and not got['no_node']:
-        assert (want['v0'] & MASK) == got['node_value'], (where, 'spawned record', want['v0'], got['node_value'])
-        assert want['node'] == got['node'], (where, 'spawned record bytes')
 
 
 def run_case(seed):

@@ -111,6 +111,16 @@ int em_scene_bindings_001B0250(void);
 int em_scene_bindings_001B0460(int a0, const float d810350[4], const float d810370[4],
                                const int32_t *d8104E0);
 
+/* 0015C1F0's callees for its callers during play (the player closure's
+ * 0021C190 and major2 states), the same bindings the spawn's 0015C1F0
+ * uses: 001CA6E0(player, handle) = em_roger_actor_001CA6E0, writing the
+ * record's +0x44 / +0x4C; 00200890() = the module loader's send of the
+ * player's texture packet (em_module_loader_00200890) to the GS model.
+ * 0, or -1 (fault reported). */
+struct EmPlayerLiveActor;
+int em_scene_bindings_player_001CA6E0(struct EmPlayerLiveActor *actor, uint32_t handle);
+int em_scene_bindings_00200890(void);
+
 /* 00119828(ch, l, r), the IOP command 0x16 packer, for callers outside the
  * frame machine (the opening's 001B82D0 ops 9..12 phase 0, the scripts):
  * the stream lanes' packer (em_stream_live). 0, or -1 on a fault. */

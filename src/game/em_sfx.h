@@ -62,8 +62,8 @@
  *     DISTANCE (listener = D_00810360, the player record's +0xB0: the
  *     bone-1 hip between two player stages; em_sfx_bind_distance_listener):
  *       d = |src - player|            (full 3-D Euclidean; the flat2d
- *                                      flag zeroes Y — no translated
- *                                      call site passes it)
+ *                                      flag zeroes Y of both:
+ *                                      em_sfx_play_at_mode_track)
  *       d >= radius -> INAUDIBLE: the engine does not submit at all
  *                      (play_sound returns -1)
  *       vol = sin(pi/2 * (radius - d)/radius)     quarter-sine ease:
@@ -371,6 +371,10 @@ void em_sfx_play_at(unsigned id, const float pos[3], float radius);
  * caller keeps to stop a loop with 0011A070 / em_sfx_stop_track), or -1
  * when nothing was allocated (out of range, silent id, cue sequence). */
 int em_sfx_play_at_track(unsigned id, const float pos[3], float radius);
+/* 001FBD50(obj, id, flat, radius) whole: `flat` is its a2, which 001FBF50
+ * takes as a byte; a nonzero byte measures the distance in x/z only (the y
+ * of the listener and source copies zeroed), the pan is unchanged. */
+int em_sfx_play_at_mode_track(unsigned id, const float pos[3], int32_t flat, float radius);
 
 /* The pure gain solver behind em_sfx_play_at, exposed for tests/tools:
  * writes the LEFT/RIGHT gains (1.0 = engine 0x1000; the far channel may
@@ -389,6 +393,10 @@ void em_sfx_bind_output_mode(const uint8_t *(*reader)(void));
 void em_sfx_bind_distance_listener(int (*reader)(float out[3]));
 int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r);
+/* The same with 001FBD50's flat argument (its low byte nonzero: the
+ * distance in x/z only). */
+int em_sfx_compute_gains_mode(const float pos[3], int32_t flat, float radius,
+                              float *gain_l, float *gain_r);
 
 /* AUDIO-THREAD mixer half: sums the rendered fields from the ring into the
  * interleaved stereo buffer (which already holds the other producers'

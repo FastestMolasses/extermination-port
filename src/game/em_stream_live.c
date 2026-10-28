@@ -554,6 +554,8 @@ int em_stream_live_001FAD70(int32_t lane, int32_t fade, int32_t release)
 { ENTRY("001FAD70", em_stream_lanes_001FAD70(&S.lanes, lane, fade, release)); }
 int em_stream_live_001FAE70(int32_t a0)
 { ENTRY("001FAE70", em_stream_lanes_001FAE70(&S.lanes, a0)); }
+int em_stream_live_001FAFD0(uint8_t spad3B90, uint8_t spad3B8D)
+{ ENTRY("001FAFD0", em_stream_lanes_001FAFD0(&S.lanes, spad3B90, spad3B8D)); }
 int em_stream_live_001FD470(int32_t mask)
 { ENTRY("001FD470", em_stream_lanes_001FD470(&S.lanes, mask)); }
 int em_stream_live_00119828(int32_t a0, int32_t a1, int32_t a2)

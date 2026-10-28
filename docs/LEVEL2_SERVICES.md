@@ -597,7 +597,8 @@ same fields returned by existing `node_field`; it never creates another slot:
 - Head sprite: `+24` owner, `+28` bone, `+A0` local vector, `+1F0` timer,
   `+244` ramp, and `+24C` scalar.
 - Other callbacks: scratch remains EmActor-owned, with no extra projection.
-- Non-head `+24`: the existing `parent24` word. Until the existing owner
+- Non-head `+24`: the node's `w24` word (`w24_written` is its valid flag;
+  the slot's `parent24` before 2026-10-28). Until the existing owner
   marks it initialized, it is a write-first projection. After its exact
   four-byte store commits, the completion hook calls `node_written`.
 

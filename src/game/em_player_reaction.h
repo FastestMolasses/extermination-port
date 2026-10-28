@@ -36,6 +36,7 @@
  *   00179880 the +2EC drop into +B4
  *   0021D490 sound 0x14E / 0x14F by +234  0021C120 +31F = 0x3C, D_008106F0 = 1
  *   0021C190 the +31F countdown           0021D1A0 the +70/+78 bearing vs +C4
+ *   0021C200 sound 0x14D + 001EFE00(0x80000048) at health <= 0
  *   0021D600 +1F1 in {1, 3, 4}            001754E0 the +28 input count
  *   001B1470 angle wrap
  *
@@ -179,6 +180,10 @@ int em_player_reaction_00182870(EmPlayerLiveActor *a, int a1, const EmPlayerReac
 int em_player_reaction_0021D490(EmPlayerLiveActor *a, const EmPlayerReactionWorkers *w);
 int em_player_reaction_0021C120(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
                                 const EmPlayerReactionWorkers *w);
+/* 0021C200: sound 0x14D and 001EFE00(0x80000048) once health +220 <= 0
+ * with D_008106F1 set (major2's caller). */
+int em_player_reaction_0021C200(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
+                                const EmPlayerReactionWorkers *w);
 int em_player_reaction_0021C190(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
                                 const EmPlayerReactionWorkers *w, int *result);
 int em_player_reaction_0021D1A0(EmPlayerLiveActor *a, const EmPlayerReactionWorkers *w,
@@ -222,7 +227,7 @@ int em_player_reaction_live_0021EF30(void *context, EmPlayerLiveActor *actor);
 
 /* Adapters with the worker signatures lane player-major2-states declares
  * (EmPlayerMajor2Workers.w0021D2E0 / w0021D250 / w0021D490 / w0021C120 /
- * w0021C190), context = an EmPlayerReaction. Each refreshes the scene first
+ * w0021C190 / w0021C200), context = an EmPlayerReaction. Each refreshes the scene first
  * and refuses (-1) before any write when a worker, the scene or the
  * refresh is missing. */
 int em_player_reaction_w0021D2E0(void *context, EmPlayerLiveActor *actor, int a1, int a2);
@@ -230,6 +235,7 @@ int em_player_reaction_w0021D250(void *context, EmPlayerLiveActor *actor, int a1
 int em_player_reaction_w0021D490(void *context, EmPlayerLiveActor *actor);
 int em_player_reaction_w0021C120(void *context, EmPlayerLiveActor *actor);
 int em_player_reaction_w0021C190(void *context, EmPlayerLiveActor *actor, int *result);
+int em_player_reaction_w0021C200(void *context, EmPlayerLiveActor *actor);
 
 /* 1 when every worker the state routines use is bound. */
 int em_player_reaction_workers_bound(const EmPlayerReactionWorkers *w);

@@ -2,7 +2,7 @@
  * record (see em_player_record_helpers.h, docs/PLAYER_RECORD_HELPERS.md).
  *
  * Read from the decomp: the byte-matched C of 001755B0, 00177510, 001775E0,
- * 00174FD0 and 00188550, and the instructions (.s) of the NEARMISS
+ * 00174FD0, 00188550, 00188570, 00188590 and 001885B0, and the instructions (.s) of the NEARMISS
  * 001776E0, 00177CF0, 0017F320 and 0019A180, whose readable C was checked
  * against them for operand and evaluation order. Every COP1 operation and
  * compare goes through em_ee_float.h on bit patterns. */
@@ -332,6 +332,28 @@ int em_player_helper_00188550(uint8_t row)
     return kRowClip[row & 1];
 }
 
+/* ---- 00188570 / 00188590 / 001885B0 -------------------------------------- */
+
+/* The halfword pairs as the ELF's .data holds them (read only: no original
+ * routine stores to them; 0015C7C0 reads them as the hurt / normal pairs). */
+int em_player_helper_00188570(uint8_t row)
+{
+    static const int16_t kClip[2] = { 0x97, 0xB3 };             /* D_002754C4 */
+    return kClip[row & 1];
+}
+
+int em_player_helper_00188590(uint8_t row)
+{
+    static const int16_t kClip[2] = { 0x98, 0xB4 };             /* D_002754C8 */
+    return kClip[row & 1];
+}
+
+int em_player_helper_001885B0(uint8_t row)
+{
+    static const int16_t kClip[2] = { 0xBB, 0xDC };             /* D_002754CC */
+    return kClip[row & 1];
+}
+
 /* ==== The record entries ================================================== */
 
 /* EmPlayerHelperCalls over an EmPlayerRecordHelpers and the record. */
@@ -409,6 +431,30 @@ int em_player_record_00188550(void *helpers, EmPlayerLiveActor *a, int *clip)
     (void)helpers;
     if (!a || !clip) return -1;
     *clip = em_player_helper_00188550(em_live_u8(a, 0x235));
+    return 0;
+}
+
+int em_player_record_00188570(void *helpers, EmPlayerLiveActor *a, int *clip)
+{
+    (void)helpers;
+    if (!a || !clip) return -1;
+    *clip = em_player_helper_00188570(em_live_u8(a, 0x235));
+    return 0;
+}
+
+int em_player_record_00188590(void *helpers, EmPlayerLiveActor *a, int *clip)
+{
+    (void)helpers;
+    if (!a || !clip) return -1;
+    *clip = em_player_helper_00188590(em_live_u8(a, 0x235));
+    return 0;
+}
+
+int em_player_record_001885B0(void *helpers, EmPlayerLiveActor *a, int *clip)
+{
+    (void)helpers;
+    if (!a || !clip) return -1;
+    *clip = em_player_helper_001885B0(em_live_u8(a, 0x235));
     return 0;
 }
 

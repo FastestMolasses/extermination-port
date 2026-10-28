@@ -212,4 +212,22 @@ int em_status_runtime_module_load(EmStatusRuntime *runtime, unsigned module);
 int em_status_runtime_restore(EmStatusRuntime *runtime);
 EmStatusPagesLive *em_status_runtime_pages(EmStatusRuntime *runtime);
 
+/* The ITEM root's live packet sink (docs/STATUS_FIELD.md section 3e; bound
+ * by em_status_gs_page): when set, 0020F170 and 0020F2A0's leaf calls
+ * (em_item_root_draw_*) reach it at their call time, in the original's
+ * order: the background runs 0020A7A0 there (its token is handed to
+ * em_item_ui, which then draws that step instead of stepping again), and
+ * 0020AC70 becomes 00207D00(1, 1) and its sixteen 00208AB0 fans. Each
+ * returns 1; anything else fails the page. NULL, the default (the
+ * reference tests): the render steps the background, nothing else runs. */
+typedef struct {
+    void *context;
+    int (*background)(void *, uint64_t tex0, uint32_t *token);
+    int (*blend)(void *, int32_t slot, int32_t mode);
+    int (*sprite)(void *, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                  uint64_t tex0);
+    int (*fan)(void *, const float pos[4], int32_t colour, float angle, const float trig[4]);
+} EmStatusItemSink;
+void em_status_runtime_set_item_sink(const EmStatusItemSink *sink);
+
 #endif

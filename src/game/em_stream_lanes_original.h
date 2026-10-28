@@ -10,6 +10,7 @@
  *   001FA570 voice ring reset         001FABB0 stop all streams
  *   001FD470 stream stop by mask      001FAE70 music cue select / resume
  *   001FB0B0 set BGM cue + 001FAE70(1)
+ *   001FAFD0 the cue-0x18 gate (0021C190's stream test)
  *   001F9CF0 per-frame lane service (NEARMISS C; read from the .s; its C has
  *            one inverted min/max, see the doc), which runs
  *   001FA0D0 disc read sequencer (NEARMISS), 001FA5F0 voice ring consumer,
@@ -209,6 +210,9 @@ int em_stream_lanes_001FABB0(EmStreamLanes *L);
 int em_stream_lanes_001FD470(EmStreamLanes *L, int32_t mask);
 int em_stream_lanes_001FAE70(EmStreamLanes *L, int32_t a0);
 int em_stream_lanes_001FB0B0(EmStreamLanes *L, int32_t cue);
+/* 001FAFD0(): its two scratchpad bytes 0x70003B90 / 0x70003B8D are given
+ * by the caller (owned by the scene state). */
+int em_stream_lanes_001FAFD0(EmStreamLanes *L, uint8_t spad3B90, uint8_t spad3B8D);
 int em_stream_lanes_00119828(EmStreamLanes *L, int32_t a0, int32_t a1, int32_t a2);
 /* 0011A608(mask, a1, a2): the volume command 0x40 (001FB100's output-mode
  * commit calls it too). */

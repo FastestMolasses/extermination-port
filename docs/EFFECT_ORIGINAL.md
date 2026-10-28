@@ -15,6 +15,9 @@ Files:
 |---|---|---|
 | 001EFD90 spawn at (pos, rot) | byte-matched C | C, checked against the .s |
 | 001EFD20 spawn at pos, rot = 0 | byte-matched C | C |
+| 001EFE00 spawn at an owner record | byte-matched C | C |
+| 001F00A0 spawn at (pos, dir), owner word +0x38 | byte-matched C | C |
+| 001F0060 spawn without a position, owner word +0x24 | byte-matched C | C |
 | 001EF9D0 effect allocator | NEARMISS | the .s (the C's logic agrees) |
 | 001EF940 effect sound | byte-matched C | the .s. The C prototype omits a1, which 00102948 copies |
 | 001D80E0 / 001D8100 point-light presets | byte-matched C | C. 001D7FA0 is a worker |
@@ -105,6 +108,20 @@ checks them against the recorded PCSX2 vectors directly.
 +0xBC = 1.0.
 
 **001EFD20(id, pos)** calls 001EF9D0(id, pos, 1.0). It then sets +0xB0 = pos, +0xC0..+0xCC = 0 and +0xBC = 1.0.
+
+**001EFE00(id, owner)** copies the owner's +0xB0 quadword to the stack, raises its y by 10.0 (EE add) for id
+0x80000027 only, and calls 001EF9D0(id, that copy, 1.0). A node then gets +0x24 = the owner's +0x14 word,
++0xB0 = the owner's +0xB0 and +0xC0 = the owner's +0xC0 (whole quadwords: the raised y is not stored).
+
+**001F00A0(id, pos, dir, owner)** calls 001EF9D0(id, pos, dir[3]). A node then gets +0xB0 = pos, +0xC0 = dir,
++0xBC = 1.0 and +0x38 = owner (over the 1 001EF9D0 stored).
+
+**001F0060(id, owner)** calls 001EF9D0(id, 0, 1.0) (no point light, no sound); a node gets +0x24 = owner.
+
+The +0x24 word is not one of 001EF9D0's fields: the node struct carries it as `w24` / `w24_written`. In
+em_effects_live that word is the slot's one +0x24 (em_effects_live_node_field reads and writes it there, and
+em_effects_live_node_written sets `w24_written` for an owner that stores it through that view). 001EFE00 has this
+one translation: the player stage and the closure's attach both run it through em_effects_live_001EFE00.
 
 **001EA240(node).** D_00275C34 = node + 0x1F0 and D_00275C30 = node. The state byte +4 selects the path:
 
@@ -207,7 +224,7 @@ After every call, three checks run:
 | 001B1470, float_to_int | 72 / 165 | 612 / 1,515 |
 | 001CD390 (both guard arms, signed zeros) | 46 | 406 |
 | 001CCF70 on the captured view (clipped and visible), plus 4 synthetic fog quads reaching the 255 and 0 bounds | 100 (+40 bounded) | 800 (+1,138) |
-| spawn chain over every sign-bit id with a record + area-11 ids, with specials, NULL pos, refused alloc, sound gate | 180 of 545 | 545 |
+| spawn chain (001EFD90 / 001EFD20 / 001EF9D0 / 001EFE00 / 001F00A0 / 001F0060) over every sign-bit id with a record + area-11 ids, with specials, NULL pos, refused alloc, sound gate, the 10.0 raise's boundary floats; plus the player stage's owner spawns (0x80000048 / 44 / 1B / 61 / 62 / 63 / 27) twice each through all three owner forms every run | 222 of 1,097 | 1,097 |
 | kind-4 throttle edges (12/13, wraps, INT_MIN) | 9 | 9 |
 | 001F0460 all presets, ring starts 0..0x40 (wraps, limit 20/32), preset 0's nested spawn | 51 | 51 |
 | 001EA240 synthetic: every 001EA240 subtype spawned by 001EFD90 and driven to its free | 16 nodes / 576 ticks | 43 / 5,463 |

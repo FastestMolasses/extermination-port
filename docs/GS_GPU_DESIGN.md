@@ -212,12 +212,14 @@ Per primitive, per row or per column:
 - the STQ vertex grid (:49-56);
 - sprite STQ per row and per column (:2146, :2156);
 - the UV sprite's binary32 V accumulation, sequential per row (:2122-2131,
-  :2139);
+  :2139; since 2026-10-20 from the top corner at the first row drawn, of V
+  - h: uv_row_start);
 - stq_div's binary32 quotient (:62-72).
 - *(review)* a point's STQ, in binary64 (draw_point :2188; stage 5);
-- *(review)* the strict-mode check of a UV sprite's coordinates, in binary32
-  (uv_start, sprite_uv_settled :1900-1934). It runs at setup in the CPU
-  parse and refuses there, so it stays on the CPU.
+- *(review)* the UV sprite's binary32 setup of both axes (uv_row_start,
+  uv_cols_init). The strict-mode check of a UV sprite's coordinates
+  (sprite_uv_settled) is gone since 2026-10-20: the fork's row probes
+  settled what it refused (GS_EXACT.md 3.4).
 
 *(review)* The specialized loops repeat these expressions (sprites
 :2770-2830, triangles :2908-3033). Those are the only float sites in the

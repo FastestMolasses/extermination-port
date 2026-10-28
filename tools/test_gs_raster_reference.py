@@ -557,15 +557,17 @@ def check_strict(lib) -> int:
         return w
     tri = [(0x00, 0x13)] + vert(0, 0) + vert(60, 0) + vert(0, 50)
 
-    def uv_sprite(u0, v0, x0, y0, u1, v1, x1, y1, rows, cols=(0, 255)):
+    def uv_sprite(u0, v0, x0, y0, u1, v1, x1, y1, rows, cols=(0, 255), ofx=0):
         """A UV sprite (PRIM 0x116) from (x0, y0) to (x1, y1) in window 1/16
         pixels (the XYOFFSET 1024 pixels in each way lets them go negative)
         with UV (u0, v0)..(u1, v1) in 1/16 texels, under the scissor's rows
-        and columns."""
+        and columns. ofx (12.4) moves XYOFFSET's X and the corners with it:
+        the same window coordinates under another OFX."""
         o = 1024 * 16
-        return [(0x18, o | o << 32), (0x40, cols[0] | cols[1] << 16 | rows[0] << 32 | rows[1] << 48), (0x00, 0x116),
-                (0x01, 0x80808080 | f32(1.0) << 32), (0x03, u0 | v0 << 16), (0x05, (x0 + o) | (y0 + o) << 16 | 0x100 << 32),
-                (0x03, u1 | v1 << 16), (0x05, (x1 + o) | (y1 + o) << 16 | 0x100 << 32)]
+        ox = o + ofx
+        return [(0x18, ox | o << 32), (0x40, cols[0] | cols[1] << 16 | rows[0] << 32 | rows[1] << 48), (0x00, 0x116),
+                (0x01, 0x80808080 | f32(1.0) << 32), (0x03, u0 | v0 << 16), (0x05, (x0 + ox) | (y0 + o) << 16 | 0x100 << 32),
+                (0x03, u1 | v1 << 16), (0x05, (x1 + ox) | (y1 + o) << 16 | 0x100 << 32)]
     cases = {
         # name: (writes, strict reason substring or None for a control)
         'aa1': ([(0x00, 0x03 | 0x80)] + vert(0, 0) + vert(60, 0) + vert(0, 50), 'AA1'),
@@ -586,14 +588,26 @@ def check_strict(lib) -> int:
                           + strip(100, [0x200, 0x300, 0x400, 0x500, 0x600, 0x700]), None),
         'dithered_point': ([(0x4C, 0 | 4 << 16 | 2 << 24), (0x45, 1), (0x44, 0x1234567), (0x00, 0x00)]
                            + [(0x01, 0x80406020), (0x05, 5 * 16 | 5 * 16 << 16 | 0x100 << 32)], None),
-        # UV sprites (section 3.4): the measured row rule's unsettled
-        # variants and the column rule: an accumulation started at the
-        # scissor's first row would read other rows, so would one started
-        # from the top corner of an upward sprite, and the columns' exact
-        # value differs from the same accumulation over them
-        'uv_rows_clipped': (uv_sprite(8, 8, 0, -40, 264, 906, 4096, 3208, rows=(10, 199)), 'UV sprite'),
-        'uv_rows_upward': (uv_sprite(8, 8, 0, 3208, 264, 1144, 4096, 8, rows=(0, 199)), 'UV sprite'),
-        'uv_columns': (uv_sprite(8, 8, 0, 0, 500, 264, 3584, 4096, rows=(0, 199)), 'UV sprite'),
+        # controls: UV sprites (section 3.4) whose coordinates the rules
+        # before left open, settled since by the fork's probes p14_rows and
+        # p15_rows_holdout (the row rule: from the top corner, at the first
+        # row drawn; both axes' start sums (t - h) + p d), so strict mode
+        # draws them: a sprite starting above the scissor, an upward one,
+        # and one whose column start's sum order changes column 107
+        'uv_rows_clipped': (uv_sprite(8, 8, 0, -40, 264, 906, 4096, 3208, rows=(10, 199)), None),
+        'uv_rows_upward': (uv_sprite(8, 8, 0, 3208, 264, 1144, 4096, 8, rows=(0, 199)), None),
+        'uv_columns_sum_order': (uv_sprite(739, 8, -799, 0, 93, 264, 3339, 256, rows=(0, 199)), None),
+        # controls: the decomp's column probe p10_cols in_bil row 39 (the
+        # old rule's open class, which the fork's probes settled: the fork
+        # keeps the exact value 3 columns in and drops it 9 in, as the rule
+        # does), and it under XYOFFSET X 1 pixel and 4 pixels off a multiple
+        # of 4 (the lane groups follow window x: p13_holdout phase1)
+        'uv_columns_probe_row': (uv_sprite(39, 8, 464, 0, 8439, 264, 4064, 256, rows=(0, 199)), None),
+        'uv_columns_phase_1px': (uv_sprite(39, 8, 464, 0, 8439, 264, 4064, 256, rows=(0, 199), ofx=16), None),
+        'uv_columns_phase_4px': (uv_sprite(39, 8, 464, 0, 8439, 264, 4064, 256, rows=(0, 199), ofx=64), None),
+        # control: the status background's wide layer (128 texels over 561
+        # pixels from x = -24.6; the fork's status page captures), settled
+        'uv_columns_settled': (uv_sprite(0, 8, -394, 0, 2048, 264, 8582, 256, rows=(0, 199)), None),
         # control: 001DDE10's blend sprite (rows of 256 texels over 224, a
         # half-line field), the measured case (test_dof_pass_reference.py)
         'uv_dof_blend': ([(0x4C, 0 | 8 << 16)] + uv_sprite(8, 8, 0, -8, 4104, 4104, 8192, 3576, rows=(0, 223),
