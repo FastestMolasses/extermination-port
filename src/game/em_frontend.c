@@ -929,6 +929,7 @@ static void start_at_give_up(const char *why)
 
 void em_frontend_load_test_before_frame(void)
 {
+    if (f.start_at && lt.phase == 6) em_start_at_pad_frame(em_frame_counter());
     if (!load_drive() || f.failed || lt.phase < 3 || lt.phase > 5) return;
     const EmSceneState *sc = em_scene_state();
     const EmPlayerLiveActor *a = player_states_actor();
@@ -969,7 +970,10 @@ void em_frontend_load_test_before_frame(void)
                    load_test_f32(a->bytes + 0xC4), sc->d810858);
             if (report) load_test_block("control");
             if (f.start_at) em_frame_set_unpaced(0);
-            if (f.start_at && !report) lt.phase = 6;
+            if (f.start_at && !report) {
+                lt.phase = 6;
+                em_start_at_pad_control(lt.control_counter);
+            }
         } else if (++lt.ticks > 6000) {
             if (report) load_test_fail("no control in the loaded area");
             else start_at_give_up("no control in the loaded area");

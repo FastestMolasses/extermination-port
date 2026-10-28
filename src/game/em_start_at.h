@@ -47,5 +47,12 @@ const char *em_start_at_card_root(void);
  * control. EM_START_AT_DIR=<dir> (only with it) reads the card from
  * <dir>/<name> instead of build/start_saves/<name>. */
 int em_start_at_report(void);
+/* EM_START_AT_PAD=<file> (test input; docs/STARTUP.md): a recorded EMA1 pad
+ * script, loaded by em_start_at_check, installed as the whole pad at control
+ * (em_start_at_pad_control) and advanced once per frame
+ * (em_start_at_pad_frame: 1 on the frame the script ends, then the pad is
+ * neutral). Without the variable both do nothing. */
+void em_start_at_pad_control(unsigned counter);
+int em_start_at_pad_frame(unsigned counter);
 
 #endif

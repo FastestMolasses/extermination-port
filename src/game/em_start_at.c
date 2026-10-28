@@ -1,6 +1,7 @@
 /* EM_START_AT=<name> (em_start_at.h; docs/STARTUP.md "Developer switches"). */
 #define _POSIX_C_SOURCE 200809L
 #include "game/em_start_at.h"
+#include "em_input.h"
 
 #include <dirent.h>
 #include <stdint.h>
@@ -30,6 +31,18 @@ static struct {
     const char *name;
     char root[512];
 } s;
+
+/* EM_START_AT_PAD=<file>: a recorded pad script (the level smoke's EMA1
+ * format: "EMA1 1 <frames> <gap>", then "<frame> <buttons hex> <lx> <ly>"
+ * rows in frame order) played from control as the whole pad. */
+enum { PAD_MAX = 4096 };
+typedef struct { int f; uint16_t buttons; uint8_t lx, ly; } PadRow;
+static struct {
+    int loaded, active, done;
+    unsigned count, last, start;
+    PadRow row[PAD_MAX];
+    EmPadState now;
+} pad;
 
 static int refuse(const char *why, const char *detail)
 {
@@ -367,6 +380,27 @@ int em_start_at_check(void)
         sizeof s.root)
         return refuse("the card path is too long", NULL);
     if (check_card(s.root) != 0) return -1;
+    const char *script = getenv("EM_START_AT_PAD");
+    if (script && script[0]) {
+        FILE *f = fopen(script, "r");
+        unsigned version, gap;
+        int last;
+        if (!f) return refuse("EM_START_AT_PAD: no such file", script);
+        int ok = fscanf(f, "EMA1 %u %d %u", &version, &last, &gap) == 3 && version == 1 && last >= 1 &&
+                 last <= 1000000;
+        int frame, fields = 0;
+        unsigned buttons, lx, ly;
+        while (ok && (fields = fscanf(f, "%d %x %u %u", &frame, &buttons, &lx, &ly)) == 4) {
+            if (pad.count == PAD_MAX || frame < 0 || frame > last || buttons > 0xFFFF || lx > 255 || ly > 255 ||
+                (pad.count && frame < pad.row[pad.count - 1].f)) ok = 0;
+            else pad.row[pad.count++] = (PadRow){frame, (uint16_t)buttons, (uint8_t)lx, (uint8_t)ly};
+        }
+        ok = ok && fields == EOF && feof(f) && pad.count;
+        fclose(f);
+        if (!ok) return refuse("EM_START_AT_PAD: not an EMA1 pad script", script);
+        pad.last = (unsigned)last;
+        pad.loaded = 1;
+    }
     s.on = 1;
     printf("startup: EM_START_AT=%s: the boot title's LOAD GAME of slot 1 on the start-point card %s "
            "(read-only)\n", s.name, s.root);
@@ -376,3 +410,40 @@ int em_start_at_check(void)
 const char *em_start_at_name(void) { return s.on ? s.name : NULL; }
 const char *em_start_at_card_root(void) { return s.on ? s.root : NULL; }
 int em_start_at_report(void) { return s.on && s.report; }
+
+/* The pad script's filter: the whole pad is the script's command. */
+static void pad_filter(EmPadState *out, void *user)
+{
+    (void)user;
+    *out = pad.now;
+}
+
+void em_start_at_pad_control(unsigned counter)
+{
+    if (!s.on || !pad.loaded || pad.active || pad.done) return;
+    pad.active = 1;
+    pad.start = counter;
+    pad.now = (EmPadState){0};
+    em_input_set_filter(pad_filter, NULL);
+    printf("startup: EM_START_AT_PAD: %u rows over %u frames from control at engine frame %u\n", pad.count,
+           pad.last, counter);
+}
+
+int em_start_at_pad_frame(unsigned counter)
+{
+    if (!pad.active) return 0;
+    /* The level smoke's rule: a recorded command is submitted two frames
+     * after its row (the native pad reaches the next task tick). */
+    const int t = (int)(counter - pad.start);
+    if (t > (int)pad.last + 2) {
+        pad.active = 0;
+        pad.done = 1;
+        pad.now = (EmPadState){0};
+        printf("startup: EM_START_AT_PAD: the script ended at engine frame %u\n", counter);
+        return 1;
+    }
+    for (unsigned i = 0; i < pad.count && pad.row[i].f <= t - 2; ++i)
+        pad.now = (EmPadState){pad.row[i].buttons, (pad.row[i].lx - 128) / 128.0f,
+                               (pad.row[i].ly - 128) / 128.0f, 0, 0};
+    return 0;
+}

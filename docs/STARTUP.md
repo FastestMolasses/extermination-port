@@ -495,7 +495,13 @@ recording-derived and stay in the ignored `build/`.
   and requires it in D_00810E70 within 10 ticks: a driven pad still in
   place would erase it), and quits 60 ticks after control;
   `EM_START_AT_DIR=<dir>` (only with it) reads the card from
-  `<dir>/<name>`.
+  `<dir>/<name>`. `EM_START_AT_PAD=<file>` (without EM_START_AT_TEST)
+  plays a recorded pad script in the level smoke's EMA1 format (for
+  example the AREA01 revisit's a01r_00..a01r_02 pads,
+  tools/level_smoke_area01r.py) as the whole pad from control, the level
+  smoke's two-frame rule, then a neutral pad: a discovery aid for the
+  workers a loaded area needs. The loaded state is the save's, not a route
+  recording's (RNG, timers), so such a run is never compared row by row.
 - **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):
   `EM_START_AT=area01 EM_START_AT_TEST=1` checked as `make
   test-title-load-game` checks its copy (the screen's result 2, the handoff
