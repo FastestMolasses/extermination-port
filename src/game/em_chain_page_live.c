@@ -1,6 +1,7 @@
 /* em_chain_page_live.c - the chain page drawn live at the frame close
  * (em_chain_page_live.h, docs/CHAIN_PAGE.md section 7). */
 #include "game/em_chain_page_live.h"
+#include "game/em_aim_fire_tables.h"
 #include "game/em_diag.h"
 #include "game/em_object_unit.h"
 #include "game/em_owner_draw_live.h"
@@ -51,7 +52,15 @@ uint32_t em_chain_page_live_fault(void) { return S.fault; }
 const uint8_t *em_chain_page_live_read(uint32_t address, uint32_t size)
 {
     const uint8_t *p = em_rcl_bytes(address, size);
-    return p ? p : em_effects_live_window(address, size);
+    if (!p) p = em_effects_live_window(address, size);
+    /* The beam's (001E2BA0 / 001E2800) REF of D_00253720, the immutable
+     * ELF packet the aim/fire tables hold (em_aim_fire_tables, its one
+     * export): the AREA01 revisit's 0x8282F0 draws it into the page. */
+    if (!p && em_aim_fire_tables_contains(address, size)) {
+        p = em_aim_fire_tables_bytes(address, size);
+        if (!p && em_aim_fire_tables_load() == 0) p = em_aim_fire_tables_bytes(address, size);
+    }
+    return p;
 }
 
 static const uint8_t *reader(void *ctx, uint32_t address, uint32_t size)
