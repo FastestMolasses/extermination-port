@@ -13,6 +13,11 @@ snapshot (eeMemory.bin + scratchpad.bin; the native side receives the bytes
 of every range it owns through em_rcl_poke and the external ranges as
 views), then run the same sequence of original entries:
 
+  001D19E0 (the area load's render reset, all its callees: skin_arena_init,
+  001D9720's target packet, 001DD940, 001E0C30, 001D71F0, 001D7BB0 with its
+  room lists 001F68B0 / 001F6E40 recorded, the flag and word clears,
+  001E0CC0; a second 001D19E0 under the area key 0x1100 (D_00810700 = 0x11,
+  0x00, restored after) reaches 001E0380's two grids),
   001C1DC0 (the area render init: flags, 001C1F50's TEX0 / colour, the area
   fog 001D8FD0 through 001D7B30),
   per frame: 001D1AE0(D_00810E80) (main loop step B), 001D1C50, a burst of
@@ -28,7 +33,11 @@ views), then run the same sequence of original entries:
   then step V on its flag-3 / D_008106C4 path and step W),
   an opening-style frame (D_008101E4 = 3: 001DDE10's projected path),
   a tear-down frame (001D1EF0, then step V),
-  and step V under render flag 4 set (no 001E0DF0) and flag 0x20 clear.
+  and step V under render flag 4 set (no 001E0DF0) and flag 0x20 clear,
+  then the effect callees of 001DDA00: the fade (001DFE10, a frame whose
+  001D1EA0(1) reaches 001DFF70 through flag 7, 001DFF70 rising to its
+  clamp, 001DFE40, 001DFF70 falling to state 3 and its 001D2830(7, 0)) and
+  001DDB70 under each of its three 001B0070 colour choices.
 
 Step V's 001D21E0 ends in the hardware kick: on the original side the DMA
 channel pointer (dmac_channel_base returns D1_CHCR 0x10009000) and the VIF1
@@ -44,7 +53,8 @@ original's RAM, and the ordered log of the recorded callees must match.
 Recorded callees (both sides record the call, neither executes it):
   001D7C30  the point-light tick: the live binding runs em_point_light
             (test_point_light_reference) on its own storage;
-  001C1EA0  001C1DC0's weather spawn (the scene's pool).
+  001C1EA0  001C1DC0's weather spawn (the scene's pool);
+  001F68B0, 001F6E40  001D7BB0's room lists (the scene's effects).
 001C1E70's 001D52E0 (the static-object grid header) runs on both sides: the
 original over the snapshot's bank, the module's em_swc_001D52E0 over the
 exported bank (assets/scene_snow/static_world.emsw, docs/STATIC_WORLD.md).
@@ -85,15 +95,16 @@ SOURCES = ['em_render_context_live', 'em_gs_blocks_original', 'em_frame_kick', '
            'em_census_standins', 'em_message_draw_original', 'em_static_world', 'em_static_world_compose',
            'em_owner_draw_original', 'em_camera_commit_original', 'em_stream_lanes_original',
            'em_area01_render_vif', 'em_anim_runtime_rest', 'em_pose_host_workers',
-           'em_player_floor', 'em_player_reaction', 'em_player_fall']
+           'em_player_floor', 'em_player_reaction', 'em_player_fall', 'em_point_light']
 STATIC_WORLD = ROOT / 'assets/scene_snow/static_world.emsw'
 
 OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2250),
          (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x70003B70, 4), (0x241010, 8), (0x26E510, 16),
-         (0x26E850, 16), (0x253560, 0x90), (0x817240, 0x80), (0x8101D0, 0x10))
+         (0x26E850, 16), (0x253560, 0x90), (0x817240, 0x80), (0x8101D0, 0x10), (0x817E20, 0x100),
+         (0x81C050, 0x38A0), (0x275C08, 4), (0x253500, 0x30), (0x26E810, 0x40))
 EXTERNAL = ((0x810610, 0x40), (0x8105E0, 0x10), (0x8106B0, 0x48), (0x810700, 3), (0x8101E4, 1),
             (0x70003B8D, 1), (0x8102B0, 0x320), (0x28A5A0, 4))
-RECORDED = (0x1D7C30, 0x1C1EA0)
+RECORDED = (0x1D7C30, 0x1C1EA0, 0x1F68B0, 0x1F6E40)
 # 001D21E0's hardware callees (the renderer boundary): recorded on the
 # original side only; 00101F08(channel, list) is compared with em_rcl_kick.
 HARDWARE = {0x101BB8: 'dmac_channel_base', 0x100A60: 'dma_wait_and_submit', 0x11B9E0: '0011B9E0',
@@ -136,7 +147,9 @@ def build_native():
                        ('em_rcl_001D2300', []), ('em_rcl_001D2580', [C.c_int32]), ('em_rcl_001D1EF0', []),
                        ('em_rcl_001D2830', [C.c_int32, C.c_int32]), ('em_rcl_001D2880', []),
                        ('em_rcl_001C1DC0', []), ('em_rcl_001D25F0', [U32]), ('em_rcl_001D2610', [U32]),
-                       ('em_rcl_0021B9A0', [C.c_int32, U32, U32]), ('em_rcl_001DD950', [U32, U32, U32])):
+                       ('em_rcl_0021B9A0', [C.c_int32, U32, U32]), ('em_rcl_001DD950', [U32, U32, U32]),
+                       ('em_rcl_001D19E0', [F_VOID, VP]), ('em_rcl_001DDB70', []), ('em_rcl_001DFF70', []),
+                       ('em_rcl_001DFE10', []), ('em_rcl_001DFE40', [])):
         getattr(n, name).argtypes = args
         getattr(n, name).restype = C.c_int
     return n
@@ -197,6 +210,7 @@ class Pair:
                                F_LEAF(self._n_leaf(0x11E398)), F_BLOCK(self._n_block(0x1C1EA0)))
         assert NATIVE.em_rcl_bind(views, len(EXTERNAL), C.byref(self.workers)) == 0, 'em_rcl_bind'
         self.ee.write(0x8101D0, bytes(16))   # 001AF690 (the bind performs it natively)
+        self.rooms = F_VOID(self._n_rooms)
         self._views = views
         # The frame loop's views: D_00810E88 and D_008106C4 (inside the
         # request block view, the same bytes as the binder's).
@@ -231,6 +245,11 @@ class Pair:
             self.nlog.append((hex(address), None))
             return 0
         return cb
+
+    def _n_rooms(self, _ctx):
+        self.nlog.append((hex(0x1F68B0), None))
+        self.nlog.append((hex(0x1F6E40), None))
+        return 0
 
     def _n_block(self, address):
         def cb(_ctx, a0):
@@ -320,14 +339,52 @@ def step_vw(pair, label):
     return 2
 
 
+def effects(p):
+    """001DDA00's effect callees: the fade 001DFF70 (started by 001DFE10,
+    reached once through a frame's 001D1EA0(1) and flag 7, then entered
+    directly up to its clamp, turned by 001DFE40 and run down to state 3
+    and its 001D2830(7, 0)), and 001DDB70 under each colour choice of the
+    request word D_008106C8 (bit 7, bit 28, neither)."""
+    n = NATIVE
+    steps = 0
+    p.step('fade 001DFE10', 0x1DFE10, lambda: n.em_rcl_001DFE10())
+    e80 = struct.unpack('<h', bytes(E80))[0]
+    p.step('fade 001D1AE0', 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
+    p.step('fade 001D1C50', 0x1D1C50, lambda: n.em_rcl_001D1C50())
+    p.step('fade 001D1EA0(1)', 0x1D1EA0, lambda: n.em_rcl_001D1EA0(1), ints=(1,))
+    steps += 4 + step_vw(p, 'fade')
+    for k in range(9):
+        p.step('fade up %d 001DFF70' % k, 0x1DFF70, lambda: n.em_rcl_001DFF70())
+    p.step('fade 001DFE40', 0x1DFE40, lambda: n.em_rcl_001DFE40())
+    for k in range(9):
+        p.step('fade down %d 001DFF70' % k, 0x1DFF70, lambda: n.em_rcl_001DFF70())
+    steps += 19
+    req = p.ee.read(0x8106C8, 4)
+    for word in (0x80, 0x10000000, 0):
+        p.poke_external(0x8106C8, struct.pack('<I', word))
+        p.step('001DDB70(%#x)' % word, 0x1DDB70, lambda: n.em_rcl_001DDB70())
+        steps += 1
+    p.poke_external(0x8106C8, req)
+    fade = p.ee.read(0x811CC0 + 0x1F0, 8)
+    assert fade[0] == 3 and fade[4:] == bytes(4), ('the fade did not reach state 3', fade.hex())
+    return steps
+
+
 def run_beat(beat_and_first):
     beat, first = beat_and_first
     p = Pair(beat, first)
     n = NATIVE
     frames = 6 if reference_mode.FULL else 3
     steps = 0
+    # 001D19E0 under the area key 0x1100 (its 001E0380 branch), then
+    # under the beat's own key (AREA11 is 0x0B), as the area load runs it.
+    area = p.ee.read(0x810700, 2)
+    p.poke_external(0x810700, bytes((0x11, 0x00)))
+    p.step('001D19E0 key 0x1100', 0x1D19E0, lambda: n.em_rcl_001D19E0(p.rooms, None))
+    p.poke_external(0x810700, area)
+    p.step('001D19E0', 0x1D19E0, lambda: n.em_rcl_001D19E0(p.rooms, None))
     p.step('001C1DC0', 0x1C1DC0, lambda: n.em_rcl_001C1DC0())
-    steps += 1
+    steps += 3
     for frame in range(frames):
         e80 = struct.unpack('<h', bytes(E80))[0]
         p.step('f%d 001D1AE0' % frame, 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
@@ -391,6 +448,7 @@ def run_beat(beat_and_first):
         p.step('gate %#x restore' % flag, 0x1D2830, lambda: n.em_rcl_001D2830(flag, restore),
                ints=(flag, restore))
         steps += 1
+    steps += effects(p)
     ctx = 0x811CC0
     return (beat, steps, len(p.olog), len(p.kicks), p.ee.load(ctx + 0xC), p.ee.load(ctx + 0x174),
             p.ee.read(ctx + 0xA0, 16).hex())

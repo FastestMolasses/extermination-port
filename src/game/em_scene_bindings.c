@@ -293,10 +293,9 @@ static const struct {
                                                "(em_game_legacy_manifest_spawn at 001AFCA0)"},
     [UM_001B6990_LEGACY_WORLD] = {0x001B6990u, "scene without an original roster: one legacy_world "
                                                "pool node runs the S10a legacy block"},
-    [UM_001D19E0] = {0x001D19E0u, "its callees skin_arena_init (001D2E20) and 001D7BB0 (the point-light pool "
-                                  "and the room lists) run on the render context; 001D9720, 001DD940, "
-                                  "001E0C30, 001D9060, 001D71F0 and the flag registrations after them have no "
-                                  "port counterpart here (RENDER_CONTEXT.md 8.4)"},
+    [UM_001D19E0] = {0x001D19E0u, "scene without an original world: only skin_arena_init (001D2E20) and "
+                                  "001D7BB0 (the point-light pool and the room lists) run; a world scene runs "
+                                  "the whole routine (em_rcl_001D19E0, RENDER_CONTEXT.md 8.6)"},
     [UM_001C1DC0] = {0x001C1DC0u, "its 001D2830 registrations and 001C1E70..001C1F50 passes have no "
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
@@ -360,16 +359,30 @@ static int w_001FC9B0(void *ctx)
     return em_message_live_reset();
 }
 /* 001D19E0 (the render reset at the area load, src/func_001D19E0.c):
- * skin_arena_init, the callee the object units need (the skin records' VIF
- * codes and GIF tags, docs/OWNER_DRAW.md "Binding"), and 001D7BB0 (the
- * point-light pool's reset, em_point_light_reset over the context's
- * +0x210.., then its 001F68B0 / 001F6E40: the room lists registered
- * through 001D7FA0, em_effects_live_room_lights; docs/AREA11_POINT_LIGHT.md).
- * The callees between them (001D9720 .. 001D71F0) and after stay
- * unmirrored. */
+ * in a world scene the whole routine runs on the render context
+ * (em_rcl_001D19E0, every callee bound: skin_arena_init, 001D9720,
+ * 001DD940, 001E0C30, 001D9060, 001D71F0, 001D7BB0 with the scene's room
+ * lists 001F68B0 / 001F6E40 (em_effects_live_room_lights), the flag and
+ * word clears, 001E0CC0 and, for the area key 0x1100, 001E0380; docs/RENDER_CONTEXT.md
+ * section 8.6). A scene without an original world keeps the callees the
+ * object units and the point lights need (skin_arena_init and the
+ * point-light reset with the room lists) and reports the rest. */
+static int world_scene(void);
+static int rcl_fault(void);
+static int um_room_lists(void *ctx)
+{
+    (void)ctx;
+    return em_effects_live_room_lights(&s_state) < 0 ? -1 : 0;
+}
 static int um_001D19E0(void *ctx)
 {
     (void)ctx;
+    if (world_scene() && em_rcl_bound()) {
+        if (em_rcl_001D19E0(um_room_lists, NULL) < 0)
+            return em_scene_faulted(&s_state) ? -1 : rcl_fault();
+        g.point_lights_loaded = 1;
+        return 0;
+    }
     if (em_rcl_loaded()) {
         if (em_rcl_skin_arena_init() < 0) return -1;
         EmPointLightPool *pool = em_rcl_point_lights();

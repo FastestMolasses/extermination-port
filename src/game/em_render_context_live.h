@@ -22,10 +22,16 @@
  *   0x00817240..0x008172BF  001D4750's constant block (.bss)
  *   0x70003400..0x7000347F  scratchpad: 001D5370's two clip matrices
  *   0x008101D0..0x008101DF  001C1D00's state block
+ *   0x00817E20..0x00817F1F  001D9720's target packet
+ *   0x0081C050..0x0081F8EF  001DD7B0's GS block, 001E0380's two grids and
+ *                           001E1010's table
+ *   0x00275C08..0x00275C0B  the GS read-back queue count (001D71F0)
  *   .data from the user's ELF (assets/render_context.emrc,
  *   tools/export_render_context.py): D_00241010 (8), D_00250F30..
  *   D_0025316F (the colour, D_002513E0, the room table D_00251C50),
- *   D_0026E510 (16), D_00275670..D_0027569F; and from the static-world
+ *   D_0026E510 (16), D_00275670..D_0027569F; from its second file
+ *   (assets/render_context_effects.emrc) D_00253500..2F and
+ *   D_0026E810..4F; and from the static-world
  *   export (assets/scene_snow/static_world.emsw, tools/export_static_world.py):
  *   D_00253560..EF (001E1E60's upload block) and, read only, the
  *   static-object bank *D_0028A5A0 (0x01516F40, 0x2D6FE0 bytes in AREA11).
@@ -52,8 +58,11 @@
  * em_actor_light_001D89D0 (001D7B30), em_player_equipment (0015D2F0),
  * em_status_ui_leftovers (0022EBE0) and the SDK leaves em_effect_original
  * (001026A0), em_sdk_math_original (0011DF78) and em_player_stage_workers
- * (001281C0). Workers the port cannot run yet (001DF110, 001DE920, 001DDB70,
- * 001DFF70, which the first level never reaches) are bound to a fault.
+ * (001281C0), and this module's own translations of 001D19E0's callees
+ * (001D9720, 001E0380, 001D71F0, 001D9060; its 001D7BB0 is em_point_light's
+ * reset) and of 001DDA00's effect callees 001DDB70 and 001DFF70 (with
+ * 001DFE70 and 001D64A0). Workers the port cannot run yet (001DF110 and
+ * 001DE920) are bound to a fault.
  *
  * Fail-stop: the first fault of any of them is latched here (the original
  * function address, em_rcl_fault()); every later entry returns -1. */
@@ -72,6 +81,7 @@ extern "C" {
 #define EM_RCL_CONTEXT 0x00811CC0u   /* the value of D_00275670 (checked at load) */
 #define EM_RCL_CONTEXT_SIZE 0x2580u  /* the context block +0x00..+0x257F */
 #define EM_RCL_EXPORT_PATH "assets/render_context.emrc"
+#define EM_RCL_EFFECTS_PATH "assets/render_context_effects.emrc"
 #define EM_RCL_STATIC_WORLD_PATH "assets/scene_snow/static_world.emsw"
 
 /* A byte range another module owns, by original address. */
@@ -259,6 +269,14 @@ int em_rcl_kick_head(uint8_t *env, uint32_t env_cap, uint32_t *env_bytes, uint8_
  * page's depth-of-field pass (em_chain_page_live). 0, or -1 (not loaded,
  * unmapped, or a block of another shape). */
 int em_rcl_draw_env(uint32_t *bank, uint32_t *slot, uint64_t *frame, uint64_t *scissor);
+/* 001D19E0: the area load's render reset (all its callees bound;
+ * docs/RENDER_CONTEXT.md section 8.6). `room_lists` stands for 001D7BB0's
+ * 001F68B0 and 001F6E40 (the scene's room lists). 0, or -1. */
+int em_rcl_001D19E0(int (*room_lists)(void *ctx), void *ctx);
+/* 001DDB70 and 001DFF70, the effect callees 001DDA00 reaches under flag 6
+ * (with 0015D2F0 mode 2 and D_008106C6 == 2) and flag 7. 0, or -1. */
+int em_rcl_001DDB70(void);
+int em_rcl_001DFF70(void);
 /* 001D1EF0: the tear-down frame (001D1C50, 001D2830(3, 1), 001D1EA0(0)) on
  * this context (em_frh_001D1EF0). Needs the bind. 0, or -1. */
 int em_rcl_001D1EF0(void);

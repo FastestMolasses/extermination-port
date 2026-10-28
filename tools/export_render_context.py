@@ -33,8 +33,17 @@ game writes at run time: the GS revision halfword 0x241016 (00100158 at
 boot; 001D6E60 masks it out), D_002513E0 (001D30A0), D_00275688 (001D88B0)
 and D_00275690 / D_00275694 (001DDE10).
 
+Effect blocks (a second file, so the first keeps its layout for every
+reader of it):
+  0x00253500   0x30    D_00253500 / D_00253510 (001DFE70's two sprite
+                       corners, the 001DFF70 fade) and D_00253520 (the
+                       quadword 001E0380 multiplies into its two grids)
+  0x0026E810   0x40    D_0026E810 (001DDB70's 001D6B60 colour) and
+                       D_0026E820 / 30 / 40 (its three line colours)
+
 Output (disc-derived: git-ignored assets/ only):
-  assets/render_context.emrc, little-endian:
+  assets/render_context.emrc and assets/render_context_effects.emrc,
+  little-endian:
     0x00 'EMRC', u32 version 1, u32 block count, u32 0
     0x10 count x (u32 address, u32 size, u32 file offset, u32 0)
     then the block bytes at their offsets (16-aligned)
@@ -57,6 +66,7 @@ DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00241010, 0x8), (0x00250F30, 0x2250), (0x0026E510, 0x10), (0x0026E850, 0x10),
           (0x0026E880, 0x10), (0x00275670, 0x30))
+EFFECT_BLOCKS = ((0x00253500, 0x30), (0x0026E810, 0x40))
 # Words the game writes at run time (address, bytes): not compared.
 # 0x241016: 00100158 (the boot GS reset) stores the GS revision read from
 # CSR there; 001D6E60 masks it out (D_00241010 & 0x0000FFFF0000FFFF).
@@ -105,6 +115,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--elf', type=Path, default=DECOMP / 'config/SCUS_971.12')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/render_context.emrc')
+    ap.add_argument('--effects-out', type=Path, default=ROOT / 'assets/render_context_effects.emrc')
     ap.add_argument('--verify-ram', type=Path, action='append', default=None)
     ap.add_argument('--no-verify', action='store_true')
     args = ap.parse_args(argv)
@@ -118,6 +129,11 @@ def main(argv=None) -> int:
     args.out.write_bytes(serialize(blocks))
     print(f'wrote {args.out}: {len(blocks)} blocks, {sum(len(d) for _, d in blocks)} bytes; '
           f'{compared} bytes equal in {len(captures)} captures (run-time words excepted)')
+    effects = [(a, elf_block(elf, a, n)) for a, n in EFFECT_BLOCKS]
+    compared = sum(verify(effects, p.read_bytes()) for p in captures)
+    args.effects_out.write_bytes(serialize(effects))
+    print(f'wrote {args.effects_out}: {len(effects)} blocks, {sum(len(d) for _, d in effects)} bytes; '
+          f'{compared} bytes equal in {len(captures)} captures')
     return 0
 
 

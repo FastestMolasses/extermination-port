@@ -537,6 +537,7 @@ this lane and of lane L32 addresses, once, by original address:
 | 0x007635C0..0x0076B5BF | the chain table D_007635C0 (slot words, head words) |
 | 0x00811CC0..0x0081723F | the render context, the GS register blocks at D_00275674 (0x814220) and the 14 skin records at D_00816440 |
 | 0x70003A40..0x70003B3F, 0x70003B60 | the scratchpad the frame head copies P / K to, and the zoom copy |
+| 0x00817E20..0x00817F1F, 0x0081C050..0x0081F8EF, 0x00275C08 | 001D9720's target packet; 001DD7B0's GS block, 001E0380's grids and 001E1010's table; the read-back queue count 001D71F0 clears (section 8.6) |
 | .data | D_00241010 (8), D_00250F30..D_0025317F (the 001E2270 colour, D_002513E0, the skin record templates D_002514D0..D_00251BCF, the room table D_00251C50, the fold seed D_00253170), D_0026E510 (16), D_0026E850 (16), D_0026E880 (16: 001DFA40's copy colour, the load veil), D_00275670..D_0027569F |
 
 The .data comes from the user's ELF through `tools/export_render_context.py`
@@ -557,10 +558,11 @@ area's collision world and 001C1DC0's weather spawn 001C1EA0 (001D52E0 runs
 on this module's views since the static-world step, STATIC_WORLD.md). The
 static world adds its storage and views here too (D_00253560, D_00817240,
 the scratchpad 0x70003400, the state block D_008101D0 and, read only, the
-bank and the loader's D_0028A5A0 word; STATIC_WORLD.md 5.2). The four
-001DDA00 effect callees the first level never reaches
-(001DF110, 001DE920, 001DDB70, 001DFF70) and every callee of the entries
-that are not bound are bound to a fault.
+bank and the loader's D_0028A5A0 word; STATIC_WORLD.md 5.2). Of the four
+001DDA00 effect callees (none is reached on the recorded route), 001DF110
+and 001DE920 are bound to a fault, as is every callee of the entries that
+are not bound; 001DDB70 and 001DFF70 are translated since 2026-10-28
+(section 8.6).
 
 ### 8.2 What runs live, and where
 
@@ -644,7 +646,8 @@ by `em_rcl_page` (section 7 of that doc).
 
 | Original | Why not | What it needs |
 |---|---|---|
-| 001D19E0 (except skin_arena_init, 8.2, and since the lighting step, 2026-10-02, its 001D7BB0: em_point_light_reset with the room lists 001F68B0 / 001F6E40, em_effects_live_room_lights) | its callees 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows; 001DD940, 001E0C30, 001E0CC0 and the flag registrations are translated but not bound here | a decision on those boundary rows; then the whole of 001D19E0 through em_frh_001D19E0 |
+| 001DF110 (001DEEE0's ramp records, flags 2 / 9) | its 001DF020 needs 001D7510, 001D7000, 001D6DD0 and 001D7A80, which the port has only inside the AREA00 lanes (em_area00_hud / em_area00_fx_gs, their own register model) | those four packet builders over this module's storage |
+| 001DE920 (001DDAA0, area keys 0x0B00..0x0E00 with 001B0070 bit 5 or 6: AREA11 is 0x0B) | NEARMISS, 180 lines of VU0 packet code; only em_level9_port_fx has a translation, over its own memory | a translation over this module's storage |
 | 001D1EF0 before the area bind (the New Game bring-up 001ACEC0 case 0, 001AD360 steps 0, 1, 2, 5) | its 001D1C50 needs the views the area load hands over (the camera pool's D_00810610, the collision world's SDK sqrtf / tanf) | reported (UM_001D1EF0); from the area build on it is bound (section 9) |
 | 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |
 
@@ -655,6 +658,18 @@ room lists' release) and 001D19D0 / 001D9070 (the New Game's 001AD1A0, over
 the library model 0x16 in the Roger export: `em_area11_roger_001D19D0`).
 
 ### 8.5 Evidence
+
+- Since 2026-10-28 (section 8.6) the same test also runs 001D19E0 (once
+  under the area key 0x1100, its 001E0380 branch, and once under the beat's
+  own key), the fade (001DFE10; a frame whose 001D1EA0(1) reaches 001DFF70
+  through flag 7; 001DFF70 nine times rising past its clamp; 001DFE40;
+  nine times falling to state 3 and its 001D2830(7, 0)) and 001DDB70 under
+  the three colour choices of D_008106C8. The new ranges (D_00817E20,
+  D_0081C050..D_0081F8EF, D_00275C08 and the effect .data) are compared too.
+  Mutations checked by hand (pi by one ulp in 001E0380, 0.42 and 1/60 in
+  the fade, the 001DDB70 colour pick, FRAME's 0x12C in 001D9720) all fail it;
+  a one-ulp change of 0.42 does not (the fade colour is truncated to an
+  integer and the captured colours absorb it).
 
 - `tools/test_render_context_live_reference.py` (`make
   test-render-context-live-reference`): the module the game links, from
@@ -692,6 +707,54 @@ Makefile: the modules are in COMMON (em_frame_render_heads.c,
 em_render_context.c, em_render_context_live.c, em_load_veil_particles.c,
 em_actor_light_001D89D0.c, em_player_equipment.c); target
 `test-render-context-live-reference`.
+
+### 8.6 001D19E0 and the effect callees (2026-10-28)
+
+**001D19E0 is bound as a whole.** `em_rcl_001D19E0(room_lists, ctx)` runs
+em_frh_001D19E0 with every callee bound; the scene's um_001D19E0 calls it at
+its position in 0x1AE040 state 0 (after the bind, before 001C1DC0) in a
+world scene, with em_effects_live_room_lights as 001D7BB0's 001F68B0 /
+001F6E40. A scene without an original world keeps the old partial path
+(skin_arena_init and the point-light reset). The callees:
+
+| Original | Decomp | Port |
+|---|---|---|
+| skin_arena_init (001D2E20) | BM | em_skin_arena_init (unchanged) |
+| 001D9720 | BM | `rcl_001D9720`: D_00817E20's words 0, 0, 0x11000000, 0x5000000F; the GIF tag's NLOOP 14, EOP 1, PRE 0, FLG 0, NREG 1, REGS0 0xE set in place; 001006D8(+0x20, 0, 0x80, 0x80, 0, 2); 001008C0(+0xA0, 0, 0x7C0, 0x7C0, 0x80, 0x80, 0x80, 0x80, 0x80, 0, 0); FRAME's low 9 bits = 0x12C |
+| 001DD940 -> 001DD7B0 | BM / NM | em_render_context_001DD940 (D_0081C050's GS block, context +0x24F0..+0x2513: zeros and +0x2510 = 1) |
+| 001E0C30 -> 001E1010 | BM | em_render_context_001E0C30 (context +0x170..+0x177, the 16 x 16 table D_0081E0F0) |
+| 001D9060 | BM | returns |
+| 001D71F0 | BM | `rcl_001D71F0`: D_00275C08 (the GS read-back queue count) = 0 |
+| 001D7BB0 | BM | em_point_light_reset over context +0x210.., then the scene's room lists |
+| 001D2830 x 6, 001D2DE0 x 3, 001E0CC0 | | em_frh / em_render_context (unchanged) |
+| 001E0380 (area key 0x1100 only: area 0x11 sub 0; AREA11 is 0x0B) | BM | `rcl_001E0380`: two 16 x 16 grids at D_0081C0F0 / D_0081D0F0 of rotate_y(rotate_z(I, (pi/2) i / 15), 2 pi j / 15 - pi) x D_00253520 (em_owner_services' rotations, em_effect_original's 001026A0; the angles by the EE's CVT.S.W, MUL.S, DIV.S, SUB.S) |
+
+Before this, the port did not run 001D9720, 001DD940, 001E0C30, 001D71F0,
+the flag clears (2, 9, 0x24, 5, 7, 8), the +0x2520..+0x2528 words or
+001E0CC0 at an area load. On the first level's New Game the context is
+zero, so most of them stored what was there already; 001DD7B0's +0x2510 = 1,
+001D2DE0(1, 0x320) and 001E1010's table are new values, and from the
+second area load on, the cleared flags (0x20..0x3F at +0x174 too) no longer
+carry over from the previous area.
+
+**The effect callees of 001DDA00.** Bound to translations in this module:
+
+| Original | Decomp | Gate in 001DDA00 | Port |
+|---|---|---|---|
+| 001DFF70 | NM (the instructions were followed) | flag 7 (001DFE10, the AREA11 script callback 0x825900, sets it) | `rcl_001DFF70`: the fade record at +0x1F0 (state, done, level, colour); EE float ops in the original order; 001DFE70 |
+| 001DFE70 | BM | (001DFF70) | `rcl_001DFE70`: float_to_int((255 - c) x f12) per colour word, 001D1F80(1, 0, 3), 001D64A0, 001D2040(1, 1) |
+| 001D64A0 | BM | (001DFE70) | `rcl_001D64A0`: one 0x60-byte sprite packet at the channel cursor |
+| 001DDB70 | BM | flag 6, 0015D2F0 mode 2, D_008106C6 == 2 | `rcl_001DDB70`: the channel-3 set-up, one 0x80-byte packet, 112 001D63B0 line pairs in the colour 001B0070's word picks, the close and 001CB760(slot 0xFFF) |
+
+001DDB70's 001CB760 is the packet chain's own (not `f_001CB760`): the
+page's four-sprite pass stays 001DDE10's. Whether em_chain_page_live draws
+a second slot-0xFFF list (001DDB70's) and 001DFE70's channel-1 sprite
+exactly is not verified: neither is on the recorded route. The data they
+read is the export's second file, `assets/render_context_effects.emrc`
+(tools/export_render_context.py; D_00253500..2F and D_0026E810..4F, equal
+to every capture).
+
+Still bound to a fault: 001DF110 and 001DE920 (section 8.4).
 
 ## 9. Main-loop steps V and W, 001D1EF0, the (3, 1) registrations (2026-09-27)
 
