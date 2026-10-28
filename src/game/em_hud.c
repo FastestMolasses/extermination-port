@@ -80,6 +80,7 @@
  * em_gfx_overlay_arc4 annular-arc primitive — the translation of the
  * engine's 0x60-block arc func_002082B0). */
 #include "game/em_hud.h"
+#include "game/em_status_draw.h"
 #include "game/em_status_background.h"
 
 /* Menu cues — the status screen was entirely silent. */
@@ -933,18 +934,17 @@ static int decimal_digits(int v)
  *               same right-hand column while the lead goes blank);
  *   blank == 0  no suppression at all — genuine zero-padding ("04").
  *
- * Overflow/negatives are clamped here: the engine's divisor walk runs
- * off the end of its digit range for those and emits junk glyphs (a
- * '-' spliced mid-number for negatives), which is not behaviour worth
- * reproducing. */
+ * The digits come from the one translation, em_status_draw_001C5FB0
+ * (the byte-matched decomp C): a value wider than the field or a
+ * negative value is formatted the way the original's divisor walk does
+ * it, not clamped. */
 static void engine_digits(char *buf, size_t cap, int v, int digits,
                           int blank)
 {
-    int lim = 1;
-    for (int i = 0; i < digits; i++) lim *= 10;
-    if (v < 0)    v = 0;
-    if (v >= lim) v = lim - 1;
-    snprintf(buf, cap, blank ? "%*d" : "%0*d", digits, v);
+    char out[8] = {0};
+    if (!em_status_draw_001C5FB0(out, v, digits, blank))
+        out[0] = 0;
+    snprintf(buf, cap, "%s", out);
 }
 
 /* Placeholder-path companion: how many of `digits` places the blank
