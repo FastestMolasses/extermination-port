@@ -172,7 +172,14 @@ the next 00207D00. The upload worker refuses a glyph the small-font atlas
 lacks, the flush worker a slot other than 1 (the page stream's): the
 frame is refused and the caller faults. The status pages' tall-font
 001CC1E0 calls go to `em_message_live_cc1e0`, as the options screen's
-do. This retired the page stream's stand-in text (`em_page_draw_text`,
+do. On a page drawn as the GS field (EQUIPMENT, EVENT, DATABASE, SPR4:
+STATUS_FIELD.md 3f to 3h) each 001CBA50 run also reaches
+`em_status_pages_live`'s sink at its call time, before the page stream
+records it, and `em_status_gs_page` builds its packets into the slot-1
+list (em_uip_001CBA50, the BATTERY page's s_text); a 001CC1E0 run's
+glyph packets reach that list through the message service's glyph sink
+(`em_message_live_set_glyph_sink`), so the pages' sink does not take it
+again. This retired the page stream's stand-in text (`em_page_draw_text`,
 which drew the glyphs straight from the atlas with alpha 1.0, ignored the
 style's +4 and +7 bytes and the packets, and faulted on a null style).
 `em_hud_text_color`'s other users (the hub, the BATTERY and ITEM pages)

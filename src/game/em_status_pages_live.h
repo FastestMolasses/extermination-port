@@ -169,12 +169,14 @@ unsigned em_status_pages_live_calls(const EmStatusPagesLive *live, uint32_t call
  * tick of a bound page every leaf call reaches the sink at its call time,
  * in the original's order, as well as em_page_draw: 0020A7A0 is stepped
  * there (background; em_page_draw draws that step), 00207D00, 00207D90
- * (scissor: DATABASE's 00213CC0), 00207E40, 00207F80 (rectangle) and the
- * text runs 001CBA50 / 001CC1E0 (text: `style` the 8 bytes of the style
- * record, NULL for none, which the bound sink refuses) and 0020AC70's
- * trail (its 00207D00(1, 1) to blend, then fan: SPR4's selector, 3h). A
+ * (scissor: DATABASE's 00213CC0), 00207E40, 00207F80 (rectangle), the
+ * small-font runs 001CBA50 (text, proportional 0: `style` the 8 bytes of
+ * the style record, NULL for none, which the bound sink refuses) and
+ * 0020AC70's trail (its 00207D00(1, 1) to blend, then fan: SPR4's selector, 3h). A
  * leaf the sink has no builder for (00208040, 00208AD0's gauge, 001B0000's
- * models) faults on a bound page. Each returns 1; anything else fails the page. NULL, the default
+ * models) faults on a bound page. The tall-font runs 001CC1E0 go to
+ * em_message_live_cc1e0, whose glyph packets reach the slot-1 list through
+ * the message service's glyph sink, not this one. Each returns 1; anything else fails the page. NULL, the default
  * (the reference tests): no page is bound and the render steps the
  * background. */
 typedef struct {

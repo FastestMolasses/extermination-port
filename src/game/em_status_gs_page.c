@@ -333,9 +333,10 @@ static const EmStatusItemSink k_item_sink = {NULL, i_background, i_blend, i_spri
  * EQUIPMENT 00214570 and EVENT 00215870 (STATUS_FIELD.md 3f), DATABASE
  * 00214020 (3g) and SPR4 00211970 with its part pages (3h): 0020A7A0,
  * 00207D00, 00207E40, 00207F80 (0020CCB0's marker), 00207D90 (DATABASE's
- * scroll) and the text runs 001CBA50 / 001CC1E0 (0020B210's rows, the
- * description; DATABASE's page numbers; SPR4's number fields) as the
- * BATTERY page's above, and SPR4's 0020AC70 fans as the ITEM root's. */
+ * scroll) and the small-font runs 001CBA50 (DATABASE's page numbers,
+ * SPR4's number fields) as the BATTERY page's above, and SPR4's 0020AC70
+ * fans as the ITEM root's; their 001CC1E0 runs are the message service's
+ * glyph packets (k_glyph_sink). */
 static int p_background(void *ctx, uint64_t tex0, uint32_t *token)
 {
     G.frame_pages = 1;
@@ -367,8 +368,10 @@ static int p_scissor(void *ctx, int32_t slot, int32_t x0, int32_t y0, int32_t x1
     return s_scissor(ctx, slot, x0, y0, x1, y1);
 }
 
-/* 001CBA50(1, x, y, w, h, text, style) or 001CC1E0(1, ...): s_text (the
- * BATTERY page's) over the style record's 8 bytes. Reached by DATABASE's
+/* 001CBA50(1, x, y, w, h, text, style): s_text (the BATTERY page's) over
+ * the style record's 8 bytes (em_status_pages_live hands it the small-font
+ * runs only; a bound page's 001CC1E0 reaches the list through
+ * em_message_live's glyph sink, k_glyph_sink). Reached by DATABASE's
  * record (002134C0(t, 1)'s page numbers: 001CBA50 with D_00275870;
  * STATUS_FIELD.md 3g), not by the first level's EQUIPMENT / EVENT frames
  * (their text is the message service's glyph runs: 3f); a slot other than
