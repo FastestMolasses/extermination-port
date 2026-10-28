@@ -265,6 +265,16 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
 #undef POSE
     }
     if((p=em_owner_draw_live_memory(a,n)))return p;
+    {
+        /* The particle records D_007709C0 and D_00275C40 / D_00275C44:
+         * em_effects_live's storage (0x8237D0's 001F4010 seeds a slot). */
+        EmEffectsLiveNodeRegion particles[3];
+        const size_t np=em_effects_live_particle_regions(particles,3);
+        for(size_t k=0;k<np && k<3;++k)
+            if(overlaps(a,n,particles[k].address,(uint32_t)particles[k].size))
+                return contains(a,n,particles[k].address,(uint32_t)particles[k].size)
+                    ? (uint8_t *)particles[k].bytes+a-particles[k].address : NULL;
+    }
     if((p=em_area01_script_bytes(&l->scripts,a,n,write)))return p;
     if((p=em_area01_model_slot_bytes(&l->model,a,n)))return p;
     if(overlaps(a,n,0x0028A56Cu,4)) {
@@ -701,6 +711,35 @@ static int muzzle_001F4F40(EmArea01Live *l,EmArea01Call *c)
     if(em_area01_live_resume(l)<0)return -1;
     return worker_result(l,rc,c->function);
 }
+/* --- 001F2F90 / 001F3340 (001F4010's callees: a debris slot's seed and
+ * its first step, em_area00_fx_debris, their one translation; the aim/fire
+ * world binds them for the shell casing) over the live bytes; every callee
+ * re-enters the runtime. 001F3340 hands 0019A570 its s4, which 0019A570
+ * reads only on a path the segment walker faults on (as the aim/fire
+ * world), so s4 is not forwarded. */
+static int debris_worker(void *ctx,uint32_t fn,uint32_t sp,const EmArea00FxRegs *r,uint64_t *v0,uint32_t *f0)
+{
+    uint32_t imask=r->imask;
+    if(fn==0x0019A570u)imask&=~(1u<<20);
+    if((imask&~(0xFFu<<4)) || (r->fmask&~(0xFFu<<12)))return -1;
+    EmArea01Call c={.function=fn,.sp=sp};
+    for(unsigned i=0;i<8;++i)if(imask&(1u<<(i+4))) {c.a[i]=r->r[i+4];c.na=i+1;}
+    for(unsigned i=0;i<8;++i)if(r->fmask&(1u<<(i+12))) {c.f[i]=r->f[i+12];c.nf=i+1;}
+    if(nested(ctx,&c)<0)return -1;
+    *v0=c.v0;*f0=c.f0;
+    return 0;
+}
+static int debris_001F2F90(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<(c->function==0x001F2F90u ? 4u : 3u) || c->nf)return worker_result(l,-1,c->function);
+    EmArea00Fx x;memset(&x,0,sizeof x);
+    x.core.world.view=muzzle_view;x.core.world.view_ctx=l;x.call=debris_worker;x.ctx=l;x.sp=c->sp;
+    int rc=c->function==0x001F2F90u ? em_area00_fx_001F2F90(&x,c->a[0],c->a[1],c->a[2],c->a[3])
+                                    : em_area00_fx_001F3340(&x,c->a[0],c->a[1],c->a[2]);
+    if(rc<0 || x.core.fault.code)
+        return worker_result(l,-1,x.core.fault.detail ? x.core.fault.detail : x.core.fault.address);
+    return 0;
+}
 static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
@@ -719,6 +758,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,fault);
     }
     if(c->function==0x001F4F40u)return muzzle_001F4F40(l,c);
+    if(c->function==0x001F2F90u || c->function==0x001F3340u)return debris_001F2F90(l,c);
     if(c->function==0x00121870u)return block_copy_00121870(l,c);
     if(c->function==0x001B0C60u) {
         if(c->na!=3 || c->nf)return worker_result(l,-1,c->function);
@@ -1092,18 +1132,21 @@ static int worker(void *ctx,EmArea01Call *c)
         /* 00119828(ch, l, r), the stream lanes' IOP command 0x16 (the
          * revisit's 001B6AE0; the scene bindings' em_stream_live binding,
          * as the AREA11 script host uses it). */
-        if(c->na<3 || em_area01_live_suspend(l)<0)return -1;
+        /* Neither service touches the actor pool or the player, so the
+         * live segment stays open: 001B6AE0 holds its view of the owner's
+         * +0x1F0 block across these calls (a suspend would re-image the
+         * record and drop its phase byte). */
+        if(c->na<3)return -1;
         int rc=em_scene_bindings_00119828(NULL,(int32_t)c->a[0],(int32_t)c->a[1],(int32_t)c->a[2]);
-        if(em_area01_live_resume(l)<0)return -1;
         c->v0=0;return rc<0 ? -1 : 0;
     }
     case 0x001FD4C0u: {
         /* 001FD4C0(line), the message service's stream request (the AREA01
          * revisit's 001B6AE0 in script 0x82AD90; em_message_live, as the
          * AREA11 script host binds it). v0: 1 when the area has the line. */
-        if(c->na<1 || em_area01_live_suspend(l)<0)return -1;
+        if(c->na<1)return -1;   /* no suspend: as 00119828 above */
         int rc=em_message_live_stream_request((int32_t)c->a[0]);
-        if(em_area01_live_resume(l)<0 || rc<0)return -1;
+        if(rc<0)return -1;
         c->v0=(uint64_t)(int64_t)rc;return 0;
     }
     case 0x001C47A0u: {
