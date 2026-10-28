@@ -40,7 +40,7 @@ import test_area00_fx_reference as FX
 
 MASK = (1 << 64) - 1
 BOUND = {0x825950, 0x823CD0, 0x824340, 0x824770, 0x824D50, 0x825910, 0x826010,
-         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0, 0x1BAC00, 0x1C8140, 0x1C7EB0, 0x1BB0E0, 0x1F9660}
+         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0, 0x1BAC00, 0x1C8140, 0x1C7EB0, 0x1BB0E0, 0x1F9660, 0x1F4010}
 RESULT = {0x825910, 0x1BAC00, 0x1C8140}
 
 
@@ -286,6 +286,10 @@ def main():
                                (node + 0x24, struct.pack('<I', g5)), (node + 0x2E, h16(k)), (g5 + 0x2E, h16(mask)))))
     for key in (0x4B, 0x6E, 0x72):
         cases.append((beat, 0x1F9660, (node, key), ()))
+    # 0x8237D0's 001F4010(3, matrix) directly (its 001F2F90 / 001F3340 run
+    # as original code), the ring D_00275C40 at 0, mid-way and at its wrap.
+    for ring in (0, 0x41, 0x7F):
+        cases.append((beat, 0x1F4010, (3, node + 0xD0), ((0x275C40, struct.pack('<I', ring)),)))
 
     # Quick: every captured case, one of each entry and a fixed-seed sample
     # of the designed ones (EM_TEST_FULL=1: all).

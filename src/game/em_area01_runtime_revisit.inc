@@ -484,6 +484,26 @@ static int rv_001F9660(EmArea01Runtime *r, EmArea01Call *c)
     return 0;
 }
 
+/* 001F4010(index, frame), 0x8237D0's ring slot: em_area02_misc's
+ * translation (the aim/fire world binds it for the shell casing) over
+ * D_00275C40; its 001F2F90 / 001F3340 re-enter the runtime. */
+static int rv_ring_001F4010(EmArea01Runtime *r, EmArea01Call *c)
+{
+    if (c->na < 2 || c->nf) return fail(r, c->function);
+    EmArea02MiscRegion regions[1] = {{0x00275C40u, 4, bytes(r, 0x00275C40u, 4, 1)}};
+    if (!regions[0].bytes) return fail(r, 0x00275C40u);
+    EmArea02Misc m;
+    memset(&m, 0, sizeof m);
+    m.regions = regions;
+    m.region_count = 1;
+    m.call = rv_misc_call;
+    m.ctx = r;
+    m.sp = c->sp;
+    if (em_area02_misc_001F4010(&m, (uint32_t)c->a[0], (uint32_t)c->a[1]) < 0)
+        return fail(r, m.fault_address ? m.fault_address : c->function);
+    return 0;
+}
+
 /* Returns 1 when `function` is one of these entries (*rc set), else 0. */
 static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
@@ -545,6 +565,9 @@ static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
         return 1;
     case 0x001BB0E0u: /* the group's script actors (em_slg_001BB0E0 with em_sdf_001BAD40) */
         *rc = rv_001BB0E0(r, c);
+        return 1;
+    case 0x001F4010u: /* 0x8237D0's ring slot (em_area02_misc) */
+        *rc = rv_ring_001F4010(r, c);
         return 1;
     case 0x001F9660u: /* 001BB0E0 command 6's sound copy (em_area02_misc) */
         *rc = rv_001F9660(r, c);
