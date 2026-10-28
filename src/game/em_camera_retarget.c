@@ -28,6 +28,11 @@ void em_camera_retarget_seed(const float position[3],
         threshold=-10.0f;target_height=2.0f;eye_height=6.0f;
     }
 
+    /* The original assigns the falloff only on the compressed path; on the
+     * other path it reads whatever its caller left in that callee-saved
+     * float register (byte-matched src/func_0018CBD0.c). The captured AREA11
+     * panel camera (target y = player y + 17 for the -46.8 preset) shows 0
+     * there, so 0 stands in for that register value. */
     float falloff=0.0f;
     if (compression<threshold) {
         float amount=em_ee_sub(threshold,compression);

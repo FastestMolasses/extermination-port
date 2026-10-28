@@ -2,12 +2,12 @@
  * 0018F870 (aim) and the bounds routines 0018CE60 / 0018D910 (see
  * em_camera_leftovers.h, docs/CAMERA_LEFTOVERS.md).
  *
- * All four are NEARMISS C in the decomp; they were translated from their
- * instructions (build/asm). Where the readable C differs, the instructions
- * win (docs/CAMERA_LEFTOVERS.md lists the places; for example 0018D910
- * keeps 0x70003A3C unchanged when its area-0x12 probe misses, where the C
- * writes cam+14 + 200). Every address in a comment is the original
- * instruction or label translated there.
+ * All four were translated from their instructions (build/asm) while the
+ * decomp's C was NEARMISS; that C is now byte-matched and agrees with this
+ * translation (audited 2026-10-28; for example 0018D910 keeps 0x70003A3C
+ * unchanged when its area-0x12 probe misses, which the old C got wrong).
+ * Every address in a comment is the original instruction or label
+ * translated there.
  *
  * Scratchpad names: S(xxxx) is the word at 0x7000xxxx of the solvers'
  * window (EmCamLeftScratch); sp_a / sp_b are the two stack vectors (sp+A0,
