@@ -1151,6 +1151,140 @@ def arrival_section(elf, native, rng, result):
     result['arrival_run'] = {'frames': frames, 'moves': moves, 'stop_frame': stopped}
 
 
+# ------------------------------- 001837B0, 0015B530's +5 = 1 routine
+
+STATE_ONE = 0x1837B0
+ENTRY_CLIP, MOTOR_P, DISPLAY_P, SINE_P = 0x17B5C0, 0x17BC40, 0x17C030, 0x11E2A8
+ACTOR_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(LiveActor))
+SINE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.POINTER(C.c_uint32))
+
+
+class StateOneWorkers(C.Structure):
+    """EmPlayerStateOneWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('entry_clip', ACTOR_FN), ('motor', ACTOR_FN),
+                ('display', ACTOR_FN), ('translate', TRANSLATE_FN), ('sine', SINE_FN),
+                ('floor', FLOOR_FN), ('fall_check', ACTOR_FN)]
+
+
+def state_one_case(elf, native, raw, flags200, mode1F0, sine):
+    """001837B0 executed over `raw` against em_player_001837B0. Every callee
+    is hooked and recorded with the record words it can see; 0017B5C0 stores
+    `flags200` at +0x200 (the clip request's flags, so the fall-through test
+    sees a value the entry wrote), 0017C030 stores `mode1F0` at +0x1F0 and
+    0011E2A8 answers the bits `sine`. Returns the native image and the log."""
+    oracle = Floor(elf)
+    log = []
+    def entry(o):
+        log.append(('entry', o.r[4] & 0xffffffff, o.load(ACTOR + 6, 1), o.load(ACTOR + 7, 1)))
+        o.save(ACTOR + 0x200, flags200)
+        o.r[2] = 0
+    def motor(o):
+        log.append(('motor', o.r[4] & 0xffffffff))
+        o.r[2] = 0
+    def display(o):
+        log.append(('display', o.r[4] & 0xffffffff))
+        o.save(ACTOR + 0x1F0, mode1F0, 1)
+        o.r[2] = 0
+    def translate(o):
+        log.append(('translate', o.r[5] & 0xffffffff))
+        o.r[2] = 0
+    def sin(o):
+        log.append(('sine', o.f[12] & 0xffffffff))
+        o.f[0] = sine
+    def floor(o):
+        log.append(('floor', o.r[5] & 0xffffffff, o.load(ACTOR + 0xB4)))
+        o.r[2] = 0
+    def fall(o):
+        log.append(('fall', o.r[4] & 0xffffffff))
+        o.r[2] = 0
+    oracle.calls.update({ENTRY_CLIP: entry, MOTOR_P: motor, DISPLAY_P: display, TRANSLATE_P: translate,
+                         SINE_P: sin, FLOOR_SERVICE: floor, FALL_CHECK: fall})
+    oracle.write(ACTOR, bytes(raw))
+    oracle.call(STATE_ONE, ACTOR)
+
+    mine = []
+    def word(a, off): return struct.unpack_from('<I', bytes(a.contents.bytes), off)[0]
+    def n_entry(_, a):
+        mine.append(('entry', ACTOR, a.contents.bytes[6], a.contents.bytes[7]))
+        for k, b in enumerate(struct.pack('<I', flags200)): a.contents.bytes[0x200 + k] = b
+        return 0
+    def n_display(_, a):
+        mine.append(('display', ACTOR))
+        a.contents.bytes[0x1F0] = mode1F0
+        return 0
+    def n_sine(_, x, out):
+        mine.append(('sine', x))
+        out[0] = sine
+        return 0
+    keep = [
+        ACTOR_FN(n_entry),
+        ACTOR_FN(lambda _, a: (mine.append(('motor', ACTOR)), 0)[1]),
+        ACTOR_FN(n_display),
+        TRANSLATE_FN(lambda _, a, arg: (mine.append(('translate', arg)), 0)[1]),
+        SINE_FN(n_sine),
+        FLOOR_FN(lambda _, a, search, out: (mine.append(('floor', search, word(a, 0xB4))),
+                                            out.__setitem__(0, 0), 0)[2]),
+        ACTOR_FN(lambda _, a: (mine.append(('fall', ACTOR)), 0)[1]),
+    ]
+    workers = StateOneWorkers(None, *keep)
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    assert native.em_player_001837B0(C.byref(workers), C.byref(live)) == 0
+    assert mine == log, ('001837B0 calls', mine, log)
+    image = bytes(live.bytes)
+    for k in range(0x320):
+        assert image[k] == oracle.load(ACTOR + k, 1), ('001837B0 byte', hex(k), image[k], oracle.load(ACTOR + k, 1))
+    return image, log
+
+
+def state_one_section(elf, native, rng, result):
+    """001837B0 (0015B530's +5 = 1 routine), executed, against
+    em_player_001837B0: every phase (0 falling into 1, 1 with the +0x200
+    bit 0x8000 set and clear, 2 with +0x1F0 left zero and nonzero, others),
+    and the float tail over special operands (zero, negative zero, the
+    EE's largest magnitude, denormals, NaN / infinity patterns, which the EE
+    treats as large normals)."""
+    native.em_player_001837B0.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
+    specials = (0, 0x80000000, 0x3F800000, 0xBF800000, 0x7F7FFFFF, 0xFF7FFFFF, 0x7F800000, 0x7FC00000,
+                0x00000001, 0x00400000, 0x3E4CCCCD, 0xBE4CCCCD)
+    samples = reference_mode.pick(800, 16)
+    paths = set()
+    for case in range(samples):
+        raw = bytearray(rng.randrange(256) for _ in range(0x320))
+        raw[6] = case % 4 if case < 16 else rng.choice([0, 1, 1, 2, 2, 3, 0xFF])
+        flags200 = rng.choice([0, 0x8000, 0xFFFF7FFF, 0xFFFFFFFF, rng.randrange(1 << 32)])
+        struct.pack_into('<I', raw, 0x200, rng.choice([0, 0x8000, rng.randrange(1 << 32)]))
+        mode1F0 = rng.choice([0, 0, 1, 3, 0xFF])
+        if case < 16:   # both outcomes of each phase's test, deterministically
+            odd = (case // 4) % 2
+            flags200 = (0x8000 if odd else 0) | (rng.randrange(1 << 32) & ~0x8000)
+            struct.pack_into('<I', raw, 0x200, flags200)
+            mode1F0 = 0 if odd else rng.randrange(1, 256)
+        if case % 3 == 0:
+            struct.pack_into('<I', raw, 0x38, rng.choice(specials))
+            struct.pack_into('<I', raw, 0xB4, rng.choice(specials))
+            sine = rng.choice(specials)
+        else:
+            struct.pack_into('<f', raw, 0x38, rng.uniform(-2, 2))
+            struct.pack_into('<f', raw, 0xB4, rng.uniform(-300, 300))
+            sine = bits(rng.uniform(-1, 1))
+        phase = raw[6]
+        flag_in = struct.unpack_from('<I', raw, 0x200)[0]
+        image, log = state_one_case(elf, native, raw, flags200, mode1F0, sine)
+        if phase == 0: paths.add(('entry', bool(flags200 & 0x8000)))
+        elif phase == 1: paths.add(('wait', bool(flag_in & 0x8000)))
+        elif phase == 2: paths.add(('move', mode1F0 == 0))
+        else: paths.add('other phase')
+    need = {('entry', False), ('entry', True), ('wait', False), ('wait', True), ('move', False),
+            ('move', True), 'other phase'}
+    assert need <= paths, sorted(map(str, need - paths))
+    # A missing worker is a fault before any write.
+    raw = bytearray(0x320)
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    assert native.em_player_001837B0(C.byref(StateOneWorkers()), C.byref(live)) == -1
+    assert bytes(live.bytes) == bytes(raw)
+    result['state_one_cases'] = samples
+
+
 # ---------------------------------------------------- real worlds, +214
 
 # The native floor service over the actor-collision ground worker, beside the
@@ -1589,6 +1723,9 @@ def main():
 
     # 4c-2. 00183250, the arrival walk-out (0015B610's +5 = 1 routine).
     arrival_section(elf, native, rng, result)
+
+    # 4c-2b. 001837B0 (0015B530's +5 = 1 routine).
+    state_one_section(elf, native, rng, result)
 
     # 4c-3. The first-contact one-shots (00187DC0 / 00187EA0).
     first_contact_section(elf, native, result)

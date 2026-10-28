@@ -1233,6 +1233,50 @@ int em_player_00183250(void *context, EmPlayerLiveActor *a)
     return w->floor(w->context, a, 1, &contact) < 0 ? -1 : 0;
 }
 
+/* 001837B0 (em_player_floor.h). The one constant is the routine's own word
+ * -0.2 (0xBE4CCCCD). */
+int em_player_001837B0(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerStateOneWorkers *w = context;
+    if (!w || !a || !w->entry_clip || !w->motor || !w->display || !w->translate || !w->sine ||
+        !w->floor || !w->fall_check)
+        return -1;
+    switch (em_live_u8(a, 6)) {
+    case 0:
+        em_live_set_u8(a, 6, 1);
+        em_live_set_u8(a, 7, 0);
+        STAGE_CALL(w->entry_clip(w->context, a));
+        /* fall through */
+    case 1:
+        if (!(em_live_u32(a, 0x200) & 0x8000u)) {
+            em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+            em_live_set_u8(a, 0x25C, 0);
+            em_live_set_u8(a, 0x1F0, 1);
+            em_live_set_u8(a, 0x1F1, 1);
+        }
+        break;
+    case 2:
+        STAGE_CALL(w->motor(w->context, a));
+        STAGE_CALL(w->display(w->context, a));
+        STAGE_CALL(w->translate(w->context, a, 1));
+        if (em_live_u8(a, 0x1F0) == 0) {
+            em_live_set_u8(a, 5, 0);
+            em_live_set_u8(a, 6, 0);
+        }
+        break;
+    default:
+        break;
+    }
+    uint32_t s;
+    STAGE_CALL(w->sine(w->context, em_live_u32(a, 0x9C), &s));
+    const uint32_t y = em_ee_sub_bits(em_live_u32(a, 0xB4), em_ee_mul_bits(em_live_u32(a, 0x38), s));
+    em_live_set_u32(a, 0xB4, y);
+    em_live_set_u32(a, 0xB4, em_ee_add_bits(y, UINT32_C(0xBE4CCCCD)));
+    int contact;
+    STAGE_CALL(w->floor(w->context, a, 1, &contact));
+    return w->fall_check(w->context, a) < 0 ? -1 : 0;
+}
+
 int em_player_stage_0015D460(void *context, EmPlayerLiveActor *a)
 {
     const EmPlayerStageFade *f = context;

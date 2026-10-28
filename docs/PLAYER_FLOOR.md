@@ -376,6 +376,22 @@ record words each callee can see. They cover random phases, timers and
 speeds (64 by default, 1,200 with `EM_TEST_FULL=1`) and the whole
 walk-out on one record, from 001B07C0's 5 / 1 / 0 to the +4 = 1 return.
 
+Since 2026-10-28 the file also translates 0015B530's +5 = 1 routine
+001837B0 (`em_player_001837B0` over EmPlayerStateOneWorkers), from the
+byte-matched decomp C: phase 0 starts the walk entry clip (0017B5C0) and
+falls into phase 1, which waits for bit 0x8000 of +0x200 to clear and then
+writes +0x25C = 0 and +0x1F0 = +0x1F1 = 1; phase 2 runs 0017BC40,
+0017C030 and 00178B90(p, 1) and returns to +5 = 0 when +0x1F0 is 0; every
+phase then lowers +0xB4 by +0x38 times the sine of +0x9C and by 0.2 and
+calls 00175900(p, 1) and 001796C0. The closure binder
+(em_player_closure_live.c) installs it with the locomotion host's 0017B5C0 /
+0017C030, the record-level 0017BC40, the record's 00178B90 / 00175900 /
+001796C0 and the SDK 0011E2A8. The "state one" cases run the original
+001837B0 with those seven callees hooked and recorded (every phase, both
+outcomes of each test, special float operands; 16 by default, 800 with
+`EM_TEST_FULL=1`) and compare every record byte and the call log; a
+missing worker faults before any write.
+
 The two shared-library compiles of this test (the floor library and the
 real-world bridge) are cached by a hash of the command, the .c files and
 every src/ header, so an unchanged tree reuses them. The default run is back

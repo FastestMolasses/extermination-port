@@ -22,9 +22,10 @@
  *   sound_stop the live 0011A070 body (em_sfx_stop_track)
  *   major[4]   0015B530 with 001837A0 (byte-matched, empty) and 00182DF0
  *              (em_player_stage_00182DF0 through the pose host, which also
- *              ends the interaction host's staged token); 001837B0,
- *              001838B0 and 00183910 fault (untranslated), 00162DB0 /
- *              00163B40 are FLOOR's
+ *              ends the interaction host's staged token); 001837B0 is
+ *              the closure binder's em_player_001837B0 (with an original
+ *              collision world), 001838B0 and 00183910 fault
+ *              (untranslated), 00162DB0 / 00163B40 are FLOOR's
  *   major[6]   0015D460 with the live 001AEDE0 (em_frame_fade_start_colour)
  *   commit     00183090 with 001D0C70 = the AREA11 interaction host's face
  *              tick and bone_init 001C63E0 / anim_clip_init 001C67E0 on the
