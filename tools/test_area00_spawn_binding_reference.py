@@ -27,7 +27,7 @@ class Group(C.Structure):
 def check_live(out):
     source = (ROOT / 'src/game/em_scene_bindings.c').read_text()
     pieces = []
-    for name in ('condition_canonical', 'area00_bind_deferred', 'area00_spawn_deferred', 'area01_missing_worker'):
+    for name in ('condition_canonical', 'area00_bind_deferred', 'area_spawn_deferred', 'area01_missing_worker'):
         start = source.index(f'static int {name}(')
         end = source.index('\n}', start) + 2
         pieces.append(source[start:end])
