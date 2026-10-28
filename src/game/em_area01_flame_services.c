@@ -77,8 +77,18 @@ static void *sprite_memory(void *ctx,uint32_t address,size_t size,int write)
     const EmArea01RuntimeHost *h=ctx;
     return size<=UINT32_MAX?h->bytes(h->ctx,address,(uint32_t)size,write):NULL;
 }
+static int beam_call(void *ctx,EmAimFireTargetCall *t)
+{
+    const EmArea01RuntimeHost *h=ctx;
+    if(t->na>8 || t->nf>8)return -1;
+    EmArea01Call c={.function=t->function,.sp=t->sp,.na=t->na,.nf=t->nf};
+    memcpy(c.a,t->a,t->na*sizeof c.a[0]);memcpy(c.f,t->f,t->nf*sizeof c.f[0]);
+    if(h->worker(h->ctx,&c)<0)return -1;
+    t->v0=c.v0;t->f0=c.f0;return 0;
+}
 int em_area01_flame_services_handles(uint32_t fn)
-{ return fn==0x001CD070u || fn==0x001CD2B0u || fn==0x001CFAE0u || fn==0x001F4A10u || fn==0x001E8B90u || fn==0x001E9E60u || fn==0x001F4CC0u || fn==0x001F4BF0u || fn==0x001F4A00u || fn==0x001CD520u; }
+{ return fn==0x001CD070u || fn==0x001CD2B0u || fn==0x001CFAE0u || fn==0x001F4A10u || fn==0x001E8B90u || fn==0x001E9E60u || fn==0x001F4CC0u || fn==0x001F4BF0u || fn==0x001F4A00u || fn==0x001CD520u ||
+         fn==0x001E2BA0u; }
 int em_area01_flame_services_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_t *fault)
 {
     if(!c)return fail(fault,0x001E3D90u);
@@ -102,6 +112,14 @@ int em_area01_flame_services_call(const EmArea01RuntimeHost *h,EmArea01Call *c,u
         EmAimFireTargetCall target={.function=c->function,.sp=c->sp,.na=c->na,.nf=c->nf};
         memcpy(target.a,c->a,c->na*sizeof c->a[0]);memcpy(target.f,c->f,c->nf*sizeof c->f[0]);
         int rc=em_aim_fire_runtime_sprite_borrow(&target,(void *)h,sprite_memory,fault);
+        c->v0=target.v0;c->f0=target.f0;return rc;
+    }
+    if(c->function==0x001E2BA0u) {
+        /* The AREA01 revisit's 0x8282F0 beam (em_aim_fire_runtime_beam_borrow). */
+        if(c->na!=3 || c->nf!=1)return fail(fault,c->function);
+        EmAimFireTargetCall target={.function=c->function,.sp=c->sp,.na=c->na,.nf=c->nf};
+        memcpy(target.a,c->a,c->na*sizeof c->a[0]);memcpy(target.f,c->f,c->nf*sizeof c->f[0]);
+        int rc=em_aim_fire_runtime_beam_borrow(&target,(void *)h,sprite_memory,beam_call,fault);
         c->v0=target.v0;c->f0=target.f0;return rc;
     }
     Frame frame={.host=h};

@@ -854,6 +854,30 @@ int em_aim_fire_runtime_sprite_borrow(EmAimFireTargetCall *c,void *context,
     }
     return rc;
 }
+int em_aim_fire_runtime_beam_borrow(EmAimFireTargetCall *c,void *context,
+    void *(*map)(void *,uint32_t,size_t,int),int (*call)(void *,EmAimFireTargetCall *),
+    uint32_t *fault_address)
+{
+    /* 001E2BA0(start, end, colour; f12 length): the same render owner as
+     * the gun's beam (em_area00_hud's translation through
+     * em_aim_fire_render_live), over the caller's memory. It loads vf23
+     * itself and leaves it valid, as the native beam root does. Its SDK
+     * callees go to the caller's `call`. */
+    if(!c || c->function!=0x001E2BA0u || c->na!=3 || c->nf!=1 || !map || !call ||
+       !R.render.vu || !R.render.vf23_valid || R.render.fault_function) {
+        if(fault_address)*fault_address=R.render.fault_address ? R.render.fault_address : 0x001E2BA0u;
+        return -1;
+    }
+    EmAimFireRenderLive view=R.render;
+    view.context=context;view.map=map;view.call=call;
+    int rc=em_aim_fire_render_live_call(&view,c);
+    if(rc<0) {
+        R.render.fault_function=view.fault_function;
+        R.render.fault_address=view.fault_address;
+        if(fault_address)*fault_address=view.fault_address ? view.fault_address : view.fault_function;
+    }
+    return rc;
+}
 int em_aim_fire_runtime_world_call(uint32_t fn,const uint32_t *a,unsigned na,uint32_t f12,unsigned nf,
                                    uint32_t *spad,uint32_t *v0)
 {

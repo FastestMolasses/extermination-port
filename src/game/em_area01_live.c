@@ -499,6 +499,9 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     case 0x0012E070u: rc=c->na<1 ? -1 : em_area00_low_0012E070(&low,a0);break;
     /* 0012DE90(event block): the AREA01 revisit's 0x824D50 (byte-matched C). */
     case 0x0012DE90u: rc=c->na<1 ? -1 : em_area00_low_0012DE90(&low,a0);break;
+    /* 00102870(dst, v; f12): the AREA01 revisit beam's (001E2BA0) quadword
+     * divide, em_area00_low's translation (as em_aim_fire_runtime's). */
+    case 0x00102870u: rc=c->na<2 || c->nf<1 ? -1 : em_area00_low_00102870(&low,a0,a1,c->f[0]);break;
     default: rc=-1;break;
     }
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
@@ -508,7 +511,7 @@ static int low_entry_handles(uint32_t fn)
     switch(fn) {
     case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
     case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
-    case 0x0012DE90u:
+    case 0x0012DE90u: case 0x00102870u:
         return 1;
     default:
         return 0;

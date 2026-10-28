@@ -38,6 +38,12 @@ int em_aim_fire_runtime_001F4010(int32_t index, const uint32_t *at);
  * Requires runtime attach. Writes and first faults remain even on failure. */
 int em_aim_fire_runtime_sprite_borrow(EmAimFireTargetCall *, void *context,
     void *(*map)(void *, uint32_t, size_t, int), uint32_t *fault_address);
+/* The same borrow for the beam 001E2BA0 (start, end, colour; f12 length):
+ * the AREA01 revisit's 0x8282F0 draws its beam through it; its SDK callees
+ * go to `call` (the same context). */
+int em_aim_fire_runtime_beam_borrow(EmAimFireTargetCall *, void *context,
+    void *(*map)(void *, uint32_t, size_t, int), int (*call)(void *, EmAimFireTargetCall *),
+    uint32_t *fault_address);
 /* The knife's callees for em_equipment_live_set_world (behind the gate). */
 int em_aim_fire_runtime_world_call(uint32_t fn, const uint32_t *a, unsigned na, uint32_t f12, unsigned nf,
                                    uint32_t *spad, uint32_t *v0);
