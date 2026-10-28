@@ -793,6 +793,85 @@ int em_coll_list_001A97B0(P *p)
     return 0;
 }
 
+/* ---- 001A99E0 ---------------------------------------------------------------- */
+
+/* 001A9B10's pair callee (outer class-2 entry e, inner class-4 type-7 entry
+ * f with a nonzero +0x38 spin): e rides f's rotation. dx, dz are e's +0xB0 /
+ * +0xB8 minus f's; when 0011E748 (sqrtf) of dx dx + dz dz (the sum in the
+ * accumulator) is <= 67.0 + the first float of e's +0x30 record, and the
+ * SDK fabsf 0011DF78 of e.y - f.y is <= 8.0, e's x/z are rotated about f
+ * by the spin angle a (f's +0x38, re-read for every call):
+ *   e.x = f.x + (dx cos(a) + dz sin(a)),  e.z = f.z + (dx -sin(a) + dz cos(a))
+ * with cosf 0011DE90 / sinf 0011E2A8 evaluated once per term in the
+ * original's order (cos, sin; sin, cos) and f's x/z re-read after the
+ * calls; then e's +0xC4 heading = 001B1470(heading + a) and the inner walk
+ * counter 0x70003B88 = 0 (001A9B10's inner walk ends). */
+int em_coll_list_001A99E0(P *p, uint32_t e, uint32_t f)
+{
+    if (!ready(p) || !p->math || !p->math->tables) return p ? fail(p, 0x1A99E0) : -1;
+    const EmSdkMathContext *m = p->math;
+    uint32_t fault = 0;
+    float ex, fx, ez, fz;
+    TRY(rd_f(p, e + 0xB0, &ex, 0x1A99FC));
+    TRY(rd_f(p, f + 0xB0, &fx, 0x1A9A00));
+    TRY(rd_f(p, e + 0xB8, &ez, 0x1A9A04));
+    TRY(rd_f(p, f + 0xB8, &fz, 0x1A9A08));
+    const float dx = em_ee_sub(ex, fx);                               /* 0x1A9A14 */
+    const float dz = em_ee_sub(ez, fz);                               /* 0x1A9A18 */
+    const float acc = em_ee_mula(dx, dx);                             /* 0x1A9A1C */
+    float dist;
+    if (em_sdk_math_original_0011E748(m->tables, &m->world, &m->workers, em_ee_madd(acc, dz, dz), &dist,
+                                      &fault) < 0)                     /* 0x1A9A20, 0x1A9A24 */
+        return fail(p, fault ? fault : 0x1A9A20);
+    uint32_t range;
+    float radius;
+    TRY(rd_u32(p, e + 0x30, &range, 0x1A9A28));
+    TRY(rd_f(p, range, &radius, 0x1A9A34));
+    if (!em_ee_c_le(dist, em_ee_add(67.0f, radius))) return 0;        /* 0x1A9A38..0x1A9A44 */
+    float ey, fy;
+    TRY(rd_f(p, e + 0xB4, &ey, 0x1A9A4C));
+    TRY(rd_f(p, f + 0xB4, &fy, 0x1A9A50));
+    const float ady = em_sdk_math_original_0011DF78(em_ee_sub(ey, fy)); /* 0x1A9A54, 0x1A9A58 */
+    if (!em_ee_c_le(ady, 8.0f)) return 0;                             /* 0x1A9A68, 0x1A9A70 */
+
+    float spin, c, s, fx2, fz2, heading, wrapped;
+    TRY(rd_f(p, f + 0x38, &spin, 0x1A9A7C));
+    if (em_sdk_math_original_0011DE90(m->tables, spin, &c, &fault) < 0)   /* 0x1A9A78 */
+        return fail(p, fault ? fault : 0x1A9A78);
+    const float xc = em_ee_mul(dx, c);                                /* 0x1A9A88 */
+    TRY(rd_f(p, f + 0x38, &spin, 0x1A9A80));
+    if (em_sdk_math_original_0011E2A8(m->tables, spin, &s, &fault) < 0)   /* 0x1A9A84 */
+        return fail(p, fault ? fault : 0x1A9A84);
+    const float xs = em_ee_mul(dz, s);                                /* 0x1A9A8C */
+    TRY(rd_f(p, f + 0xB0, &fx2, 0x1A9A90));
+    TRY(wr_f(p, e + 0xB0, em_ee_add(fx2, em_ee_add(xc, xs)), 0x1A9A9C)); /* 0x1A9A94, 0x1A9A98 */
+
+    TRY(rd_f(p, f + 0x38, &spin, 0x1A9AA4));
+    if (em_sdk_math_original_0011E2A8(m->tables, spin, &s, &fault) < 0)   /* 0x1A9AA0 */
+        return fail(p, fault ? fault : 0x1A9AA0);
+    const float zs = em_ee_mul(dx, em_ee_neg(s));                     /* 0x1A9AA8, 0x1A9AB4 */
+    TRY(rd_f(p, f + 0x38, &spin, 0x1A9AAC));
+    if (em_sdk_math_original_0011DE90(m->tables, spin, &c, &fault) < 0)   /* 0x1A9AB0 */
+        return fail(p, fault ? fault : 0x1A9AB0);
+    const float zc = em_ee_mul(dz, c);                                /* 0x1A9AB8 */
+    TRY(rd_f(p, f + 0xB8, &fz2, 0x1A9ABC));
+    TRY(wr_f(p, e + 0xB8, em_ee_add(fz2, em_ee_add(zs, zc)), 0x1A9AC8)); /* 0x1A9AC0, 0x1A9AC4 */
+
+    TRY(rd_f(p, f + 0x38, &spin, 0x1A9ACC));
+    TRY(rd_f(p, e + 0xC4, &heading, 0x1A9AD0));
+    if (em_effect_original_001B1470(em_ee_add(heading, spin), &wrapped) < 0)   /* 0x1A9AD4, 0x1A9AD8 */
+        return fail(p, 0x1A9AD4);                                     /* a wrap that cannot end */
+    TRY(wr_f(p, e + 0xC4, wrapped, 0x1A9ADC));
+    p->globals->s3B88 = 0;                                            /* 0x1A9AE4 */
+    return 0;
+}
+
+int em_coll_list_passes_001A99E0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b)
+{
+    (void)context;
+    return em_coll_list_001A99E0(passes, a, b);
+}
+
 /* ---- 001A9B10 ---------------------------------------------------------------- */
 
 int em_coll_list_001A9B10(P *p)
