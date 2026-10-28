@@ -8,7 +8,8 @@ level, the first AREA01 visit nor AREA00 ran (decomp
 and compared with the original instructions by
 `tools/test_area01_revisit_reference.py`. What that comparison covers is
 exactly what section 3 states: the comparisons the test makes, on the cases
-it runs. Nothing is bound: no port code calls these entries yet.
+it runs. Since 2026-10-28 they are bound into the AREA01 runtime ("State"
+and "Binding" below).
 
 | File | What |
 |---|---|
@@ -24,7 +25,93 @@ runs, so each decomp/splat name is 0x40 lower (0x825950 is
 group and record address the translation names reaches a hook argument or a
 compared access, so the test confirms each one.
 
-## State (2026-10-19, port main 789b4b4)
+## State (newest first)
+
+### 2026-10-28 (branch `revisit`, from `drawbridge` 2033e06)
+
+**Bound, with a route harness; the revisit still cannot be played natively,
+because the New Game route stops in AREA00 first.**
+
+- **Binding** (a631224). `src/game/em_area01_runtime_revisit.inc` puts the
+  external entries into `em_area01_runtime`'s dispatch (area 1 only):
+  0x825950, 0x8237D0, 0x823900, 0x8239C0, 0x824340, 0x824770, 0x824D50,
+  0x825910 (op09, v0 returned) and, from `em_area00_return.c`, 0x823CD0
+  and 0x826010 (now in the build). Every hook of both modules (53 + 34 and
+  the +0x4C callback) re-enters `em_area01_runtime_call` by its original
+  address: a callee the live composition has a worker for runs there, any
+  other faults at its address ("em_area01: unbound worker ..."). 0x8282F0
+  stays with `em_area01_gun_aux` (first visit). The five owner callbacks
+  join `area01_rebind`'s list. D_008107DF (counter 7, the event stage) is
+  now a canonical progress byte (`em_scene_state.h`); D_00810760,
+  D_0081075F, D_008107E0, D_00810845 and D_008106C0 (request block +0x10)
+  already were.
+- **Binding test** (`make test-area01-revisit-runtime-reference`,
+  `tools/test_area01_revisit_runtime_reference.py`): each entry runs
+  through the runtime over the six revisit images (D_00275B40 / D_00275B48
+  published as the pool walk does); every call the runtime forwards to its
+  host worker runs as ORIGINAL code on the shared RAM, scratchpad and stack,
+  at exactly the sp the runtime passed; RAM, scratchpad and 0x825910's v0
+  must equal the original instructions run over the same image with every
+  callee as original code. A bound entry reaching the worker fails the case;
+  a refused first worker call must stop the entry with that address
+  latched (5 cases). Cases: 34 captured (every 0x825950 / 0x823CD0 node,
+  0x825910 and 0x826010 on each 0x825950 node) plus designed ones on
+  a01r_00 (g[5] states 0..3 x the seven stages x +0x05 steps, g[7] with
+  D_00810845 bit 5, the five creatures' 0x823CD0 states 0/2/4/5 and +0x05
+  1/2/6/7 with their +0x06 steps at D_008107DF 0 and 2, 0x825910 around
+  505.0, 0x826010 across its counter, the group 0x82A900 behaviours on a
+  spare node): 249 in all, quick 72 (~9 s wall), all pass; 200 also passed
+  serially once. Mutants caught: an entry left undispatched, the two float
+  arguments of 001B1240 swapped. Not observable here: the nested-call frame
+  sizes (taken from each function's first instruction; the callees these
+  cases reach keep nothing in the overlapping stack).
+- **001B6660 and 001C47A0 in AREA01** (5737493, 3846f34): the deferred
+  spawn now serves AREA01's own records (module id 2, data
+  0x828A00..0x82CD00) for 0x825F00's groups 0x829220 / 0x8291C0; the AREA01
+  worker serves 001C47A0 (001C40B0 with a1 passed through, D_008106B0 = 1,
+  D_008106B1 = type). Build-verified only: no native run reaches them yet.
+- **Route harness** (3d0c17f): phases `a01r_00..a01r_02` after `a00_10`
+  (`em_level_smoke_test.c`, pads from `EM_LEVEL4_PAD_DIR`),
+  `tools/level_smoke_area01r.py` (recordings `s87/route_a01r` on the fork,
+  a01r_00's source a00_10, the recorder's late-input correction of
+  a01r_01, a strict row comparison: player, ground, camera, task, request,
+  message, fade, health, the progress windows with D_008107DF / D_008107E0
+  / D_0081075F, D_00810760..63, locks, weapon bytes and the sixteen owners
+  of FOURTH_LEVEL_ROUTE.md section 1.1, each checked against the beats'
+  saved RAM; ending camera bytes) and `tools/test_level_smoke_area01r.py`
+  (`make test-area01r-smoke-harness`: the C driver over the 964 recorded
+  commands / 10,528 frames under ASan/UBSan and the checker over 10,528
+  capture-shaped rows with 45 rejected corruptions, ~8 s; `--run` plays New
+  Game to `--until`). The tick log carries `"a01r"` only in AREA01 with
+  D_0081075E = 0xFF. The port cannot start a beat from a recorded state
+  (no snapshot or captured state is imported), so `--run` plays the whole
+  path.
+- **The run** (`--run --drive-replay ../extermination-port/build/drive_replay`,
+  binary 3d0c17f): a00_00..a00_03 in process, then **a00_04 frame 6540**,
+  "owner 0012A5D0 node 007AD490 failed at 001EFFD0", the AREA00 stop
+  LEVEL3_BINDING.md names (the AREA00 lane's front). The revisit is not
+  reached. Receipts (ignored): `build/level4/smoke/run.log`, `receipt.json`.
+- **Stops already known on the revisit's path**, in order, each a fail-stop
+  at its address:
+  1. a00_10 frame 979 (the AREA01 return's tail, before a01r_00): the
+     event owner's 0x825BE0 runs 0x826010 every frame; its probe calls
+     001B0CD0 and that 001F4F40 (decomp census `a00_delta.json`: both first
+     at a00_10 f979, segment `exit`). No AREA01 worker: `em_area00_world`
+     translates 001B0CD0 but only over a region list (the node 001F4F40
+     returns is not known in advance), so it needs a view entry like
+     `em_area00_world_view_0019C6F0`, plus a binding of the effect
+     allocator 001F4F40. Both files are the AREA00 lane's; this is inside
+     a00_10's compared return rows.
+  2. a01r_01 frame 1139: script 0x82AD90's op14 calls 001BAC00 (the
+     placement of group 0x82A900: script actors 001BB0E0 and the three
+     0x8237D0 / 0x823900 / 0x8239C0 nodes). The AREA01 script host forwards
+     it to the worker, which has no 001BAC00 (`em_area11_bindings_001BAC00`
+     is the AREA11 opening's).
+  3. Hooks for which no AREA01 worker was found by reading the
+     composition: 001F4010 (0x8237D0), 001C6960 (0x823CD0 states 4 / 5),
+     0012DE90 (0x824D50; AREA00 reaches it first, a00_09).
+
+### 2026-10-19 (port main 789b4b4)
 
 **The revisit does not play natively yet, and has no live harness.** The
 user's target is the revisit's event and the bridge: a01r_00 (back to the
@@ -314,38 +401,32 @@ against the case list (cases of the mutated function first), then
 
 ## Binding
 
-Nothing calls these entries. To run them live a host must:
+Bound 2026-10-28 (State). How, and what a host still owes:
 
-- supply `bytes` over the scene's original-byte storage (actor pool, the
-  0x810000 story block including D_008106C0 / D_008107DF / D_00810845, the
-  overlay's data at 0x823500.., boot data such as D_0028A5C4 and
-  D_00275B40, the scratchpad) and a mapped frame below each `sp` it passes
-  (sp - 0x60 .. sp for 0x8237D0, sp - 0x10 .. sp for 0x823900, sp - 0x40
-  .. sp for 0x825BE0, sp - 0x20 .. sp for 0x8282F0, and sp - 0x60 .. sp -
-  0x20 for 0x825950, whose 0x825BE0 runs at sp - 0x20); the callees read
-  and write those locals;
-- dispatch 0x825950 (records 0x828A00[5] and [7]) and 0x8237D0 / 0x823900 /
-  0x8239C0 (the group 0x82A900 behaviours) from the pool loop by the +0x10
-  behaviour word (after publishing D_00275B40 = node + 0x110), 0x824340 /
-  0x824770 / 0x824D50 from a translation of 0x823CD0 (`em_area00_return.c`, unwired),
-  0x8282F0 from em_area01_overlay's `w_008282F0` hook (which must add the
-  frame), and 0x825910 from the script interpreter's op09;
-- bind each hook to a verified port translation or a fail-stop stand-in. The
-  callees are not verified here: the animation and draw calls (001C63E0,
-  001C64F0, 001C68C0, 001C69A0, 001CA6F0, 001B17A0, 001287F0, 00128830,
-  0012D580, 0012DE90, 001C2770, 001C3D60), the script tick 001BA1F0, the
-  quad test 001B1EA0, the collision probes 0019AA80 / 0019A570, spawning and
-  freeing (001AFA90, 001B6660, 001AFC10), 001B10B0, 0019C6F0, 001C4760,
-  001C47A0, 001FAE70, effects, sprites and sound (001EFD20, 001EFD90,
-  001F4010, 001F4E20, 001CD520, 001E2BA0, 001FB9F0), the overlay function
-  0x826010, and the +0x4C callbacks (0x1CAA00 at every node in the images).
-  The helpers the test runs as original code are verified only as far as
-  they are compared here (their writes and results are the original's; a
-  binding still needs a port translation of each). Several have port
-  translations in other lanes; a binding lane must pair them by address and
-  check each pairing.
-- the op09 entry's a1 and a2 are unused by the original; pass what the
-  interpreter passes.
+- **Dispatch** (`em_area01_runtime_revisit.inc`, `dispatch_revisit`, AREA01
+  only; AREA00 resolves its own overlay addresses first): the pool walk's
+  `area01_behavior` calls the runtime with the node's +0x10 callback, so
+  0x825950 (0x828A00[5], [7]), 0x823CD0 ([0..4]) and 0x8237D0 / 0x823900 /
+  0x8239C0 (group 0x82A900) reach their translations; 0x823CD0's hooks
+  reach 0x824340 / 0x824770 / 0x824D50; 0x825BE0 / 0x825D30's hook reaches
+  0x826010; the script host's op09 record callback reaches 0x825910 (a1, a2
+  passed as the interpreter passes them; the original reads a0 only).
+  0x8282F0 is `em_area01_gun_aux`'s (the first visit's 0x826D40 path).
+- **Stack**: an entry gets the runtime's sp; nested worker calls get sp
+  less the entry's original frame and, where it calls revisit functions
+  directly, less the deepest such frame too (0x825950 0x20 + 0x825BE0
+  0x70; 0x824340 0x40 + 0x825040 0x30; 0x8237D0 0x90, 0x823900 0x30,
+  0x8239C0 0x10, 0x824770 0x60, 0x824D50 0x50, 0x823CD0 0x30, 0x826010
+  0x40). The live composition serves the frames from its private locals.
+- **Memory**: both modules' views have no write flag; the runtime serves
+  them as read views (as `em_area01_gun_aux` does for 0x8282F0). Stores
+  land in the same storage; the actor view's commit still refuses a store
+  into a pool link or a read-only projected span. Every byte they touch must
+  be canonical: D_008107DF was migrated for this (the others already were).
+- **Hooks**: every callee re-enters the runtime by address. Those with an
+  AREA01 worker run it; the rest fault there. Not verified by this lane:
+  each worker's own translation (the binding test runs them as original
+  code); the ones known to be missing are listed in State.
 
 ## Known gaps
 
