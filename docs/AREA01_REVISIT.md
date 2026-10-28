@@ -27,6 +27,54 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### Survey: op0D of 0x82AD90 through a01r_02 (2026-10-28, night)
+
+**Method.** Two hidden, owned fork replays of route_capture's closed-loop
+beats under the run lock, through route_census's CensusSession (the
+decomp's `build/fork_refs/probes_1028_a01r_survey/survey.py`; outputs are
+addresses and frames only). One-shot entry breakpoints on the census
+candidates (3,019: the boot ELF's functions and the AREA01 overlay's,
+runtime = splat label + 0x40):
+- a01r_01_event, armed only when g[5]'s script pc (0x7A64F0 + 0x1F8) reads
+  0x82AF50, the op0D camera wait (replay frame 1133), to the beat's end
+  (frame 8114: the event, D_008107DF 0xFF, item 0x20, the status page
+  closed): **682 functions**;
+- a01r_02_bridge, armed for the whole beat (1023 frames: the bridge,
+  script 0x82B0D0, the tilt, D_008107E0 / D_00810760 0xFF, control back):
+  **653 functions**.
+Both replays completed. Their union is **780 functions** (764 boot, 16
+AREA01 overlay).
+
+**Port coverage** (a translation counts where a function definition names
+the address, as level_readiness.py's source_definitions, plus its ALIASES;
+otherwise by hand):
+- 592 have an address-named definition in `src/game`.
+- 84 are native boundaries (the decomp's census classification: EE sound
+  library 24, EE kernel / SIF 23, GS/VIF packet build 11, libcdvd 7, SDK
+  DMA/VIF 6, libmc / SIF RPC 5, C runtime 4, GS texture upload 2, module
+  loader 2).
+- 96 are translated under names without the address (the census
+  classification's module, each present in `src/game`: em_area_script ops,
+  em_cinematic_playback, em_message_*, em_shadow_original, em_pose_host
+  workers, em_player_* workers, em_status_*, em_door_*).
+- 8 checked by hand: 0x826000 and 0x828330 are the second splat pieces of
+  0x825FC0 and 0x8282F0 (their decomp C covers both pieces); 001C0004 and
+  001C2FF0 are the false-split tails of 001BFFD0 and 001C2770
+  (em_area01_math_owner / em_area01_math_actor); 001A58B0 is
+  em_actor_collision's column_round; 001CD070 is em_area01_render_001CD070;
+  002082B0 / 00208AD0 are the status pages' arc and health gauge
+  (em_page_draw_arc, em_status_health_draw).
+
+**Result: no translation is missing** for this stretch, so there is no
+function without readable C to decide on. Reachability: the 58 boot
+callees of the 16 overlay functions that run here (0x823580, 0x8237D0,
+0x823900, 0x8239C0, 0x825950, 0x825F00, 0x825FC0 / 0x826000, 0x8261A0,
+0x826200, 0x826440, 0x8267C0, 0x826D40, 0x8282F0 / 0x828330, 0x828850) all
+have an address case in the AREA01 runtime or live. Calls the boot
+translations make among themselves (the script ops' workers, the effect
+handlers) show up only in a run: the discovery runs found 001C9E40,
+001F5040's reused record and 001EDAF0 that way (State below).
+
 ### 2026-10-28, evening (branch `revisit`, drawbridge c1ad749 merged)
 
 **`EM_START_AT=area01-revisit` with the a01r pad and path now plays a01r_00,
