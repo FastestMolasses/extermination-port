@@ -9,6 +9,7 @@
 
 #include "game/em_coll_list_passes.h"
 #include "game/em_coll_list_passes_walkers.h"
+#include "game/em_player_hull_shove.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_sdk_soft_float.h"
 
@@ -611,15 +612,23 @@ static int pw_column(void *c, const float at[3], float height, EmPlayerProbeHit 
     (void)c;
     return em_actor_collision_player_001760C0(&w.ground_player, NULL, at, 1, height, hit);
 }
-/* 00176180 (the class-2 hull shove after a mask-bit-0 hit) and 001762E0's
- * area-2 target shove: untranslated; AREA11 publishes no class-2 owner and
- * is not area 2, so neither is reached. Reaching one faults. */
-static int pw_hull_shove(void *c, const float target[3])
+static float pw_sqrt(void *c, float x);
+/* 0x700031F0, the carry flag 00176180 sets (its one storage is the area's:
+ * em_collision_world_bind_carry31F0). */
+static int32_t *s_carry31F0;
+void em_collision_world_bind_carry31F0(int32_t *word) { s_carry31F0 = word; }
+/* 00176180 (the class-2 hull shove after a mask-bit-0 hit): the translation
+ * over this world's 0019AFE0 sweep and SDK sqrt (its fault is recorded in
+ * the SDK context, which the probe caller checks). AREA11 publishes no
+ * class-2 owner, so the census route never reaches it. */
+static int pw_hull_shove(void *c, EmPlayerProbeActor *actor, const float delta[3], const float target[3])
 {
-    (void)c; (void)target;
-    fprintf(stderr, "collision world: 00176180 (class-2 hull shove) is not translated\n");
-    return -1;
+    (void)c;
+    const EmPlayerHullShoveWorkers shove = { NULL, pw_sweep, pw_sqrt, s_carry31F0 };
+    return em_player_00176180(actor, delta, target, &shove);
 }
+/* 001762E0's area-2 target shove: untranslated; AREA11 is not area 2, so it
+ * is not reached. Reaching it faults. */
 static int pw_target_shove(void *c)
 {
     (void)c;

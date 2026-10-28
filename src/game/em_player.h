@@ -74,8 +74,9 @@ int player_pose_display(void);
 
 
 /* WP-15 P16 (docs/PLAYER_FLOOR.md): player_wall_probes runs the translated
- * 001764E0 over the port's collision; unbound workers it reaches (00176180,
- * 001762E0 shove, 00174A50 row request) are counted here. */
+ * 001764E0 over the port's collision; unbound workers it reaches (on the
+ * legacy probe set 00176180; 001762E0 shove, 00174A50 row request) are
+ * counted here. */
 unsigned player_probe_faults(void);
 
 /* ---- Live player states (docs/FIRST_CONTROL.md "Live player states") ------

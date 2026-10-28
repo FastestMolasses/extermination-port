@@ -226,7 +226,8 @@ static int probe_column_none(void *context, const float at[3], float height, EmP
     memset(hit, 0, sizeof *hit);
     return 0;
 }
-static int probe_shove(void *context, const float target[3]) { (void)context; (void)target; return -1; }
+static int probe_shove(void *context, EmPlayerProbeActor *actor, const float delta[3], const float target[3])
+{ (void)context; (void)actor; (void)delta; (void)target; return -1; }
 static int probe_target(void *context) { (void)context; return -1; }
 static int probe_pose(void *context, float blend) { (void)context; (void)blend; return 0; }
 static float probe_sqrt(void *context, float x) { (void)context; return sqrtf(x); }

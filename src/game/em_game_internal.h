@@ -222,7 +222,8 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  * 0x800; the 0x2000 movable class needs its owner's bytes +2/+3 to be
  * 4/2, else a normal-angle window rejects it).
  * CHEST hit response is NOT that add: loop 2 routes every hit through
- * func_00176390 [NEARMISS] -> func_00176180 (still an unread stub), so
+ * func_00176390 [NEARMISS] -> func_00176180 (translated since 2026-10-28,
+ * em_player_hull_shove.c, bound in the collision world's probe set), so
  * the port's "pos += hit - end" on the chest pass is an APPROXIMATION,
  * flagged. The effective wall standoff is 4.5 units; the old
  * zero-radius pre-move probe is why the player clipped into walls.

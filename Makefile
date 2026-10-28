@@ -37,7 +37,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_weather_packets.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
-           src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
+           src/game/em_collision_world.c src/game/em_player_hull_shove.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
@@ -723,6 +723,10 @@ test-player-floor-reference:
 .PHONY: test-player-probe-reference
 test-player-probe-reference:
 	python3 tools/test_player_probe_reference.py
+
+.PHONY: test-player-hull-shove-reference
+test-player-hull-shove-reference:
+	python3 tools/test_player_hull_shove_reference.py
 
 .PHONY: test-shadow-original
 test-shadow-original:

@@ -155,6 +155,9 @@ int em_collision_world_bind_static_kinds(const uint8_t *placements, uint32_t cou
 void em_collision_world_bind_player_pose(int (*pose)(void *context, EmPlayerLiveActor *actor,
                                                      float blend),
                                          void *context, EmPlayerLiveActor *actor);
+/* The scratchpad word 0x700031F0 (the carry flag's one storage) that the
+ * probe set's 00176180 sets; unbound, reaching that store faults. */
+void em_collision_world_bind_carry31F0(int32_t *word);
 /* The owners that publish records onto the lists the close-out passes
  * and the hull locks walk (census L22: Roger 008237E0 publishes class 0x0A
  * onto the class-2 list): the original bytes of their records and the

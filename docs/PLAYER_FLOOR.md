@@ -15,7 +15,8 @@ tables are embedded in the tests.
 |---|---|---|
 | `tools/test_player_footstep_reference.py` | 00187350, 00187EE0, 00182430, 00179B90, 001031E0 | 001FBD50 sound, 001EFD90 effect, 001F0460 decal and its SDK matrix calls, 001E8B90 wade, 00122BB8 rand values |
 | `tools/test_player_floor_reference.py` | 001796C0, 00179450, 00179680, 00175900, 00175CF0, 0019A310, SDK vector routines; 00187DC0 and 00187EA0 against `em_player_first_contact` (the live first-contact worker's body; every argument of their sound calls compared, also inside 00175900 in the real-world section) | 0019BC40 column table, 0019AB20/0019B6C0/0019B8C0 probe results, 00175640, 0017F9E0/0017FB90, 00187DC0/00187DE0/00187EA0 inside the synthetic service cases, 001FBD50 / 001FB9F0, SDK atan2 / tanf (0011E398) / atan / sqrt (host models on both sides) |
-| `tools/test_player_probe_reference.py` | 001764E0, 00176390, 00176BE0, 001762E0, 00176C80, 001760C0, 001756E0, 0019A310, 001029C0/00102BB0/001029E8/00102918/001026A0, 001B1470 | 0019AD00/0019AFE0/0019AB20 probe results, 00176180, 00174A50, SDK sqrt/atan/fabs (host models) |
+| `tools/test_player_probe_reference.py` | 001764E0, 00176390, 00176BE0, 001762E0, 00176C80, 001760C0, 001756E0, 0019A310, 001029C0/00102BB0/001029E8/00102918/001026A0, 001B1470 | 0019AD00/0019AFE0/0019AB20 probe results, 00176180 (its target and D_00281B50 compared with the native worker's arguments), 00174A50, SDK sqrt/atan/fabs (host models) |
+| `tools/test_player_hull_shove_reference.py` | 00176180 (`em_player_00176180`, src/game/em_player_hull_shove.c), 00102738, 00102760, 00102948, 001028B8 | 0019AFE0 sweep results, SDK sqrt (host model; its result is unused) |
 
 ## P14/P15 footsteps: 00187350
 
@@ -134,6 +135,17 @@ inside 00178B90(p, 1). It works in this order:
      node class is floor 0x4000 or ceiling 0x8000. Hull hits of an entity
      with flags 2 re-probe and shove (00176180). Cell hits check 001762E0
      (area 2 'T' targets only).
+   - **00176180** (2026-10-28, from the byte-matched C;
+     src/game/em_player_hull_shove.c). Unless +0x1F0 is 0x3C: p = position
+     + D_00281B50 (00176390's copy of the first hit's delta), the sweep
+     0019AFE0(target -> (p.x + 4.5 n.x, target.y, p.z + 4.5 n.z), 6) with n
+     the delta's normal (00102760); its hit delta is added to p.x / p.z;
+     position x / z = p; 0x700031F0 = 1 for +4 == 1 and +5 == 0x1D. The
+     worker now receives the probe actor and the first hit's delta
+     (`EmPlayerProbeWorkers.hull_shove`). Bound in the collision world's
+     probe set (its sweep and SDK sqrt; 0x700031F0 is em_area11_boxes'
+     carry word); the legacy probe set before FLOOR keeps the fault. Not
+     reached on the census route (no class-2 hull owner in AREA11).
 4. **001756E0 after the floor service.** With +236 set, it keeps it while
    any of seven lanes at (0, 4.01, 4.0) has cover within 13.99. It sets or
    clears +235 bit 1 to match. An idle-callback change requests the row
@@ -191,7 +203,8 @@ em_player.c):
   probes.) Published-cell hits carry the panel's captured owner bytes
   (+2/+3 = 0x84/0x24, owner 0x7AA590); other owners fault.
 - Unbound workers are counted faults (`player_probe_faults`):
-  - 00176180 hull shove;
+  - 00176180 hull shove (legacy probe set only; the collision world's probe
+    set binds `em_player_00176180` since 2026-10-28);
   - 001762E0 area-2 shove;
   - 00174A50 low-clearance row request (rows 2/3 have no exported clips).
 
