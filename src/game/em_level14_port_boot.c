@@ -106,8 +106,9 @@ int em_level14_port_001782A0(const H14 *h, uint32_t p, uint32_t sp, int32_t *res
 
 /* ------------------------------------------------------------------------
  * 001AA2A0 (p, object, radius) -> 1 / 0: the running jump's target test
- * (word assembly; behaviour read from the original's runs,
- * docs/LEVEL14_PORT.md section 2). d = 0011E748(dx * dx + dz * dz) with dx
+ * (the byte-matched src/func_001AA2A0.c). d = 0011E748(dx * dx + dz * dz)
+ * in the accumulator form (dx * dx into ACC, then ACC + dz * dz with that
+ * product unsaturated), with dx
  * = object +0xB0 - p +0xA0, dz = object +0xB8 - p +0xA8, stored at
  * 0x70003A20 (001AA4E0 reads it back); d above radius -> 0. Then dy =
  * object +0xB4 - p +0xA4 against the kind's band (object +3: 4 or 8 ->
@@ -124,7 +125,7 @@ int em_level14_port_001AA2A0(const H14 *h, uint32_t p, uint32_t object, float ra
     uint32_t oz = l14_u32(&o, object + 0xB8);
     uint32_t dz = L14_SUB(oz, l14_u32(&o, p + 0xA8));
     uint32_t d = 0;
-    if (l14_c_0011E748(&o, L14_ADD(L14_MUL(dx, dx), L14_MUL(dz, dz)), &d)) return -1;
+    if (l14_c_0011E748(&o, L14_MADD(L14_MULA(dx, dx), dz, dz), &d)) return -1;
     l14_w32(&o, 0x70003A20u, d);
     int32_t out = 0;
     if (!L14_LT(l14_bits(radius), d)) {
@@ -141,8 +142,8 @@ int em_level14_port_001AA2A0(const H14 *h, uint32_t p, uint32_t object, float ra
 }
 
 /* ------------------------------------------------------------------------
- * 001AA410 (object) -> the target's reach by its kind +3 (word assembly;
- * behaviour read from the original's runs over every kind): 1, 2, 4, 5,
+ * 001AA410 (object) -> the target's reach by its kind +3 (the
+ * byte-matched src/func_001AA410.c): 1, 2, 4, 5,
  * 7, 0xC -> 20.0; 6 -> 35.0; 8 -> 30.0; others 0.0.
  * ---------------------------------------------------------------------- */
 int em_level14_port_001AA410(const H14 *h, uint32_t object, float *result, F14 *fault)

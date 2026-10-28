@@ -170,12 +170,16 @@
  *             engine's real leap chain is UNTRANSLATED. A HIT -> LATCH
  *             (sub 5) is an OBSERVED behaviour (2026-06-12 play), not a
  *             decoded one.
- *   sub 4     RECOVER + cooldown, BUG_RECOVER_F -> sub 0. DOWNGRADED
- *             2026-07-31: the old citation "(func_0012DD70)" cannot
- *             support anything — func_0012DD70 ships in the decomp as a
- *             hand-written asm-void body with no recovered C and no
- *             semantics note, so nothing is known about what it does.
- *             This sub is a PORT construction.
+ *   sub 4     RECOVER + cooldown, BUG_RECOVER_F -> sub 0. This sub is
+ *             a PORT construction. The old citation "(func_0012DD70)"
+ *             does not describe it: func_0012DD70 is byte-matched since
+ *             2026-10-28 (src/func_0012DD70.c) and is a two-step
+ *             wind-down: step 0 runs the 001B5360 probe and eases +0xC0
+ *             toward pi/2 by 0.0698 per tick until the clip id ctl+0xE4
+ *             is 0x100, then clip 9; step 1 waits for that clip's 0x1000
+ *             bit, starts clips 0 and 2 (speed 6.0), sets state +5 = 1
+ *             and copies the home point +0xB0 to ctl+0x50. No cooldown
+ *             timer and no return to an attack sub.
  *   sub 5     LATCHED (LIVE s76): clings on the player at a per-bug
  *             bearing while em_game's player_struggle_tick drains health
  *             + rises infection; when the player WINS the CROSS-mash

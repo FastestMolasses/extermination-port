@@ -241,11 +241,15 @@ EmGameState g;
  *                             distance gate anywhere (FINDINGS
  *                             "func_00153F10 / func_00154040 (worm) —
  *                             acquisition is unconditional").
- *                             PROVENANCE: func_00153F10 itself is only
- *                             recovered as an all-word stub — no
- *                             readable C — so every claim about the
- *                             brain's states rests on FINDINGS' .s read
- *                             plus func_00154040, not on recovered C.
+ *                             PROVENANCE: func_00153F10 is
+ *                             byte-matched since 2026-10-28
+ *                             (src/func_00153F10.c: +4 0 -> 00154040,
+ *                             1 -> 00154120 while 0x70003B8D is 0 or
+ *                             4, 2 -> the three-step 0x434 cue /
+ *                             001EFE00(0x80000052) exit, 3 ->
+ *                             001AFC10); this legacy worm was written
+ *                             before that C and is not checked
+ *                             against it.
  *                             The engine never places one, port
  *                             convenience; owned by em_enemy.c.
  *   enemy crate <x> <y> <z> <yaw> [bugs <n>] [variant <v>]
