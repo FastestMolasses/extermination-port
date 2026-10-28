@@ -30,6 +30,10 @@ EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 void em_hud_decor_invalidate(void) {}
 int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell) { (void)index; (void)cell; return 1; }
 void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush) { (void)gfx; (void)flush; }
+/* The small-font strips em_page_draw_cba50 hands to the game (001CBA50). */
+int em_hud_small_glyph_cell(uint32_t index, EmHudGlyphCell *cell) { (void)index; (void)cell; return 1; }
+int em_hud_small_glyph_strip(EmGfx *gfx, const EmMessageGlyphSmallFlush *flush, const float clip[4])
+{ (void)gfx; (void)flush; (void)clip; return 1; }
 
 static EmGsTexture *gs;
 static EmOptionsLive *live;
