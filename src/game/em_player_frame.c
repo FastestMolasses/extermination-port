@@ -515,7 +515,13 @@ int em_player_0015BCF0(void)
     player_pose_finish_palette(); /* original hip/Euler scratch publication */
     player_struggle_tick();  /* legacy bug-latch struggle (mash CROSS) */
     EmSceneState *scene = em_scene_state();
-    scene->req[EM_SCENE_REQ_B3] = (uint8_t)(player_damage_locked() ||
+    /* The translated tail's result (0015BA50: D_008106F1, +0x276, +0x1F0
+     * 0x33, D_00810CB6, or +4 = 2 with +5 0xB..0xF and +0x1F1 = 1, the
+     * player held by a bug in AREA00, a00_09 row 462) joins the legacy
+     * gates. */
+    const int stage_busy = player_states_busy();
+    scene->req[EM_SCENE_REQ_B3] = (uint8_t)(stage_busy > 0 ||
+                                            player_damage_locked() ||
                                             em_examine_input_locked() ||
                                             em_opening_runtime_busy() ||
                                             em_door_menu_locked());

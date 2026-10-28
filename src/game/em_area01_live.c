@@ -407,6 +407,11 @@ static int nested(void *ctx,EmArea01Call *c);
  * the runtime with the stack pointer the module passes. */
 static uint8_t *low_view(void *ctx,uint32_t a,uint32_t n,int write)
 { return em_area01_live_bytes(ctx,a,n,write); }
+/* D_0081083C, the player's grab-slot bits (the canonical progress byte):
+ * 0012E070 / 0012E0B0 (the bugs' grab and release) read and write it
+ * through em_area00_low's `grab_bits` view. */
+static uint8_t *low_grab_bits(EmArea01Live *l)
+{ return em_area01_live_bytes(l,0x0081083Cu,1,1); }
 static int low_call(void *ctx,EmArea00LowCall *in)
 {
     EmArea01Call c={.function=in->fn,.sp=in->sp,.na=in->na,.nf=in->nf};
@@ -420,6 +425,7 @@ static int low_0012D580(EmArea01Live *l,EmArea01Call *c)
     if(c->na<3)return worker_result(l,-1,c->function);
     EmArea00Low low;memset(&low,0,sizeof low);
     low.call=low_call;low.ctx=l;low.sp=c->sp;low.view=low_view;low.view_ctx=l;
+    low.grab_bits=low_grab_bits(l);
     int rc=em_area00_low_0012D580(&low,(uint32_t)c->a[0],(uint32_t)c->a[1],c->a[2]);
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
 }
@@ -433,6 +439,7 @@ static int low_001288D0(EmArea01Live *l,EmArea01Call *c)
     if(c->na<2)return worker_result(l,-1,c->function);
     EmArea00Low low;memset(&low,0,sizeof low);
     low.call=low_call;low.ctx=l;low.sp=c->sp;low.view=low_view;low.view_ctx=l;
+    low.grab_bits=low_grab_bits(l);
     int rc=em_area00_low_001288D0(&low,(uint32_t)c->a[0],(uint32_t)c->a[1]);
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
 }
@@ -449,6 +456,7 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
 {
     EmArea00Low low;memset(&low,0,sizeof low);
     low.call=low_call;low.ctx=l;low.sp=c->sp;low.view=low_view;low.view_ctx=l;
+    low.grab_bits=low_grab_bits(l);
     const uint32_t a0=(uint32_t)c->a[0],a1=(uint32_t)c->a[1];
     int rc;
     switch(c->function) {
@@ -463,6 +471,9 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     case 0x0012E070u: rc=c->na<1 ? -1 : em_area00_low_0012E070(&low,a0);break;
     default: rc=-1;break;
     }
+    if(rc<0)
+        fprintf(stderr,"em_area01: em_area00_low %08X (entry %08X) fault code %d at %08X\n",
+                (unsigned)c->function,(unsigned)low.fault_function,(int)low.fault,(unsigned)low.fault_address);
     return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
 }
 static int low_entry_handles(uint32_t fn)

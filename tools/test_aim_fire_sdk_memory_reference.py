@@ -24,7 +24,7 @@ import test_aim_fire_target_reference as T
 BASE=0x680000
 SIZE=0x200
 MAP=C.CFUNCTYPE(C.c_void_p,C.c_void_p,C.c_uint32,C.c_size_t,C.c_int)
-ENTRIES=(0x102948,0x102958,0x1031E0,0x1029C0,0x102918,0x102B08,0x102BB0,0x102798)
+ENTRIES=(0x102948,0x102958,0x1031E0,0x1029C0,0x102918,0x102B08,0x102BB0,0x102A60,0x102798)
 VECTORS=(0x1026A0,0x102760,0x102718,0x102738,0x1028D0,0x1028B8,0x103230,0x102900)
 OUT=ROOT/'build/aim-fire/sdk-memory'
 
@@ -194,7 +194,7 @@ def main():
         for seed in range(4):
             for offset in offsets:
                 events+=run(lib,e,fn,offset,seed);count+=1
-        if fn in (0x102948,0x102958,0x102B08,0x102BB0,0x102798)+VECTORS:
+        if fn in (0x102948,0x102958,0x102B08,0x102BB0,0x102A60,0x102798)+VECTORS:
             for offset in (3,15):
                 events+=run(lib,e,fn,64,2,source_offset=offset);count+=1
         if fn in (0x1026A0,0x102718,0x1028D0,0x1028B8):
