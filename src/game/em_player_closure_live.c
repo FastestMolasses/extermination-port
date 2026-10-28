@@ -172,6 +172,9 @@ static struct {
     Slot major5_00183250;
     /* 001837B0 (0015B530's +5 = 1) and its workers over the record. */
     EmPlayerStateOneWorkers state_one;
+    /* 001838B0 (+5 = 0xC) and 00183910 (+5 = 0x17) and their workers. */
+    EmPlayerTakeoverClimbWorkers takeover_climb;
+    EmPlayerTakeoverDropWorkers takeover_drop;
 } L;
 
 /* 0x70003B74..0x70003B83, the button masks (the scene's one storage). */
@@ -230,6 +233,20 @@ static float bfloat(uint32_t b) { return em_ee_float(b); }
  * fails the routine (no value is substituted). */
 static int refresh_all(void);
 
+/* A ladder-lane routine that stopped on a read the native world cannot give
+ * (EmPlayerLadderScratch.fault: a null record, a record's +0x34..+0x3F the
+ * probe state does not carry, an unbound vertex or directory entry) is a
+ * fail-stop like an unbound worker: reported with the original address. */
+static void le_fault_report(const char *who)
+{
+    if (!L.le_scratch.fault) return;
+    char what[192];
+    snprintf(what, sizeof what, "%s: the probe-state read at 0x%08X (a record or world word the "
+             "native probe state does not carry)", who, (unsigned)L.le_scratch.fault);
+    L.le_scratch.fault = 0;
+    (void)unbound(what);
+}
+
 static int slot_run(void *context, EmPlayerLiveActor *actor)
 {
     Slot *slot = context;
@@ -243,6 +260,7 @@ static int slot_run(void *context, EmPlayerLiveActor *actor)
     s_mod3A20 = slot->mod3A20;
     OUT3A20();
     L.sdk->fault = 0;
+    L.le_scratch.fault = 0;
     int r = refresh_all();
     if (r >= 0 && slot->pre) r = slot->pre();
     if (r >= 0) r = slot->fn(slot->context, actor);
@@ -256,6 +274,7 @@ static int slot_run(void *context, EmPlayerLiveActor *actor)
                 (unsigned)L.sdk->fault);
         r = -1;
     }
+    if (r < 0) le_fault_report(slot->name);
     if (r < 0 && slot->context == &L.loco && L.loco.fault)
         fprintf(stderr, "player closure: %s faulted at 0x%08X\n", slot->name, (unsigned)L.loco.fault);
     return r < 0 ? -1 : 0;
@@ -991,8 +1010,8 @@ static int w_floor_query(void *c, EmPlayerLiveActor *a, const uint32_t point[3],
 #define STUB_ACTOR_R(name, addr) \
     static int name(void *c, EmPlayerLiveActor *a, int *r) { (void)c; (void)a; if (r) *r = 0; return unbound(addr); }
 
-STUB_ACTOR_R(x_001782A0, "001782A0 (ledge top grab)")
-STUB_ACTOR_R(x_00178080, "00178080 (ladder hit reaction)")
+static int x_001782A0(void *c, EmPlayerLiveActor *a, int *r);
+static int x_00178080(void *c, EmPlayerLiveActor *a, int *r);
 STUB_ACTOR_R(x_00188570, "00188570 (row clip)")
 STUB_ACTOR_R(x_00188590, "00188590 (row clip)")
 STUB_ACTOR_R(x_001885B0, "001885B0 (row clip)")
@@ -1712,6 +1731,39 @@ static int x_00178390(void *c, EmPlayerLiveActor *a, int *r)
     FAULT(le_fill_last());
     return em_player_ladder_00178390(&L.le_world, &L.le_scratch, a, r);
 }
+/* 001782A0(p): the ledge-top grab (em_player_ladder_001782A0) over the
+ * probe state the last query left. It writes 0x70003A20 and 0x700038A0..A8,
+ * whose one storage is `land`: they are loaded into the ladder scratch
+ * before the routine and stored back after it (also on a fault, as the
+ * original leaves what it wrote). */
+static int x_001782A0(void *c, EmPlayerLiveActor *a, int *r)
+{
+    (void)c;
+    if (r) *r = 0;
+    if (!r) return -1;
+    FAULT(le_fill_last());
+    IN3A20();
+    L.le_scratch.s3A20[0] = L.land.s3A20;
+    memcpy(L.le_scratch.s38A0, L.land.s38A0, sizeof L.land.s38A0);
+    int x = em_player_ladder_001782A0(&L.le_world, &L.le_scratch, a, r);
+    L.land.s3A20 = L.le_scratch.s3A20[0];
+    memcpy(L.land.s38A0, L.le_scratch.s38A0, sizeof L.land.s38A0);
+    OUT3A20();
+    return x;
+}
+/* 00178080(p): the column lock-on scan (em_player_ladder_00178080) over the
+ * probe state the last query left (001809B0's sweep at 00180F64), with the
+ * ladder lane's 0019BC40 / 0011E620 / 001B1470 workers. It writes
+ * 0x700038B0..BC and 0x70003A24, which no other routine on the route reads
+ * from this storage. */
+static int x_00178080(void *c, EmPlayerLiveActor *a, int *r)
+{
+    (void)c;
+    if (r) *r = 0;
+    if (!r) return -1;
+    FAULT(le_fill_last());
+    return em_player_ladder_00178080(&L.le, a, r);
+}
 static int lc_hit_point(void *c, float out[4])
 {
     (void)c;
@@ -1743,21 +1795,22 @@ static float lc_approach(void *c, float t, float cur, float rate) { return w_app
  * filled from the collision world's state after each query. A grid node's
  * +0x34..+0x3F (the ladder / ledge axis the actions read) comes from the
  * EMCL axis section (EM_COLL_PROBE_FLAG_AXIS, verified against captured RAM
- * by the exporter); an EMCL without it, and a cell record (the probe state
- * does not carry the cell record's +0x34..), fault when the surface byte is
- * one of 0015D4C0's action cases. */
-static const uint8_t kLadderActions[] = { 0x20, 0x32, 0x33, 0x37, 0x38, 0x3A, 0x3B, 0x3D };
+ * by the exporter). The cell record's +0x34..+0x3F (0x700030E4..EF) is
+ * scratch no collision walker writes, and an EMCL without the axis section
+ * has no node axis: the fill marks those words missing (axis_missing) and
+ * the routine that reads them faults at the read, so the ones that read only
+ * +0x1A / +0x24 / +0x2C (00178390, 001782A0, 00178080) run on such a hit. */
 
 static int le_from_state(const EmCollProbeState *st, int kind)
 {
     EmPlayerLadderScratch *s = &L.le_scratch;
     const EmCollProbeGrid *grid = em_collision_world_move()->grid;
     memset(s->record_bytes, 0, sizeof s->record_bytes);
+    s->axis_missing = 0;
     for (int i = 0; i < 3; ++i) s->s31B0[i] = fbits(st->point[i]);
     s->s31D8 = kind;
     s->entity = st->entity ? (uint32_t)(uintptr_t)st->entity : 0;
     s->entity_0E = st->entity ? st->entity->uid : 0;
-    uint8_t attr;
     if (st->record == EM_COLL_PROBE_RECORD_GRID) {
         if (st->node < 0 || (uint32_t)st->node >= grid->count) return -1;
         const EmCollPoly *p = &grid->emcl->polys[grid->first + (uint32_t)st->node];
@@ -1767,29 +1820,18 @@ static int le_from_state(const EmCollProbeState *st, int kind)
         memcpy(s->record_bytes + 0x24, p->plane, 16);
         s->record = EM_PLAYER_LADDER_RECORD_OTHER;
         s->record_word = 0x40000000u | (uint32_t)st->node;
-        attr = p->attr;
-        if (grid->axis) {
-            memcpy(s->record_bytes + 0x34, grid->axis + 3 * (size_t)st->node, 12);
-            return 0;
-        }
+        if (grid->axis) memcpy(s->record_bytes + 0x34, grid->axis + 3 * (size_t)st->node, 12);
+        else s->axis_missing = 1;
     } else if (st->record == EM_COLL_PROBE_RECORD_CELL) {
         memcpy(s->record_bytes + 0x1A, &st->cell_class, 2);
         memcpy(s->record_bytes + 0x24, st->cell_normal, 12);
         s->record = EM_PLAYER_LADDER_RECORD_CELL;
         s->record_word = 0x700030B0u;
-        attr = (uint8_t)st->cell_class;
+        s->axis_missing = 1;
     } else {
         s->record = EM_PLAYER_LADDER_RECORD_NONE;
         s->record_word = 0;
-        return 0;
     }
-    for (unsigned i = 0; i < sizeof kLadderActions; ++i)
-        if (attr == kLadderActions[i])
-            return unbound(st->record == EM_COLL_PROBE_RECORD_GRID
-                               ? "a ladder / ledge action node: the EMCL has no axis section "
-                                 "(node +0x34..+0x3F; re-run export_collision.py --node-class)"
-                               : "a ladder / ledge action cell record: its +0x34..+0x3F is not in "
-                                 "the probe state (0015D4C0 cases 0x20..0x3D)");
     return 0;
 }
 static int le_from_move(int kind)
@@ -1875,6 +1917,7 @@ static int le_column(void *c, const uint32_t at[4])
     for (int i = 0; i < col.count; ++i) {
         L.le_scratch.s30F0[i] = fbits(col.height[i]);
         L.le_scratch.s3170[i] = col.flags[i];
+        L.le_scratch.s82250[i] = fbits(col.aux[i]);
     }
     return L.sdk->fault ? -1 : 0;
 }
@@ -2987,6 +3030,20 @@ static int s1_display(void *c, EmPlayerLiveActor *a)
                                        (unsigned)L.loco.fault);
     return r;
 }
+/* 001838B0's 001662D0: the climb state's one translation over the ladder
+ * climb lane (its slot loads lc_pre / lc_post and the lane's 0x70003A20, as
+ * state 0xC's does). 00183910's 00179880(p, p + at): its one translation. */
+static int tk_climb(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    return em_player_ladder_climb_state(&L.lc, a);
+}
+static int tk_drop(void *c, EmPlayerLiveActor *a, unsigned at)
+{
+    (void)c;
+    em_player_fall_00179880(a, at);
+    return 0;
+}
 static int s1_sine(void *c, uint32_t x, uint32_t *out)
 {
     (void)c;
@@ -3104,8 +3161,10 @@ int em_player_closure_live_use_press(EmPlayerLiveActor *actor, int *result)
 {
     if (!L.bound || !actor || !result) return -1;
     L.sdk->fault = 0;
+    L.le_scratch.fault = 0;
     FAULT(refresh_all());
     int r = em_player_use_00160220(&L.use, actor, result);
+    if (r < 0) le_fault_report("00160220");
     if (r >= 0 && L.sdk->fault) {
         fprintf(stderr, "player closure: 00160220: an SDK worker faulted at 0x%08X\n",
                 (unsigned)L.sdk->fault);
@@ -3309,6 +3368,22 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
          "001837B0");
     major4->routine[EM_PLAYER_MAJOR4_001837B0] = slot_run;
     major4->routine_context[EM_PLAYER_MAJOR4_001837B0] = &L.major4[EM_PLAYER_MAJOR4_001837B0];
+
+    /* 0015B530's 001838B0 (+5 = 0xC): 001662D0 (the ladder climb state, run
+     * with state 0xC's scene refresh and 0x70003A20 copy) and 00174A50. */
+    L.takeover_climb = (EmPlayerTakeoverClimbWorkers){ NULL, tk_climb, w_row_request };
+    slot(&L.major4[EM_PLAYER_MAJOR4_001838B0], em_player_001838B0, &L.takeover_climb,
+         &L.lc_scene.spad3A20[0], lc_pre, lc_post, "001838B0");
+    major4->routine[EM_PLAYER_MAJOR4_001838B0] = slot_run;
+    major4->routine_context[EM_PLAYER_MAJOR4_001838B0] = &L.major4[EM_PLAYER_MAJOR4_001838B0];
+
+    /* 0015B530's 00183910 (+5 = 0x17): D_00275B00 + 8 (the closure's one
+     * storage), 00179880 and 00175900 on the record. */
+    L.takeover_drop = (EmPlayerTakeoverDropWorkers){ NULL, &L.d275B08, tk_drop, w_floor };
+    slot(&L.major4[EM_PLAYER_MAJOR4_00183910], em_player_00183910, &L.takeover_drop, NULL, NULL, NULL,
+         "00183910");
+    major4->routine[EM_PLAYER_MAJOR4_00183910] = slot_run;
+    major4->routine_context[EM_PLAYER_MAJOR4_00183910] = &L.major4[EM_PLAYER_MAJOR4_00183910];
 
     L.bound = 1;
     return 0;

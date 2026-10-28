@@ -392,6 +392,24 @@ outcomes of each test, special float operands; 16 by default, 800 with
 `EM_TEST_FULL=1`) and compare every record byte and the call log; a
 missing worker faults before any write.
 
+The same day it translates 0015B530's two other routines from their
+byte-matched decomp C. 001838B0 (+5 = 0xC, `em_player_001838B0` over
+EmPlayerTakeoverClimbWorkers) runs 001662D0 (the ladder climb state) and,
+when +4 is then 1, sets +4 = 4, +5 = +6 = 0, calls 00174A50(p, 8.0) and
+copies the halfword +0x20C (read after that call) to +0x1F2. 00183910
+(+5 = 0x17, `em_player_00183910` over EmPlayerTakeoverDropWorkers) waits in
+phase 0 for the word D_00275B00 + 8 to be nonzero (then +6 = 1 and +0x2EC =
+0); phase 1 runs 00179880(p, p + 0x2EC) and 00175900(p, 1) and advances +6
+(reloaded after the calls) when the latter returns nonzero; other phases do
+nothing. The closure binder installs them with the ladder climb's
+translation (run with state 0xC's scene refresh and 0x70003A20 copy) and
+the stage's 00174A50, and with the closure's one D_00275B08, the fall
+module's 00179880 and the record's 00175900. The "takeover" cases run the
+originals with those callees hooked (the hooks rewrite +4, +0x20C and +6
+so the reload order shows; 24 by default, 800 with `EM_TEST_FULL=1`), cover
+every phase and both outcomes of each test, and compare every record byte
+and the call log; a missing worker faults before any write.
+
 The two shared-library compiles of this test (the floor library and the
 real-world bridge) are cached by a hash of the command, the .c files and
 every src/ header, so an unchanged tree reuses them. The default run is back

@@ -183,15 +183,18 @@ static int stub_00163B40(void *c, EmPlayerLiveActor *a)
     (void)c; (void)a;
     return unbound("00163B40 (0015B530 +5 = 8; FLOOR, census L02)");
 }
+/* 001838B0 and 00183910 are em_player_floor's em_player_001838B0 /
+ * em_player_00183910, which the closure binder installs over these stubs
+ * with the original collision world; without one their callees are unbound. */
 static int stub_001838B0(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
-    return unbound("001838B0 (0015B530 +5 = 0xC; untranslated)");
+    return unbound("001838B0 (0015B530 +5 = 0xC; no original collision world, so its callees are unbound)");
 }
 static int stub_00183910(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
-    return unbound("00183910 (0015B530 +5 = 0x17; untranslated)");
+    return unbound("00183910 (0015B530 +5 = 0x17; no original collision world, so its callees are unbound)");
 }
 
 /* 0015B610's routines that are not bound: +5 = 2, 3 and 4 (no first-level

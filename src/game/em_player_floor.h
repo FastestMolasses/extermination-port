@@ -514,6 +514,35 @@ typedef struct EmPlayerStateOneWorkers {
 } EmPlayerStateOneWorkers;
 int em_player_001837B0(void *workers, EmPlayerLiveActor *actor);
 
+/* ---- 001838B0: 0015B530's routine for +5 = 0xC ----------------------------
+ * Translated from the byte-matched decomp C (src/func_001838B0.c): 001662D0(p)
+ * (the climb state, 0015B130's state 0xC); then, when +4 is 1: +4 = 4, +5 = 0,
+ * +6 = 0, 00174A50(p, 8.0) and the halfword +0x1F2 = +0x20C (read after
+ * that call). A missing worker is a fault before any write. */
+typedef struct EmPlayerTakeoverClimbWorkers {
+    void *context;
+    int (*climb)(void *context, EmPlayerLiveActor *actor);                     /* 001662D0 */
+    int (*row_request)(void *context, EmPlayerLiveActor *actor, float blend);  /* 00174A50 */
+} EmPlayerTakeoverClimbWorkers;
+int em_player_001838B0(void *workers, EmPlayerLiveActor *actor);
+
+/* ---- 00183910: 0015B530's routine for +5 = 0x17 ---------------------------
+ * Translated from the byte-matched decomp C (src/func_00183910.c). By the
+ * phase +6:
+ *   0: when the word D_00275B00 + 8 is nonzero: +6 = 1 and the word
+ *      +0x2EC = 0;
+ *   1: 00179880(p, p + 0x2EC) (the drop accumulator), then 00175900(p, 1);
+ *      when that returns nonzero, +6 += 1 (reloaded after the calls);
+ *   any other phase: nothing.
+ * A missing worker is a fault before any write. */
+typedef struct EmPlayerTakeoverDropWorkers {
+    void *context;
+    const int32_t *d275B08;                                                    /* D_00275B00 + 8 */
+    int (*drop)(void *context, EmPlayerLiveActor *actor, unsigned at);         /* 00179880(p, p + at) */
+    int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result); /* 00175900 */
+} EmPlayerTakeoverDropWorkers;
+int em_player_00183910(void *workers, EmPlayerLiveActor *actor);
+
 /* ---- 001764E0 radial wall probes, 001756E0 clearance release ------------ */
 
 typedef struct EmPlayerProbeActor {

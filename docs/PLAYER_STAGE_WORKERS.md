@@ -69,7 +69,7 @@ alone elsewhere. A missing
 | `clip_rate` | D_00248C98 from the local export (`em_player_clip_rates_load`) |
 | `advance` | the live display's 001C64F0: `player_pose_stage_advance(step)`, i.e. `em_player_pose_advance` on the pose host's source (the one live translation of anim_advance_time; census row 001C64F0). It advances the record (em_player_record_pose_advance, the record-level `em_player_stage_anim_advance` over the pose host) and returns the +200 flags; on the stage's own takeover (+4 = 4) by the step 0015BA50 passes (+1F4 after 00183090 returned 1); 0 without advancing when a stand-in holds the source. |
 | `commit`, `reaction`, `drain`, `heartbeat`, `scripted_check`, `scripted_notify`, `row_request`, `stop_sound` | the translations (`em_player_stage_workers_bind`) |
-| `major[4]` | `em_player_stage_0015B530`, live on a script owner's takeover since chain C7: 001837A0 bound (the byte-matched C is empty); 00182DF0 bound (`player_pose_stage_release`: the pose host runs `em_player_stage_00182DF0` with `live.release`, then ends the interaction host's token); 001837B0 bound by the closure binder (`em_player_001837B0`, PLAYER_FLOOR.md; fail-stop without an original collision world); 001838B0, 00183910 fail-stop (untranslated); 00162DB0 / 00163B40 bound by the closure binder (FLOOR, L02) |
+| `major[4]` | `em_player_stage_0015B530`, live on a script owner's takeover since chain C7: 001837A0 bound (the byte-matched C is empty); 00182DF0 bound (`player_pose_stage_release`: the pose host runs `em_player_stage_00182DF0` with `live.release`, then ends the interaction host's token); 001837B0, 001838B0 and 00183910 bound by the closure binder (`em_player_001837B0` / `em_player_001838B0` / `em_player_00183910`, PLAYER_FLOOR.md); 00162DB0 / 00163B40 bound by the closure binder (`em_player_fall_state5` / `_state8`, FLOOR, L02). Without an original collision world (no closure binder) all five keep the stage's fail-stop stubs |
 | `major[6]` | `em_player_stage_0015D460` with the live 001AEDE0 (`em_frame_fade_start_colour(1, a0, a1)`) |
 | `major[1]` / `state[0]` / `state[1]` | set by em_player.c: 0015B130 behind the takeover stand-in (`live_major1`); state[0] / state[1] are 00161020 / 001612D0 from the closure binder behind the port's stand-ins (`live_idle` / `live_walk`, census L12), or the legacy callbacks (`live_port_state`) in the scenes without an original world |
 | `takeover` | `player_pose_stage_hook()`: the AREA11 interaction host at 0015B130's prelude position. 0: no owner; 2: an owner's frame (the panel, the terminal, an item or a script owner), whose takeover the stage performs itself (em_player.c `live_major1` runs 0015B130 and its prelude); any other result faults |
@@ -179,16 +179,16 @@ section 2).
 
 All seven are required. 00162DB0 and 00163B40 are FLOOR-closure state
 routines (`em_player_fall.h`: `em_player_fall_state5` / `_state8`; not
-checked here). 001837A0 is empty (byte-matched). 00182DF0 is
+checked here), which the closure binder binds. 001837A0 is empty (byte-matched). 00182DF0 is
 `em_player_stage_00182DF0` with an `EmPlayerStageRelease` context: `host`
 (bone_init, clip_lookup, request, link1C and the stage scene's 0x70003B8F),
 the four readers of the words it loads outside the record (D_0028A580, the
 model's +8 byte through 001C6150, D_00248A00[i], D_00248C90[6 · clip]) and
 the 00174AB0 worker (its one translation is em_player_ladder_climb's). The
 live binder routes it through the pose host (`player_pose_stage_release`),
-the one release of every takeover. 001837B0 is em_player_floor's
-`em_player_001837B0` (PLAYER_FLOOR.md), which the closure binder installs.
-001838B0 and 00183910 are untranslated.
+the one release of every takeover. 001837B0, 001838B0 and 00183910 are
+em_player_floor's `em_player_001837B0` / `em_player_001838B0` /
+`em_player_00183910` (PLAYER_FLOOR.md), which the closure binder installs.
 
 **The host.**
 
@@ -432,9 +432,11 @@ The other stage workers enter no state:
 
 0015B530's routines: 00182DF0 writes +4 = 1 with +5 = 0 or 0xC (translated,
 section 1); 001837A0 writes nothing; 001837B0 writes +5 = 0 with +6 = 0
-when +0x1F0 is 0 after 0017C030 (translated, PLAYER_FLOOR.md). 001838B0,
-00183910 and the two state routines have not been followed; they are the
-remaining part of the gap.
+when +0x1F0 is 0 after 0017C030 (translated, PLAYER_FLOOR.md). 001838B0
+writes +4 = 4 with +5 = +6 = 0 when the climb state leaves +4 at 1, and
+00183910 writes only +6 (both translated, PLAYER_FLOOR.md). The two state
+routines (00162DB0 / 00163B40, FLOOR's) have not been followed here; they
+are the remaining part of the gap.
 
 ## 5. Limits
 
@@ -445,7 +447,7 @@ remaining part of the gap.
     workers; display lane);
   - the effect and rumble binders;
   - the two object links (+20, +1C);
-  - 0015C9D0, 001838B0 and 00183910, which are untranslated.
+  - 0015C9D0, which is untranslated.
 - **Hits outside AREA11.** Port enemy hits fault in the +4 = 2 reaction
   states, which are bound only in AREA11 (section 2.1).
 - **Scripted hooks.** atan2 is the host model on both sides, as in the floor

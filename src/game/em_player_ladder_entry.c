@@ -20,6 +20,7 @@
  * worker call. */
 #include "game/em_player_ladder_entry.h"
 #include "game/em_player_ladder_climb.h"
+#include "game/em_player_stage_workers.h"
 #include "game/em_ee_float.h"
 #include "game/em_sdk_vu0.h"
 
@@ -36,6 +37,11 @@
 #define F_1_5     UINT32_C(0x3FC00000)
 #define F_2       UINT32_C(0x40000000)
 #define F_3       UINT32_C(0x40400000)
+#define F_0_6     UINT32_C(0x3F19999A)
+#define F_6       UINT32_C(0x40C00000)
+#define F_15      UINT32_C(0x41700000)
+#define F_0_62831855 UINT32_C(0x3F20D97C)   /* pi / 5 */
+#define F_3PI_2   UINT32_C(0x4096CBE4)      /* 4.712389 */
 #define F_3_8     UINT32_C(0x40733333)
 #define F_4_01    UINT32_C(0x408051EC)
 #define F_5_5     UINT32_C(0x40B00000)
@@ -122,6 +128,14 @@ static uint32_t rec32(const EmPlayerLadderScratch *s, unsigned at)
 static int16_t rec16(const EmPlayerLadderScratch *s, unsigned at)
 {
     uint16_t v; memcpy(&v, s->record_bytes + at, 2); return (int16_t)v;
+}
+/* A read of the record's +0x34..+0x3F at `site` (the first such load):
+ * a fault when the probe state does not carry them (axis_missing). */
+static int axis_ok(EmPlayerLadderScratch *s, uint32_t site)
+{
+    if (!s->axis_missing) return 0;
+    if (!s->fault) s->fault = site;
+    return -1;
 }
 
 /* ---- 00102948 and 001031E0 ---------------------------------------------- */
@@ -266,6 +280,95 @@ int em_player_ladder_00178390(const EmPlayerLadderWorld *world, EmPlayerLadderSc
     return 0;
 }
 
+/* ---- 001782A0 ------------------------------------------------------------ */
+
+/* 001782A0(p): the ledge-top grab (byte-matched src/func_001782A0.c, read
+ * against its instructions). 00199FA0 fills two stack vectors; with no hit
+ * the result is 0 and nothing is written. Otherwise t = (3 + +B4 - the first
+ * vector's y) / 3 is stored at 0x70003A20 whatever its sign (the store sits
+ * in the branch's delay slot); when t is below 0 the result is 0. Else
+ * 0x70003A20 = t + 0.6 (reloaded, then stored), +2E4 = y + 3 *
+ * (float)float_to_int(that), 00199DB0 writes 0x700038A0 (when it hits),
+ * +2E0 / +2E8 = 0x700038A0 / 0x700038A8 (as they then are), +218 = +C4,
+ * result 1. */
+int em_player_ladder_001782A0(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *s,
+                              EmPlayerLiveActor *a, int *result)
+{
+    if (!world || !s || !a || !result) return -1;
+    *result = 0;
+    uint32_t lo[3], hi[3];
+    int hit = 0;
+    FAULT(em_player_ladder_00199FA0(world, s, lo, hi, &hit));         /* 001782B8 */
+    if (hit == 0) return 0;                                            /* 001782C0 */
+    const uint32_t y = lo[1];                                          /* 001782D4 */
+    const uint32_t t = em_ee_div_bits(em_ee_sub_bits(em_ee_add_bits(F_3, w32(a, 0xB4)), y), F_3);
+    s->s3A20[0] = t;                                                   /* 001782F8 */
+    if (lt(t, F_ZERO)) return 0;                                       /* 001782EC */
+    const uint32_t up = em_ee_add_bits(s->s3A20[0], F_0_6);            /* 00178314 */
+    s->s3A20[0] = up;                                                  /* 00178320 */
+    const int32_t n = em_player_float_to_int(up);                      /* 0017831C */
+    put32(a, 0x2E4, em_ee_add_bits(y, em_ee_mul_bits(F_3, em_ee_cvt_s_w_bits((uint32_t)n))));
+    uint32_t centre[3];
+    int written = 0;
+    FAULT(em_player_ladder_00199DB0(world, s, centre, &written));     /* 00178348 */
+    if (written) copy3(s->s38A0, centre);
+    put32(a, 0x2E0, s->s38A0[0]);                                      /* 0017835C */
+    put32(a, 0x2E8, s->s38A0[2]);                                      /* 00178368 */
+    put32(a, 0x218, w32(a, 0xC4));                                     /* 00178374 */
+    *result = 1;
+    return 0;
+}
+
+/* ---- 00178080 ------------------------------------------------------------ */
+
+/* 00178080(p): the column lock-on scan (byte-matched src/func_00178080.c,
+ * read against its instructions; the decomp header's "camera state" is the
+ * probe record 0x700031D0). The record pointer is loaded once before
+ * 0019BC40 (passed to it as its second argument, the column worker's
+ * record) and again for each later read. */
+int em_player_ladder_00178080(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int *result)
+{
+    if (!w || !w->scratch || !w->world || !w->column_0019BC40 || !w->atan2_0011E620 ||
+        !w->wrap_001B1470 || !a || !result)
+        return -1;
+    EmPlayerLadderScratch *s = w->scratch;
+    void *c = w->context;
+    *result = 0;
+    FAULT(record_ok(s, 0x001780B0));
+    s->s38B0[0] = em_ee_sub_bits(s->s31B0[0], rec32(s, 0x24));         /* 001780C4 */
+    s->s38B0[2] = em_ee_sub_bits(s->s31B0[2], rec32(s, 0x2C));         /* 001780D4 */
+    s->s38B0[1] = em_ee_add_bits(F_15, w32(a, 0xB4));                  /* 001780E8 */
+    s->s38B0[3] = F_ONE;                                               /* 001780F4 */
+    FAULT(w->column_0019BC40(c, s->s38B0));                            /* 001780F0 */
+    const uint32_t probe_y = s->s38B0[1];                              /* 00178100 */
+    const int32_t count = s->s31E0;                                    /* 0017811C */
+    for (int32_t i = 0; i < count; ++i) {                              /* 00178280 */
+        if (i >= EM_PLAYER_LADDER_COLUMN_MAX) {
+            /* Entries past the scratch's tables: the native world has none. */
+            if (!s->fault) s->fault = 0x00178140;
+            return -1;
+        }
+        if (!(s->s3170[i] & 1)) continue;                              /* 00178148 */
+        if (!lt(s->s82250[i], F_0_62831855)) continue;                 /* 00178154 */
+        const uint32_t below = b8(a, 0xD) == 2 ? F_6 : F_3;            /* 00178168 */
+        const uint32_t h = s->s30F0[i];                                /* 00178188 */
+        if (le(probe_y, em_ee_sub_bits(h, below))) continue;           /* 00178190 */
+        if (!lt(probe_y, em_ee_add_bits(F_6, h))) continue;            /* 001781A4 */
+        FAULT(record_ok(s, 0x001781D0));
+        put32(a, 0x2E0, em_ee_add_bits(s->s31B0[0], em_ee_mul_bits(F_1_5, rec32(s, 0x24))));
+        put32(a, 0x2E8, em_ee_add_bits(s->s31B0[2], em_ee_mul_bits(F_1_5, rec32(s, 0x2C))));
+        put32(a, 0x2E4, em_ee_sub_bits(s->s30F0[i], F_20_5));          /* 00178224 */
+        uint32_t angle = 0;
+        FAULT(w->atan2_0011E620(c, em_ee_neg_bits(rec32(s, 0x2C)), rec32(s, 0x24), &angle));
+        s->s3A20[1] = angle;                                           /* 00178240 */
+        FAULT(w->wrap_001B1470(c, em_ee_add_bits(F_3PI_2, s->s3A20[1]), &angle));
+        put32(a, 0x218, angle);                                        /* 00178268 */
+        *result = 1;
+        return 0;
+    }
+    return 0;                                                          /* 0017828C */
+}
+
 /* ---- 00176F90 ------------------------------------------------------------ */
 
 static int refresh(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int *result)
@@ -302,6 +405,7 @@ static int facing(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int mode
     void *c = w->context;
     *result = 0;
     FAULT(record_ok(s, 0x00177054));
+    FAULT(axis_ok(s, 0x00177054));
     uint32_t angle = 0;
     FAULT(w->atan2_0011E620(c, em_ee_neg_bits(rec32(s, 0x3C)), rec32(s, 0x34), &angle));
     s->s3A20[0] = angle;                                               /* 00177068 */
@@ -312,6 +416,7 @@ static int facing(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int mode
 
     if (mode == 4) {                                                   /* 00177358 */
         FAULT(record_ok(s, 0x00177370));
+        FAULT(axis_ok(s, 0x00177370));
         s->s38B0[0] = rec32(s, 0x34);
         s->s38B0[1] = F_ZERO;
         s->s38B0[2] = rec32(s, 0x3C);
@@ -370,6 +475,7 @@ static int facing(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int mode
         FAULT(w->cos_0011DE90(c, turn, &cosine));                      /* 001772C8 */
         uint32_t step = em_ee_mul_bits(s->s3A20[3], cosine);           /* 001772E4 */
         FAULT(record_ok(s, 0x001772E8));
+        FAULT(axis_ok(s, 0x001772E8));
         put32(a, 0xB0, em_ee_sub_bits(s->s38B0[0],
                                       em_ee_mul_bits(side, em_ee_mul_bits(rec32(s, 0x34), step))));
         put32(a, 0xB8, em_ee_sub_bits(s->s38B0[2],
@@ -611,6 +717,7 @@ static int action_3a(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int *
     int ignored = 0;
     FAULT(refresh(w, a, &ignored));                                    /* 0015DA60 */
     FAULT(record_ok(s, 0x0015DA78));
+    FAULT(axis_ok(s, 0x0015DA78));
     put32(a, 0x2E0, rec32(s, 0x34));                                   /* 0015DA80 */
     put32(a, 0x2E8, rec32(s, 0x3C));                                   /* 0015DA90 */
     int ok = 0;
@@ -652,6 +759,7 @@ static int action_20(const EmPlayerLadderWorkers *w, EmPlayerLiveActor *a, int *
     if (hit == 0) return 0;                                            /* 0015DB98 */
     FAULT(record_ok(s, 0x0015DBAC));
     if (s->record_bytes[0x1A] != 0x3C) return 0;                       /* 0015DBB0 */
+    FAULT(axis_ok(s, 0x0015DBB8));
     uint32_t angle = 0;
     FAULT(w->atan2_0011E620(c, em_ee_neg_bits(rec32(s, 0x3C)), rec32(s, 0x34), &angle));
     s->s3A20[0] = angle;                                               /* 0015DBCC */

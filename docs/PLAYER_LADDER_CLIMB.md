@@ -28,7 +28,8 @@ smoke's `cage_ladders` phase runs both cage climbs of route 10 through it
 - **From the scripted takeover.** 00182DF0 enters +4 = 1, +5 = 0xC at
   00182F24 when +1F0 is 0x17 (docs/FIRST_CONTROL.md). 001838B0, the +4 = 4
   handler's routine for +5 = 0xC, calls 001662D0 itself. If +4 is still 1
-  afterwards, it sets +4 = 4, +5 = 0 and +6 = 0 (its byte-matched C).
+  afterwards, it sets +4 = 4, +5 = 0 and +6 = 0 (its byte-matched C), then
+  00174A50(p, 8.0) and +1F2 = +20C (translated, PLAYER_FLOOR.md).
 
 It is in the FLOOR state closure (docs/FIRST_CONTROL.md, "FLOOR state
 closure": +4 1, +5 0xC, 001662D0).
@@ -240,8 +241,9 @@ instruction it translates.
 - **Stage slot.** `EmPlayerStatesBinding.stage.state[0xC] =
   em_player_ladder_climb_state` and `stage.state_context[0xC] = &ladder`
   (an `EmPlayerLadderClimb`). 0015B130 dispatches +4 = 1, +5 = 0xC there.
-  0015B530's `routine[EM_PLAYER_MAJOR4_001838B0]` (001838B0, not translated
-  here) runs the same callback first.
+  0015B530's `routine[EM_PLAYER_MAJOR4_001838B0]` (001838B0,
+  `em_player_001838B0` in em_player_floor.c, bound by the closure binder
+  with state 0xC's scene refresh) runs the same callback first.
 - **Scene.** The binder owns one `EmPlayerLadderClimbScene` and keeps it current:
   - `area` / `area_sub` = D_00810700 / D_00810701;
   - `pad` = D_00810E74[0], the pad edge halfword;
@@ -298,7 +300,7 @@ instruction it translates.
   | ledge_ahead | 0017E250(p, v) | `em_player_misc_w_ledge_ahead` (em_player_misc_workers.h, *lane*; direct) over `em_player_misc_0017E250` |
   | dash | 00177030(p, arg) | `em_player_ladder_00177030` (em_player_ladder_entry.h, *lane*; adapter that drops its result, which 001662D0 does not read) |
   | grab_check | 00178390 | `em_player_ladder_00178390` (em_player_ladder_entry.h) over the last sweep's probe state |
-  | grab / hit_react | 001782A0 / 00178080 | untranslated |
+  | grab / hit_react | 001782A0 / 00178080 | `em_player_ladder_001782A0` / `em_player_ladder_00178080` (em_player_ladder_entry.h, from the byte-matched C, 2026-10-28) over the last sweep's probe state; 00178080 is the column lock-on scan (the old label "hit reaction" was wrong) |
   | sqrt / sine / cosine | 0011E748 / 0011E2A8 / 0011DE90 | `em_sdk_math_original_float_*` |
   | wrap | 001B1470 | `em_player_sdk_wrap` or `em_player_001B1470` |
   | approach | 001B12B0 | `em_player_slide_approach` |

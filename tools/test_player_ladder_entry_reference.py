@@ -10,6 +10,10 @@ embedded here. Routines executed unmodified:
   00177030  the facing gate / placement     00180300  the attribute probe
   00199DB0  record centre                   00199FA0  record corners
   00178390  the 0x3D ledge placement (through 00199FA0)
+  001782A0  the ledge-top grab (through 00199FA0 / 00199DB0 and the SDK's
+            float_to_int 001281C0, executed unmodified: native
+            em_player_float_to_int)
+  00178080  the column lock-on scan (0019BC40, 0011E620, 001B1470 hooked)
   00165B60  state 0xB, the ladder entry     00176DC0  the radial wall probes
   0017FC80  clip by +2F1                    00182A70  climb step sound
   001B61C0  pad vibration request           00102948 / 001031E0 (copies)
@@ -31,7 +35,9 @@ interpreter file is not edited.
 
 Default run (~10 s): unit cases with branch coverage of every conditional
 branch in the translated routines asserted, the fail-stop cuts and the
-missing-worker refusals. EM_TEST_FULL=1: the exhaustive sweep.
+missing-worker refusals. A cell record whose +0x34..+0x3F the probe state
+does not carry (EmPlayerLadderScratch.axis_missing) must fault exactly when
+the original reads those words, and run identically when it does not. EM_TEST_FULL=1: the exhaustive sweep.
 EM_TEST_WORLD=1: route beat 10 (both cage ladder entries) replayed over the
 captured RAM, the original stage against the stage with these translations
 hooked in at their original addresses, compared byte for byte (player
@@ -76,10 +82,14 @@ class LadderEE(FallEE):
         super().__init__(elf, ram, spad)
         self.outcomes = set() if cover else None
         self.low_read = False
+        self.axis_missing = False    # the current cell record's +0x34.. are not carried
+        self.axis_read = False
 
     def load(self, address, size=4):
         if (address & MASK) < 0x1000:
             self.low_read = True
+        if self.axis_missing and AXIS <= (address & MASK) < AXIS + 0xC:
+            self.axis_read = True
         return EE.load(self, address, size)
 
     def branch(self, word, pc):
@@ -96,11 +106,15 @@ class LadderEE(FallEE):
 USE, REFRESH, FACING, CLASSIFY = 0x15D4C0, 0x176F90, 0x177030, 0x180300
 CENTER, CORNERS, STATE_B, WALLS = 0x199DB0, 0x199FA0, 0x165B60, 0x176DC0
 CLIPS, STEP, RUMBLE, QCOPY, COPY3 = 0x17FC80, 0x182A70, 0x1B61C0, 0x102948, 0x1031E0
-LEDGE = 0x178390
+LEDGE, GRAB, LOCKON = 0x178390, 0x1782A0, 0x178080
 SIZES = {USE: 0x9F8, REFRESH: 0x9C, FACING: 0x430, CLASSIFY: 0x120, CENTER: 0x1EC,
          CORNERS: 0x1DC, STATE_B: 0x770, WALLS: 0x1CC, CLIPS: 0x74, STEP: 0x3C, RUMBLE: 0x84,
-         QCOPY: 0xC, COPY3: 0x1C, 0x1885D0: 0x1C, 0x1885F0: 0x1C, LEDGE: 0xA4}
+         QCOPY: 0xC, COPY3: 0x1C, 0x1885D0: 0x1C, 0x1885F0: 0x1C, LEDGE: 0xA4, GRAB: 0xF0,
+         LOCKON: 0x220}
 TRANSLATED = set(SIZES)
+# Executed unmodified but not branch-covered here: the SDK's float_to_int
+# (its one translation, em_player_float_to_int, is em_player_stage_workers').
+EXECUTED = {0x1281C0}
 
 
 def in_translated(pc):
@@ -126,7 +140,8 @@ def check_callee_set(elf):
             word = ee.load(pc)
             if word >> 26 == 3:
                 targets.add((word & 0x3FFFFFF) << 2)
-    missing = sorted(t for t in targets if t not in CALLEES and t not in TRANSLATED)
+    missing = sorted(t for t in targets if t not in CALLEES and t not in TRANSLATED
+                     and t not in EXECUTED)
     assert not missing, ('callees neither hooked nor translated', [hex(t) for t in missing])
     unused = sorted(t for t in CALLEES if t not in targets)
     assert not unused, ('hooked addresses no translated routine calls', [hex(t) for t in unused])
@@ -166,7 +181,8 @@ class Scratch(C.Structure):
                 ('s31B0', U32 * 3), ('record', C.c_int32), ('record_word', U32),
                 ('record_bytes', C.c_uint8 * 0x40), ('entity', U32), ('entity_0E', C.c_uint16),
                 ('s31D8', C.c_int32), ('s31E0', C.c_int32), ('s30F0', U32 * COLUMN_MAX),
-                ('s3170', C.c_uint16 * COLUMN_MAX), ('fault', U32)]
+                ('s3170', C.c_uint16 * COLUMN_MAX), ('s82250', U32 * COLUMN_MAX), ('fault', U32),
+                ('axis_missing', C.c_uint8)]
 
 
 # The scratch arrays by original address (the words these routines own and
@@ -249,7 +265,8 @@ def build_native():
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-Wpedantic',
                     '-ffp-contract=off', '-shared', '-fPIC', '-Isrc',
                     'src/game/em_player_ladder_entry.c', 'src/game/em_player_ladder_climb.c',
-                    'src/game/em_player_major2.c', '-o', str(lib)], cwd=ROOT, check=True)
+                    'src/game/em_player_major2.c', 'src/game/em_player_stage_workers.c',
+                    '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
     W = P(Workers)
     native.em_player_ladder_0015D4C0.argtypes = [W, LA, P(I)]
@@ -260,6 +277,8 @@ def build_native():
     native.em_player_ladder_00199DB0.argtypes = [P(World), P(Scratch), PU, P(I)]
     native.em_player_ladder_00199FA0.argtypes = [P(World), P(Scratch), PU, PU, P(I)]
     native.em_player_ladder_00178390.argtypes = [P(World), P(Scratch), LA, P(I)]
+    native.em_player_ladder_001782A0.argtypes = [P(World), P(Scratch), LA, P(I)]
+    native.em_player_ladder_00178080.argtypes = [W, LA, P(I)]
     for name in ('em_player_ladder_00165B60', 'em_player_ladder_00176DC0',
                  'em_player_ladder_00182A70', 'em_player_ladder_state_b'):
         getattr(native, name).argtypes = [W, LA]
@@ -286,6 +305,9 @@ PAD = 0x810E40
 POISON = 0x7F7F7F7F             # the stack before a call (0015D4C0's case-0x3D read)
 USE_FRAME = shared.STACK_TOP - 0x60   # 0015D4C0's $sp
 ATTRS = (0x32, 0x32, 0x37, 0x38, 0x3B, 0x33, 0x3A, 0x20, 0x3D, 0x1E, 0x34, 0x3C, 0x35, 5, 0)
+AXIS = 0x700030E4               # the cell record's +0x34..+0x3F (no walker writes them)
+# 0x700031E0's aux table D_00282250 (00178080 reads it below 0.62831855).
+AUXES = (0.0, 0.62831849, 0.62831855, 0.62831861, 1.0, -1e-08, 1e-08, 1.2, -0.7)
 FLAGS = (0, 0x1000, 0x8000, 0x9000, 0x200)
 ANGLES = (0.0, 0.7853982, 0.78539824, 0.785398, -0.7853982, -0.78539824, -0.785398, 1.0, -1.0,
           1.5707963, 1.5707964, 1.5707965, 2.5, -3.0)
@@ -309,10 +331,13 @@ def record_image(rng, attr):
 def probe_state(rng, attrs):
     """A probe outcome: record kind, image, point, owner and kind word."""
     kind = rng.choice((1, 2, 2, 2, 0))
-    return {'record': kind, 'image': record_image(rng, rng.choice(attrs)),
+    image = record_image(rng, rng.choice(attrs))
+    # A cell record whose +0x34..+0x3F the native probe state does not carry
+    # (half of them, by a filler byte so the draws stay as they were).
+    return {'record': kind, 'image': image,
             'point': [F(rng.uniform(-400, 400)) for _ in range(3)],
             'entity': rng.choice((ENT, ENT, 0)), 'e0E': rng.choice((0x0100, 0x0300, 0x0512, 0xFF00, 0x0700)),
-            'd8': rng.choice((2, 2, 4, 0))}
+            'd8': rng.choice((2, 2, 4, 0)), 'axis_missing': int(kind == 1 and image[0x30] & 1)}
 
 
 def effect_for(rng, name, case):
@@ -327,6 +352,21 @@ def effect_for(rng, name, case):
             if e['ret'] != 0 and state['record'] == 0 and chance() < 0.8:
                 state['record'] = 2
             e['probe'] = state
+    elif name == 'column' and case['entry'] == 'lockon':
+        # 00178080's window around y = 15 + +B4: (h - 3 or 6, h + 6).
+        n = rng.choice((0, 1, 2, 3, 5, 8, COLUMN_MAX))
+        y = case['probe_y']
+        heights = []
+        for _ in range(COLUMN_MAX):
+            d = rng.choice((0.0, 2.0, 4.5, -3.0, -5.9, 10.0, 'at3', 'at6', 'top', 'top2', 'in3'))
+            if d == 'at3': heights.append(M.ee_add(y, F(3.0)))
+            elif d == 'at6': heights.append(M.ee_add(y, F(6.0)))
+            elif d == 'top': heights.append(M.ee_sub(y, F(6.0)))
+            elif d == 'top2': heights.append(M.ee_sub(y, F(6.0)) + 1)
+            elif d == 'in3': heights.append(M.ee_add(y, F(3.0)) - 1)
+            else: heights.append(M.ee_add(y, F(d)))
+        e['column'] = (n, heights, [rng.choice((0, 1, 1, 3, 2)) for _ in range(COLUMN_MAX)],
+                       [F(rng.choice(AUXES)) for _ in range(COLUMN_MAX)])
     elif name == 'column':
         n = rng.choice((0, 1, 2, 3, 5, 8, COLUMN_MAX))
         feet = case['feet']
@@ -338,7 +378,8 @@ def effect_for(rng, name, case):
             elif d == 'hi': heights.append(M.ee_add(feet, F(24.0)))
             elif d == 'hi2': heights.append(M.ee_add(feet, F(24.0)) - 1)
             else: heights.append(M.ee_add(feet, F(d)))
-        e['column'] = (n, heights, [rng.choice((0, 1, 1, 3, 2)) for _ in range(COLUMN_MAX)])
+        e['column'] = (n, heights, [rng.choice((0, 1, 1, 3, 2)) for _ in range(COLUMN_MAX)],
+                       [F(rng.choice(AUXES)) for _ in range(COLUMN_MAX)])
     elif name in ('trs', 'identity', 'euler', 'translate', 'rotate_y'):
         e['out'] = [F(rng.uniform(-2, 2)) for _ in range(16)]
     elif name in ('apply', 'vadd', 'normalize'):
@@ -368,7 +409,8 @@ class Script:
 
 
 ENTRIES = ('use',) * 14 + ('refresh', 'facing', 'facing', 'facing', 'classify', 'center', 'corners') + \
-    ('state_b',) * 10 + ('walls', 'clips', 'step', 'rumble', 'ledge')
+    ('state_b',) * 10 + ('walls', 'clips', 'step', 'rumble', 'ledge', 'grab', 'grab', 'lockon', 'lockon',
+                         'lockon')
 
 
 def elf_d2754D0():
@@ -452,6 +494,15 @@ def make_case(seed):
             case['attrs'] = (0x32,)
     if entry == 'state_b' and boxed and rng.random() < 0.7:
         case['area'] = 0xD
+    # The aux table of the starting column block (its own stream, so the
+    # draws above stay as they were).
+    aux_rng = random.Random('aux:%d' % seed)
+    case['column'] = case['column'] + ([F(aux_rng.choice(AUXES)) for _ in range(COLUMN_MAX)],)
+    if entry == 'lockon':
+        # 00178080's +D window choice (2: 6.0, else 3.0) and its probe y.
+        put(actor, 0xD, 1, aux_rng.choice((2, 2, 0, 1, 3)))
+        case['actor'] = bytes(actor)
+        case['probe_y'] = M.ee_add(F(15.0), struct.unpack('<I', bytes(actor[0xB4:0xB8]))[0])
     return case
 
 
@@ -482,14 +533,16 @@ class UnitOracle:
         ee.save(0x700031D4, state['entity'])
         ee.save(ENT + 0xE, state['e0E'], 2)
         ee.save(0x700031D8, state['d8'])
+        ee.axis_missing = bool(state['axis_missing'])
 
     def write_column(self, column):
         ee = self.ee
-        n, heights, flags = column
+        n, heights, flags, aux = column
         ee.save(0x700031E0, n)
         for i in range(COLUMN_MAX):
             ee.save(0x700030F0 + 4 * i, heights[i])
             ee.save(0x70003170 + 2 * i, flags[i], 2)
+            ee.save(0x282250 + 4 * i, aux[i])
 
     def hook(self, name):
         def run(ee):
@@ -549,6 +602,7 @@ class UnitOracle:
         ee.r[28], ee.r[29] = 0x27D370, shared.STACK_TOP
         ee.r[16] = ACTOR                        # 00160220's $s0 at its 0015D4C0 call
         ee.low_read = False
+        ee.axis_read = False
         ee.stack[:] = POISON.to_bytes(4, 'little') * (len(ee.stack) // 4)
         ee.write(ACTOR, case['actor'])
         for name, address, n in OWNED:
@@ -582,6 +636,10 @@ class UnitOracle:
             ee.call(CORNERS, (OUTA, OUTB)); v0 = s32(ee.r[2])
         elif entry == 'ledge':
             ee.call(LEDGE, (ACTOR,)); v0 = s32(ee.r[2])
+        elif entry == 'grab':
+            ee.call(GRAB, (ACTOR,)); v0 = s32(ee.r[2])
+        elif entry == 'lockon':
+            ee.call(LOCKON, (ACTOR,)); v0 = s32(ee.r[2])
         elif entry == 'state_b':
             ee.call(STATE_B, (ACTOR,))
         elif entry == 'walls':
@@ -595,7 +653,8 @@ class UnitOracle:
             return self.run_rumble(case)
         return {'actor': ee.read(ACTOR, 0x320), 'scratch': self.scratch_words(), 'log': self.log,
                 'v0': v0, 'out': (ee.vector(OUTA, 3), ee.vector(OUTB, 3)),
-                'low_read': ee.low_read, 'stale': ee.load(USE_FRAME + 0x54) == POISON}
+                'low_read': ee.low_read, 'stale': ee.load(USE_FRAME + 0x54) == POISON,
+                'axis_read': ee.axis_read}
 
     def scratch_words(self):
         ee = self.ee
@@ -663,13 +722,15 @@ class NativeRun:
         s.entity = state['entity']
         s.entity_0E = state['e0E']
         s.s31D8 = state['d8']
+        s.axis_missing = state['axis_missing']
 
     def set_column(self, column):
-        n, heights, flags = column
+        n, heights, flags, aux = column
         self.scratch.s31E0 = n
         for i in range(COLUMN_MAX):
             self.scratch.s30F0[i] = heights[i]
             self.scratch.s3170[i] = flags[i]
+            self.scratch.s82250[i] = aux[i]
 
     def where(self, pointer):
         address = C.cast(pointer, C.c_void_p).value
@@ -781,6 +842,11 @@ class NativeRun:
         elif entry == 'ledge':
             result = n.em_player_ladder_00178390(C.byref(self.world), C.byref(self.scratch), A,
                                                  C.byref(out)); v0 = out.value
+        elif entry == 'grab':
+            result = n.em_player_ladder_001782A0(C.byref(self.world), C.byref(self.scratch), A,
+                                                 C.byref(out)); v0 = out.value
+        elif entry == 'lockon':
+            result = n.em_player_ladder_00178080(W, A, C.byref(out)); v0 = out.value
         elif entry == 'state_b':
             result = n.em_player_ladder_state_b(W, A)
         elif entry == 'walls':
@@ -823,7 +889,9 @@ def native_rumble(native, case, missing=None):
 UNREACHABLE = {(0x15DA94, True)}
 
 NULL_RECORD_SITES = {0x176FF8, 0x177054, 0x177370, 0x1772E8, 0x18039C, 0x15D628, 0x15D750,
-                     0x15D9FC, 0x15DA78, 0x15DBAC, 0x15DCD8, 0x15DE2C}
+                     0x15D9FC, 0x15DA78, 0x15DBAC, 0x15DCD8, 0x15DE2C, 0x1780B0, 0x1781D0}
+# The first load of a record's +0x34..+0x3F in each reader (axis_missing).
+AXIS_SITES = {0x177054, 0x177370, 0x1772E8, 0x15DA78, 0x15DBB8}
 PAD_FIELDS = [4, 5, 6, 7, 8, 9, 10, 11, 0x12, 0x16, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x28, 0x29]
 
 ELF = NATIVE = ORACLE = None
@@ -851,7 +919,9 @@ def run_case(seed):
         assert result == -1 and fault, (where, 'native fault without a site', result)
         k = len(got['log'])
         assert got['log'] == want['log'][:k], (where, 'calls before the fault', got['log'], want['log'][:k])
-        if fault in NULL_RECORD_SITES:
+        if fault in AXIS_SITES and want['axis_read']:
+            kind = 'axis-missing'       # the original read the cell record's +0x34..+0x3F
+        elif fault in NULL_RECORD_SITES:
             assert want['low_read'], (where, 'native saw no record at %06X, the original read one' % fault)
             kind = 'null-record'
         elif fault == 0x15DE68:
@@ -861,6 +931,8 @@ def run_case(seed):
             raise AssertionError((where, 'unexpected fault site %06X' % fault))
         return case['entry'], len(want['log']), 0, kind, ()
     assert not want['low_read'], (where, 'the original read low memory but the native did not fault')
+    assert not want['axis_read'], (where, 'the original read the record +0x34..+0x3F the native '
+                                          'does not carry, but the native did not fault')
     assert want['log'] == got['log'], (where, 'worker calls', want['log'], got['log'])
     if want['actor'] != got['actor']:
         diff = [hex(k) for k in range(0x320) if want['actor'][k] != got['actor'][k]]
@@ -900,6 +972,11 @@ def missing_worker_checks(native):
         run.narrow = True
         result, got = run.run()
         assert result == -1 and got['log'] == [] and got['actor'] == case['actor'], ('narrow', field)
+        count += 1
+    for field in ('column_0019BC40', 'atan2_0011E620', 'wrap_001B1470', 'scratch', 'world'):
+        case = dict(base, entry='lockon', probe_y=F(15.0))   # what 00178080 reaches
+        result, got = NativeRun(native, case, Script(1000, case), missing=field).run()
+        assert result == -1 and got['log'] == [] and got['actor'] == case['actor'], ('lockon', field)
         count += 1
     for field in ('pad', 'actuator'):
         case = dict(base, entry='rumble')

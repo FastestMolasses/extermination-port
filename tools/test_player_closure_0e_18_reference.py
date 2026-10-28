@@ -509,7 +509,8 @@ def build_native():
                        '-shared', '-fPIC', '-Isrc', 'src/game/em_player_closure_0e_18.c',
                        'src/game/em_player_hang.c', 'src/game/em_player_major2.c',
                        'src/game/em_player_ladder_climb.c', 'src/game/em_player_ladder_entry.c',
-                       'src/game/em_sdk_math_original.c', '-o', str(lib)])
+                       'src/game/em_sdk_math_original.c', 'src/game/em_player_stage_workers.c',
+                       '-o', str(lib)])
     native = C.CDLL(str(lib))
     WP = C.POINTER(Workers)
     for state in ('0E', '13', '14', '18'):

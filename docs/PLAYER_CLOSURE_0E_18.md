@@ -304,7 +304,7 @@ em_player_closure_state13`, `state[0x14] = em_player_closure_state14`,
 | `skeleton`, `translate`, `arbiter`, `clip_frames` | 001C68C0, 00178B90, anim_clip_arbiter, 001C61D0 | the animation workers the hang / fall lanes bind |
 | `use_test` | 001607D0 | `em_player_weapon_001607D0` (em_player_weapon_states_a.h; same signature, context an `EmPlayerWeaponStates`) |
 | `clip_row`, `clip_row_B` | 00188550, 001885B0 | the row-clip workers (em_player_major2 has both as workers) |
-| `ledge_3D`, `ledge_3B` | 00178390, 001782A0 | `em_player_ladder_00178390` (em_player_ladder_entry.h) over the last sweep's probe state; 001782A0 untranslated |
+| `ledge_3D`, `ledge_3B` | 00178390, 001782A0 | `em_player_ladder_00178390` / `em_player_ladder_001782A0` (em_player_ladder_entry.h) over the last sweep's probe state |
 | `sweep`, `point_test` | 0019AFE0, 0019AD00 | `em_coll_move_sweep_0019AFE0` and `em_coll_move_0019AD00` through adapters |
 | `ground` | 0019AB20 | `em_actor_collision_player_ground` (writes +280) |
 | `random` | 00179B90 | untranslated (it is 00122BB8() & 7, less 5 when it is 5 or more) |
@@ -359,7 +359,7 @@ it and hand its words by value to `transform`, `vadd`, `sweep`, `ground` and
 
 - **No route evidence** (section 4.3).
 - **Untranslated workers:** 00174FD0, 0017FF80, 0017DFB0, 0017E0D0,
-  0017E150, 0017E1D0, 00182A70, 00178390, 001782A0, 00179B90, float_to_int,
+  0017E150, 0017E1D0, 00182A70, 00179B90, float_to_int,
   and 00187EE0 as a standalone routine, besides the animation,
   sound and fade workers listed above.
 - **Table faults** (+23F > 3, +2F1 > 1) replace reads of neighbouring data.

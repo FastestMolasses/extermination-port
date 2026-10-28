@@ -1285,6 +1285,151 @@ def state_one_section(elf, native, rng, result):
     result['state_one_cases'] = samples
 
 
+# ------------------- 001838B0 / 00183910, 0015B530's +5 = 0xC / 0x17 routines
+
+TAKEOVER_CLIMB, TAKEOVER_DROP = 0x1838B0, 0x183910
+CLIMB_STATE, DROP_P = 0x1662D0, 0x179880
+DROP_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(LiveActor), C.c_uint)
+
+
+class TakeoverClimbWorkers(C.Structure):
+    """EmPlayerTakeoverClimbWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('climb', ACTOR_FN), ('row_request', BLEND_FN)]
+
+
+class TakeoverDropWorkers(C.Structure):
+    """EmPlayerTakeoverDropWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('d275B08', C.POINTER(C.c_int32)), ('drop', DROP_FN),
+                ('floor', FLOOR_FN)]
+
+
+def compare_image(oracle, live, name):
+    image = bytes(live.bytes)
+    for k in range(0x320):
+        assert image[k] == oracle.load(ACTOR + k, 1), (name + ' byte', hex(k), image[k],
+                                                       oracle.load(ACTOR + k, 1))
+    return image
+
+
+def takeover_climb_case(elf, native, raw, major_after, clip_after_climb, clip_after_row):
+    """001838B0 over `raw` against em_player_001838B0. 001662D0 is hooked: it
+    stores `major_after` at +4 and `clip_after_climb` at +0x20C; 00174A50
+    stores `clip_after_row` at +0x20C (so the +0x1F2 copy shows when +0x20C
+    is read). Every call is recorded with +4..+6 as the callee sees them."""
+    oracle = Floor(elf)
+    log = []
+    def climb(o):
+        log.append(('climb', o.r[4] & 0xffffffff))
+        o.save(ACTOR + 4, major_after, 1)
+        o.save(ACTOR + 0x20C, clip_after_climb, 2)
+        o.r[2] = 0
+    def row(o):
+        log.append(('row', o.f[12] & 0xffffffff, o.load(ACTOR + 4, 1), o.load(ACTOR + 5, 1),
+                    o.load(ACTOR + 6, 1)))
+        o.save(ACTOR + 0x20C, clip_after_row, 2)
+        o.r[2] = 0
+    oracle.calls.update({CLIMB_STATE: climb, ROW_P: row})
+    oracle.write(ACTOR, bytes(raw))
+    oracle.call(TAKEOVER_CLIMB, ACTOR)
+
+    mine = []
+    def n_climb(_, a):
+        mine.append(('climb', ACTOR))
+        a.contents.bytes[4] = major_after
+        struct.pack_into('<H', a.contents.bytes, 0x20C, clip_after_climb)
+        return 0
+    def n_row(_, a, blend):
+        b = a.contents.bytes
+        mine.append(('row', bits(blend), b[4], b[5], b[6]))
+        struct.pack_into('<H', b, 0x20C, clip_after_row)
+        return 0
+    keep = [ACTOR_FN(n_climb), BLEND_FN(n_row)]
+    workers = TakeoverClimbWorkers(None, *keep)
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    assert native.em_player_001838B0(C.byref(workers), C.byref(live)) == 0
+    assert mine == log, ('001838B0 calls', mine, log)
+    return compare_image(oracle, live, '001838B0'), log
+
+
+def takeover_drop_case(elf, native, raw, d275B08, landed, phase_after_drop):
+    """00183910 over `raw` against em_player_00183910. 00179880 is hooked
+    (recording its +at argument and storing `phase_after_drop` at +6, so the
+    reload of +6 after the calls shows), 00175900 answers `landed`."""
+    oracle = Floor(elf)
+    log = []
+    def drop(o):
+        log.append(('drop', o.r[4] & 0xffffffff, (o.r[5] - o.r[4]) & 0xffffffff, o.load(ACTOR + 0x2EC)))
+        o.save(ACTOR + 6, phase_after_drop, 1)
+        o.r[2] = 0
+    def floor(o):
+        log.append(('floor', o.r[5] & 0xffffffff, o.load(ACTOR + 6, 1)))
+        o.r[2] = landed & 0xffffffff
+    oracle.calls.update({DROP_P: drop, FLOOR_SERVICE: floor})
+    oracle.write(ACTOR, bytes(raw))
+    oracle.save(0x275B08, d275B08 & 0xffffffff)
+    oracle.call(TAKEOVER_DROP, ACTOR)
+
+    mine = []
+    def n_drop(_, a, at):
+        b = a.contents.bytes
+        mine.append(('drop', ACTOR, at, struct.unpack_from('<I', bytes(b), 0x2EC)[0]))
+        b[6] = phase_after_drop
+        return 0
+    def n_floor(_, a, search, out):
+        mine.append(('floor', search, a.contents.bytes[6]))
+        out[0] = landed
+        return 0
+    word = C.c_int32(d275B08)
+    keep = [DROP_FN(n_drop), FLOOR_FN(n_floor)]
+    workers = TakeoverDropWorkers(None, C.pointer(word), *keep)
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    assert native.em_player_00183910(C.byref(workers), C.byref(live)) == 0
+    assert mine == log, ('00183910 calls', mine, log)
+    assert word.value == d275B08, '00183910 must not write D_00275B08'
+    return compare_image(oracle, live, '00183910'), log
+
+
+def takeover_section(elf, native, rng, result):
+    """001838B0 and 00183910 (0015B530's +5 = 0xC and 0x17 routines),
+    executed, against em_player_001838B0 / em_player_00183910: +4 after the
+    climb state 1 and not 1; +6 = 0 with D_00275B00 + 8 zero and nonzero,
+    +6 = 1 with 00175900 zero and nonzero, +6 = 2 and other values."""
+    native.em_player_001838B0.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
+    native.em_player_00183910.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
+    samples = reference_mode.pick(800, 24)
+    paths = set()
+    for case in range(samples):
+        raw = bytearray(rng.randrange(256) for _ in range(0x320))
+        major_after = (1, 0, 4, 2)[case % 4] if case < 8 else rng.choice([1, 1, 0, 2, 4, 0xFF])
+        _, log = takeover_climb_case(elf, native, raw, major_after, rng.randrange(0x10000),
+                                     rng.randrange(0x10000))
+        paths.add(('climb', major_after == 1))
+        raw = bytearray(rng.randrange(256) for _ in range(0x320))
+        raw[6] = case % 4 if case < 16 else rng.choice([0, 0, 1, 1, 2, 3, 0xFF])
+        odd = (case // 4) % 2
+        d275B08 = (0 if odd else rng.choice([1, -1, 0x100, rng.randrange(1, 1 << 31)])) \
+            if case < 16 else rng.choice([0, 1, -1, rng.randrange(1 << 31)])
+        landed = (0 if odd else rng.choice([1, 2, -1, 4])) if case < 16 else rng.choice([0, 0, 1, 2, 4, -1])
+        phase_after = rng.choice([raw[6], 1, 0xFF, rng.randrange(256)])
+        takeover_drop_case(elf, native, raw, d275B08, landed, phase_after)
+        if raw[6] == 0: paths.add(('wait', d275B08 != 0))
+        elif raw[6] == 1: paths.add(('drop', landed != 0))
+        elif raw[6] == 2: paths.add('done')
+        else: paths.add('other phase')
+    need = {('climb', True), ('climb', False), ('wait', True), ('wait', False), ('drop', True),
+            ('drop', False), 'done', 'other phase'}
+    assert need <= paths, sorted(map(str, need - paths))
+    # A missing worker is a fault before any write.
+    raw = bytearray(0x320)
+    raw[6] = 1
+    for fn, workers in ((native.em_player_001838B0, TakeoverClimbWorkers()),
+                        (native.em_player_00183910, TakeoverDropWorkers())):
+        live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+        assert fn(C.byref(workers), C.byref(live)) == -1
+        assert bytes(live.bytes) == bytes(raw)
+    result['takeover_cases'] = samples
+
+
 # ---------------------------------------------------- real worlds, +214
 
 # The native floor service over the actor-collision ground worker, beside the
@@ -1726,6 +1871,9 @@ def main():
 
     # 4c-2b. 001837B0 (0015B530's +5 = 1 routine).
     state_one_section(elf, native, rng, result)
+
+    # 4c-2c. 001838B0 / 00183910 (0015B530's +5 = 0xC / 0x17 routines).
+    takeover_section(elf, native, rng, result)
 
     # 4c-3. The first-contact one-shots (00187DC0 / 00187EA0).
     first_contact_section(elf, native, result)

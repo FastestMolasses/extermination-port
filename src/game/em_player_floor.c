@@ -1277,6 +1277,39 @@ int em_player_001837B0(void *context, EmPlayerLiveActor *a)
     return w->fall_check(w->context, a) < 0 ? -1 : 0;
 }
 
+int em_player_001838B0(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerTakeoverClimbWorkers *w = context;
+    if (!w || !a || !w->climb || !w->row_request) return -1;
+    STAGE_CALL(w->climb(w->context, a));                         /* 001838BC */
+    if (em_live_u8(a, 4) != 1) return 0;                         /* 001838CC */
+    em_live_set_u8(a, 4, 4);
+    em_live_set_u8(a, 5, 0);
+    em_live_set_u8(a, 6, 0);
+    STAGE_CALL(w->row_request(w->context, a, 8.0f));             /* 001838EC */
+    em_live_set_u16(a, 0x1F2, em_live_u16(a, 0x20C));            /* 001838F4 */
+    return 0;
+}
+
+int em_player_00183910(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerTakeoverDropWorkers *w = context;
+    if (!w || !a || !w->d275B08 || !w->drop || !w->floor) return -1;
+    const uint8_t phase = em_live_u8(a, 6);
+    if (phase == 0) {
+        if (*w->d275B08 != 0) {                                  /* 00183948 */
+            em_live_set_u8(a, 6, (uint8_t)(phase + 1));
+            em_live_set_u32(a, 0x2EC, 0);
+        }
+    } else if (phase == 1) {
+        STAGE_CALL(w->drop(w->context, a, 0x2EC));               /* 00183968 */
+        int landed = 0;
+        STAGE_CALL(w->floor(w->context, a, 1, &landed));         /* 00183974 */
+        if (landed != 0) em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+    }
+    return 0;
+}
+
 int em_player_stage_0015D460(void *context, EmPlayerLiveActor *a)
 {
     const EmPlayerStageFade *f = context;
