@@ -42,8 +42,10 @@
  * latched on entry, a NULL hook table, a NULL fault pointer and (entries
  * with a result) a NULL result pointer return -1 at once.
  *
- * Unbound: nothing in the port calls these entries (level side track;
- * docs/LEVEL9_PORT.md "Binding"). stdint only; EE float model.
+ * Unbound except 001DE920 (the render context's 001DDAA0 worker,
+ * em_render_context_live.c): nothing else in the port calls these entries
+ * (level side track; docs/LEVEL9_PORT.md "Binding"). stdint only; EE float
+ * model.
  */
 #ifndef EM_LEVEL9_PORT_H
 #define EM_LEVEL9_PORT_H

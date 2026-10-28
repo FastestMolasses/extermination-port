@@ -19,6 +19,10 @@
 #include "gs/em_gs_world.h"
 #include "game/em_frame_render_heads.h"
 #include "game/em_load_veil_particles.h"
+#include "game/em_ee_float.h"
+#include "game/em_owner_services_original.h"
+#include "game/em_level9_port.h"
+#include "game/em_random.h"
 #include "game/em_skin_arena_init.h"
 #include "game/em_packet_chain_original.h"
 #include "game/em_player_equipment.h"
@@ -70,7 +74,17 @@ typedef uint32_t u32;
 #define SPAD_3400   0x70003400u   /* 001D5370's two clip matrices */
 #define D_8101D0    0x008101D0u   /* 001C1D00's state block (001AF690 zeroes 0x10) */
 #define D_28A5A0    0x0028A5A0u   /* the bank address word (the loader's slot 0x44) */
-#define VIEWS_MAX   32u
+/* The area load 001D19E0's and the effect callees' storage. */
+#define D_817E20    0x00817E20u   /* 001D9720's target packet (.bss, 0x100) */
+#define D_81C050    0x0081C050u   /* 001DD7B0's GS block (0xA0), then 001E0380's two */
+#define D_81C050_SIZE 0x38A0u     /* grids D_0081C0F0 / D_0081D0F0 (0x1000 each) and */
+                                  /* 001E1010's table D_0081E0F0 (0x1800), .bss */
+#define D_275C08    0x00275C08u   /* the GS read-back queue count 001D71F0 clears */
+#define D_253490    0x00253490u   /* .data: 001DE920's basis, 001DF020's pairs, */
+#define D_253490_SIZE 0xA0u       /* 001DFE70's corners, 001E0380's quadword */
+#define D_26E810    0x0026E810u   /* .data: 001DDB70's four colour quadwords */
+#define D_26E810_SIZE 0x40u
+#define VIEWS_MAX   40u
 
 static uint32_t s_arena_words[(ARENA_END - ARENA_BASE) / 4];
 static uint32_t s_ctx_words[(CTX_END - CTX_BASE) / 4];
@@ -87,6 +101,11 @@ static uint32_t s_d253560_words[D_253560_SIZE / 4];
 static uint32_t s_d817240_words[0x80 / 4];
 static uint32_t s_spad3400_words[0x80 / 4];
 static uint8_t *s_spad3400_borrowed;
+static uint32_t s_d817E20_words[0x100 / 4];
+static uint32_t s_d81C050_words[D_81C050_SIZE / 4];
+static uint32_t s_d275C08_words[1];
+static uint8_t s_d253490[D_253490_SIZE];
+static uint8_t s_d26E810[D_26E810_SIZE];
 static uint32_t s_d8101D0_words[0x10 / 4];
 /* The static-object bank *D_0028A5A0 (static_world.emsw block 0), read only. */
 static uint8_t *s_bank;
@@ -248,6 +267,12 @@ static void build_views(void)
     add_view(D_817240, 0x80, (uint8_t *)s_d817240_words, 1);
     add_view(SPAD_3400, 0x80, s_spad3400_borrowed ? s_spad3400_borrowed : (uint8_t *)s_spad3400_words, 1);
     add_view(D_8101D0, 0x10, (uint8_t *)s_d8101D0_words, 1);
+    /* 001D19E0's callees and the effect callees of 001DDA00 */
+    add_view(D_817E20, 0x100, (uint8_t *)s_d817E20_words, 1);
+    add_view(D_81C050, D_81C050_SIZE, (uint8_t *)s_d81C050_words, 1);
+    add_view(D_275C08, 4, (uint8_t *)s_d275C08_words, 1);
+    add_view(D_253490, D_253490_SIZE, s_d253490, 0);
+    add_view(D_26E810, D_26E810_SIZE, s_d26E810, 0);
     if (s_dynamic_word) {
         add_view(EM_A01R_D_0028A5A4, 4, (uint8_t *)(uintptr_t)s_dynamic_word, 0);
         add_view(s_dynamic_address, s_dynamic_size, (uint8_t *)(uintptr_t)s_dynamic_bytes, 0);
@@ -460,11 +485,36 @@ static int v_001D6BA0(void *ctx, int32_t chan, int32_t a1, int32_t a2, int32_t a
     uint32_t result;
     return em_load_veil_particles_001D6BA0(&R.veil, chan, a1, a2, a3, t0, t1, &result);
 }
+/* em_load_veil_particles fills inside its one packet window (the arena);
+ * for the GS blocks outside it (001DD7B0's D_0081C070, 001D9720's
+ * D_00817E40) the same translation runs over a copy of the module whose
+ * window is the owned block that holds `address`. */
+static int veil_over(u32 address, u32 size, EmLoadVeilParticles *v)
+{
+    *v = R.veil;
+    for (unsigned i = 0; i < R.view_count; ++i) {
+        const EmFrhView *b = &R.frh_views[i];
+        if (b->bytes && b->writable && address >= b->address && size <= b->size &&
+            address - b->address <= b->size - size) {
+            v->world.packet = b->bytes;
+            v->world.packet_address = b->address;
+            v->world.packet_size = b->size;
+            return 0;
+        }
+    }
+    return -1;
+}
 static int v_001006D8(void *ctx, uint32_t env, int32_t psm, int32_t w, int32_t h, int32_t t0, int32_t t1)
 {
     (void)ctx;
     int32_t result;
-    return em_load_veil_particles_001006D8(&R.veil, env, psm, w, h, t0, t1, &result);
+    EmLoadVeilParticles v;
+    if (veil_over(env, 0x80u, &v) < 0) return -1;
+    if (em_load_veil_particles_001006D8(&v, env, psm, w, h, t0, t1, &result) < 0) {
+        R.veil.fault = v.fault;
+        return -1;
+    }
+    return 0;
 }
 
 /* 001D5370's and 001DD7B0's callees (not bound live: those entries are not
@@ -654,6 +704,574 @@ static int g_001C1EA0(void *ctx, uint32_t block)
     return R.host.w_001C1EA0 ? R.host.w_001C1EA0(R.host.ctx, block) : -1;
 }
 
+/* ---- the area load's callees and the effect callees ----------------------
+ *
+ * Translations of byte-matched decomp C (src/func_<address>.c) except
+ * 001DFF70, whose C is a NEARMISS: its original instructions were followed.
+ * Every byte is addressed through this module's storage by its original
+ * address; a store outside the writable owned ranges faults. The float
+ * arithmetic is the EE's (em_ee_float.h), one operation per original
+ * instruction, in the original order. */
+
+static uint8_t *wr(u32 address, u32 size, u32 fn)
+{
+    uint8_t *p = em_rcl_bytes_mut(address, size);
+    if (!p) fail(fn, "a store outside the owned storage");
+    return p;
+}
+static const uint8_t *rd(u32 address, u32 size, u32 fn)
+{
+    const uint8_t *p = R.loaded ? own(address, size) : NULL;
+    if (!p) fail(fn, "a load outside the owned and bound storage");
+    return p;
+}
+static void put16(uint8_t *p, u32 v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void put32(uint8_t *p, u32 v) { put16(p, v); put16(p + 2, v >> 16); }
+static void put64(uint8_t *p, uint64_t v) { put32(p, (u32)v); put32(p + 4, (u32)(v >> 32)); }
+static uint64_t get64(const uint8_t *p) { return rd32(p) | (uint64_t)rd32(p + 4) << 32; }
+static u32 d275670(void) { return s_d275670_words[0]; }   /* the context address */
+
+/* The channel cursor word of `chan`: D_00275670 + 4 chan + 0x10. */
+static uint8_t *cursor_word(int32_t chan, u32 fn)
+{
+    return wr(d275670() + ((u32)chan << 2) + 0x10u, 4, fn);
+}
+
+/* A packet's DMA tag at the cursor c (as 001D64A0, 001DDB70 and the list
+ * closes write it): byte +3 = id, word +4 = 0, halfword +0 = qwc; byte +2
+ * and the tag's upper dword keep their bytes. */
+static void dma_tag(uint8_t *c, u32 id, u32 qwc)
+{
+    c[3] = (uint8_t)id;
+    put32(c + 4, 0);
+    put16(c, qwc);
+}
+
+/* 001D64A0(chan, a1, a2, a3, reg): one 0x60-byte packet at the channel
+ * cursor: tag CNT with qwc 5, the cursor advanced by 0x60, the quadword
+ * +0x10 zero with the DIRECT word 0x50000004 at +0x1C, the GIF tag
+ * 0x3000400000008001 with PRIM (reg | 6) at bit 47, the register word 0x441
+ * (RGBAQ, XYZ2, XYZ2), then a3's four words, a1's three and a zero, a2's
+ * three and a zero. */
+static int rcl_001D64A0(int32_t chan, const u32 a1[3], const u32 a2[3], const u32 a3[4], int32_t reg)
+{
+    const u32 fn = 0x001D64A0u;
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!slot) return -1;
+    const u32 at = rd32(slot);
+    uint8_t *b = wr(at, 0x60, fn);
+    if (!b) return -1;
+    dma_tag(b, 0x10, 5);
+    put32(slot, at + 0x60u);
+    memset(b + 0x10, 0, 16);
+    put32(b + 0x1C, 0x50000004u);
+    put64(b + 0x20, (uint64_t)(int64_t)(int32_t)((u32)reg | 6u) << 47 | UINT64_C(0x8001) |
+                    (uint64_t)0x30004000u << 32);
+    put64(b + 0x28, 0x441u);
+    for (unsigned i = 0; i < 4; ++i) put32(b + 0x30 + 4 * i, a3[i]);
+    for (unsigned i = 0; i < 3; ++i) put32(b + 0x40 + 4 * i, a1[i]);
+    put32(b + 0x4C, 0);
+    for (unsigned i = 0; i < 3; ++i) put32(b + 0x50 + 4 * i, a2[i]);
+    put32(b + 0x5C, 0);
+    return 0;
+}
+
+/* 001DFE70(colour, f12): the corners D_00253500 / D_00253510; for each of
+ * the colour's first three words w, float_to_int(float(255 - w) * f12);
+ * the fourth is 1; then 001D1F80(1, 0, 3), 001D64A0(1, corner 0, corner 1,
+ * the colour, 0x40) and 001D2040(1, 1). */
+static int rcl_001DFE70(u32 colour, u32 f12)
+{
+    const u32 fn = 0x001DFE70u;
+    const uint8_t *k = rd(D_253490 + 0x70u, 0x20, fn), *c = rd(colour, 12, fn);
+    if (!k || !c) return -1;
+    u32 c0[4], c1[4], col[4];
+    for (unsigned i = 0; i < 4; ++i) {
+        c0[i] = rd32(k + 4 * i);
+        c1[i] = rd32(k + 0x10 + 4 * i);
+    }
+    for (unsigned i = 0; i < 3; ++i) {
+        const u32 d = 0xFFu - rd32(c + 4 * i);
+        col[i] = (u32)em_player_float_to_int(em_ee_mul_bits(em_ee_cvt_s_w_bits(d), f12));
+    }
+    col[3] = 1;
+    if (em_load_veil_particles_001D1F80(&R.veil, 1, 0, 3) < 0) return fail(0x001D1F80u, "001D1F80 fault");
+    if (rcl_001D64A0(1, c0, c1, col, 0x40) < 0) return -1;
+    if (em_load_veil_particles_001D2040(&R.veil, 1, 1) < 0) return fail(0x001D2040u, "001D2040 fault");
+    return 0;
+}
+
+/* 001DFF70 (NEARMISS C; the instructions were followed): the fade record
+ * at context +0x1F0 (byte +0 state, byte +1 done, float +4 level, the
+ * colour words +0x10..+0x1C). State 0: level 0, colour (255, 220, 177, 64),
+ * state 1, then as state 1. State 1: unless done, level = level +
+ * ((1/60) + 0.4 (1 - level)); when it is not below 1.0, level = 1.0 and
+ * done = 1. State 2: level = level + (0.4 (-level) - 1/60); below 0, level
+ * = 0 and state 3. States 1 and 2 then 001DFE70(&colour, 0.42 level).
+ * State 3: 001D2830(7, 0). Any other state: nothing. */
+#define F_ONE    0x3F800000u
+#define F_0_4    0x3ECCCCCDu
+#define F_1_60   0x3C888889u
+#define F_0_42   0x3ED70A3Du
+static int rcl_001DFF70(void *ctx)
+{
+    (void)ctx;
+    const u32 fn = 0x001DFF70u;
+    const u32 rec = d275670() + 0x1F0u;
+    uint8_t *p = wr(rec, 0x20, fn);
+    if (!p) return -1;
+    switch (p[0]) {
+    case 3: {
+        int32_t ignored;
+        return done(em_frh_001D2830(&R.frh, 7, 0, &ignored), 0x001D2830u);
+    }
+    case 2: {
+        const u32 t = rd32(p + 4);
+        const u32 v = em_ee_add_bits(t, em_ee_sub_bits(em_ee_mul_bits(F_0_4, em_ee_neg_bits(t)), F_1_60));
+        put32(p + 4, v);
+        if (em_ee_c_lt_bits(v, 0)) {
+            put32(p + 4, 0);
+            p[0] = 3;
+        }
+        return rcl_001DFE70(rec + 0x10u, em_ee_mul_bits(F_0_42, rd32(p + 4)));
+    }
+    case 0:
+        put32(p + 4, 0);
+        put32(p + 0x10, 0xFF);
+        put32(p + 0x14, 0xDC);
+        put32(p + 0x18, 0xB1);
+        put32(p + 0x1C, 0x40);
+        p[0] = 1;
+        /* fall through */
+    case 1:
+        if (p[1] != 1) {
+            const u32 t = rd32(p + 4);
+            const u32 v = em_ee_add_bits(t, em_ee_add_bits(F_1_60, em_ee_mul_bits(F_0_4, em_ee_sub_bits(F_ONE, t))));
+            put32(p + 4, v);
+            if (!em_ee_c_lt_bits(v, F_ONE)) {
+                put32(p + 4, F_ONE);
+                p[1] = 1;
+            }
+        }
+        return rcl_001DFE70(rec + 0x10u, em_ee_mul_bits(F_0_42, rd32(p + 4)));
+    default:
+        return 0;
+    }
+}
+
+/* 001DDB70: the channel-3 pass. The channel-3 cursor is kept, then
+ * 001D6B60(3, D_0027568C, 8, 8, &D_0026E810), 001D6BA0(3, D_0027568C, 8,
+ * 8, 0, 0), 001D1FF0(3, 3), 001D2040(3, 0), 001D6C90(3, 0, 1, 0, 0, 1, 0,
+ * 0; 1, 2, 0, 1, 0, 1, 0); one 0x80-byte packet (tag CNT qwc 7; +0x10 zero
+ * with DIRECT 0x50000006 at +0x1C; GIF tag 0x50AF400000008001, registers
+ * 0x43431; +0x30 (0, 255, 0, 255), +0x40 (8, 8), +0x50 (0x7000, 0x7900, -1,
+ * 0x80), +0x60 (0x1008, 0x1008), +0x70 (0x9000, 0x8700, -1, 0x80); the
+ * words +0x48, +0x4C, +0x68, +0x6C are not written); the line colour by
+ * 001B0070's word: bit 7 D_0026E820, else bit 28 D_0026E840, else
+ * D_0026E830; 112 calls 001D63B0(3, (0x7000, y, -1, 0x80), colour,
+ * (0x9000, y, -1, 0x80), colour) with y = (i + 0x790) * 16 for i = 0, 2,
+ * .., 0xDE; 001D1F20(3); the list close (tag 0x60, the cursor + 0x10); and
+ * 001CB760(D_007635C0, 0xFFF000, the kept cursor). */
+static int rcl_001DDB70(void *ctx)
+{
+    (void)ctx;
+    const u32 fn = 0x001DDB70u;
+    uint8_t *slot = cursor_word(3, fn);
+    const uint8_t *colours = rd(D_26E810, D_26E810_SIZE, fn);
+    if (!slot || !colours) return -1;
+    const u32 base = rd32(slot);
+    const int32_t frame = (int32_t)s_d275670_words[7];   /* D_0027568C */
+    if (em_load_veil_particles_001D6B60(&R.veil, 3, frame, 8, 8, colours, NULL) < 0 ||
+        em_load_veil_particles_001D6BA0(&R.veil, 3, frame, 8, 8, 0, 0, NULL) < 0 ||
+        em_load_veil_particles_001D1FF0(&R.veil, 3, 3) < 0 ||
+        em_load_veil_particles_001D2040(&R.veil, 3, 0) < 0)
+        return fail(R.veil.fault.address ? R.veil.fault.address : fn, "001DDB70's set-up fault");
+    static const int32_t gif[15] = {3, 0, 1, 0, 0, 1, 0, 0, 1, 2, 0, 1, 0, 1, 0};
+    if (done(em_render_context_001D6C90(&R.rc, gif, NULL), 0x001D6C90u) < 0) return -1;
+    const u32 at = rd32(slot);
+    uint8_t *e = wr(at, 0x80, fn);
+    if (!e) return -1;
+    dma_tag(e, 0x10, 7);
+    put32(slot, at + 0x80u);
+    memset(e + 0x10, 0, 16);
+    put32(e + 0x1C, 0x50000006u);
+    put64(e + 0x20, UINT64_C(0x50AF400000008001));
+    put64(e + 0x28, 0x43431u);
+    static const struct { uint8_t at; u32 v; } words[] = {
+        {0x30, 0}, {0x34, 0xFF}, {0x38, 0}, {0x3C, 0xFF}, {0x40, 8}, {0x44, 8},
+        {0x50, 0x7000}, {0x54, 0x7900}, {0x58, 0xFFFFFFFFu}, {0x5C, 0x80},
+        {0x60, 0x1008}, {0x64, 0x1008},
+        {0x70, 0x9000}, {0x74, 0x8700}, {0x78, 0xFFFFFFFFu}, {0x7C, 0x80},
+    };
+    for (unsigned i = 0; i < sizeof words / sizeof words[0]; ++i) put32(e + words[i].at, words[i].v);
+    u32 flags;
+    if (w_001B0070(NULL, &flags) < 0) return fail(0x001B0070u, "001B0070 has no request block");
+    const uint8_t *pick = colours + ((flags & 0x80u) ? 0x10 : (flags & 0x10000000u) ? 0x30 : 0x20);
+    u32 q[4];
+    for (unsigned k = 0; k < 4; ++k) q[k] = rd32(pick + 4 * k);
+    for (int32_t i = 0; i < 0xE0; i += 2) {
+        const u32 y = (u32)(i + 0x790) * 0x10u;
+        const u32 lo[3] = {0x7000u, y, 0xFFFFFFFFu}, hi[3] = {0x9000u, y, 0xFFFFFFFFu};
+        if (em_load_veil_particles_001D63B0(&R.veil, 3, lo, q, hi, q, NULL) < 0)
+            return fail(R.veil.fault.address ? R.veil.fault.address : 0x001D63B0u, "001D63B0 fault");
+    }
+    if (em_load_veil_particles_001D1F20(&R.veil, 3) < 0) return fail(0x001D1F20u, "001D1F20 fault");
+    const u32 end = rd32(slot);
+    uint8_t *t = wr(end, 0x10, fn);
+    if (!t) return -1;
+    dma_tag(t, 0x60, 0);
+    put32(slot, end + 0x10u);
+    /* The packet chain's 001CB760 itself: f_001CB760 keeps only 001DDE10's
+     * slot-0xFFF CALL as the page's four-sprite pass. */
+    return em_packet_chain_w_001CB760(&R.pc, 0x007635C0u, 0xFFF000, base) < 0
+               ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
+}
+
+/* The ramp records' 001DF110 and the packet builders its 001DF020 calls
+ * (each byte-matched). Each claims a block at the channel cursor with the
+ * tag CNT (dma_tag) and advances the cursor past it. */
+
+/* 001D7510(chan, a1, a2): 0x50 bytes (qwc 4): +0x10 zero with DIRECT
+ * 0x50000003 at +0x1C; GIF tag 0x1000000000008002 with the A+D register
+ * word 0xE; (0, register 0x3F); then (a1 << 35 | (s >> 8) | 0x224020000 |
+ * a2 << 34, register 6), s = 0 when the context word +0x9C is 0, else
+ * 0x70000 (a1 and a2 sign-extended from 32 bits). */
+static int rcl_001D7510(int32_t chan, int32_t a1, int32_t a2)
+{
+    const u32 fn = 0x001D7510u;
+    const uint8_t *nine_c = rd(d275670() + 0x9Cu, 4, fn);
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!nine_c || !slot) return -1;
+    const u32 chip = rd32(nine_c) == 0 ? 0 : 0x70000u;
+    const u32 at = rd32(slot);
+    uint8_t *e = wr(at, 0x50, fn);
+    if (!e) return -1;
+    dma_tag(e, 0x10, 4);
+    put32(slot, at + 0x50u);
+    memset(e + 0x10, 0, 16);
+    put32(e + 0x1C, 0x50000003u);
+    put64(e + 0x20, UINT64_C(0x1000000000008002));
+    put64(e + 0x28, 0xEu);
+    put64(e + 0x30, 0);
+    put64(e + 0x38, 0x3Fu);
+    put64(e + 0x40, (uint64_t)(int64_t)a1 << 35 | ((uint64_t)(chip >> 8) | UINT64_C(0x224020000)) |
+                    (uint64_t)(int64_t)a2 << 34);
+    put64(e + 0x48, 6u);
+    return 0;
+}
+
+/* 001D7000(chan, v) and 001D6DD0(chan, x, y): 0x40 bytes (qwc 3): +0x10
+ * zero with DIRECT 0x50000002 at +0x1C; GIF tag 0x1000000000008001 with the
+ * A+D register word 0xE; then one register: (v sign-extended, 0x3B) for
+ * 001D7000, (x | y << 32, 0x18: XYOFFSET_1) for 001D6DD0. (The static
+ * world's em_static_world_001D7000 is the same function over its views.) */
+static int one_register(int32_t chan, uint64_t value, u32 reg, u32 fn)
+{
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!slot) return -1;
+    const u32 at = rd32(slot);
+    uint8_t *e = wr(at, 0x40, fn);
+    if (!e) return -1;
+    dma_tag(e, 0x10, 3);
+    put32(slot, at + 0x40u);
+    memset(e + 0x10, 0, 16);
+    put32(e + 0x1C, 0x50000002u);
+    put64(e + 0x20, UINT64_C(0x1000000000008001));
+    put64(e + 0x28, 0xEu);
+    put64(e + 0x30, value);
+    put64(e + 0x38, reg);
+    return 0;
+}
+static int rcl_001D7000(int32_t chan, int32_t v)
+{
+    return one_register(chan, (uint64_t)(int64_t)v, 0x3Bu, 0x001D7000u);
+}
+static int rcl_001D6DD0(int32_t chan, int32_t x, int32_t y)
+{
+    return one_register(chan, (uint64_t)(int64_t)x | (uint64_t)(int64_t)y << 32, 0x18u, 0x001D6DD0u);
+}
+
+/* 001D7A80(chan, a1, a2, a3, a4): 0x80 bytes (qwc 7): +0x10 zero with
+ * DIRECT 0x50000006 at +0x1C; GIF tag 0x5000400000008001 with PRIM
+ * (a1 | 0x116) at bit 47, registers 0x43431; then the quadwords a4[0],
+ * a3[0], a2[0], a3[1], a2[1] at +0x30..+0x70. a2..a4 are original
+ * addresses. */
+static int rcl_001D7A80(int32_t chan, int32_t a1, u32 a2, u32 a3, u32 a4)
+{
+    const u32 fn = 0x001D7A80u;
+    const uint8_t *p2 = rd(a2, 0x20, fn), *p3 = rd(a3, 0x20, fn), *p4 = rd(a4 & ~15u, 0x10, fn);
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!p2 || !p3 || !p4 || !slot) return -1;
+    uint8_t q[5][16];
+    memcpy(q[0], p4, 16);
+    memcpy(q[1], p3, 16);
+    memcpy(q[2], p2, 16);
+    memcpy(q[3], p3 + 16, 16);
+    memcpy(q[4], p2 + 16, 16);
+    const u32 at = rd32(slot);
+    uint8_t *b = wr(at, 0x80, fn);
+    if (!b) return -1;
+    dma_tag(b, 0x10, 7);
+    put32(slot, at + 0x80u);
+    memset(b + 0x10, 0, 16);
+    put32(b + 0x1C, 0x50000006u);
+    put64(b + 0x20, (uint64_t)(int64_t)(int32_t)((u32)a1 | 0x116u) << 47 | UINT64_C(0x8001) |
+                    (uint64_t)0x50004000u << 32);
+    put64(b + 0x28, 0x43431u);
+    for (unsigned i = 0; i < 5; ++i) memcpy(b + 0x30 + 0x10 * i, q[i], 16);
+    return 0;
+}
+
+/* 001DF020(chan, a1): *result = the channel cursor as it was; then
+ * 001D1FF0(chan, 2), 001D7510(chan, 0, 0), 001D1F80(chan, 0, 1),
+ * 001D7000(chan, 0), 001D6DD0(chan, 0x7000, 0x7900), 001D7A80(chan, 0x40,
+ * the pair D_002534C0, the pair D_002534E0 (both copied to the stack
+ * first), a1) and 001D1F20(chan). */
+static int rcl_001DF020(int32_t chan, u32 a1, u32 *result)
+{
+    const u32 fn = 0x001DF020u;
+    const uint8_t *slot = cursor_word(chan, fn);
+    if (!slot) return -1;
+    *result = rd32(slot);
+    if (em_load_veil_particles_001D1FF0(&R.veil, chan, 2) < 0) return fail(0x001D1FF0u, "001D1FF0 fault");
+    if (rcl_001D7510(chan, 0, 0) < 0) return -1;
+    if (em_load_veil_particles_001D1F80(&R.veil, chan, 0, 1) < 0) return fail(0x001D1F80u, "001D1F80 fault");
+    if (rcl_001D7000(chan, 0) < 0 || rcl_001D6DD0(chan, 0x7000, 0x7900) < 0) return -1;
+    if (rcl_001D7A80(chan, 0x40, D_253490 + 0x30u, D_253490 + 0x50u, a1) < 0) return -1;
+    if (em_load_veil_particles_001D1F20(&R.veil, chan) < 0) return fail(0x001D1F20u, "001D1F20 fault");
+    return 0;
+}
+
+/* 001DF110(a0): r = 001DF020(3, a0); the channel-3 list close (tag 0x60,
+ * the cursor + 0x10); 001CB760(D_007635C0, 0xFFF000, r) (the packet
+ * chain's own, as in 001DDB70). 001DEEE0 passes its record + 0x10 (the
+ * ramp colour quadword). */
+static int rcl_001DF110(void *ctx, uint32_t a0)
+{
+    (void)ctx;
+    const u32 fn = 0x001DF110u;
+    u32 r;
+    if (rcl_001DF020(3, a0, &r) < 0) return -1;
+    uint8_t *slot = cursor_word(3, fn);
+    if (!slot) return -1;
+    const u32 end = rd32(slot);
+    uint8_t *t = wr(end, 0x10, fn);
+    if (!t) return -1;
+    dma_tag(t, 0x60, 0);
+    put32(slot, end + 0x10u);
+    return em_packet_chain_w_001CB760(&R.pc, 0x007635C0u, 0xFFF000, r) < 0
+               ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
+}
+
+/* 001DE920 (001DDAA0's branch for the area keys 0x0B00..0x0E00 when
+ * 001B0070's word has bit 5 or 6; AREA11 is 0x0B): the outdoor weather
+ * packet. Its one translation is em_level9_port_001DE920 (the instructions
+ * followed; docs/LEVEL9_PORT.md), run here over this module's storage: its
+ * memory view is own() plus a private stack window for its 0x140-byte
+ * frame (the original's stack is not modelled; nothing outside the frame
+ * reads it), and each callee is the translation this module binds
+ * elsewhere. Its 001CB760 is the packet chain's own, as 001DDB70's. */
+#define L9_STACK_TOP  0x01FFF000u   /* the private stack window's top */
+#define L9_STACK_SIZE 0x200u
+static uint8_t s_l9_stack[L9_STACK_SIZE];
+static u32 s_l9_frame;   /* 001DE920's frame: sp - 0x140 */
+
+static uint8_t *l9_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address >= L9_STACK_TOP - L9_STACK_SIZE && size <= L9_STACK_SIZE &&
+        address - (L9_STACK_TOP - L9_STACK_SIZE) <= L9_STACK_SIZE - size)
+        return s_l9_stack + (address - (L9_STACK_TOP - L9_STACK_SIZE));
+    return own(address, size);
+}
+static int l9_001026A0(void *ctx, uint32_t out, uint32_t m, uint32_t v)
+{
+    const uint8_t *pm = l9_bytes(ctx, m, 0x40), *pv = l9_bytes(ctx, v, 16);
+    uint8_t *po = l9_bytes(ctx, out, 16);
+    if (!pm || !pv || !po) return -1;
+    float mf[16], vf[4], of[4];
+    memcpy(mf, pm, sizeof mf);
+    memcpy(vf, pv, sizeof vf);
+    em_effect_original_001026A0(of, mf, vf);
+    memcpy(po, of, sizeof of);
+    return 0;
+}
+static int l9_00102948(void *ctx, uint32_t dst, uint32_t src)
+{
+    const uint8_t *s = l9_bytes(ctx, src & ~15u, 16);
+    uint8_t *d = l9_bytes(ctx, dst & ~15u, 16);
+    if (!s || !d) return -1;
+    memmove(d, s, 16);
+    return 0;
+}
+static int l9_00122BB8(void *ctx, int32_t *result)
+{
+    (void)ctx;
+    *result = (int32_t)em_random_next();
+    return 0;
+}
+static int l9_001281C0(void *ctx, float f, int32_t *result)
+{
+    (void)ctx;
+    u32 bits;
+    memcpy(&bits, &f, 4);
+    *result = em_player_float_to_int(bits);
+    return 0;
+}
+static int l9_001CB760(void *ctx, uint32_t table, uint32_t id, uint32_t address, int32_t unread)
+{
+    (void)ctx;
+    (void)unread;   /* 001CB760 does not read a3 */
+    return em_packet_chain_w_001CB760(&R.pc, table, (int32_t)id, address);
+}
+static int l9_001D1F20(void *ctx, int32_t chan) { return v_001D1F20(ctx, chan); }
+static int l9_001D1FF0(void *ctx, int32_t chan, int32_t a1) { return v_001D1FF0(ctx, chan, a1); }
+static int l9_001D2040(void *ctx, int32_t chan, int32_t a1) { return v_001D2040(ctx, chan, a1); }
+static int l9_001D6B10(void *ctx, int32_t a0, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)ctx;
+    return em_render_context_001D6B10(&R.rc, a0, a1, a2, a3, NULL);
+}
+static int l9_001D6BA0(void *ctx, int32_t chan, int32_t a1, int32_t a2, int32_t a3, int32_t t0, int32_t t1)
+{
+    return v_001D6BA0(ctx, chan, a1, a2, a3, t0, t1);
+}
+/* 001D6C90's seven stack arguments are the low words of the doublewords
+ * the caller stored at its frame + 0x00..+0x30. */
+static int l9_001D6C90(void *ctx, int32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t t0, int32_t t1,
+                       int32_t t2, int32_t t3)
+{
+    int32_t args[15] = {a0, a1, a2, a3, t0, t1, t2, t3};
+    for (unsigned k = 0; k < 7; ++k) {
+        const uint8_t *p = l9_bytes(ctx, s_l9_frame + 8u * k, 4);
+        if (!p) return -1;
+        args[8 + k] = (int32_t)rd32(p);
+    }
+    return em_render_context_001D6C90(&R.rc, args, NULL);
+}
+static int rcl_001DE920(void *ctx)
+{
+    (void)ctx;
+    EmLevel9PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.bytes = l9_bytes;
+    h.w_001026A0 = l9_001026A0;
+    h.w_00102948 = l9_00102948;
+    h.w_00122BB8 = l9_00122BB8;
+    h.w_001281C0 = l9_001281C0;
+    h.w_001CB760 = l9_001CB760;
+    h.w_001D1F20 = l9_001D1F20;
+    h.w_001D1FF0 = l9_001D1FF0;
+    h.w_001D2040 = l9_001D2040;
+    h.w_001D6B10 = l9_001D6B10;
+    h.w_001D6BA0 = l9_001D6BA0;
+    h.w_001D6C90 = l9_001D6C90;
+    EmLevel9PortFault fault = {0, 0};
+    s_l9_frame = L9_STACK_TOP - 0x140u;
+    if (em_level9_port_001DE920(&h, L9_STACK_TOP, &fault) < 0) {
+        if (R.rc.fault.code) return -1;
+        return fail(fault.address ? fault.address : 0x001DE920u, "001DE920 fault");
+    }
+    return 0;
+}
+
+/* 001D9720: the target packet D_00817E20: words 0, 0, 0x11000000,
+ * 0x5000000F; the GIF tag's fields NLOOP 14, EOP 1, PRE 0, FLG 0, NREG 1
+ * and REGS0 0xE (A+D) set in place (its other bits keep theirs);
+ * 001006D8(+0x20, 0, 0x80, 0x80, 0, 2); 001008C0(+0xA0, 0, 0x7C0, 0x7C0,
+ * 0x80, 0x80, 0x80, 0x80, 0x80, 0, 0); then FRAME's low 9 bits (the dword
+ * at +0x20) = 0x12C. */
+static int rcl_001D9720(void *ctx)
+{
+    (void)ctx;
+    const u32 fn = 0x001D9720u;
+    uint8_t *p = wr(D_817E20, 0x100, fn);
+    if (!p) return -1;
+    put32(p, 0);
+    put32(p + 4, 0);
+    put32(p + 8, 0x11000000u);
+    put32(p + 0xC, 0x5000000Fu);
+    uint64_t t = get64(p + 0x10);
+    t = (t & ~UINT64_C(0xFFFF)) | 0x800Eu;                       /* NLOOP 14, EOP 1 */
+    t &= ~(UINT64_C(1) << 46);                                    /* PRE 0 */
+    t = (t & ~(UINT64_C(0x3F) << 58)) | UINT64_C(1) << 60;        /* FLG 0, NREG 1 */
+    put64(p + 0x10, t);
+    put64(p + 0x18, (get64(p + 0x18) & ~UINT64_C(0xF)) | 0xEu);  /* REGS0 */
+    if (v_001006D8(NULL, D_817E20 + 0x20u, 0, 0x80, 0x80, 0, 2) < 0)
+        return fail(R.veil.fault.address ? R.veil.fault.address : 0x001006D8u, "001006D8 fault");
+    if (em_gs_blocks_001008C0(p + 0xA0, 0, 0x7C0, 0x7C0, 0x80, 0x80, 0x80, 0x80, 0x80, 0, 0) < 0)
+        return fail(0x001008C0u, "001008C0 fault");
+    put64(p + 0x20, (get64(p + 0x20) & ~UINT64_C(0x1FF)) | 0x12Cu);
+    return 0;
+}
+
+/* 001E0380 (001D19E0 runs it for the area key 0x1100 only, area 0x11 sub 0;
+ * AREA11 is area 0x0B): for i, j = 0..15, the
+ * matrix R = rotate_y(rotate_z(identity, (pi/2) i / 15), (2 pi) j / 15 -
+ * pi) times the quadword D_00253520 (001026A0), stored at D_0081C0F0 and
+ * at D_0081D0F0, + 0x100 i + 0x10 j. */
+#define F_PI_2   0x3FC90FDBu
+#define F_2PI    0x40C90FDBu
+#define F_PI     0x40490FDBu
+#define F_15     0x41700000u
+static int rcl_001E0380(void *ctx)
+{
+    (void)ctx;
+    const u32 fn = 0x001E0380u;
+    const uint8_t *q = rd(D_253490 + 0x90u, 16, fn);
+    uint8_t *g = wr(D_81C050 + 0xA0u, 0x2000, fn);
+    if (!q || !g) return -1;
+    for (int32_t i = 0; i < 16; ++i) {
+        float v[4];
+        memcpy(v, q, sizeof v);
+        const u32 a = em_ee_div_bits(em_ee_mul_bits(F_PI_2, em_ee_cvt_s_w_bits((u32)i)), F_15);
+        for (int32_t j = 0; j < 16; ++j) {
+            float m[16], out[4];
+            const u32 b = em_ee_sub_bits(em_ee_div_bits(em_ee_mul_bits(F_2PI, em_ee_cvt_s_w_bits((u32)j)), F_15), F_PI);
+            if (em_owner_services_identity_001029C0(m) != 0 || em_owner_services_rotate_z_00102A60(m, m, a) != 0 ||
+                em_owner_services_rotate_y_00102BB0(m, m, b) != 0)
+                return fail(fn, "a rotation refused a float form");
+            em_effect_original_001026A0(out, m, v);
+            memcpy(g + 0x100 * i + 0x10 * j, out, 16);
+            em_effect_original_001026A0(out, m, v);
+            memcpy(g + 0x1000 + 0x100 * i + 0x10 * j, out, 16);
+        }
+    }
+    return 0;
+}
+
+/* 001D9060: returns. 001D71F0: D_00275C08 (the GS read-back queue's
+ * count) = 0. */
+static int rcl_001D9060(void *ctx) { (void)ctx; return 0; }
+static int rcl_001D71F0(void *ctx)
+{
+    (void)ctx;
+    uint8_t *p = wr(D_275C08, 4, 0x001D71F0u);
+    if (!p) return -1;
+    put32(p, 0);
+    return 0;
+}
+
+/* 001DD940 (tail jump to 001DD7B0) and 001E0C30 (+0x170..+0x177 cleared,
+ * then 001E1010's table): em_render_context's. */
+static int f_001DD940(void *ctx) { (void)ctx; return em_render_context_001DD940(&R.rc); }
+static int f_001E0C30(void *ctx) { (void)ctx; return em_render_context_001E0C30(&R.rc); }
+
+/* 001D7BB0: the point-light pool's reset (em_point_light over context
+ * +0x210..: the two header words, then each of the 32 lights' type 0,
+ * handle -1, position and colour 0), then 001F68B0 and 001F6E40 (the room
+ * lists, the scene's: em_rcl_001D19E0's worker). */
+static int (*s_room_lists)(void *ctx);
+static void *s_room_lists_ctx;
+static int f_001D7BB0(void *ctx)
+{
+    (void)ctx;
+    EmPointLightPool *pool = em_rcl_point_lights();
+    if (!pool || !s_room_lists) return -1;
+    em_point_light_reset(pool);
+    return s_room_lists(s_room_lists_ctx);
+}
+
 static void wire(void)
 {
     /* Both worker tables carry the packet chain as their context, so the
@@ -679,16 +1297,17 @@ static void wire(void)
     f->w_001D5370 = unbound;
     f->w_0011E748 = w_sqrt;
     f->w_0011E398 = w_tan;
-    f->w_skin_arena_init = w_skin_arena_init;   /* 001D19E0 itself is not bound (section 8) */
-    f->w_001D9720 = unbound;
-    f->w_001DD940 = unbound;
-    f->w_001E0C30 = unbound;
-    f->w_001D9060 = unbound;
-    f->w_001D71F0 = unbound;
-    f->w_001D7BB0 = unbound;
+    /* 001D19E0's callees (em_rcl_001D19E0, the area load) */
+    f->w_skin_arena_init = w_skin_arena_init;
+    f->w_001D9720 = rcl_001D9720;
+    f->w_001DD940 = f_001DD940;
+    f->w_001E0C30 = f_001E0C30;
+    f->w_001D9060 = rcl_001D9060;
+    f->w_001D71F0 = rcl_001D71F0;
+    f->w_001D7BB0 = f_001D7BB0;
     f->w_001D2DE0 = f_001D2DE0;
     f->w_001E0CC0 = f_001E0CC0;
-    f->w_001E0380 = unbound;
+    f->w_001E0380 = rcl_001E0380;
     f->w_001D8130 = u_001D8130;       /* 001D88B0 (not bound) */
     f->w_001D8340 = u_001D8340;
     f->w_001D8690 = u_001D8690;
@@ -721,10 +1340,15 @@ static void wire(void)
     w->w_001D4FB0 = unbound_u;
     w->w_001D4B20 = unbound_u;
     w->w_001D5BD0 = unbound;
-    w->w_001DE920 = unbound;
-    w->w_001DDB70 = unbound;
-    w->w_001DFF70 = unbound;
-    w->w_001DF110 = unbound_u;
+    /* 001DDA00's effect callees: 001DDB70 (flag 6, 0015D2F0 mode 2,
+     * D_008106C6 == 2), 001DFF70 (flag 7, the fade 001DFE10 starts), the
+     * ramp records' 001DF110 (flags 2 / 9) and 001DDAA0's 001DE920 (flag
+     * 1, the area keys 0x0B00..0x0E00 with 001B0070 bit 5 or 6; AREA11 is
+     * 0x0B). */
+    w->w_001DE920 = rcl_001DE920;
+    w->w_001DDB70 = rcl_001DDB70;
+    w->w_001DFF70 = rcl_001DFF70;
+    w->w_001DF110 = rcl_001DF110;
     R.rc.world.ctx = CTX_BASE;
 
     EmLoadVeilParticlesWorld *v = &R.veil.world;
@@ -754,7 +1378,8 @@ static void wire(void)
 
 /* ---- the export ---------------------------------------------------------- */
 
-static const struct { u32 address, size; uint8_t *bytes; } k_blocks[] = {
+typedef struct { u32 address, size; uint8_t *bytes; } Block;
+static const Block k_blocks[] = {
     {D_241010, 8, s_d241010},
     {D_250F30, D_250F30_SIZE, (uint8_t *)s_d250F30_words},
     {D_26E510, 16, s_d26E510},
@@ -762,9 +1387,15 @@ static const struct { u32 address, size; uint8_t *bytes; } k_blocks[] = {
     {D_26E880, 16, s_d26E880},
     {D_275670, 0x30, (uint8_t *)s_d275670_words},
 };
+/* The second file (the effect callees and 001E0380). */
+static const Block k_effect_blocks[] = {
+    {D_253490, D_253490_SIZE, s_d253490},
+    {D_26E810, D_26E810_SIZE, s_d26E810},
+};
 #define BLOCK_COUNT (sizeof k_blocks / sizeof k_blocks[0])
+#define EFFECT_BLOCK_COUNT (sizeof k_effect_blocks / sizeof k_effect_blocks[0])
 
-static int load_export(const char *path)
+static int load_blocks(const char *path, const Block *blocks, unsigned count)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -772,18 +1403,35 @@ static int load_export(const char *path)
         return -1;
     }
     uint8_t head[0x10 + 0x10 * BLOCK_COUNT];
-    int ok = fread(head, 1, sizeof head, f) == sizeof head && memcmp(head, "EMRC", 4) == 0 &&
-             rd32(head + 4) == 1 && rd32(head + 8) == BLOCK_COUNT;
-    for (unsigned i = 0; ok && i < BLOCK_COUNT; ++i) {
+    const size_t n = 0x10u + 0x10u * count;
+    int ok = n <= sizeof head && fread(head, 1, n, f) == n && memcmp(head, "EMRC", 4) == 0 &&
+             rd32(head + 4) == 1 && rd32(head + 8) == count;
+    for (unsigned i = 0; ok && i < count; ++i) {
         const uint8_t *e = head + 0x10 + 0x10 * i;
-        ok = rd32(e) == k_blocks[i].address && rd32(e + 4) == k_blocks[i].size &&
+        ok = rd32(e) == blocks[i].address && rd32(e + 4) == blocks[i].size &&
              fseek(f, (long)rd32(e + 8), SEEK_SET) == 0 &&
-             fread(k_blocks[i].bytes, 1, k_blocks[i].size, f) == k_blocks[i].size;
+             fread(blocks[i].bytes, 1, blocks[i].size, f) == blocks[i].size;
     }
     fclose(f);
+    if (!ok) fprintf(stderr, "render context: %s is not a render-context export\n", path);
+    return ok ? 0 : -1;
+}
+
+static int load_export(const char *path)
+{
+    /* The effects file sits next to the main export. */
+    char effects[512];
+    const char *slash = strrchr(path, '/');
+    const int dir = slash ? (int)(slash - path) + 1 : 0;
+    const char *name = strrchr(EM_RCL_EFFECTS_PATH, '/') + 1;
+    if ((size_t)dir + strlen(name) >= sizeof effects) return -1;
+    snprintf(effects, sizeof effects, "%.*s%s", dir, path, name);
+    if (load_blocks(path, k_blocks, BLOCK_COUNT) < 0 ||
+        load_blocks(effects, k_effect_blocks, EFFECT_BLOCK_COUNT) < 0)
+        return -1;
     /* The routines here take D_00275670 / D_00275674 as the fixed values the
      * captures hold (EmRenderContextWorld.ctx, EmPacketChain.d275670). */
-    if (!ok || s_d275670_words[0] != CTX_BASE || s_d275670_words[1] != GS_BLOCKS) {
+    if (s_d275670_words[0] != CTX_BASE || s_d275670_words[1] != GS_BLOCKS) {
         fprintf(stderr, "render context: %s is not a render-context export\n", path);
         return -1;
     }
@@ -1410,6 +2058,39 @@ int em_rcl_draw_env(uint32_t *bank, uint32_t *slot, uint64_t *frame, uint64_t *s
     return 0;
 }
 
+/* 001D19E0 (byte-matched decomp src/func_001D19E0.c), the area load's
+ * render reset, through em_frh_001D19E0 with every callee bound:
+ * skin_arena_init, 001D9720, 001DD940, 001E0C30, 001D9060, 001D71F0,
+ * 001D7BB0 (its 001F68B0 / 001F6E40 are `room_lists`), the flag clears
+ * 2, 9, 0x24, 5, the +0x2524 / +0x2528 words 0x320 / 0, the flags 7, 8,
+ * 001E0CC0, +0x2520 = 0, +0x1D8 = +0x1E8 = 0 and, for the area key 0x1100
+ * (area 0x11, sub 0; not AREA11, which is 0x0B), 001E0380. */
+int em_rcl_001D19E0(int (*room_lists)(void *ctx), void *ctx)
+{
+    READY(1);
+    if (!room_lists) return fail(0x001D7BB0u, "no 001F68B0 / 001F6E40 worker");
+    s_room_lists = room_lists;
+    s_room_lists_ctx = ctx;
+    const int r = done(em_frh_001D19E0(&R.frh), 0x001D19E0u);
+    s_room_lists = NULL;
+    s_room_lists_ctx = NULL;
+    return r;
+}
+
+/* The two effect callees by themselves (the reference test enters them
+ * as 001DDA00's gates would). */
+int em_rcl_001DDB70(void)
+{
+    READY(1);
+    return rcl_001DDB70(NULL);
+}
+
+int em_rcl_001DFF70(void)
+{
+    READY(1);
+    return rcl_001DFF70(NULL);
+}
+
 int em_rcl_001D1EF0(void)
 {
     READY(1);
@@ -1520,6 +2201,8 @@ uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)
     if (p >= s_d241010 && p < s_d241010 + sizeof s_d241010) return NULL;
     if (p >= s_d26E510 && p < s_d26E510 + sizeof s_d26E510) return NULL;
     if (p >= s_d26E850 && p < s_d26E850 + sizeof s_d26E850) return NULL;
+    if (p >= s_d253490 && p < s_d253490 + sizeof s_d253490) return NULL;
+    if (p >= s_d26E810 && p < s_d26E810 + sizeof s_d26E810) return NULL;
     if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return NULL;
     if ((s_dynamic_word && p >= s_dynamic_word && p < s_dynamic_word + 4) ||
         (s_dynamic_bytes && p >= s_dynamic_bytes && p < s_dynamic_bytes + s_dynamic_size)) return NULL;
