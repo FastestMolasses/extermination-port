@@ -26,7 +26,10 @@ def main():
              'src/game/em_script_host_workers.c','src/game/em_script.c','src/game/em_sdk_math_original.c',
              'src/game/em_owner_services_original.c','src/game/em_effect_original.c',
              'src/game/em_coll_probe_original.c','src/game/em_actor_collision.c',
-             'src/game/em_collision.c','src/game/em_actor_pool.c','src/game/em_sfx_bank.c']
+             'src/game/em_collision.c','src/game/em_actor_pool.c','src/game/em_sfx_bank.c',
+             # em_sfx.c (included by the bridge) renders through the SPU2 output stage.
+             'src/game/em_spu2_dsp.c','src/game/em_spu2_reverb.c','src/game/em_spu2_effects.c',
+             'src/game/em_spu2_output.c']
     lib=OUT/'bridge.dylib'
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-shared','-fPIC','-ffp-contract=off',
                     '-Isrc',*sources,'-lm','-o',str(lib)],cwd=ROOT,check=True)

@@ -1,6 +1,8 @@
 /* Native side of tools/test_continue_reset_reference.py: applies the
- * port's func_001AF2C0 mirror (game_state_new_game, em_game_internal.h)
- * to a dirtied state and exposes the result as engine-shaped values.
+ * port's func_001AF2C0 (game_state_new_game, em_game_internal.h, and the
+ * progress block's em_scene_progress_reset_001AF2C0, em_scene_state.h) to a
+ * dirtied state and exposes the result as engine-shaped values (the block
+ * as a whole is the pickup shim's block_probe).
  * Header-only: no gameplay module is linked. */
 #include "game/em_game_internal.h"
 #include "game/em_scene_state.h"
@@ -16,7 +18,7 @@ typedef struct {
     uint32_t reserve;         /* D_00810CB4                     */
     uint32_t battery;         /* D_00810CB2 >> 1 (display units) */
     uint32_t battery_max;     /* D_00810CB7 >> 1 (display units) */
-    uint32_t opening_complete;/* D_00810811                     */
+    uint32_t d810811;         /* D_00810811 (the opening's end)  */
     uint32_t event_39;        /* D_00810791                     */
     uint32_t key_item_zero;   /* D_00810CC3                     */
     uint32_t director_step;   /* D_00810813                     */
@@ -41,12 +43,18 @@ void continue_reset_probe(ContinueResetProbe *out)
     g.status = (EmPlayerStatus){ .health = 0.0f, .health_max = 100.0f,
         .infection = 60.0f, .mag = 4, .mag_max = 30, .reserve = 120,
         .battery = 4, .battery_max = 6 };
-    g.opening_complete = 0xFF;
-    /* D_0081084C (WP-4), D_00810CC3 (WP-6) and D_00810813 (HK) are canonical
-     * D2 progress bytes: 001AF2C0's memset reaches them through
+    /* The progress block is one storage (save2 round 2): the vitals, the
+     * magazine and reserve and the opening byte are its named members;
+     * D_0081084C (WP-4), D_00810CC3 (WP-6) and D_00810813 (HK) its bytes.
+     * 001AF2C0's memset and stores reach them through
      * em_scene_progress_reset_001AF2C0 (called by em_pickup_reset in the
      * game). */
     static EmSceneState scene;
+    scene.d810858 = 0.0f;
+    scene.d81085C = 60.0f;
+    scene.d810C62 = 4;
+    scene.d810CB4 = 120;
+    scene.d810811 = 0xFF;
     uint8_t *power = em_scene_progress_at(&scene, 0x0081084Cu, 1);
     uint8_t *key0 = em_scene_progress_at(&scene, 0x00810CC3u, 1);
     uint8_t *step = em_scene_progress_at(&scene, 0x00810813u, 1);
@@ -70,32 +78,16 @@ void continue_reset_probe(ContinueResetProbe *out)
         assert(area01[i]);
         *area01[i] = area01_dirty[i];
     }
-    /* Adjacent migrated bytes share one span; reserved gaps still refuse. */
-    assert(em_scene_progress_at(&scene, 0x00810758u, 3));
-    assert(em_scene_progress_at(&scene, 0x0081075Du, 4));
-    assert(em_scene_progress_at(&scene, 0x008107D8u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810757u, 2));
-    assert(!em_scene_progress_at(&scene, 0x0081075Au, 2));
-    assert(!em_scene_progress_at(&scene, 0x0081075Cu, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810760u, 2));
-    assert(!em_scene_progress_at(&scene, 0x008107D7u, 2));
-    assert(!em_scene_progress_at(&scene, 0x008107D9u, 2));
-    assert(!em_scene_progress_at(&scene, 0x008107DFu, 2));
-    assert(!em_scene_progress_at(&scene, 0x008107E0u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810758u, 6));
-    /* Neighboring reserved bytes cannot be read through a wider request. */
-    assert(!em_scene_progress_at(&scene, 0x00810765u, 2));
-    assert(em_scene_progress_at(&scene, 0x00810766u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810767u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810841u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810842u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810844u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810845u, 2));
+    /* Every byte of the block is canonical: any span inside it is served
+     * (by original address, the named members included), none outside. */
+    assert(em_scene_progress_at(&scene, 0x00810700u, 0x640u) == scene.progress.bytes);
+    assert(em_scene_progress_at(&scene, 0x00810811u, 1) == &scene.d810811);
+    assert(em_scene_progress_at(&scene, 0x00810757u, 2) && em_scene_progress_at(&scene, 0x008107D7u, 2));
+    assert(!em_scene_progress_at(&scene, 0x008106FFu, 2) && !em_scene_progress_at(&scene, 0x00810D3Fu, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810D40u, 1) && !em_scene_progress_at(&scene, 0x00810700u, 0));
     uint8_t *reaction = em_scene_progress_at(&scene, 0x0081080Fu, 1);
     assert(reaction);
     *reaction = 0xFF;
-    assert(!em_scene_progress_at(&scene, 0x0081080Eu, 2));
-    assert(!em_scene_progress_at(&scene, 0x0081080Fu, 2));
     uint8_t *event15 = em_scene_progress_at(&scene, 0x00810767u, 1);
     assert(event15);
     *event15 = 0xFF;
@@ -103,13 +95,16 @@ void continue_reset_probe(ContinueResetProbe *out)
     game_state_new_game(&g);
     em_scene_progress_reset_001AF2C0(&scene);
 
-    memcpy(&out->health_bits, &g.status.health, 4);
-    memcpy(&out->infection_bits, &g.status.infection, 4);
-    out->mag = g.status.mag;
-    out->reserve = (uint16_t)g.status.reserve;
+    /* the storage (the block) and the HUD's display copy must agree */
+    assert(g.status.health == scene.d810858 && g.status.infection == scene.d81085C &&
+           g.status.mag == scene.d810C62 && g.status.reserve == scene.d810CB4);
+    memcpy(&out->health_bits, &scene.d810858, 4);
+    memcpy(&out->infection_bits, &scene.d81085C, 4);
+    out->mag = scene.d810C62;
+    out->reserve = (uint16_t)scene.d810CB4;
     out->battery = g.status.battery;
     out->battery_max = g.status.battery_max;
-    out->opening_complete = g.opening_complete;
+    out->d810811 = scene.d810811;
     out->event_39 = *event39;
     out->key_item_zero = *key0;
     out->director_step = *step;

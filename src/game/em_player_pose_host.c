@@ -4,6 +4,7 @@
 #include "game/em_player_foot_stop.h"
 #include "game/em_player_record_pose.h"
 #include "game/em_pose_math.h"
+#include "game/em_scene_bindings.h"
 
 #include <math.h>
 
@@ -412,7 +413,7 @@ static int legacy_reseed(void)
      * rows2/3, clips0x4B/0x55) is not modelled, and bit0 is a latch (set
      * when 0021C350 damage or 0015D100 decay takes +220 to <=35, cleared by
      * 0015C700 above35), not a live comparison. */
-    if (g.status.health <= PD_LOW_HEALTH) return 0;
+    if (em_scene_state()->d810858 <= PD_LOW_HEALTH) return 0;
     if (!record_default()) {
         player_pose_invalidate("default channel re-seed failed");
         return 0;
@@ -432,7 +433,7 @@ static const char *legacy_blocker(void)
     if (g.pd_state == 2) return "damage animation worker is not bound";
     if (g.sa_req || g.sa_cur)
         return "legacy scripted animation has no raw channel worker";
-    if (g.status.health <= PD_LOW_HEALTH) return "low-health pose row is not ported";
+    if (em_scene_state()->d810858 <= PD_LOW_HEALTH) return "low-health pose row is not ported";
     return NULL;
 }
 
@@ -720,7 +721,7 @@ void player_pose_finish_state(void)
     if (!ordinary_source() || source.acquired || source.idle_return ||
         source.foot_stop.active || source.previous_foot)
         return;
-    if (g.status.health <= PD_LOW_HEALTH) {
+    if (em_scene_state()->d810858 <= PD_LOW_HEALTH) {
         player_pose_legacy_hold("low-health pose row is not ported");
         return;
     }
@@ -749,7 +750,7 @@ void player_pose_finish_state(void)
                 source.idle_fidget = 0;
                 source.idle_count = 300;
             }
-        } else if (g.status.health > PD_LOW_HEALTH) {
+        } else if (em_scene_state()->d810858 > PD_LOW_HEALTH) {
             /* The original tests the old counter after writing count-1. */
             if (source.idle_count-- == 0) {
                 player_pose_request(0x15D, 0, 8, 1);

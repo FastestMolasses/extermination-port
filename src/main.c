@@ -26,6 +26,7 @@
 #include "game/em_opening_runtime.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_new_game_switch.h"
+#include "game/em_start_at.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_pad_actuator.h"
 #include "game/em_random.h"
@@ -321,6 +322,11 @@ int main(void)
      * through one pipe, and a block-buffered flush in mid-line would split
      * a stderr report line. */
     setvbuf(stdout, NULL, _IOLBF, 0);
+    /* EM_START_AT=<name>, the developer switch (em_start_at.h): its card
+     * is checked before anything opens, and before EM_SCENE's staging,
+     * which it refuses (a refused EM_SCENE stages nothing). */
+    if (em_start_at_check() != 0)
+        return 1;
     scene_redirect();   /* EM_SCENE — must precede every file open */
     /* The switches, chosen once at launch (em_settings.h; the launcher's
      * stand-in reads them from the environment). */

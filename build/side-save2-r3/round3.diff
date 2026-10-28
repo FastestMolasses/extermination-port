@@ -1,0 +1,847 @@
+diff --git a/docs/DAMAGE.md b/docs/DAMAGE.md
+index 7c1bedc..c8858ba 100644
+--- a/docs/DAMAGE.md
++++ b/docs/DAMAGE.md
+@@ -204,7 +204,7 @@ player_vitals.
+ ## 8. The side runs
+ 
+ `make test-level-smoke-damage` (part of `make test-level-smoke-side`) plays
+-five side runs (src/game/em_level_smoke_test.c "damage"; the capture
++six side runs (src/game/em_level_smoke_test.c "damage"; the capture
+ lane's own closed-loop policies) and checks each with
+ `tools/test_level_smoke.py` and, window by window, with
+ `tools/level_smoke_damage.py` against the recordings (every window aligned
+@@ -228,6 +228,12 @@ on its event, then compared tick by tick):
+   menu equal the recording's, each for its rows except module 0x2A's load
+   (9 rows, the disc 23) and the title's module 1 (host speed); both presses
+   reach their fade-outs as recorded (OPTIONS.md section 6).
++- **dmg_load_game** (from crevice_prompt; dmg_00..dmg_03, then dmg_05's way
++  in; added by the save lane, round 3): dmg_load's way to the load screen,
++  then LOAD GAME of slot 1 on a copy of the area01 start-point card, the
++  loaded game's chain into AREA01 and control there (SAVE_GAME.md section
++  6.3; no recording of a load, so its own steps are checked, not a
++  capture).
+ - **dmg_pit_fall** (from truck_preview; dmg_07): the fall start, the 0x5D
+   floor death and the fall to the load request (188 ticks, exact, with the
+   height path), the game over as above. The fall start: an entry the
+diff --git a/docs/FIDELITY_FEATURES.md b/docs/FIDELITY_FEATURES.md
+index 676e25f..68a7f8b 100644
+--- a/docs/FIDELITY_FEATURES.md
++++ b/docs/FIDELITY_FEATURES.md
+@@ -1925,8 +1925,10 @@ layout.
+   slots listed with their places and play times, the cursor and the
+   confirmation and LOAD GAME through its read of the slot into the
+   progress block (one storage since save2 round 2), the done message and
+-  the fade; the game then stops where the loaded game would begin (the
+-  title's handoff of a loaded game, the options' 001D2610).
++  the fade; on the title the loaded game then begins (save2 round 3,
++  `SAVE_GAME.md` section 6.3: 001AF150, the game task with D_00275BE0 = 1,
++  the block's area loaded and the player placed at the slot's load pose);
++  from the options it stops at 001D2610.
+ - Evidence: `make test-options-reference`: the original routines executed
+   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
+   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
+@@ -1951,8 +1953,10 @@ layout.
+   screen position moves the picture since 2026-10-09 (the entry "Each field
+   shown at its interlaced height"), in the direction the register meaning
+   gives, which no recording shows; choosing a memory-card slot is checked
+-  against the original code only (no recording chooses one); loading stops
+-  after the card screen's result 2 (the loaded game's entry is not bound);
++  against the original code only (no recording chooses one); a loaded game
++  from the title (the side run dmg_load_game) is checked against the
++  original code's own steps only (no recording loads a game), and from the
++  options loading stops at 001D2610;
+   saving (the first level has no save point) and
+   quitting with Yes are not recorded and stop the game or are untested; the
+   host card's format word (1) follows the code's test, its free count is
+diff --git a/docs/LEVEL_SMOKE.md b/docs/LEVEL_SMOKE.md
+index 1134cd5..2da597f 100644
+--- a/docs/LEVEL_SMOKE.md
++++ b/docs/LEVEL_SMOKE.md
+@@ -76,7 +76,7 @@ make test-level-smoke                  # first_control, status, battery (about 1
+ make test-level-smoke-full             # the whole route through the exit and the AREA01 arrival idle (a01_arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
+ EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
+ make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage, test-level-smoke-branch, test-level-smoke-options and test-level-smoke-audio
+-make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall, dmg_fan (EM_DAMAGE_SIDES=a,b runs only those)
++make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_load, dmg_load_game, dmg_crevice_fall, dmg_pit_fall, dmg_fan (EM_DAMAGE_SIDES=a,b runs only those)
+ make test-level-smoke-damage-fan       # dmg_fan alone (fan r2's hit and the reaction 0021E9C0, dmg_08 row for row)
+ make test-level-smoke-branch           # the BRANCH side runs side by side: br_ledge_ammo, br_map_item, br_elevator_up, br_panel_decline, br_crate_stack, br_west_ledge, br_yard_ammo, br_cage_key, br_plateau, br_roger_talk (EM_BRANCH_SIDES=a,b runs only those; 7 min 5 s for the ten with their checks, measured 2026-10-03)
+ make test-level-smoke-audio            # the AUDIO side runs side by side: aud_walk_outdoor, aud_walk_room, aud_flame (about 5 min; EM_AUDIO_SIDES=a,b runs only those)
+@@ -1396,11 +1396,14 @@ a module): SPR4's module 0x2C 28 rows (f50..f77), the SELECTOR's 0x31 18
+ rows (f82..f99) and the SPR4 reload 23 rows (f154..f176); the port's at
+ host speed 11, 10 and 11 rows (LAUNCHER_OPTIONS.md, the drive switch).
+ 
+-### The DAMAGE side runs (dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall, dmg_fan)
++### The DAMAGE side runs (dmg_flame, dmg_load, dmg_load_game, dmg_crevice_fall, dmg_pit_fall, dmg_fan)
+ 
+-Side phases (DAMAGE.md section 8): dmg_flame, dmg_load and dmg_crevice_fall
+-after crevice_prompt, dmg_pit_fall after truck_preview, dmg_fan after roger
+-(dmg_load: "The OPTIONS side runs" below). Each but dmg_fan plays the
++Side phases (DAMAGE.md section 8): dmg_flame, dmg_load, dmg_load_game and
++dmg_crevice_fall after crevice_prompt, dmg_pit_fall after truck_preview,
++dmg_fan after roger (dmg_load: "The OPTIONS side runs" below;
++dmg_load_game, LOAD GAME of a start-point card into its area on the card
++copy build/level_smoke_damage/dmg_load_game_card given as the run's
++EM_TEST_MEMCARD_ROOT: SAVE_GAME.md section 6.3). Each but dmg_fan plays the
+ capture lane DAMAGE's own closed-loop policies (decomp route_capture.py
+ `dmg_beat_*`) as a program of steps (em_level_smoke_test.c "damage":
+ idle, hits to a health, retreat, the death to the game over, the title,
+diff --git a/docs/OPTIONS.md b/docs/OPTIONS.md
+index b95e8f1..4b63176 100644
+--- a/docs/OPTIONS.md
++++ b/docs/OPTIONS.md
+@@ -24,7 +24,7 @@ original's; no instruction of the original is reproduced here.
+ | Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1) and LOAD GAME through its read into the progress block (one storage since save2 round 2) to the result 2; r == 2 then faults at 001D2610 (not bound) | test-options-reference; opt_07; test-options-card-live |
+ | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
+ | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
+-| The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
++| The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick, its r == 2: 001AF150 and state 4's loaded game | live (section 4.3; the loaded game: SAVE_GAME.md section 6.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load, dmg_load_game |
+ | Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated and dispatched, but its callers are not wired and its save mode stops at the free count, Format, the New Game block and the full-block Write (SAVE_GAME.md section 6.1) | decomp save_scan.json; test-save-reference |
+ 
+ ## 2. Opening and closing
+@@ -150,8 +150,10 @@ EM_STARTUP_LOAD_GAME request; em_frontend load_begin). State 5 then calls
+ through the options binding the AREA11 interaction host keeps after the
+ death; its draw stream is drawn over the title's black frame. The result 1
+ (the screen's exit) completes the request in the same tick and the flow is
+-back in state 2 (the menu loads again); 2 cannot occur yet (00227300's
+-LOAD GAME fail-stops at its read of D_00810700, SAVE_GAME.md section 6.1). The title flow also does what 001AC070 does at every entry that the
++back in state 2 (the menu loads again); 2 (00227300's LOAD GAME read the
++slot into D_00810700) runs 001AF150 in that tick and the flow goes to state
++4, whose handoff of a loaded game (id 1) enters the slot's area
++(SAVE_GAME.md section 6.3; the side run dmg_load_game). The title flow also does what 001AC070 does at every entry that the
+ screen reads: 0x70003B90 = 0 (the game task writes 2) and the pad words
+ D_00810E74 / E70 / E50 from the frame's step C (em_frame_scene_input). The
+ boot's title has no AREA11 world and no binding: LOAD GAME there fails the
+@@ -239,8 +241,9 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
+   test-options-card-live, SAVE_GAME.md section 6.1) through LOAD GAME's
+   read 00228B60 of the slot into the whole progress block D_00810700 (one
+   storage since save2 round 2), the done message and the fade, to the
+-  result 2; what follows the result (001D2610, the area entry) is not
+-  bound.
++  result 2; on the title the loaded game then enters its area
++  (SAVE_GAME.md section 6.3); from the options, what follows the result
++  (001D2610) is not bound.
+   002267A0 is dispatched but unreachable on the host card (it runs only
+   when GetInfo stops reporting a PS2 card).
+ - **The row text and the timeline clock** (open question): the slot rows'
+diff --git a/docs/SAVE_GAME.md b/docs/SAVE_GAME.md
+index 1074d21..9f0e09b 100644
+--- a/docs/SAVE_GAME.md
++++ b/docs/SAVE_GAME.md
+@@ -17,11 +17,12 @@ instruction of the original is reproduced here.
+ | The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original); wired into the options binding (section 6.1): live in load mode through LOAD GAME's read into the progress block (one storage since save2 round 2), the done message and the fade, to the result 2 | test-card-screen-reference, test-options-card-live |
+ | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
+ | The progress block as one storage | D_00810700..D_00810D3F, which 00228B60 reads into and a save's Write reads (section 6.1) | every byte one storage (em_scene_state.h; save2 round 2); 001AF2C0's effect on all 0x640 bytes | test-continue-reset-reference, test-options-card-live |
+-| LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated: the title's handoff (001AC070 state 4, id 1) and the options' 001D2610 fail-stop | - |
++| LOAD GAME after the read: the title | 001AC070 state 5's r == 2 (001AF150, D_00275BE0 = 1), state 4's 001AB790(001ACEC0); 001ACEC0 state 0 / 2, 001ADF50 on the block's area, 0x1AE040 state 0's 001B07C0(0) from the load pose, 001B0460's clear (section 6.3) | wired (save2 round 3): the title's LOAD GAME after a death enters the slot's area | the side run dmg_load_game (`make test-level-smoke-damage`) |
++| LOAD GAME after the read: the options | 0022A650's r == 2 (001AEBA0, 001AF150, 001D2610, D_00275BE0 = 1, the game task to 3 / 5) | not bound: 001D2610 fail-stops | - |
+ | The host card | em_memcard: GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
+ | The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
+ | Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
+-| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
++| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8); the start-point saves' load pose is zero (section 6.3) | - |
+ 
+ Next steps: section 8.
+ 
+@@ -451,12 +452,10 @@ a card the enumeration refuses, and **LOAD GAME** to its end: 00228B60
+ reads the slot's 0x640 bytes straight into the progress block D_00810700,
+ then the done message 00227010 (45 frames), 00225AC0's fade-out
+ 001AEDE0(8, 0), its wait for the fade's end, the texture restore
+-00200970(1) and its state 3, which returns 2 (a game loaded). Where loading
+-then stops: on the title, 001AC070 state 5 hands the result to state 4,
+-whose handoff of a loaded game (id 1, D_00275BE0 = 1) fail-stops in the
+-frontend (the load-game service); in the options, 0022A650's r == 2 runs
+-001AEBA0 and 001AF150 (the settings back from the block) and faults at
+-001D2610 (not bound). Section 8 has the next step.
++00200970(1) and its state 3, which returns 2 (a game loaded). On the
++title the loaded game then begins (section 6.3); in the options, 0022A650's
++r == 2 runs 001AEBA0 and 001AF150 (the settings back from the block) and
++faults at 001D2610 (not bound). Section 8 has the next step.
+ 
+ **The progress block is one storage** (save2 round 2). The read can store
+ all 0x640 bytes because every byte of D_00810700..D_00810D3F now has one
+@@ -604,6 +603,75 @@ words each frame):
+   half-units at the confirmation's Yes or after a successful format
+   (section 6), and neither was reached.
+ 
++### 6.3 A loaded game begins (the title)
++
++What the original does after the card screen's result 2 on the title,
++from the byte-matched C of 001AC070, 001ACEC0, 001AD1A0, 001ADF50, 001B07C0
++and 001B0460 and the NEARMISS C of the frame machine 0x1AE040, and how the
++port runs it (save2 round 3):
++
++- **001AC070 state 5, r == 2**: 001AF150 (the settings D_00810118 / 119 /
++  11C, D_00810120 / 122 and the screen offset 0x70003B94 / 96 back from the
++  block's D_00810708 / 709 / 70C / 754 / 756, then 001AF470's button
++  masks), D_00275BE0 = 1 (already 1 since state 2's load verdict), state 4.
++  The port: em_frontend's load_frame runs em_options_live_001AF150 over
++  the same frame on the result 2, then completes the load screen; the
++  title flow goes to state 4 in that tick.
++- **State 4** (the next tick): 001AB790(001ACEC0), the game task with a
++  cleared record. The port: the EM_STARTUP_NEW_GAME event with id 1 calls
++  em_game_reinstall_loaded_001AC070 (em_game.c): the task replaced as for
++  New Game, D_00275BE0 left 1, the port's stand-ins outside the route
++  cleared as for New Game, the opening not requested. The load screen runs
++  only on the title after a death (the boot's title faults at it: no
++  AREA11 binding), so the handoff refuses a cold title.
++- **001ACEC0**: state 0 runs 001AD1A0 (screen module 3, 001D19D0) and,
++  D_00275BE0 being 1, goes to state 2, which sets +8 = 3, +9 = 5: no
++  001AD230 (no 001AF2C0 reset: the block is the slot's) and no 001AD360 (no
++  intro movie, no AREA11 store into D_00810700). 001ADF50 (the area read,
++  the load veil) loads the area of the block's D_00810700 / 701, the way a
++  level exit's area move does; +9 = 1 then runs the frame machine.
++- **0x1AE040 state 0**: 001B07C0(0) with D_00275BE0 == 1 places the player
++  from the load pose: +0xA0 and +0xB0 = D_00810710..718, the rotation +0xC0
++  = D_00810720..728 (w = 1.0 each), +0xE forced 0 (no walk-out), the vitals
++  from the block; its 001B0460 clears D_00275BE0 to 0 (and the camera's
++  D_008101E6). The port's bindings (w_001B07C0) now pass the block's load
++  pose to em_spawn_001B07C0 (the one translation, test-spawn-place-reference)
++  instead of refusing D_00275BE0 == 1; arg0 1 with D_00275BE0 == 1 is still
++  refused (001B0460 cleared it at state 0). The port's New Game fixtures
++  (em_game_legacy_state0_fixtures: the weapon context reset) do not run
++  for a loaded placement: C61 / C62 / CB4 / D3C are the block's.
++
++The load pose is what the terminal's 00159B90 copies there from the
++player's +0xA0 / +0xC0 when its Use (00157CE0) returns nonzero, just before
++a save; every save the original makes holds the pose at a save terminal.
++**The start-point saves of section 7 hold a zero load pose**: their
++arrival blocks were never at a terminal (D_00810710..72F are 0 in all
++three), so the original code loading one places the player at (0, 0, 0)
++with heading 0, not at the arrival (AREA01 entry 4's record places at
++(41.0, 0, -565.6), heading -1.43411). `EM_START_AT` needs that resolved
++first (section 8).
++
++The side run **dmg_load_game** (`make test-level-smoke-damage`,
++em_level_smoke_test.c, checked by tools/level_smoke_damage.py
++check_dmg_load_game) plays dmg_load's way to the title after the death and
++its load screen, then LOAD GAME of slot 1 on port 0 with the card screen's
++policy of test_card_screen_reference (slot 0, Yes), on a copy of the
++area01 start-point card (build/level_smoke_damage/dmg_load_game_card, the
++run's EM_TEST_MEMCARD_ROOT, test input only), then until control in the
++loaded area and 60 ticks. No recording of a load exists, so it checks the
++original code's own steps: dmg_00..dmg_03 against the recordings as
++dmg_flame; the title rows (the load mode, the slot choice, the screen's end
++with +0 = 3 and the result 2, then one row of state 4 and none after it);
++the game task after the handoff 0 -> 2 -> 3 / 5 -> 3 / 1 (never 1 or 3 / 0);
++the area bytes after the handoff equal the slot's every tick; the settings
++after 001AF150 equal the slot's; the placement equals the slot's load pose
++and health; control in the loaded area; the card folder unchanged by the
++load. Run 2026-10-21: PASS (AREA01 01 00 04, placed at (0, 0, 0) heading
++0, health 100; about 7 minutes alone). Mutants: the pose not passed
++(D_00275BE0 0 to the placement) places at entry 4's record (41.0, 0,
++-565.6) and fails the placement check. Equivalent on this card: a skipped
++001AF150 (the card's settings are the defaults the run already has).
++
+ ## 7. Start-point saves (round 6)
+ 
+ What `EM_START_AT` is to load (not wired yet, section 8): one memory card
+@@ -657,10 +725,11 @@ refused.
+ What this is and is not. The original saves only at a save terminal
+ (00225AC0(1), docs/OPTIONS.md section 7). A start-point save holds what the
+ writer's code makes of the block at the arrival frame, a frame the tool
+-chooses; it is not a save the original made. What LOAD GAME does after the
+-read (the restore of the rest of the state and the area entry, section 1)
+-is not translated, so whether loading one of these cards enters the area at
+-the recorded arrival is not shown yet: that is `EM_START_AT`'s proof.
++chooses; it is not a save the original made. Loading one through the
++title's LOAD GAME enters its area (section 6.3, the side run
++dmg_load_game on the area01 card), but at the zero load pose these blocks
++hold, not at the recorded arrival: that has to be settled before
++`EM_START_AT` (section 8).
+ 
+ `make test-start-saves` (`tools/test_start_saves.py`) builds all three into
+ a temporary folder and checks each card again from the recording files
+@@ -680,16 +749,15 @@ both are 0 in every arrival block.
+ 
+ ## 8. Next steps
+ 
+-In order (the progress block as one storage is done, section 6.1): what
+-the card screen's callers do with its result 2 (001AC070's title load: the
+-handoff of a loaded game, state 4 with id 1, today a frontend fail-stop;
+-0022A650's r == 2: 001D2610, unbound; then the chain's restore and area
+-entry from the loaded block; the port's New Game fixture
+-em_game_legacy_state0_fixtures, whose em_weapon_reset re-seeds C61 / C62 /
+-CB4 / D3C from the HUD's display copy at 001B07C0(0) in a scene that is not
+-an arrival, must not undo a loaded block); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
++In order (the title's loaded game is done, section 6.3): the start-point
++saves' load pose (section 6.3: zero in all three; a decision is needed on
++what the builder writes there, for example 00159B90's copy of the arrival
++frame's +0xA0 / +0xC0, the terminal's own step, as a documented tool
++choice like the arrival frame itself); 0022A650's r == 2 (001D2610,
++unbound); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
+ em_memcard on `build/start_saves/<name>` and the title's LOAD GAME on slot
+-0 of port 0, off by default, refusing an unknown name or a card that is not
++0 of port 0 (at the boot's title, which has no AREA11 binding for the load
++screen yet), off by default, refusing an unknown name or a card that is not
+ built; the save terminal's Yes path (0020CDC0, request 6) and the save
+ mode's leaves (GetInfo's free count, Format 00114D18, 001AF2C0, block_copy
+ 00121870, the icon container *D_0028A4A0 as a window); a fork recording of
+diff --git a/src/game/em_frontend.c b/src/game/em_frontend.c
+index 510f02e..744fb1e 100644
+--- a/src/game/em_frontend.c
++++ b/src/game/em_frontend.c
+@@ -392,8 +392,8 @@ static int boot_resources(void)
+  * the card screen's module 0x2A in the status pages' GS memory, the card
+  * I/O em_memcard): 1 (the screen's exit) goes back to the menu, 2 (a game
+  * loaded: 00227300's LOAD GAME read the slot into D_00810700, the whole
+- * block one storage) hands off to 001AC070 state 4 with id 1, which
+- * fail-stops (the load-game service, docs/SAVE_GAME.md section 6.1). The
++ * block one storage) runs 001AF150 and hands off to 001AC070 state 4 with
++ * id 1, the game task for a loaded game (docs/SAVE_GAME.md section 6.3). The
+  * boot's title has no AREA11 binding yet: the
+  * load entry there faults (no recording; the first level reaches the load
+  * screen from the title after a death, decomp CAPTURES_C10.md dmg_05). */
+@@ -447,6 +447,13 @@ static void load_frame(void)
+         return;
+     }
+     f.load_drawn = 1;
++    if (r == 2 && em_options_live_001AF150(options, &frame) < 0) {
++        /* 001AC070 state 5's r == 2: 001AF150 (the settings, the button
++         * masks and the screen offset back from the block just read), then
++         * D_00275BE0 = 1 (already 1 since state 2) and state 4. */
++        fail("001AF150 (the settings from the loaded block) faulted");
++        return;
++    }
+     if (r != 0) {
+         const uint32_t serial = f.load_serial;
+         f.load_serial = 0;
+@@ -507,11 +514,16 @@ static void notify(void *unused, const EmStartupEvent *event)
+         return;
+     case EM_STARTUP_NEW_GAME:
+         /* 001AC070 state 4: 001AB790(001ACEC0) replaces slot 0 with the game
+-         * task; id 1 (a loaded game, D_00275BE0 = 1) needs the unported
+-         * load-game service. The intro movie is requested later by the
+-         * chain itself, at 001AD360 step 1 (em_frontend_movie_request). */
++         * task; id 1 is a loaded game (D_00275BE0 = 1). The intro movie of
++         * a New Game is requested later by the chain itself, at 001AD360
++         * step 1 (em_frontend_movie_request). */
+         if (event->id != 0) {
+-            fail("NEW_GAME handoff for a loaded game (load-game service not ported)");
++            /* A loaded game (state 5's 00225AC0(0) returned 2): the same
++             * 001AB790(001ACEC0) with D_00275BE0 = 1, whose chain enters the
++             * block's area (em_game_reinstall_loaded_001AC070). The load
++             * screen runs only on the title after a death (load_begin). */
++            if (!f.reinstalled || em_game_reinstall_loaded_001AC070() != 0)
++                fail("001AC070 state 4: the game task for a loaded game");
+             return;
+         }
+         /* After a death the same handoff replaces this task with the game
+@@ -711,6 +723,12 @@ void em_frontend_install(void)
+     f.installed = 1;
+     f.capture_dir = getenv("EM_STARTUP_CAPTURE_DIR");
+     f.test = getenv("EM_STARTUP_TEST");
++    /* Test input only (EM_STARTUP_TEST runs): the host card folder for the
++     * whole run, set before the boot's card check (the level smoke's
++     * dmg_load_game loads a copy of a start-point card). */
++    const char *card = f.test ? getenv("EM_TEST_MEMCARD_ROOT") : NULL;
++    if (card && card[0])
++        em_memcard_set_root(card);
+     const char *wait = f.test ? getenv("EM_STARTUP_MENU_WAIT") : NULL;
+     f.menu_wait = wait ? (unsigned)strtoul(wait, NULL, 10) : 0;
+     if (f.menu_wait > 14)
+diff --git a/src/game/em_game.c b/src/game/em_game.c
+index b10da8e..69840f7 100644
+--- a/src/game/em_game.c
++++ b/src/game/em_game.c
+@@ -1297,6 +1297,35 @@ int em_game_reinstall_new_001AC070(void)
+     return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
+ }
+ 
++/* 001AC070 state 4 for a loaded game (state 5's 00225AC0(0) returned 2:
++ * LOAD GAME read the slot into the progress block D_00810700, 001AF150 ran
++ * and D_00275BE0 = 1): the same 001AB790(001ACEC0) with a cleared record.
++ * 001ACEC0 state 0 runs 001AD1A0 and, D_00275BE0 being 1, goes to state 2
++ * (+8 = 3, +9 = 5): no 001AD230 (no 001AF2C0 reset) and no 001AD360 (no
++ * intro, no AREA11 store); 001ADF50 reads the block's area D_00810700 /
++ * 701, and the frame machine's state 0 places the player from the block's
++ * load pose (001B07C0 with D_00275BE0 == 1; 001B0460 clears it). The
++ * opening is not requested (no New Game). The port's stand-ins outside that
++ * route are cleared as for New Game. 0, or -1. */
++int em_game_reinstall_loaded_001AC070(void)
++{
++    if (em_scene_state()->d275BE0 != 1) {
++        fprintf(stderr, "em_game: 001AC070 state 4 (a loaded game) without D_00275BE0 = 1\n");
++        return -1;
++    }
++    g.pd_state    = 0;
++    g.pd_sub      = 0;
++    g.pd_phase    = 0;
++    g.pd_hold     = 0;
++    g.pd_iframes  = 0;
++    g.pd_pend_hp  = 0.0f;
++    g.pd_pend_inf = 0.0f;
++    g.pd_clip     = 0;
++    g.pd_infected = 0;
++    g.pd_low      = 0;
++    return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
++}
++
+ /* The port's own assets of an area (S12a; formerly the one-frame
+  * game_load_task): the renderer's and the collision's formats. Since chain
+  * step H7 001ADF50's 001FF080(1, 0) runs the slot-2 loader task 001FF0D0
+diff --git a/src/game/em_level_smoke_test.c b/src/game/em_level_smoke_test.c
+index 650283f..3abab45 100644
+--- a/src/game/em_level_smoke_test.c
++++ b/src/game/em_level_smoke_test.c
+@@ -322,6 +322,13 @@ static const Phase k_phases[] = {
+      "the title after a death: Cross on LOAD GAME (001AC070 state 2's 00225A00, D_00275BE0 = 1), state 5's "
+      "memory-card screen 00225AC0(0) (module 0x2A, the slot choice 00226070), Triangle back to the title menu",
+      "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
++    {"dmg_load_game", "dmg_00_flame_hit .. dmg_03, dmg_05_load_screen's way in, then LOAD GAME of slot 1 "
++     "(side, from 11; no recording of a load)", 0x00225AC0u,
++     "the title after a death: LOAD GAME (001AC070 state 2's 00225A00, D_00275BE0 = 1), 00225AC0(0)'s load of "
++     "slot 1 on port 0 (00228B60 into D_00810700, 00227010, the fade, 00200970), state 5's 001AF150, state 4's "
++     "001AB790(001ACEC0) with D_00275BE0 = 1: 001ACEC0 state 2, 001ADF50 (the block's area), 0x1AE040 state 0's "
++     "001B07C0(0) from the load pose, control in the block's area",
++     "the save lane (docs/SAVE_GAME.md section 6.3)", dmg_begin, dmg_frame, 0, 1, 0, 0},
+     {"dmg_crevice_fall", "dmg_06_crevice_fall (side, from 11; decomp CAPTURES_C10.md DAMAGE)", 0,
+      "a walking jump short of the north block: the landing hit 0017C580 / 00163E90 (+6 = 3), 0021C350",
+      "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
+@@ -2975,7 +2982,7 @@ enum {
+     DS_PRESS_CROSS_NEW_GAME, DS_UNTIL_FIRST_CONTROL, DS_WALK_PATH, DS_SETTLE, DS_FACE, DS_WALKING_JUMP,
+     DS_UNTIL_LANDING_HAND_BACK, DS_GOTO, DS_UNTIL_TRUCK_DOWN, DS_WALK_OFF_TRUCK, DS_PRESS_CROSS_LOAD,
+     DS_UNTIL_LOAD_SCREEN, DS_PRESS_TRIANGLE_LEAVE, DS_UNTIL_TITLE_PROMPT, DS_FALL_START_LAG, DS_FAN_ALIGN,
+-    DS_FAN_REPLAY
++    DS_FAN_REPLAY, DS_LOAD_SLOT, DS_UNTIL_LOADED_CONTROL
+ };
+ typedef struct {
+     int kind;
+@@ -3021,6 +3028,30 @@ static const DmgStep k_dmg_load[] = {
+     {DS_PRESS_TRIANGLE_LEAVE, 0, 0, 0, 0, "dmg_05: Triangle (the screen's exit)"},
+     {DS_UNTIL_TITLE_PROMPT, 0, 0, 0, 0, "dmg_05: the title menu again"}, DMG_IDLE(30),
+     {DS_END, 0, 0, 0, 0, NULL}};
++/* dmg_load_game: dmg_load to the load screen, then LOAD GAME of slot 1
++ * (the card the run's EM_TEST_MEMCARD_ROOT names, tools/test_level_smoke_
++ * damage.py: a start-point card, docs/SAVE_GAME.md section 7) with the
++ * card screen's policy of tools/test_card_screen_reference.py (slot 0 on
++ * port 0, Yes), until state 5 is left with the result 2; then until
++ * control in the block's area (DS_UNTIL_LOADED_CONTROL), 60 ticks. No
++ * recording of a load exists: the run checks the chain's states and the
++ * placement from the block, not a capture. */
++static const DmgStep k_dmg_load_game[] = {
++    DMG_IDLE(35), {DS_HITS_TO, 95.0f, 0, 0, 0, "dmg_00: one flame contact"},
++    {DS_RETREAT, 0, 0, 0, 0, "dmg_00: retreat"}, DMG_IDLE(30),
++    DMG_IDLE(35), {DS_HITS_TO, 35.0f, 0, 0, 0, "dmg_01: contacts to 35"},
++    {DS_RETREAT, 0, 0, 0, 0, "dmg_01: retreat"}, DMG_IDLE(300),
++    DMG_IDLE(35), {DS_HITS_TO, 10.0f, 0, 0, 0, "dmg_02: contacts to 10"},
++    {DS_RETREAT, 0, 0, 0, 0, "dmg_02: retreat"}, DMG_IDLE(150),
++    {DS_HITS_TO, 0.0f, 0, 0, 0, "dmg_02: contacts to 0"},
++    {DS_DEATH_TO_GAME_OVER, 0, 0, 0, 0, "dmg_02: death to the GAME OVER screen"},
++    {DS_UNTIL_TITLE, 0, 0, 0, 0, "dmg_03: the hold runs out; the title after a death"},
++    DMG_IDLE(30), DMG_IDLE(45), DMG_IDLE(5),
++    {DS_PRESS_CROSS_LOAD, 0, 0, 0, 0, "dmg_05: Cross (LOAD GAME)"},
++    {DS_UNTIL_LOAD_SCREEN, 0, 0, 0, 0, "dmg_05: the load screen with the fade idle"}, DMG_IDLE(60),
++    {DS_LOAD_SLOT, 0, 0, 0, 0, "load: slot 1 on port 0, Yes, to 00225AC0's result 2"},
++    {DS_UNTIL_LOADED_CONTROL, 0, 0, 0, 0, "load: control in the loaded area"}, DMG_IDLE(60),
++    {DS_END, 0, 0, 0, 0, NULL}};
+ static const float k_dmg_crevice_path[2][2] = {{485.0f, 275.0f}, {477.0f, 262.0f}};
+ static const DmgStep k_dmg_crevice[] = {
+     DMG_IDLE(35), {DS_WALK_PATH, 0, 0, 0, 0, "dmg_06: to the plateau edge"},
+@@ -3090,6 +3121,7 @@ static struct {
+      * DS_FALL_START_LAG. */
+     float lag[2][2];
+     int frame;   /* dmg_fan: the recording row this tick is aligned to */
++    uint8_t mc[0x18];   /* DS_LOAD_SLOT: the card record D_00810040 at the last press */
+ } D;
+ 
+ static void dmg_begin(void)
+@@ -3099,6 +3131,7 @@ static void dmg_begin(void)
+     const char *name = k_phases[t.current].name;
+     D.prog = strcmp(name, "dmg_flame") == 0 ? k_dmg_flame
+              : strcmp(name, "dmg_load") == 0 ? k_dmg_load
++             : strcmp(name, "dmg_load_game") == 0 ? k_dmg_load_game
+              : strcmp(name, "dmg_crevice_fall") == 0 ? k_dmg_crevice
+              : strcmp(name, "dmg_fan") == 0 ? k_dmg_fan : k_dmg_pit;
+ }
+@@ -3283,6 +3316,91 @@ static int dmg_frame(void)
+         (void)dmg_timeout(600, "the load screen");
+         return 0;
+     }
++    case DS_LOAD_SLOT: {
++        /* test_card_screen_reference.policy (goal: slot 0, Yes) over the
++         * card record D_00810040, its game words as pad buttons
++         * (em_pad_swap). A press holds two ticks, then the policy waits
++         * until the record changes (30 ticks at most, 40 tries). Done when
++         * 001AC070 leaves state 5 (its r == 2 goes to state 4). */
++        unsigned major = 0, sub = 0;
++        em_frontend_title_state(&major, &sub);
++        const uint8_t *mc = em_scene_state()->d810040;
++        if (major != 5) {
++            if (D.hits == 0) { fail("the load screen ended before a press"); return 0; }
++            fprintf(stderr, "level smoke: %s: the load screen ends at counter %u (title state %u, card %u %u %u "
++                            "%u)\n", k_phases[t.current].name, em_frame_counter(), major, mc[0], mc[1], mc[0x15],
++                    mc[0x16]);
++            return dmg_next();
++        }
++        if (D.sub > 0 && D.sub < 3) {
++            ++D.sub;
++            if (D.sub == 3) pad_apply(0, 0, 0);
++            return 0;
++        }
++        if (D.sub == 3) {
++            pad_apply(0, 0, 0);
++            if (memcmp(D.mc, mc, sizeof D.mc) == 0 && ++D.ticks <= 30) return 0;
++            D.sub = D.ticks = 0;
++            return 0;
++        }
++        const uint8_t screen = mc[1], step = mc[2], st3 = mc[3], yes = mc[9], cur = mc[0xA];
++        uint16_t word = 0;
++        if (screen == 2) {
++            if (step == 0) word = cur > 0 ? 0x1000 : 0x40;
++            else if (step == 1 && st3 == 1) word = yes == 0 ? 0x8000 : 0x40;
++        } else if (screen == 4) {
++            if (step == 0) word = cur > 0 ? 0x1000 : 0x40;
++            else if (step == 1 && st3 == 1) word = 0x40;
++        }
++        pad_apply(0, 0, 0);
++        if (!word) return dmg_timeout(2000, "the load screen's load") < 0 ? 0 : 0;
++        if (++D.tries > 40) { fail("the load screen's presses had no effect"); return 0; }
++        fprintf(stderr, "level smoke: %s: press %04X at counter %u (card %u %u %u %u %u %u)\n",
++                k_phases[t.current].name, word, em_frame_counter(), mc[0], screen, step, st3, yes, cur);
++        memcpy(D.mc, mc, sizeof D.mc);
++        ++D.hits;
++        pad_apply(em_pad_swap(word), 0, 0);
++        D.sub = 1;
++        D.ticks = 0;
++        return 0;
++    }
++    case DS_UNTIL_LOADED_CONTROL: {
++        /* The loaded game: 001ACEC0 in slot 0 (the title menu gone), the
++         * frame machine in state 1 and control, in the area the card's
++         * block names (D.area, kept at the press of the load). */
++        pad_apply(0, 0, 0);
++        if (D.sub == 0) {
++            /* The handoff's tick: the block's area, D_00275BE0, and what
++             * 001AF150 restored from the block (D_00810118 / 119 / 11C,
++             * D_00810120 / 122 and the offset 0x70003B94 / 96). */
++            const EmSceneState *sc = em_scene_state();
++            int16_t h120, h122;
++            memcpy(&h120, sc->d810118 + 8, 2);
++            memcpy(&h122, sc->d810118 + 0xA, 2);
++            D.sub = 1;
++            fprintf(stderr, "level smoke: %s: the loaded block's area %02X %02X %02X, D_00275BE0 %u\n",
++                    k_phases[t.current].name, sc->d810700, sc->d810701, sc->d810702, sc->d275BE0);
++            fprintf(stderr, "level smoke: %s: the settings after 001AF150 %u %u %u %d %d offset %d %d\n",
++                    k_phases[t.current].name, sc->d810118[0], sc->d810118[1], sc->d810118[4], h120, h122,
++                    sc->spad3B94, sc->spad3B96);
++        }
++        if (D.sub == 1 && em_scene_state()->d275BE0 == 0 && task_byte(EM_SCENE_TASK_08) == 3 &&
++            task_byte(EM_SCENE_TASK_09) == 1) {
++            D.sub = 2;
++            fprintf(stderr, "level smoke: %s: placed at counter %u (%.3f,%.5f,%.3f) yaw=%.5f health=%.1f\n",
++                    k_phases[t.current].name, em_frame_counter(), g.pos[0], g.pos[1], g.pos[2], g.yaw,
++                    em_scene_state()->d810858);
++        }
++        if (D.sub == 2 && in_control() && em_live_u8(a, 4) == 1) {
++            fprintf(stderr, "level smoke: %s: control in the loaded area %02X at tick %u counter %u "
++                            "(%.3f,%.5f,%.3f) yaw=%.5f health=%.1f\n", k_phases[t.current].name,
++                    em_scene_state()->d810700, (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter(),
++                    g.pos[0], g.pos[1], g.pos[2], g.yaw, em_scene_state()->d810858);
++            return dmg_next();
++        }
++        (void)dmg_timeout(3000, "control in the loaded area");
++        return 0;
++    }
+     case DS_UNTIL_TITLE_PROMPT:
+         pad_apply(0, 0, 0);
+         if (em_frontend_title_menu(&cursor)) {
+diff --git a/src/game/em_scene_bindings.c b/src/game/em_scene_bindings.c
+index ab50e31..2550628 100644
+--- a/src/game/em_scene_bindings.c
++++ b/src/game/em_scene_bindings.c
+@@ -2705,9 +2705,11 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
+  *                     held ends there without 00182DF0
+  *                     (player_pose_takeover_restated)
+  * arg0 is 0 in state 0 and 1 in state 4 (S12b, "the room move" below); any
+- * other pairing is refused (fault), as is D_00275BE0 == 1 (the load-game
+- * pose D_00810710..72F now has canonical storage for terminal 00159B90's
+- * copies, but the load-game reader in 0x1AE040 state 2 remains unported).
++ * other pairing is refused (fault), as is D_00275BE0 == 1 with arg0 1
++ * (001B0460 clears the flag at the state-0 placement). A loaded game (the
++ * title's LOAD GAME, D_00275BE0 == 1 at state 0) is placed from the load
++ * pose D_00810710..72F, the block's words the slot read brought (terminal
++ * 00159B90's copies), and 001B0460 clears D_00275BE0.
+  * After the state-0 placement the port's
+  * placement-dependent fixtures run (em_game_legacy_state0_fixtures).
+  * A scene without an original roster keeps its manifest spawn (001AFCA0). */
+@@ -2872,7 +2874,7 @@ static int w_001B07C0(void *ctx, int a0)
+     if (!world_scene())
+         return unmirrored(UM_001B07C0_LEGACY_WORLD);
+     if (a0 != (s_entry_state == 4 ? 1 : 0) || (s_entry_state != 0 && s_entry_state != 4) ||
+-        s_state.d275BE0 == 1)
++        (s_state.d275BE0 == 1 && a0 != 0))
+         return -1;
+     if (!s_spawn_table_loaded) {
+         if (em_spawn_table_load(&s_spawn_table, EM_SPAWN_TABLE_PATH) != 0) {
+@@ -2893,6 +2895,15 @@ static int w_001B07C0(void *ctx, int a0)
+     io.d810701 = s_state.d810701;
+     io.d810702 = s_state.d810702;
+     io.d275BE0 = s_state.d275BE0;
++    /* The load pose (a loaded game, D_00275BE0 == 1): the block's
++     * D_00810710..718 and D_00810720..728, which LOAD GAME's read brought
++     * from the slot (00159B90 copies the player's +0xA0 / +0xC0 there). */
++    const uint8_t *pose = em_scene_progress_at(&s_state, 0x00810710u, 0x1C);
++    if (!pose)
++        return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
++    memcpy(io.d810710, pose, sizeof io.d810710);
++    memcpy(io.d810720, pose + 0x10, sizeof io.d810720);
++    const int loaded = io.d275BE0 == 1;
+     uint8_t *e706 = em_scene_progress_at(&s_state, 0x00810706u, 1);
+     if (!e706 || !e707)
+         return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
+@@ -2929,8 +2940,10 @@ static int w_001B07C0(void *ctx, int a0)
+     *e706 = io.d810706;   /* 001B07C0: D_00810706 &= 1 */
+     if (a0 == 0) {
+         /* The port's New Game fixtures (the weapon context); the level
+-         * exit's arrival keeps AREA11's state, as the original does. */
+-        if (!arrival_scene())
++         * exit's arrival keeps AREA11's state, as the original does, and so
++         * does a loaded game (its weapon bytes C61 / C62 / CB4 / D3C are
++         * the block's). */
++        if (!arrival_scene() && !loaded)
+             em_game_legacy_state0_fixtures();
+         return 0;
+     }
+diff --git a/src/game/em_scene_bindings.h b/src/game/em_scene_bindings.h
+index 5a185a0..a6940dc 100644
+--- a/src/game/em_scene_bindings.h
++++ b/src/game/em_scene_bindings.h
+@@ -198,6 +198,12 @@ void em_game_new_game_reset_001AF2C0(void);
+  * record, D_00275BE0 = 0. 0, or -1. */
+ int em_game_reinstall_new_001AC070(void);
+ 
++/* The same handoff for a loaded game (the title's LOAD GAME after a death:
++ * 001AC070 state 5's result 2, D_00275BE0 = 1): 001AB790(001ACEC0) with a
++ * cleared record, D_00275BE0 left 1, no New Game reset and no opening. 0,
++ * or -1 (D_00275BE0 is not 1). */
++int em_game_reinstall_loaded_001AC070(void);
++
+ /* Head of a world-frame variant (cutscene != 0: 001AE6B0, else 001AE5E0):
+  * test instrumentation only (its status/game-over frozen frame was retired
+  * by S11b). */
+diff --git a/tools/level_smoke_damage.py b/tools/level_smoke_damage.py
+index bc76636..af433e7 100644
+--- a/tools/level_smoke_damage.py
++++ b/tools/level_smoke_damage.py
+@@ -488,6 +488,92 @@ def check_dmg_load(ticks, run, state):
+           f'their fade-outs as recorded ({lat[0][1]}, {lat[1][1]} frames)')
+ 
+ 
++# dmg_load_game's card (tools/test_level_smoke_damage.py copies the
++# area01 start-point card there, docs/SAVE_GAME.md section 7) and the slot
++# LOAD GAME reads: slot 1 on port 0 (EX_DATA.00).
++LOAD_GAME_CARD = Path(__file__).resolve().parents[1] / 'build/level_smoke_damage/dmg_load_game_card'
++LOAD_GAME_SLOT = 'slot1/BASCUS-97112-DS00-00/EX_DATA.00'
++
++
++def check_dmg_load_game(ticks, run, state, card=LOAD_GAME_CARD):
++    """dmg_load_game: dmg_00..dmg_03 as dmg_flame, the title's load screen
++    as dmg_load's way in, then LOAD GAME of slot 1 on port 0 (no recording
++    of a load exists: these are the original code's own steps, docs/
++    SAVE_GAME.md section 6.3). The title rows: the load mode (+0x14 = 2),
++    the slot choice, the screen's end with the done state (+0 = 3) and the
++    result 2 (+0x16), then one row of state 4 and none after it (001AB790
++    replaced the title task). The game task's states after the handoff
++    (+8, +9 from the tick log): 0 (001AD1A0), 2, then 3 / 5 (001ADF50) and
++    3 / 1 (the frame machine): never 1 (001AD230, the New Game reset) nor
++    3 / 0 (001AD360, the intro). The area bytes after the handoff are the
++    slot's, the placement is the slot's load pose (D_00810710..718 and the
++    heading D_00810724: 001B07C0 with D_00275BE0 = 1), D_00275BE0 is 0
++    again (001B0460), the health is the slot's D_00810858, and the card
++    folder is unchanged by the load."""
++    summary = flame_to_title(ticks, run, state, 'dmg_load_game')
++    block = (card / LOAD_GAME_SLOT).read_bytes()
++    assert len(block) == 0x640, ('dmg_load_game: the card\'s slot', len(block))
++    end = re.search(r'^level smoke: dmg_load_game: the load screen ends at counter (\d+) \(title state (\d+), '
++                    r'card (\d+) (\d+) (\d+) (\d+)\)$', run, re.M)
++    assert end, 'dmg_load_game: the load screen did not end'
++    end_c = int(end.group(1))
++    assert end.group(2) == '4' and end.group(3) == '3' and end.group(6) == '2', \
++        ('dmg_load_game: the load screen did not end with a game loaded (state 4, +0 = 3, +0x16 = 2)', end.groups())
++    port = [(int(m.group(1)) - 1, *(int(m.group(k)) for k in range(2, 11))) for m in TITLE_ROW.finditer(run)]
++    screen = [r for r in port if r[1] == 5]
++    assert any(r[7] == 2 for r in screen), 'dmg_load_game: 00225AC0 never stored the load mode (+0x14 = 2)'
++    assert any(r[5] == 1 and r[8] == 1 for r in screen), 'dmg_load_game: the slot choice (+0x15 = 1) never ran'
++    after = [r for r in port if r[0] >= end_c]
++    assert [r[1] for r in after] == [4], ('dmg_load_game: the title rows after the load (one row of state 4)',
++                                          [r[1] for r in after])
++    first = next(i for i, t in enumerate(ticks) if t['counter'] > end_c + 1)
++    # The whole-run checks describe the boot's game: they stop where the
++    # loaded game begins (test_level_smoke.py), as after dmg_flame's second
++    # New Game.
++    state['second_game'] = first
++    seq = []
++    for t in ticks[first:]:
++        post = bytes.fromhex(t['post'])
++        key = (post[0], post[1]) if post[0] == 3 else (post[0],)
++        if not seq or seq[-1] != key:
++            seq.append(key)
++        assert post[POST_AREA:POST_AREA + 3] == block[0:3], \
++            ('dmg_load_game: the area bytes after the load', t['counter'], post[POST_AREA:POST_AREA + 3].hex(),
++             block[0:3].hex())
++        if key == (3, 1) and post[3] == 1:
++            break
++    assert seq == [(0,), (2,), (3, 5), (3, 1)], ('dmg_load_game: the game task after the handoff', seq)
++    m = re.search(r'^level smoke: dmg_load_game: the loaded block\'s area ([0-9A-F]{2}) ([0-9A-F]{2}) '
++                  r'([0-9A-F]{2}), D_00275BE0 (\d+)$', run, re.M)
++    assert m and bytes(int(m.group(k), 16) for k in (1, 2, 3)) == block[0:3] and m.group(4) == '1', \
++        ('dmg_load_game: the block at the handoff', m and m.groups(), block[0:3].hex())
++    # 001AF150 (001AC070 state 5's r == 2): the settings and the screen
++    # offset back from the block (D_00810708 / 709 / 70C, D_00810754 / 756).
++    # On a card whose settings are the defaults this cannot tell a skipped
++    # 001AF150 from a run one.
++    m = re.search(r'^level smoke: dmg_load_game: the settings after 001AF150 (\d+) (\d+) (\d+) (-?\d+) (-?\d+) '
++                  r'offset (-?\d+) (-?\d+)$', run, re.M)
++    h754, h756 = struct.unpack_from('<hh', block, 0x54)
++    assert m and [int(m.group(k)) for k in range(1, 8)] == [block[8], block[9], block[0xC], h754, h756, h754, h756], \
++        ('dmg_load_game: the settings after 001AF150 are not the slot\'s', m and m.groups())
++    m = re.search(r'^level smoke: dmg_load_game: placed at counter (\d+) \(([-\d.]+),([-\d.]+),([-\d.]+)\) '
++                  r'yaw=([-\d.]+) health=([-\d.]+)$', run, re.M)
++    assert m, 'dmg_load_game: no placement after the load'
++    pose = struct.unpack_from('<3f', block, 0x10) + (struct.unpack_from('<f', block, 0x24)[0],)
++    hp = struct.unpack_from('<f', block, 0x158)[0]
++    got = [float(m.group(k)) for k in (2, 3, 4, 5, 6)]
++    want = list(pose) + [hp]
++    tol = (5e-4, 5e-6, 5e-4, 5e-6, 0.05)
++    assert all(abs(x - y) <= e for x, y, e in zip(got, want, tol)), \
++        ('dmg_load_game: the placement is not the slot\'s load pose and health', got, want)
++    assert re.search(r'^level smoke: dmg_load_game: control in the loaded area ', run, re.M), \
++        'dmg_load_game: no control in the loaded area'
++    print(f'level smoke: dmg_load_game: {summary}; LOAD GAME of slot 1: the screen to the result 2, 001AC070 '
++          f'state 4, the game task {" -> ".join("/".join(map(str, k)) for k in seq)} in area '
++          f'{block[0]:02X} {block[1]:02X} {block[2]:02X}, placed at the slot\'s load pose '
++          f'({pose[0]:.3f}, {pose[1]:.3f}, {pose[2]:.3f}, heading {pose[3]:.5f}) with health {hp:.1f}')
++
++
+ def check_dmg_crevice_fall(ticks, run, state):
+     c = [crow(r) for r in capture('dmg_06_crevice_fall')['rows']]
+     p = prows(ticks, phase_start(run, 'dmg_crevice_fall', ticks))
+diff --git a/tools/test_level_smoke.py b/tools/test_level_smoke.py
+index cf87f22..9c0eae1 100644
+--- a/tools/test_level_smoke.py
++++ b/tools/test_level_smoke.py
+@@ -3142,6 +3142,7 @@ PHASES = [
+     ('crevice_prompt', check_crevice_prompt),
+     ('dmg_flame', lambda ticks, run, state: level_smoke_damage.check_dmg_flame(ticks, run, state)),
+     ('dmg_load', lambda ticks, run, state: level_smoke_damage.check_dmg_load(ticks, run, state)),
++    ('dmg_load_game', lambda ticks, run, state: level_smoke_damage.check_dmg_load_game(ticks, run, state)),
+     ('dmg_crevice_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_crevice_fall(ticks, run, state)),
+     branch_phase('br_plateau'),
+     audio_phase('aud_flame'),
+@@ -3973,7 +3974,8 @@ def check_effects(ticks, state):
+ 
+ SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
+         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
+-        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_fan',
++        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_load_game', 'dmg_crevice_fall',
++        'dmg_fan',
+         'br_ledge_ammo',
+         'br_map_item',
+         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
+@@ -3999,7 +4001,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
+          ('AREA00 arrival (opt-in)', ('a00_arrival',)),
+          ('AREA00 main route (opt-in)', tuple(level_smoke_area00.MAIN_BEATS)),
+          ('AREA00 side return (opt-in)', tuple(level_smoke_area00.SIDE_BEATS)),
+-         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_fan')),
++         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_load_game', 'dmg_crevice_fall', 'dmg_fan')),
+          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
+                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),
+          ('opt', tuple(level_smoke_options.PHASES)),
+diff --git a/tools/test_level_smoke_damage.py b/tools/test_level_smoke_damage.py
+index 3d2f37a..436e79c 100644
+--- a/tools/test_level_smoke_damage.py
++++ b/tools/test_level_smoke_damage.py
+@@ -10,7 +10,10 @@ Cross, the New Game to first control; the recordings dmg_00..dmg_04),
+ dmg_load (from crevice_prompt: dmg_flame's way to the title after the death,
+ then Cross on LOAD GAME, the memory-card screen to its slot choice, Triangle
+ back to the title menu; the recordings dmg_00..dmg_03 and dmg_05),
+-dmg_crevice_fall (from crevice_prompt: the walking jump short of the north
++dmg_load_game (from crevice_prompt: dmg_load's way to the load screen, then
++LOAD GAME of slot 1 on a copy of the area01 start-point card, the loaded
++game into its area to control; no recording of a load, docs/SAVE_GAME.md
++section 6.3), dmg_crevice_fall (from crevice_prompt: the walking jump short of the north
+ block, the landing hit; dmg_06), dmg_pit_fall (from truck_preview: the
+ truck's fall, the walk off its roof onto the pit floor with 001755B0 at the
+ fall start, the game over; dmg_07) and dmg_fan (from roger: fan r2's hit and
+@@ -26,7 +29,9 @@ movie of its second New Game in full (the recording does: no input there),
+ like every run under EM_UNCAPPED decoded as fast as the host allows.
+ EM_DAMAGE_SIDES=a,b runs only those.
+ """
++import hashlib
+ import os
++import shutil
+ import subprocess
+ import sys
+ from pathlib import Path
+@@ -34,22 +39,58 @@ from pathlib import Path
+ ROOT = Path(__file__).resolve().parents[1]
+ BIN = Path(os.environ.get('EM_LEVEL_SMOKE_BIN', str(ROOT / 'build/extermination')))
+ OUT = ROOT / 'build/level_smoke_damage'
+-SIDES = ('dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_pit_fall', 'dmg_fan')
++SIDES = ('dmg_flame', 'dmg_load', 'dmg_load_game', 'dmg_crevice_fall', 'dmg_pit_fall', 'dmg_fan')
+ RECORDS = ('dmg_pit_fall', 'dmg_fan')   # EM_LOG_AIM_RECORDS=1: the tick log's "aimrec"
+ SIDES = tuple(os.environ['EM_DAMAGE_SIDES'].split(',')) if os.environ.get('EM_DAMAGE_SIDES') else SIDES
+ import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+ CAPTURES = refs.capture('c10/damage')
+ 
+ 
++# dmg_load_game's card: the area01 start-point card (make start-saves,
++# docs/SAVE_GAME.md section 7) copied file by file into its own host card
++# folder (EM_TEST_MEMCARD_ROOT), never the game's data/memcard.
++START_CARD = ROOT / 'build/start_saves/area01'
++LOAD_CARD = OUT / 'dmg_load_game_card'
++
++
++def card_files(root):
++    return sorted(p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file() or p.is_symlink())
++
++
++def card_hashes(root):
++    return {f: hashlib.sha256((root / f).read_bytes()).hexdigest() for f in card_files(root)}
++
++
++def prepare_load_card():
++    """The copy, rewritten from the start-point card each run; a copy
++    holding any other file or a symlink is refused (nothing is deleted)."""
++    assert (START_CARD / 'slot1').is_dir() and (START_CARD / 'slot2').is_dir(), \
++        f'dmg_load_game: the start-point card is missing: {START_CARD} (make start-saves)'
++    want = [f for f in card_files(START_CARD) if f.startswith(('slot1/', 'slot2/'))]
++    if LOAD_CARD.exists():
++        extra = [f for f in card_files(LOAD_CARD) if f not in want]
++        links = [p for p in LOAD_CARD.rglob('*') if p.is_symlink()]
++        assert not extra and not links, ('dmg_load_game: the card copy holds other files', extra, links)
++    for d in ('slot1', 'slot2'):
++        (LOAD_CARD / d).mkdir(parents=True, exist_ok=True)
++    for f in want:
++        (LOAD_CARD / f).parent.mkdir(parents=True, exist_ok=True)
++        shutil.copyfile(START_CARD / f, LOAD_CARD / f)
++    return card_hashes(LOAD_CARD)
++
++
+ def main():
+     assert CAPTURES.is_dir(), f'DAMAGE captures missing: {CAPTURES} (decomp docs/CAPTURES_C10.md "DAMAGE")'
+     OUT.mkdir(parents=True, exist_ok=True)
++    card_before = prepare_load_card() if 'dmg_load_game' in SIDES else None
+     runs = {}
+     for side in SIDES:
+         env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level', EM_LEVEL_SMOKE_UNTIL=side,
+                    EM_AREA_CHANGE_LOG=str(OUT / f'{side}.jsonl'), EM_RAND_TRACE=str(OUT / f'{side}.rand'))
+         if side in RECORDS:
+             env['EM_LOG_AIM_RECORDS'] = '1'
++        if side == 'dmg_load_game':
++            env['EM_TEST_MEMCARD_ROOT'] = str(LOAD_CARD)
+         log = open(OUT / f'{side}.log', 'w')
+         runs[side] = (subprocess.Popen([str(BIN)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT), log)
+     failed, checks = [], {}
+@@ -75,6 +116,10 @@ def main():
+                 print(line)
+         if check.returncode:
+             failed.append((side, 'check', check.returncode))
++    if card_before is not None and 'dmg_load_game' in checks:
++        # A load writes nothing on the card.
++        if card_hashes(LOAD_CARD) != card_before:
++            failed.append(('dmg_load_game', 'the load changed the card', 1))
+     assert not failed, ('damage side runs failed', failed)
+     print(f'level smoke damage: PASS ({len(SIDES)} side runs: {", ".join(SIDES)})')
+     return 0

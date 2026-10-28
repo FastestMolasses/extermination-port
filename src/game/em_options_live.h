@@ -18,11 +18,24 @@
  *                         strncpy) over the views
  *   001281C0              em_player_float_to_int
  *   0020CD40 / 60 / A0    the cues (em_sul_*, the host's 001FB9F0)
- *   00114988 / 00114848   em_memcard (the card I/O boundary)
+ *   00114988 / 00114848 / 00114360 / 00114448 / 00114480 / 00114708 /
+ *   00114630 / 00114AC0   em_memcard_call (the card I/O boundary: GetInfo,
+ *                         Sync, Open, Mkdir, Close, Write, Read, GetDir)
+ *                         over the views
  *   001D2830, 00200970, 001AEE10 / 001AEDE0, 001FBC50, 001FABB0, 001FF080,
  *   001B61C0              the host's workers
- *   002267A0 / 00227300   fault: the card screens past the first level's
- *                         recordings (the slot's directory read, the load)
+ *   002267A0 / 00227300   em_card_002267A0 / em_card_00227300 (the card
+ *                         screen past the slot choice, docs/SAVE_GAME.md
+ *                         section 6) on this binding's state
+ *   00122D10, 00123020    sprintf (the conversions d and s) and strcmp
+ *                         over the views
+ *   00114D18, 00121870, 001AF2C0   fault: the save mode's Format, block
+ *                         copy and New Game block (docs/OPTIONS.md 4.2)
+ *
+ * Its own storage for the card code's buffers (GetDir's table
+ * D_00821500, the header D_00821980, the staging blocks D_008219D0 /
+ * D_00822050 / D_00822690, the slot path D_00822010, the row text
+ * D_00275C94..9F) and views of em_area_title's place names and D_00289B40.
  *
  * Fail-stop: a missing view, a refused draw or a failing worker latches
  * the call's fault (reported); the caller stops the game. */
@@ -63,7 +76,7 @@ typedef struct {
     uint32_t task_address;      /* *0x70003B6C: the running task's record */
     uint8_t *task;              /* its bytes +8..+0x1F (24) */
     uint8_t *mc;                /* D_00810040, 0xD4 bytes */
-    uint8_t *progress;          /* D_00810700, 0x640 bytes (the canonical ranges) */
+    uint8_t *progress;          /* D_00810700, the whole 0x640-byte block */
     EmMessageBlock *message;    /* D_002821B0 */
     uint8_t *busy;              /* D_00275BD8 */
     uint16_t *masks;            /* 0x70003B74..0x70003B83 */
@@ -95,5 +108,33 @@ int em_options_live_render(EmOptionsLive *live, EmGfx *gfx);
 void em_options_live_deactivate(EmOptionsLive *live);
 /* For tests and logs: the calls the last call made to `callee`. */
 unsigned em_options_live_calls(const EmOptionsLive *live, uint32_t callee);
+/* For tests: `size` bytes at `address` of the card buffers (D_00821500,
+ * D_00821980, D_008219D0, D_00822010, D_00822050, D_00822690,
+ * D_00275C94..9F): one process-wide copy that every binding shares and
+ * that outlives em_options_live_free, as the original's one .bss copy.
+ * 0, or -1 outside them. */
+int em_options_live_card_bytes(const EmOptionsLive *live, uint32_t address, void *dst, uint32_t size);
+/* For tests: start those buffers from a recording's bytes (the game starts
+ * them zero, as the boot leaves the original's .bss). 0, or -1. */
+int em_options_live_card_seed(EmOptionsLive *live, uint32_t address, const void *src, uint32_t size);
+/* For tests: a log of the draw and cue calls the binding makes (NULL, the
+ * default, logs nothing). Each record is taken inside a thin wrapper from
+ * the very parameters it then forwards to the callee (em_page_draw_*,
+ * em_message_live_cc1e0 / fc770), so it holds what the
+ * callee receives. `record` is the call's values in this little-endian
+ * layout (every word 4 bytes):
+ *   00207D00  slot, mode
+ *   00207E40  slot, x, y, w, h, rgba, then tex0 (8 bytes)
+ *   00207F80  slot, x0, y0, x1, y1, rgba
+ *   0020A7A0  the argument (8 bytes)
+ *   001CC1E0  slot, x, y, w, h, the text (a length word, then its bytes up
+ *             to the NUL), the style (a present byte, then 8 bytes: colour
+ *             word, glyph, flag, pad, pad)
+ *   001FC770  x, y, the text as above, the config (a present byte, then
+ *             its 5 words and the style as above)
+ * The cues (001FB9F0, as 0020CD40 / 60 / A0 pass them) reach the host's
+ * sound callback (EmOptionsHost), where a test logs them itself. */
+typedef void (*EmOptionsTrace)(void *context, uint32_t callee, const uint8_t *record, uint32_t size);
+void em_options_live_set_trace(EmOptionsLive *live, EmOptionsTrace trace, void *context);
 
 #endif /* EM_OPTIONS_LIVE_H */

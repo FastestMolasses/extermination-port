@@ -677,7 +677,7 @@ static void setup(int reset_inventory)
                                     EM_COLLISION_WORLD_CELLS_PATH, EM_COLLISION_WORLD_SDK_PATH));
     g.mesh = (EmGfxMesh *)1;
     g.grate_present = 1;
-    g.status.health = 100;
+    em_scene_state()->d810858 = 100;
     g.loco_rate = 1;
     unsigned char *ram = malloc(0x2000000); assert(ram);
     FILE *file = fopen("../Extermination/build/startup-reference/playable_ee.bin", "rb");

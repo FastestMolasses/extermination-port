@@ -40,6 +40,11 @@ EmGsTexture *em_gs_texture_load(const char *path);
 void em_gs_texture_free(EmGsTexture *gs);
 /* Back to the world image (a New Game in AREA11, no page loaded). */
 void em_gs_texture_reset(EmGsTexture *gs);
+/* No block known: the GS memory of the boot's title, whose own uploads
+ * (the title screens) the file does not hold. Every block reads as never
+ * written until a step writes it, so a texture that needs anything else
+ * is refused (the caller faults); the resource-slot words read 0. */
+void em_gs_texture_clear(EmGsTexture *gs);
 /* Applies one step (a module id, or EM_GS_TEXTURE_RESTORE). 1, or 0 when
  * the file holds no such step. */
 int em_gs_texture_apply(EmGsTexture *gs, unsigned step);

@@ -5,11 +5,15 @@
 #include "game/em_player_ladder_climb.h"
 #include "game/em_player_record_pose.h"
 #include "game/em_pose_host_workers.h"
+#include "game/em_scene_bindings.h"
 
 #include <assert.h>
 #include <math.h>
 
 EmGameState g;
+/* The progress block (D_00810858, the health) lives in the scene state the
+ * game's em_scene_bindings.c owns; this test provides its own. */
+EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 static EmTransitionFade fade;
 static int quit;
 
@@ -121,7 +125,7 @@ static void reset(void)
     memset(&actor, 0, sizeof actor);
     memset(&g, 0, sizeof g);
     g.model.bone_count = 22;
-    g.status.health = 100;
+    em_scene_state()->d810858 = 100;
     g.pos[0] = 250.8f;
     g.pos[1] = 229.9f;
     g.pos[2] = 209;
@@ -470,9 +474,9 @@ int main(void)
     assert(!player_pose_takeover_prepare() && !player_pose_owned());
     assert(!player_pose_source(NULL, NULL, NULL, NULL));
     g.sa_req = 0;
-    g.status.health = PD_LOW_HEALTH; /* row1 default clip0x0A is not exported */
+    em_scene_state()->d810858 = PD_LOW_HEALTH; /* row1 default clip0x0A is not exported */
     assert(player_pose_legacy_release() == 0 && !player_pose_takeover_prepare());
-    g.status.health = 100;
+    em_scene_state()->d810858 = 100;
     assert(player_pose_legacy_release() == 1);
     expected(0, 80, 0);
     assert(player_pose_takeover_prepare());

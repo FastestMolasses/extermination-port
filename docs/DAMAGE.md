@@ -168,9 +168,10 @@ D_00275BDC values and 001AC480 in both contexts against em_startup.
   the 0x5D floor kills first.
 - **The load screen's slot choice** (dmg_05 stops before it): the title's
   LOAD GAME runs the memory-card screen since chain step OPTIONS
-  (OPTIONS.md section 4.3; the side run dmg_load); a chosen slot (002267A0)
-  and a load (00227300) fault, and LOAD GAME on the boot's title (no AREA11
-  world) fails the run.
+  (OPTIONS.md section 4.3; the side run dmg_load); a chosen slot and a load
+  run since the save lane (SAVE_GAME.md sections 6.1 and 6.3, the side run
+  dmg_load_game), and LOAD GAME on the boot's title since save2 round 5
+  (SAVE_GAME.md section 6.4).
 - **001755B0's landing sites** (0017C580 at 0x17C744 / 0x17C7F4, a landing
   with a drop -104 <= d <= -14.5 at gait 3): bound, oracle-tested, and
   entered by no run: dmg_06's landing is a walking jump (gait below 3) and no
@@ -204,7 +205,7 @@ player_vitals.
 ## 8. The side runs
 
 `make test-level-smoke-damage` (part of `make test-level-smoke-side`) plays
-five side runs (src/game/em_level_smoke_test.c "damage"; the capture
+six side runs (src/game/em_level_smoke_test.c "damage"; the capture
 lane's own closed-loop policies) and checks each with
 `tools/test_level_smoke.py` and, window by window, with
 `tools/level_smoke_damage.py` against the recordings (every window aligned
@@ -228,6 +229,12 @@ on its event, then compared tick by tick):
   menu equal the recording's, each for its rows except module 0x2A's load
   (9 rows, the disc 23) and the title's module 1 (host speed); both presses
   reach their fade-outs as recorded (OPTIONS.md section 6).
+- **dmg_load_game** (from crevice_prompt; dmg_00..dmg_03, then dmg_05's way
+  in; added by the save lane, round 3): dmg_load's way to the load screen,
+  then LOAD GAME of slot 1 on a copy of the area01 start-point card, the
+  loaded game's chain into AREA01 and control there (SAVE_GAME.md section
+  6.3; no recording of a load, so its own steps are checked, not a
+  capture).
 - **dmg_pit_fall** (from truck_preview; dmg_07): the fall start, the 0x5D
   floor death and the fall to the load request (188 ticks, exact, with the
   height path), the game over as above. The fall start: an entry the

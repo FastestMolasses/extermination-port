@@ -77,16 +77,23 @@ typedef enum {
  * becomes an accessor over this region in the step that first touches it; no
  * step adds a second copy.
  *
- * The region is only as canonical as its migrated ranges. Every other byte of
- * it is RESERVED: it is still owned by a named EmSceneState field (the area
- * bytes D_00810700..702, D_00810730[] and the D_00810750 counter) or by a port
- * mirror that has not been migrated yet (for example g.opening_complete =
- * D_00810811, em_weapon's
- * D_00810C61/C62/CB4). em_scene_progress_at() refuses
- * a reserved byte (NULL), so nothing can read or write a second copy through
- * it.
+ * Since save2 round 2 the WHOLE block is canonical: every byte of it has
+ * this one storage, so LOAD GAME's read 00228B60 can store all 0x640 bytes
+ * and a save's Write can read them. The owners that had their own storage
+ * were moved onto it: the area bytes D_00810700..702, D_00810730[] and the
+ * counter D_00810750 (named members of EmSceneState over the block),
+ * D_00810811 (was g.opening_complete), D_00810858 / D_0081085C (were
+ * g.status.health / infection), D_00810C61 / C62 / CB4 / D3C (em_weapon's
+ * bytes, which em_weapon now keeps here). The census that found them:
+ * every original address of the block named in src/ that was outside the
+ * migrated ranges below; the remaining ones are per-call copies (a
+ * binding's view of one call) or later areas' translations over their own
+ * test images, which keep no storage. A new owner of one of these bytes
+ * reaches it here (em_scene_progress_at or a named member); no step adds a
+ * second copy.
  *
- * Migrated ranges (step that migrated them; original readers and writers):
+ * The ranges migrated before the whole block was (step that migrated them;
+ * original readers and writers), kept as the record of their owners:
  *   D_00810703..D_00810704
  *                        H7    the area streamer 001FFCD0's latches: state 3
  *                              stores the area whose header is in
@@ -221,11 +228,6 @@ typedef enum {
  *                              0x829BE0 / 0x82A0E0 write 2 / 0 through
  *                              001BA080 op06 sub 3, slot 4. Cleared by
  *                              001AF2C0; survives area reloads.
- *   D_008107DF           A01R  counter 7: the AREA01 revisit event's stage;
- *                              0x825950 reads it, 0x825BE0 / 0x825D30 /
- *                              0x825EA0 / 0x825F00 write 1, 2, 0x40, 0x80,
- *                              0xFF; 0x824770 writes 0x10, 0x823CD0 reads 2.
- *                              Cleared by 001AF2C0; no port mirror existed.
  *   D_008107E0           A01   counter 8: 826200 reads it while idle with
  *                              event 8 != 0xFF; 826440 writes 1 / 0xFF and
  *                              reads 2 / 0xE0 in its conditional sequence.
@@ -338,59 +340,12 @@ typedef struct {
     uint8_t bytes[EM_SCENE_PROGRESS_SIZE]; /* index = original address - 0x00810700 */
 } EmProgress;
 
-/* 1 when every byte of [address, address + size) is in a migrated range. */
+/* 1 when every byte of [address, address + size) is in the block (since
+ * save2 round 2 every byte of it is canonical: see above). */
 static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
 {
-    static const struct {
-        uint32_t first, end;
-    } migrated[] = {
-        {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
-        {0x00810706u, 0x00810708u}, /* 0015CF90's +0x235 (GLUE) and infected-latch (HK) copies */
-        {0x00810708u, 0x0081070Au}, /* the settings' type and vibration copies (001AF1C0 / 001AF2C0, OPTIONS) */
-        {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
-        {0x0081070Cu, 0x0081070Du}, /* the settings' sound copy (001AF1C0 / 001AF2C0, OPTIONS) */
-        {0x00810710u, 0x00810730u}, /* 00159B90's two terminal position/rotation quadwords (A01) */
-        {0x00810754u, 0x00810758u}, /* the settings' screen offset copies (001AF1C0 / 001AF2C0, OPTIONS) */
-        {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */
-        {0x0081075Bu, 0x0081075Du}, /* events 3/4: AREA00 door / terminal (A00) */
-        {0x0081075Du, 0x00810761u}, /* event 5 light, 6/7 deferred groups (EXIT), 8 bridge (A01) */
-        {0x00810766u, 0x00810768u}, /* events 0x0E mechanism bypass / 0x0F placed 8267C0 gate (A01) */
-        {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
-        /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates
-         * (chain C8b MAP; 0 in every route capture, only 001AF2C0 writes
-         * them in the first level) */
-        {0x0081077Fu, 0x00810780u},
-        {0x00810782u, 0x00810783u},
-        {0x00810784u, 0x00810785u},
-        {0x00810788u, 0x0081078Au},
-        {0x0081078Bu, 0x0081078Du}, /* event 0x33: 00191210's gate (L13); 0x34 (MAP) */
-        {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */
-        {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
-        {0x008107D8u, 0x008107DAu}, /* counter 0 Roger (L22), 1 AREA01 door/NPC (A01) */
-        {0x008107DAu, 0x008107DDu}, /* counters 2/3/4: AREA00 arrival / door / ferry (A00) */
-        {0x008107DFu, 0x008107E0u}, /* counter 7: AREA01 revisit event stage (A01R) */
-        {0x008107E0u, 0x008107E1u}, /* counter 8: AREA01 bridge idle read (A01) */
-        {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
-        {0x00810808u, 0x00810809u}, /* counter 0x30: 00823CE0's script-end 0xFF (A11FIX) */
-        {0x0081080Fu, 0x00810810u}, /* counter 0x37: placed class-2 00128B80's reaction gate (A01) */
-        {0x00810813u, 0x00810815u}, /* counter 0x3B, the director step (HK); 0x3C: 008257A0's 1 (A11FIX) */
-        {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
-        {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */
-        {0x00810841u, 0x00810843u}, /* D_00810841[0/1], AREA00/01 lock flags */
-        {0x00810845u, 0x00810846u}, /* D_00810841[4], 001C02E0's mechanism gate (A01) */
-        {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
-        {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
-        {0x00810C60u, 0x00810C61u}, /* equipment status C60 (WP-6) */
-        {0x00810C63u, 0x00810CB4u}, /* item block and CA4..CA7 (S10b) */
-        {0x00810CB6u, 0x00810D20u}, /* item block, em_pickup (WP-6) */
-        {0x00810D38u, 0x00810D3Cu}, /* current-BGM word (WP-5) */
-    };
-    if (size == 0 || address + size < address)
-        return 0;
-    for (size_t i = 0; i < sizeof migrated / sizeof migrated[0]; ++i)
-        if (address >= migrated[i].first && address + size <= migrated[i].end)
-            return 1;
-    return 0;
+    return size != 0 && address >= EM_SCENE_PROGRESS_BASE &&
+           (uint64_t)address + size <= (uint64_t)EM_SCENE_PROGRESS_BASE + EM_SCENE_PROGRESS_SIZE;
 }
 
 /* ------------------------------------------------------------------ faults */
@@ -418,13 +373,10 @@ typedef struct {
     /* Request block D_008106B0..F7 (see EmSceneReqByte). */
     uint8_t req[EM_SCENE_REQ_SIZE];
 
-    /* D_00810700/701/702 (written by 001AD010 and 001AD360) and
-     * D_00810730[0x20] (0x00810730..0x0081074F; D_00810750 follows). */
-    uint8_t d810700, d810701, d810702;
-    uint8_t d810730[0x20];
+    /* The area bytes D_00810700..702, D_00810730[] and the frame counter
+     * D_00810750 are named views of the progress block below (one storage). */
 
-    /* Frame counters incremented by 001AE5E0/001AE6B0. */
-    int32_t d810750;
+    /* Frame counter incremented by 001AE6B0 (D_00810750 is the other). */
     int32_t spad3B68;
 
     /* Scratchpad 0x70003Bxx / 0x700032xx / 0x700031xx. */
@@ -459,8 +411,42 @@ typedef struct {
 
     EmSceneFault fault;
 
-    /* D_00810700..D_00810D3F (D2); reach it only through the accessors below. */
-    EmProgress progress;
+    /* D_00810700..D_00810D3F (D2), the one storage of the whole block
+     * (save2 round 2). `progress.bytes` addresses it by original address
+     * (the accessors below); the named members are the same bytes, for
+     * the owners that use a field: each sits at its original offset
+     * (checked below) and holds the original's little-endian value. */
+    union {
+        EmProgress progress;
+        struct {
+            /* D_00810700/701/702 (written by 001AD010 and 001AD360) */
+            uint8_t d810700, d810701, d810702;
+            uint8_t progress_703[0x730 - 0x703];
+            /* D_00810730[0x20] (0x00810730..0x0081074F) */
+            uint8_t d810730[0x20];
+            /* the frame counter incremented by 001AE5E0 / 001AE6B0 (sw) */
+            int32_t d810750;
+            uint8_t progress_754[0x811 - 0x754];
+            /* the opening-complete byte (event flag 0xB9): the AREA11
+             * opening controller's completion slice stores 0xFF */
+            uint8_t d810811;
+            uint8_t progress_812[0x858 - 0x812];
+            /* health and infection (floats): 0015CF90 copies the player's
+             * +0x220 / +0x228 here, 001B07C0 copies them back (the port
+             * holds +0x220 / +0x228 in these same words: em_player.c) */
+            float d810858, d81085C;
+            uint8_t progress_860[0xC61 - 0x860];
+            /* em_weapon's bytes: the fire mode, the magazine */
+            uint8_t d810C61, d810C62;
+            uint8_t progress_C63[0xCB4 - 0xC63];
+            /* em_weapon's reserve (the halfword total) */
+            int16_t d810CB4;
+            uint8_t progress_CB6[0xD3C - 0xCB6];
+            /* em_weapon's gun light switch (0017A970's) */
+            uint8_t d810D3C;
+            uint8_t progress_D3D[0xD40 - 0xD3D];
+        };
+    };
 
     /* Scratchpad 0x70003B40..0x70003B5C: 001B07C0 copies the placed player's
      * +0xB0..+0xCC here (S12a). Read later by the door cut 0018CBD0 (3B50). */
@@ -491,6 +477,28 @@ typedef struct {
      * passes them to the display environments). */
     int16_t spad3B94, spad3B96;
 } EmSceneState;
+
+/* The named members of the progress block sit at their original offsets. */
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error "the progress block's named members hold the EE's little-endian values"
+#endif
+#define EM_SCENE_PROGRESS_AT(member, address) \
+    _Static_assert(offsetof(EmSceneState, member) - offsetof(EmSceneState, progress) == \
+                       (address) - EM_SCENE_PROGRESS_BASE, #member " is not at " #address)
+EM_SCENE_PROGRESS_AT(d810700, 0x00810700u);
+EM_SCENE_PROGRESS_AT(d810701, 0x00810701u);
+EM_SCENE_PROGRESS_AT(d810702, 0x00810702u);
+EM_SCENE_PROGRESS_AT(d810730, 0x00810730u);
+EM_SCENE_PROGRESS_AT(d810750, 0x00810750u);
+EM_SCENE_PROGRESS_AT(d810811, 0x00810811u);
+EM_SCENE_PROGRESS_AT(d810858, 0x00810858u);
+EM_SCENE_PROGRESS_AT(d81085C, 0x0081085Cu);
+EM_SCENE_PROGRESS_AT(d810C61, 0x00810C61u);
+EM_SCENE_PROGRESS_AT(d810C62, 0x00810C62u);
+EM_SCENE_PROGRESS_AT(d810CB4, 0x00810CB4u);
+EM_SCENE_PROGRESS_AT(d810D3C, 0x00810D3Cu);
+_Static_assert(sizeof(EmProgress) == EM_SCENE_PROGRESS_SIZE, "EmProgress is not the 0x640-byte block");
+#undef EM_SCENE_PROGRESS_AT
 
 /* ---------------------------------------------------------------- accessors */
 
@@ -576,16 +584,20 @@ static inline uint8_t *em_scene_progress_spawn_view(EmSceneState *s)
     return &s->progress.bytes[EM_SCENE_PROGRESS_SPAWN_VIEW - EM_SCENE_PROGRESS_BASE];
 }
 
-/* 001AF2C0's effect on the region: the 0x640-byte memset, then its stores
- * that land on migrated bytes (CA4 = 0xFF, CA5 = 5, CA6 = 0, CA7 = 7;
- * src/func_001AF2C0.c). Its other stores go to their mirrors (em_pickup_reset,
- * game_state_new_game). The named area bytes and D_00810750 are outside this
- * reset: the port has no w_001AD230 yet (S12a), and the legacy load writes the
- * 001AD360 area bytes after it. */
-/* 001AF2C0's stores into the canonical progress bytes: the 0x640-byte
- * memset, the five settings copies (D_00810708 = +0, 709 = +1, 70C = +4,
- * 754 = +8, 756 = +0xA of D_00810118) and CA4..CA7. Its 001AF470(D_00810708)
- * call follows (em_scene_settings_001AF470), then the rest of 001AF2C0. */
+/* 001AF2C0's stores into the progress block (src/func_001AF2C0.c; the
+ * whole block is checked against the executed original by
+ * tools/test_continue_reset_reference.py): the 0x640-byte memset, the five
+ * settings copies (D_00810708 = +0, 709 = +1, 70C = +4, 754 = +8, 756 =
+ * +0xA of D_00810118), D_00810703..705 = 0xFF, health D_00810858 = 100.0,
+ * D_0081085C = 0, D_00810D20..D23 = 1, CA4 = 0xFF, CA5 = 5, CA6 = 0, CA7 = 7,
+ * the fire mode C61 = 0, the magazine C62 = 30, the reserve CB4 = 60, the
+ * light D3C = 0 (the 001C40B0(0x10, 2) call's C62 / CB4 stores are
+ * overwritten by these; its count stores, and the item stores C60, C64,
+ * C69, C6B, C7B, CB2, CB7, are em_pickup_reset's). The memset clears the
+ * area bytes, D_00810730[] and the counter D_00810750 too, as the
+ * original's does (001AD360 writes the area bytes after it). Its
+ * 001AF470(D_00810708) call follows (em_scene_settings_001AF470), then the
+ * rest of 001AF2C0. */
 static inline void em_scene_progress_reset_001AF2C0(EmSceneState *s)
 {
     for (size_t i = 0; i < EM_SCENE_PROGRESS_SIZE; ++i)
@@ -595,10 +607,20 @@ static inline void em_scene_progress_reset_001AF2C0(EmSceneState *s)
     s->progress.bytes[0x0081070Cu - EM_SCENE_PROGRESS_BASE] = s->d810118[4];
     for (unsigned i = 0; i < 4; ++i)
         s->progress.bytes[0x00810754u - EM_SCENE_PROGRESS_BASE + i] = s->d810118[8 + i];
+    for (unsigned i = 0; i < 3; ++i)
+        s->progress.bytes[0x00810703u - EM_SCENE_PROGRESS_BASE + i] = 0xFF;
+    s->d810858 = 100.0f;
+    s->d81085C = 0.0f;
+    for (unsigned i = 0; i < 4; ++i)
+        s->progress.bytes[0x00810D20u - EM_SCENE_PROGRESS_BASE + i] = 1;
     s->progress.bytes[0x00810CA4u - EM_SCENE_PROGRESS_BASE] = 0xFF;
     s->progress.bytes[0x00810CA5u - EM_SCENE_PROGRESS_BASE] = 5;
     s->progress.bytes[0x00810CA6u - EM_SCENE_PROGRESS_BASE] = 0;
     s->progress.bytes[0x00810CA7u - EM_SCENE_PROGRESS_BASE] = 7;
+    s->d810C61 = 0;
+    s->d810C62 = 30;
+    s->d810CB4 = 60;
+    s->d810D3C = 0;
 }
 
 /* 001AB430's settings stores at the boot: the 0xC-byte memset of

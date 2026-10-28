@@ -202,7 +202,7 @@ static void probe_actor(EmPlayerProbeActor *actor)
     actor->state = g.loco_mode != 0 ? 1 : 0;
     actor->mode = (uint8_t)g.loco_mode;
     actor->variant = (uint8_t)g.loco_substate;
-    actor->row = (uint8_t)((g.status.health <= PD_LOW_HEALTH ? 1 : 0) |
+    actor->row = (uint8_t)((em_scene_state()->d810858 <= PD_LOW_HEALTH ? 1 : 0) |
                            (g.probe_low_clearance ? 2 : 0));
     actor->special = g.probe_low_clearance;
     actor->obstruction = g.probe_block_mask;
@@ -897,7 +897,7 @@ static void live_from_port(void)
     em_live_set_u8(&live.a, 0x25C, (uint8_t)g.loco_tier);
     em_live_set_u8(&live.a, 0x23F, (uint8_t)g.gait);
     em_live_set_u8(&live.a, 0x314, g.probe_block_mask);
-    em_live_set_u8(&live.a, 0x235, (uint8_t)((g.status.health <= PD_LOW_HEALTH ? 1 : 0) |
+    em_live_set_u8(&live.a, 0x235, (uint8_t)((em_scene_state()->d810858 <= PD_LOW_HEALTH ? 1 : 0) |
                                              (g.probe_low_clearance ? 2 : 0)));
     em_live_set_u8(&live.a, 0x236, g.probe_low_clearance);
 }
@@ -941,18 +941,19 @@ static void live_tail(int walk)
 static void player_move_callbacks(void);
 static int player_standin_callbacks(void);
 
-/* The port's view of the player's vitals: g.status / g.pd_* are the port's
- * only storage of +220 (health, also D_00810858's mirror), +224 (pending
- * damage), +228 (infection, D_0081085C's), +22C (pending infection), +234
+/* The port's view of the player's vitals: the progress block's D_00810858 /
+ * D_0081085C and g.pd_* are the port's only storage of +220 (health, held in
+ * D_00810858), +224 (pending damage), +228 (infection, held in D_0081085C),
+ * +22C (pending infection), +234
  * (the infected latch) and +20E (the post-hit countdown 0015B130 runs down).
  * The stage reads and writes the record; these load it before 0015BA50 and
  * store it after 0015BCF0's tail, so the port's other readers (the status
  * pages, 0015CF90, 001B07C0) see what the original stage left. */
 static void vitals_load(void)
 {
-    em_live_set_f32(&live.a, 0x220, g.status.health);
+    em_live_set_f32(&live.a, 0x220, em_scene_state()->d810858);
     em_live_set_f32(&live.a, 0x224, g.pd_pend_hp);
-    em_live_set_f32(&live.a, 0x228, g.status.infection);
+    em_live_set_f32(&live.a, 0x228, em_scene_state()->d81085C);
     em_live_set_f32(&live.a, 0x22C, g.pd_pend_inf);
     em_live_set_u8(&live.a, 0x234, (uint8_t)g.pd_infected);
     em_live_set_u16(&live.a, 0x20E, (uint16_t)g.pd_iframes);
@@ -962,9 +963,9 @@ void player_states_vitals_publish(void) { vitals_load(); }
 
 static void vitals_store(void)
 {
-    g.status.health = em_live_f32(&live.a, 0x220);
+    em_scene_state()->d810858 = em_live_f32(&live.a, 0x220);
     g.pd_pend_hp = em_live_f32(&live.a, 0x224);
-    g.status.infection = em_live_f32(&live.a, 0x228);
+    em_scene_state()->d81085C = em_live_f32(&live.a, 0x228);
     g.pd_pend_inf = em_live_f32(&live.a, 0x22C);
     g.pd_infected = em_live_u8(&live.a, 0x234);
     g.pd_low = em_live_u8(&live.a, 0x235) & 1;
@@ -993,8 +994,8 @@ static int external_snapshot(void *ctx, EmArea01PlayerValues *out)
     out->hip_valid=player_pose_hip(hip)!=0;
     if (!out->hip_valid) memcpy(hip,g.pos,12);
     memcpy(out->hip,hip,12); memcpy(&out->heading,&g.yaw,4);
-    memcpy(&out->vitals[0],&g.status.health,4); memcpy(&out->vitals[1],&g.pd_pend_hp,4);
-    memcpy(&out->vitals[2],&g.status.infection,4); memcpy(&out->vitals[3],&g.pd_pend_inf,4);
+    memcpy(&out->vitals[0],&em_scene_state()->d810858,4); memcpy(&out->vitals[1],&g.pd_pend_hp,4);
+    memcpy(&out->vitals[2],&em_scene_state()->d81085C,4); memcpy(&out->vitals[3],&g.pd_pend_inf,4);
     out->iframes=(uint16_t)g.pd_iframes; out->infected=(uint8_t)g.pd_infected; out->low=g.pd_low&1;
     out->generation=s_external_generation;
     return external_link(ctx,live.a.link_owner,&out->link_owner,&out->owner_generation)<0 ||

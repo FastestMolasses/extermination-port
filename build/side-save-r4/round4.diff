@@ -1,0 +1,2334 @@
+diff --git a/Makefile b/Makefile
+index fa3a795..5db1f3b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -50,7 +50,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
+            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
+            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
+            src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
+-           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c src/game/em_save_original.c \
++           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c src/game/em_save_original.c src/game/em_card_original.c \
+            src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
+            src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c \
+            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
+@@ -1465,6 +1465,15 @@ test-save-reference:
+ test-load-reference:
+ 	python3 tools/test_load_reference.py
+ 
++# The memory-card screen past the slot choice (docs/SAVE_GAME.md section 6):
++# em_card_original against the original instructions over the opt_07 and
++# dmg_05 recordings' RAM, single calls and whole card screens (loads, saves,
++# the error screens), every reachable branch outcome (about 20 s; EM_TEST_FULL=1 the
++# exhaustive sweep, about 19 min).
++.PHONY: test-card-screen-reference
++test-card-screen-reference:
++	python3 tools/test_card_screen_reference.py
++
+ # The host memory card's file commands (em_memcard) under the original save
+ # writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
+ # EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).
+diff --git a/docs/OPTIONS.md b/docs/OPTIONS.md
+index 000e780..3dc9cc4 100644
+--- a/docs/OPTIONS.md
++++ b/docs/OPTIONS.md
+@@ -21,7 +21,7 @@ original's; no instruction of the original is reproduced here.
+ | Brightness | 00202BA0 (the calibration picture, screen module 0x2B) | live | test-options-reference; opt_04 |
+ | Button config | 00202D10, then 001AF470 over the masks 0x70003B74..83 | live (the masks are canonical; the player reads them there) | test-options-reference, test-startup-load-gaps-reference (001AF470); opt_05 |
+ | Default | 00201C50 | live | test-options-reference; opt_06 |
+-| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice; a chosen slot faults (002267A0) | test-options-reference; opt_07 |
++| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice; a chosen card faults (00227300; translated, not wired: SAVE_GAME.md section 6) | test-options-reference; opt_07 |
+ | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
+ | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
+ | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
+@@ -116,9 +116,12 @@ views, the cues 0020CD40 / 60 / A0 to the host's 001FB9F0, the loader
+ D_00275BD8 at its 0x63 step; tools/export_module_loader.py exports 0x2A and
+ 0x2B), 00200970(1) to em_status_runtime_restore, the fades, 001FBC50,
+ 001FABB0, 001D2830 and 001B61C0 to the interaction host's workers, and the
+-card SDK to em_memcard (section 5). 002267A0 (a chosen slot's directory
+-read) and 00227300 (the load) fault. A missing view, a refused draw or a
+-failing worker latches the call's fault and the coordinator stops.
++card SDK to em_memcard (section 5). 002267A0 (00226070's step 1: the two
++ports polled in turn for a card) and 00227300 (the card screen past the
++slot choice) fault; both are translated since the save lane's round 4
++(em_card_original, docs/SAVE_GAME.md section 6), not wired yet. A missing
++view, a refused draw or a failing worker latches the call's fault and the
++coordinator stops.
+ 
+ ### 4.3 The title's load screen
+ 
+@@ -209,9 +212,10 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
+   screen runs in save mode (00228A90 and its steps) and the card layout it
+   writes: SAVE_GAME.md.
+ - **A chosen slot and a load** (002267A0, 00227300; r == 2): no recording
+-  chooses a slot; both fault. The load code below the card screen (the load
+-  enumeration 002283B0 and LOAD GAME's read 00228B60 of the slot into the
+-  progress block) is translated, not wired (SAVE_GAME.md section 4).
++  chooses a slot; both fault. The card screen past the slot choice and the
++  load code below it (the load enumeration 002283B0 and LOAD GAME's read
++  00228B60 of the slot into the progress block) are translated, not wired
++  (SAVE_GAME.md sections 4 and 6).
+ - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.
+ - **The title's OPTIONS entry** (00200A40) and LOAD GAME on the boot's title.
+ 
+diff --git a/docs/SAVE_GAME.md b/docs/SAVE_GAME.md
+index b023b9e..eb5d3d8 100644
+--- a/docs/SAVE_GAME.md
++++ b/docs/SAVE_GAME.md
+@@ -14,13 +14,13 @@ instruction of the original is reproduced here.
+ |---|---|---|---|
+ | The save writer | 00228A90 and its steps 00228530, 002285A0, 002288A0, 00229640, 00229680, 002284F0, 001AF220 | translated (em_save_original), not wired | test-save-reference |
+ | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
+-| The card screen around them | 00227300 and its screens (002280F0, 002283B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00226B90, 002267A0, 00226D50, 002293B0) | faults (docs/OPTIONS.md section 4.2) | - |
++| The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original), not wired: the options binding still faults at 002267A0 / 00227300 (docs/OPTIONS.md section 4.2) | test-card-screen-reference |
+ | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
+-| LOAD GAME after the read | the card screen 00227300's load path, the restore and the area entry | not translated | - |
++| LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated | - |
+ | The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
+ | Start-point saves, `EM_START_AT` | - | not built | - |
+ 
+-Next steps: section 6.
++Next steps: section 7.
+ 
+ ## 2. The save on the card
+ 
+@@ -279,20 +279,138 @@ entry order and its first 0x20 bytes, the result on a fresh card) are
+ what the original EE code accepts, not yet what the IOP was recorded
+ answering: that is section 6's first step.
+ 
+-## 6. Next steps
+-
+-In order: a fork recording of the original saving at AREA01's save
+-terminal on a separate card file (the user's decisions of 2026-10-09, HANDOFF
+-item 9: a dedicated card, never the user's own), whose libmc results (the
+-Sync result words, the GetDir table) check em_memcard's answers and whose
+-card files check section 2 against the card the IOP wrote; the card screen
+-00227300 (its load path after 00228B60: the restore and the area entry; and
+-its save path) and the save terminal's Yes path, wired through
+-`em_memcard_call`; the start-point save builder (the fork recordings route_a01 / route_a00 / route_a01r at
+-each area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
++## 6. The card screen past the slot choice
++
++What the code does from the slot screen's state 2 (00225D20 calls
++00227300(m) once per frame, m = D_00810040; m[0x14] is the mode, 1 save
++and 2 load, m[0x48] the port chosen in 00226070). The translations are in
++`src/game/em_card_original.c` (prefix em_card_; the decomp's byte-matched C,
++the instructions for the NEARMISS 002280F0, 00228320, 002293B0, 002267A0 and
++the asm body 00227C60). Line numbers below are the help container's group
++7 lines that 001FCBD0 draws; their text is not read here.
++
++- **00227300** draws the port's line (3 or 4), then runs the screen m[1]:
++  0 the card check, 1 the load enumeration 002283B0 (section 4), 2 the slot
++  list, 4 an error screen chosen by m[2]. Its result is 00225D20's: 1 back
++  to the card choice, 2 out of the card screen, 3 done (00225D20 then
++  returns 2, a game saved or loaded).
++- **The card check 002280F0** (gated by the Sync poll, on m[2]): GetInfo
++  with the format word (+0x60): a type other than 2 or a failed poll gives
++  4; the format word 1 moves on; any other format word is asked again up to
++  seven times (the count +0x20), then 2. Then GetDir of the game's
++  directory (at most one entry): there gives 1; none gives 1 in load mode,
++  and in save mode a GetInfo with the free count (+0x5C), whose result
++  00228320 tests: free >= 18 + the icon's size in KiB (rounded up) gives
++  1, else 3. 1 goes to the load enumeration; 2, 3 and 4 to the error
++  screens 0, 1 and 2. The enumeration's 1 goes to the slot list, its 2 to
++  error screen 2 and its 3 to error screen 3.
++- **The slot list** draws the five rows every frame (002293B0: the number;
++  an empty slot line 0, an unusable one line 1 (presence 2), a saved one
++  its place name, D_002671C0[record byte 1 + the first index the area's
++  entry in D_00289B40 holds], and its play time, the block's frame counter
++  +0x50, as hours / minutes / seconds, plus the glyph 0x9E when the
++  record's byte 6 (the block's byte 0xA) is set). Its steps m[2]:
++  0 the cursor 00229170: Up / Down (the repeat word D_00810E78) move m[0xA]
++  within 0..4; Cross takes the slot (in load mode only a saved one);
++  Circle backs out to the card choice, Triangle out of the screen; a card
++  whose GetInfo no longer reports type 2 sends the slot screen back to its
++  card poll (m[0x15] = 1) at 00226070's step 1, 002267A0 (m[1] = 1).
++  1 the confirmation 00227980: the question (save mode by the slot: empty
++  0x14, saved 0x15, unusable 0x27; load mode 0x1A), Yes / No moved by Left
++  and Right (D_00810E74 0x2000 / 0x8000; m[9] = 1 is Yes). Yes goes on
++  (and in save mode takes 4 off D_00810CB2); No, Circle back to the cursor;
++  Triangle out.
++  2 the save or the load: save mode over an unusable slot 00229680 (the
++  New Game block, line 0x22), save mode 00228A90 (line 0x10), load mode
++  LOAD GAME's read 00228B60 (line 0x16). Done goes to 3; a failure to 4,
++  and in save mode gives the 4 back.
++  3 the done message 00227010 (line 0x12 saved, 0x18 loaded, 0x24 after
++  00229680) for 45 frames, then 3; after 00229680 the card check runs
++  again instead.
++  4 the failure message 00227160 (0x13 / 0x19 / 0x25): Cross or Circle 1,
++  Triangle 2.
++- **The error screens** (m[1] = 4): 0 (the format word never 1): in save
++  mode the format prompt 00227C60 / 00227DE0 (line 0xD, Cross, then line
++  0x1F with Yes / No); Yes runs the libmc Format 00114D18 through 001FED40
++  (the helpers' phase 0x10) and 00228070, line 0x1B while it runs; done:
++  the save goes straight to slot 0 (m[1] = m[2] = 2, the presence bytes
++  cleared, 4 taken off D_00810CB2); a failed format shows line 0x1E
++  (00227270). In load mode screen 0 draws the slot list and runs the
++  cursor, but a chosen slot does nothing there: only Circle (1), Triangle
++  (2) or a card change leave it.
++  1 (the free count short) 00226B90: line 5, Cross, line 7, Cross: 1.
++  2 (no card of type 2) 002267A0: line 0xE (port 0) or 0xF (port 1); it
++  polls GetInfo on the chosen port and the other in turn and returns 1
++  once one reports type 2 (setting its flag +0x28 / +0x2C); Cross 1,
++  Circle or Triangle 2. 3 (the enumeration refused the card) 00226D50:
++  line 0x28, Cross or Circle 1. 00226B90 and 00226D50 take Circle as 1
++  and Triangle as 2, and return 1 when the card's GetInfo stops reporting
++  type 2.
++
++D_00810CB2 is the battery charge in half-units (decomp docs/FINDINGS.md
++"BATTERY"): a save takes 4 half-units, 2 on the status screen, as its
++confirmation's Yes is taken (or after a format), and gives them back when
++the write fails; over an unusable slot (presence 2, 00229680's path) they
++are given back whether its write succeeds or fails. The block written
++includes the reduced charge. The load never touches it except through the
++block it reads. No routine here tests the charge before taking it (what
++the save terminal checks before it opens the screen is not translated).
++
++`make test-card-screen-reference` (`tools/test_card_screen_reference.py`)
++runs the original routines over the opt_07 and dmg_05 recordings (both on
++the card screen's load row) against the translations, with the save, load
++and options lanes' translations as the callees they are and every other
++callee as original code (RAM, the scratchpad and the arguments equal at
++every callee entry and at the end). The libmc SDK is test_load_reference's
++card model plus GetInfo's free and format words and Format (the card
++emptied); its answers are inputs, not claims about the IOP's server.
++Before each frame of a whole screen the pad words and the text's packet
++pointer D_00811CD4 are poked on both sides (the main loop resets that
++pointer every frame; outside the lane). Cases: every routine on its states
++with the pad words, the poll results and types, the Sync gate and the
++error flag (1,012 single calls, each on both recordings); 76 whole card
++screens frame by frame from 00227300's first call, each ending with the
++result it is built for, with a pad script made on the original alone from
++the screen's state (a press every other frame): LOAD GAME of every slot
++(D_00810700 checked equal to the slot file), saves to a new card and over
++an existing directory (the written slot equal to the live block, its check
++byte, D_00810CB2 4 lower, a new card's eight files), a declined
++confirmation, Circle / Triangle out, no directory, an unformatted card
++(Yes then the save, No, Triangle, a failing format), a card too full, a
++card removed and put back, a rejected card, a failing read, write and
++GetInfo, and the unusable slot's path (00229680, then the card check and
++the save again). 444 of the 458 branch outcomes are taken; the 14 others
++are unreachable and listed in the test (a GetInfo poll result other than
++0 / -1 always comes with the error flag, which is tested first; switch
++arms for results a callee never returns; 002280F0's repeated type test).
++Run 2026-10-20: quick PASS (132 cases, about 20 s; the text leaves
++001CC1E0 / 001FC770 and sprintf memoized on the original's side with every
++passed argument in the key and replayed on the native side),
++EM_TEST_FULL=1 PASS (1,088 cases, 108,150 callee entries equal, about 19 min). Mutants checked (the card check's
++retry bound and GetDir count, the free count's bound, the number row's y,
++the minutes' divisor, the load-mode Cross test, the Yes test, the done
++message's 45 frames, the battery's 4, 002267A0's turn, 00227DE0's verdict,
++001FED40's phase): all fail the quick run.
++
++## 7. Next steps
++
++In order: wire the card screen: em_options_live's 002267A0 / 00227300
++dispatched to em_card_*, the libmc file commands and Format through
++`em_memcard_call`, em_memcard answering GetInfo's free and format words
++(today it faults on them: no recording shows the server's values); a fork
++recording of the original saving at AREA01's save terminal on a separate
++card file (the user's decisions of 2026-10-09, HANDOFF item 9: a dedicated
++card, never the user's own), whose libmc results (the Sync result words,
++GetInfo's free and format words, the GetDir table) check em_memcard's
++answers and whose card files check section 2 against the card the IOP
++wrote; what the card screen's callers do with its result 2 (0022A650's
++r == 2, 001AC070's title load: the restore and the area entry) and the
++save terminal's Yes path (0020CDC0, request 6); the start-point save
++builder (the fork recordings route_a01 / route_a00 / route_a01r at each
++area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
+ "Developer switches").
+ 
+-## 7. Re-exports
++## 8. Re-exports
+ 
+ None: the save code is in the boot ELF, and the test reads the recordings
+ in the reference `tools/reference_root.py` selects.
+diff --git a/src/game/em_memcard.h b/src/game/em_memcard.h
+index c79d3d2..daa734b 100644
+--- a/src/game/em_memcard.h
++++ b/src/game/em_memcard.h
+@@ -77,7 +77,7 @@ extern "C" {
+  * open, a Write on a read-only one or a Read on a write-only one, and a
+  * GetDir with mode != 0 or of a directory that is missing. A descriptor is
+  * the lowest free of 0..2 (the server's handle table; the recording that
+- * checks it is docs/SAVE_GAME.md section 6's next step). Open does not
++ * checks it is docs/SAVE_GAME.md section 7's next step). Open does not
+  * truncate; Write and Read move the descriptor's offset.
+  *
+  * GetDir: a name without a wildcard stores its one entry when it exists
+diff --git a/src/game/em_options_live.h b/src/game/em_options_live.h
+index cc59fbc..ba5c6a9 100644
+--- a/src/game/em_options_live.h
++++ b/src/game/em_options_live.h
+@@ -22,7 +22,8 @@
+  *   001D2830, 00200970, 001AEE10 / 001AEDE0, 001FBC50, 001FABB0, 001FF080,
+  *   001B61C0              the host's workers
+  *   002267A0 / 00227300   fault: the card screens past the first level's
+- *                         recordings (the slot's directory read, the load)
++ *                         recordings (translated in em_card_original,
++ *                         docs/SAVE_GAME.md section 6; not wired yet)
+  *
+  * Fail-stop: a missing view, a refused draw or a failing worker latches
+  * the call's fault (reported); the caller stops the game. */
+diff --git a/src/game/em_save_original.h b/src/game/em_save_original.h
+index bd8a88d..b5dc637 100644
+--- a/src/game/em_save_original.h
++++ b/src/game/em_save_original.h
+@@ -2,8 +2,9 @@
+  * routines that write a saved game to the card and read it back,
+  * translated from the original
+  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
+- * em_save_. Not wired yet (docs/SAVE_GAME.md section 6): the card screen
+- * 00227300 that runs it still faults. Its libmc callees are answered by
++ * em_save_. Not wired yet (docs/SAVE_GAME.md section 7): the card screen
++ * 00227300 that runs it is translated (em_card_original) but the options
++ * binding still faults there. Its libmc callees are answered by
+  * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder
+  * routes them there.
+  *
+diff --git a/tools/test_memcard_host.py b/tools/test_memcard_host.py
+index d37bd45..852f9a6 100644
+--- a/tools/test_memcard_host.py
++++ b/tools/test_memcard_host.py
+@@ -31,7 +31,7 @@ docs/SAVE_GAME.md section 5. Two parts:
+ The card server is the IOP's, not EE code: what em_memcard answers (a
+ descriptor 0..2, GetDir's entries, the counts) is checked here against what
+ the original EE code accepts and reads back, not against a recording of the
+-server; that recording is docs/SAVE_GAME.md section 6's next step.
++server; that recording is docs/SAVE_GAME.md section 7's next step.
+ 
+ Host folders live in a temporary directory removed at the end. Quick by
+ default (a covering set of saves); EM_TEST_FULL=1 runs every slot and port
+diff --git a/src/game/em_card_original.c b/src/game/em_card_original.c
+new file mode 100644
+index 0000000..b108466
+--- /dev/null
++++ b/src/game/em_card_original.c
+@@ -0,0 +1,1021 @@
++/* em_card_original.c - see em_card_original.h (docs/SAVE_GAME.md section 6).
++ *
++ * Each routine names the original it translates. 002280F0, 00228320,
++ * 002293B0 and 002267A0 are NEARMISS in the decomp and 00227C60 an asm
++ * body: those follow the instructions; the others follow the byte-matched
++ * C. Callee arguments are the register images the original holds at the
++ * call: an addiu / lui-ori constant or an address sum as the sign-extended
++ * 32-bit result, a word loaded from memory as loaded (sign-extended), a
++ * register passed on as the caller's image. */
++#include "game/em_card_original.h"
++
++#include "game/em_area01_ui_internal.h"
++#include "game/em_options_original.h"
++#include "game/em_save_original.h"
++
++/* Callees by original address. */
++enum {
++    CD_00114D18 = 0x00114D18u, /* libmc Format(port, slot) */
++    CD_00121A28 = 0x00121A28u, /* memset(p, c, n) */
++    CD_00122D10 = 0x00122D10u, /* sprintf(dst, format, ...) */
++    CD_001CC1E0 = 0x001CC1E0u, /* a text run at (x, y) */
++    CD_001FC770 = 0x001FC770u, /* a message line at (x, y) */
++    CD_0020CD40 = 0x0020CD40u, /* the cues: confirm, */
++    CD_0020CD60 = 0x0020CD60u, /*   back, */
++    CD_0020CDA0 = 0x0020CDA0u  /*   move */
++};
++
++/* Original data. */
++#define D_0028A4A0 0x0028A4A0u /* the icon container pointer */
++#define D_002671A0 0x002671A0u /* 001FC770's second glyph table */
++#define D_002671C0 0x002671C0u /* the place names (pointers) */
++#define D_00273998 0x00273998u /* the slot number's format */
++#define D_002739A0 0x002739A0u /* the play time's format */
++#define D_002738E0 0x002738E0u /* the game's directory name */
++#define D_00275898 0x00275898u /* the third text run's style */
++#define D_00275C58 0x00275C58u /* the card helpers' error flag */
++#define D_00275C5C 0x00275C5Cu /* the card helpers' command phase */
++#define D_00275C64 0x00275C64u /* the last Sync result 001FE9A0 kept */
++#define D_00275C94 0x00275C94u /* the slot rows' text buffer */
++#define D_00275C95 0x00275C95u
++#define D_00289B40 0x00289B40u /* each area's first place name (halfwords, 4 apart) */
++#define D_00810CB2 0x00810CB2u /* a progress halfword the save mode moves by 4 */
++#define D_00821500 0x00821500u /* GetDir's table (.bss) */
++
++#define MINUS1 0xFFFFFFFFu
++#define LINE UINT64_C(0x70808080) /* the lines' style word, lui / ori */
++
++static int begin(EmArea01Ui *s, uint32_t address)
++{
++    if (ui_latched(s)) return -1;
++    if (!s->call) return em_a01r_fault(&s->core, address, EM_A01R_FAULT_NULL_WORKER, 0);
++    return 0;
++}
++
++static void put(uint32_t *result, uint32_t v)
++{
++    if (result) *result = v;
++}
++
++static void cue(EmArea01Ui *s, uint32_t address) { (void)ui_call0(s, address); }
++
++static void line(EmArea01Ui *s, uint64_t x, uint64_t y, uint64_t n)
++{
++    (void)em_options_001FCBD0(s, x, y, 7, n, LINE);
++}
++
++/* The record's card port and slot words as loaded. */
++static uint64_t port_of(EmArea01Ui *s, uint32_t m) { return ui_sx(ui_lw(s, m + 0x48u)); }
++static uint64_t slot_of(EmArea01Ui *s, uint32_t m) { return ui_sx(ui_lw(s, m + 0x4Cu)); }
++
++/* 001FE9A0(1, m + 0x50, m + 0x54): 0 while the command is busy. */
++static uint32_t sync_poll(EmArea01Ui *s, uint32_t m)
++{
++    uint32_t v = 0;
++    (void)em_options_001FE9A0(s, 1, ui_sx(m + 0x50u), ui_sx(m + 0x54u), &v);
++    return v;
++}
++
++/* 001FECB0(port, slot, m + 0x58, a3, t0). */
++static uint32_t info(EmArea01Ui *s, uint64_t port, uint64_t slot, uint32_t m, uint64_t a3, uint64_t t0)
++{
++    uint32_t v = 0;
++    (void)em_options_001FECB0(s, port, slot, ui_sx(m + 0x58u), a3, t0, &v);
++    return v;
++}
++
++static uint32_t pad(EmArea01Ui *s) { return ui_lhu(s, UI_D_00810E74); }
++
++/* The byte m[0x6C + m[0xA]]: the chosen slot's presence. */
++static uint32_t chosen_slot(EmArea01Ui *s, uint32_t m) { return ui_lbu(s, ui_lbu(s, m + 0xAu) + m + 0x6Cu); }
++
++static void clear(EmArea01Ui *s, uint32_t m, uint32_t lo, uint32_t hi)
++{
++    (void)em_options_00225CF0(s, m, lo, hi);
++}
++
++static void cb2_add(EmArea01Ui *s, int32_t d)
++{
++    ui_sh(s, D_00810CB2, (uint32_t)(ui_lh(s, D_00810CB2) + d));
++}
++
++/* The common tail of 00229170 / 00227980 / 00226B90 / 00226D50 / 00227DE0:
++ * the GetInfo poll's verdict (type 2 kept: `ok`; -1 pending: `ok`; else
++ * `bad`). */
++static uint32_t verdict(EmArea01Ui *s, uint32_t m, uint32_t v, uint32_t ok, uint32_t bad)
++{
++    if (v == 0) return ui_lw(s, m + 0x58u) != 2 ? bad : ok;
++    if (v == MINUS1) return ok;
++    return bad;
++}
++
++/* ======================================================================
++ * The screen
++ * ====================================================================== */
++
++/* 00227300(m) (byte-matched C). */
++int em_card_00227300(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00227300u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227300u, 0x20);
++    uint32_t r = 0, v = 0;
++    switch (ui_lw(s, m + 0x48u)) {
++    case 0: line(s, 0x18, 0x20, 3); break;
++    case 1: line(s, 0x18, 0x20, 4); break;
++    default: break;
++    }
++    switch (ui_lbu(s, m + 1u)) {
++    case 0:
++        line(s, 0x3C, 0x9B, 9);
++        (void)em_card_002280F0(s, m, &v);
++        switch (v) {
++        case 1: ui_sb(s, m + 1u, 1); clear(s, m, 2, 7); break;
++        case 2: ui_sb(s, m + 1u, 4); ui_sb(s, m + 2u, 0); break;
++        case 3: ui_sb(s, m + 1u, 4); ui_sb(s, m + 2u, 1); break;
++        case 4: ui_sb(s, m + 1u, 4); ui_sb(s, m + 2u, 2); break;
++        default: break;
++        }
++        break;
++    case 1:
++        line(s, 0x3C, 0x9B, 9);
++        (void)em_save_002283B0(s, m, &v);
++        switch (v) {
++        case 1: ui_sb(s, m + 1u, 2); clear(s, m, 2, 7); break;
++        case 2: ui_sb(s, m + 1u, 4); ui_sb(s, m + 2u, 2); break;
++        case 3: ui_sb(s, m + 1u, 4); ui_sb(s, m + 2u, 3); break;
++        default: break;
++        }
++        break;
++    case 2:
++        (void)em_card_002293B0(s, m);
++        switch (ui_lbu(s, m + 2u)) {
++        case 0:
++            (void)em_card_00229170(s, m, &v);
++            switch (v) {
++            case 1:
++                ui_sb(s, m + 2u, 1);
++                clear(s, m, 3, 7);
++                ui_sw(s, m + 0x64u, 0);
++                break;
++            case 2: r = 1; break;
++            case 3: r = 2; break;
++            case 4:
++                ui_sb(s, m + 0x15u, 1);
++                ui_sb(s, m + 1u, 1);
++                (void)em_options_00225A20(s);
++                clear(s, m, 2, 7);
++                (void)em_options_001FE8D0(s);
++                break;
++            default: break;
++            }
++            break;
++        case 1:
++            (void)em_card_00227980(s, m, &v);
++            switch (v) {
++            case 1: ui_sb(s, m + 2u, 0); clear(s, m, 3, 7); break;
++            case 2: r = 2; break;
++            case 3:
++                ui_sb(s, m + 2u, 2);
++                if (ui_lbu(s, m + 0x14u) == 1) cb2_add(s, -4);
++                clear(s, m, 3, 7);
++                break;
++            case 4:
++                ui_sb(s, m + 0x15u, 1);
++                ui_sb(s, m + 1u, 1);
++                (void)em_options_00225A20(s);
++                (void)em_options_001FE8D0(s);
++                clear(s, m, 2, 7);
++                break;
++            default: break;
++            }
++            break;
++        case 2: {
++            const int unusable = ui_lbu(s, m + 0x14u) == 1 && chosen_slot(s, m) == 2;
++            if (unusable) {
++                line(s, 0x3C, 0x9B, 0x22);
++                (void)em_save_00229680(s, m, &v);
++            } else if (ui_lbu(s, m + 0x14u) == 1) {
++                line(s, 0x3C, 0x9B, 0x10);
++                (void)em_save_00228A90(s, m, &v);
++            } else {
++                line(s, 0x3C, 0x9B, 0x16);
++                (void)em_save_00228B60(s, m, &v);
++            }
++            if (ui_lbu(s, m + 0x14u) == 1 && chosen_slot(s, m) == 2) {
++                if (v == 1) {
++                    ui_sb(s, m + 2u, 3);
++                    cb2_add(s, 4);
++                    clear(s, m, 3, 7);
++                } else if (v == 2) {
++                    cb2_add(s, 4);
++                    ui_sb(s, m + 2u, 4);
++                    clear(s, m, 3, 7);
++                }
++            } else if (v == 1) {
++                ui_sb(s, m + 2u, 3);
++                clear(s, m, 3, 7);
++            } else if (v == 2) {
++                if (ui_lbu(s, m + 0x14u) == 1) cb2_add(s, 4);
++                ui_sb(s, m + 2u, 4);
++                clear(s, m, 3, 7);
++            }
++            break;
++        }
++        case 3: (void)em_card_00227010(s, m, &r); break;
++        case 4: (void)em_card_00227160(s, m, &r); break;
++        default: break;
++        }
++        break;
++    case 4:
++        switch (ui_lbu(s, m + 2u)) {
++        case 0: (void)em_card_00226E90(s, m, &r); break;
++        case 1: (void)em_card_00226B90(s, m, &r); break;
++        case 2: (void)em_card_002267A0(s, m, &r); break;
++        case 3: (void)em_card_00226D50(s, m, &r); break;
++        default: break;
++        }
++        break;
++    default:
++        break;
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 002280F0(m), the card check (the instructions; NEARMISS C), gated by
++ * the Sync poll, on m[2]:
++ *   0: GetInfo(port, slot, m + 0x58, 0, m + 0x60): 0 -> type other than 2:
++ *      4; the format word 1: m[2] = 1; else the retry count m+0x20 below
++ *      6 counts up, at 6 it is cleared, 001FE8D0 and 2. -1 -> on; else 4.
++ *   1: GetDir(port, slot, D_002738E0, 0, t0 = 1, D_00821500): negative ->
++ *      on; nonzero (the directory there) -> 1; none: 1 in load mode
++ *      (m[0x14] == 2), else m[2] = 2.
++ *   2: GetInfo(port, slot, m + 0x58, m + 0x5C, m + 0x60): as state 0, but
++ *      the format word 1 returns 00228320(m) ? 1 : 3.
++ * The rest: 4 with the error flag D_00275C58 set, else 0. */
++int em_card_002280F0(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x002280F0u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x002280F0u, 0x20);
++    uint32_t r = 0;
++    int tail = 1;
++    if (sync_poll(s, m) == 0) {
++        tail = 0;
++    } else {
++        const uint32_t st = ui_lbu(s, m + 2u);
++        if (st == 0 || st == 2) {
++            const uint32_t v = info(s, port_of(s, m), slot_of(s, m), m, st == 2 ? ui_sx(m + 0x5Cu) : 0,
++                                    ui_sx(m + 0x60u));
++            if (v == 0) {
++                if (ui_lw(s, m + 0x58u) != 2) {
++                    r = 4;
++                    tail = 0;
++                } else if (ui_lw(s, m + 0x60u) == 1) {
++                    if (st == 0) {
++                        ui_sb(s, m + 2u, 1);
++                    } else {
++                        uint32_t enough = 0;
++                        (void)em_card_00228320(s, m, &enough);
++                        r = enough == 0 ? 3u : 1u;
++                        tail = 0;
++                    }
++                } else {
++                    const int32_t n = (int32_t)ui_lw(s, m + 0x20u);
++                    if (n < 6) {
++                        ui_sw(s, m + 0x20u, (uint32_t)(n + 1));
++                    } else {
++                        ui_sw(s, m + 0x20u, 0);
++                        (void)em_options_001FE8D0(s);
++                        r = 2;
++                        tail = 0;
++                    }
++                }
++            } else if (v != MINUS1) {
++                r = 4;
++                tail = 0;
++            }
++        } else if (st == 1) {
++            uint32_t v = 0;
++            (void)em_save_001FEC20(s, port_of(s, m), slot_of(s, m), ui_sx(D_002738E0), 0, 1, ui_sx(D_00821500),
++                                   &v);
++            if ((int32_t)v >= 0) {
++                if (v != 0 || ui_lbu(s, m + 0x14u) == 2) {
++                    r = 1;
++                    tail = 0;
++                } else {
++                    ui_sb(s, m + 2u, 2);
++                }
++            }
++        }
++    }
++    if (tail) r = ui_lw(s, D_00275C58) != 0 ? 4u : 0u;
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00228320(m) (the instructions; NEARMISS C): 1 when the free count
++ * m+0x5C covers 18 plus the icon's size in 1 KiB units (rounded up,
++ * (*(*D_0028A4A0 + 0x18) + 0x3FF) >> 10, arithmetic); else 0. Its stack
++ * copy of D_00266B18 is overwritten before it is read. */
++int em_card_00228320(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00228320u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00228320u, 0x10);
++    const int32_t icon = (int32_t)ui_lw(s, ui_lw(s, D_0028A4A0) + 0x18u);
++    const int32_t kib = (int32_t)((uint32_t)icon + 0x3FFu) >> 10;
++    const uint32_t need = 0x12u + (uint32_t)kib;
++    const int32_t left = (int32_t)(ui_lw(s, m + 0x5Cu) - need);
++    put(result, left >= 0 ? 1u : 0u);
++    return ui_leave(s, fr);
++}
++
++/* 002293B0(m), the slot rows (the instructions; NEARMISS C). For row i
++ * (0..4, y = 0x3C + 12 i): the number i + 1 through sprintf(D_00275C94,
++ * D_00273998, i + 1) drawn by 001CC1E0(1, 0x724, y + 0x791, 0xA, 0x14,
++ * D_00275C94, 0); then by the presence byte m[0x6C + i]: 0 the line
++ * 001FCBD0(0x42, y, 7, 0); 2 the line 1; 1 the place name D_002671C0[r[1]
++ * + (short)D_00289B40[4 r[0]]] (r = m + 0x74 + 12 i) by 001FC770(0x42, y,
++ * name, r[6] ? D_002671A0 : 0), the play time r+8 (frames) as hours,
++ * minutes, seconds through sprintf(D_00275C94, D_002739A0, ...) and
++ * 001CC1E0(1, 0x88C, y + 0x790, ...), and with r[6] set the glyph 0x9E by
++ * 001CC1E0(1, 0x8D2, y + 0x790, ..., D_00275898). */
++int em_card_002293B0(EmArea01Ui *s, uint32_t m)
++{
++    if (begin(s, 0x002293B0u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x002293B0u, 0x60);
++    for (uint32_t i = 0; i < 5u; ++i) {
++        const uint32_t y = 0x3Cu + 12u * i;
++        const uint32_t q = m + 12u * i;
++        {
++            uint64_t a[3] = {ui_sx(D_00275C94), ui_sx(D_00273998), i + 1u};
++            ui_call(s, CD_00122D10, 3, a, 0, NULL, NULL, NULL);
++            uint64_t b[7] = {1, 0x724, y + 1u + 0x790u, 0xA, 0x14, ui_sx(D_00275C94), 0};
++            ui_call(s, CD_001CC1E0, 7, b, 0, NULL, NULL, NULL);
++        }
++        const uint32_t kind = ui_lbu(s, m + i + 0x6Cu);
++        if (kind == 0) {
++            (void)em_options_001FCBD0(s, 0x42, y, 7, 0, LINE);
++        } else if (kind == 2) {
++            (void)em_options_001FCBD0(s, 0x42, y, 7, 1, LINE);
++        } else if (kind == 1) {
++            const uint32_t first = (uint32_t)ui_lh(s, D_00289B40 + 4u * ui_lbu(s, q + 0x74u));
++            const uint32_t name = ui_lw(s, D_002671C0 + 4u * (ui_lbu(s, q + 0x75u) + first));
++            const uint64_t glyphs = ui_lbu(s, q + 0x7Au) != 0 ? ui_sx(D_002671A0) : 0;
++            uint64_t a[4] = {0x42, y, ui_sx(name), glyphs};
++            ui_call(s, CD_001FC770, 4, a, 0, NULL, NULL, NULL);
++            const int32_t t = (int32_t)ui_lw(s, q + 0x7Cu);
++            const int32_t hh = t / 216000;
++            const int32_t r1 = (int32_t)((uint32_t)t - (uint32_t)hh * 216000u);
++            const int32_t mm = r1 / 3600;
++            const int32_t r2 = (int32_t)((uint32_t)r1 - (uint32_t)mm * 3600u);
++            uint64_t p[5] = {ui_sx(D_00275C94), ui_sx(D_002739A0), ui_sx((uint32_t)hh), ui_sx((uint32_t)mm),
++                             ui_sx((uint32_t)(r2 / 60))};
++            ui_call(s, CD_00122D10, 5, p, 0, NULL, NULL, NULL);
++            uint64_t b[7] = {1, 0x88C, y + 0x790u, 0xA, 0x14, ui_sx(D_00275C94), 0};
++            ui_call(s, CD_001CC1E0, 7, b, 0, NULL, NULL, NULL);
++            if (ui_lbu(s, q + 0x7Au) != 0) {
++                ui_sb(s, D_00275C94, 0x9E);
++                ui_sb(s, D_00275C95, 0);
++                uint64_t c[7] = {1, 0x8D2, y + 0x790u, 0xA, 0x14, ui_sx(D_00275C94), ui_sx(D_00275898)};
++                ui_call(s, CD_001CC1E0, 7, c, 0, NULL, NULL, NULL);
++            }
++        }
++    }
++    return ui_leave(s, fr);
++}
++
++/* 00229170(m), the slot cursor (byte-matched C): the prompt (save mode
++ * line 0x11; else 0x17 with saves found (m+0x68), else 6); the Sync poll
++ * (busy: 0); Circle (0x20): 0020CD60, 001FE8D0, 2; Triangle (0x10): the
++ * same, 3; Cross (0x40): 0020CD40, 001FE8D0 and 1, except in load mode
++ * (m[0x14] == 2) on a slot not saved (presence other than 1), which goes
++ * on; Up (repeat 0x1000) / Down (repeat 0x4000) move m[0xA] within 0..4
++ * (cue); then the GetInfo poll's verdict: 4 with the error flag, 0 or 4. */
++int em_card_00229170(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00229170u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00229170u, 0x20);
++    uint32_t r = 0;
++    if (ui_lbu(s, m + 0x14u) == 1)
++        line(s, 0x3C, 0x9B, 0x11);
++    else if (ui_lw(s, m + 0x68u) != 0)
++        line(s, 0x3C, 0x9B, 0x17);
++    else
++        line(s, 0x3C, 0x9B, 6);
++    if (sync_poll(s, m) == 0) goto out;
++    {
++        const uint32_t p = pad(s);
++        if (p & 0x20u) {
++            cue(s, CD_0020CD60);
++            (void)em_options_001FE8D0(s);
++            r = 2;
++            goto out;
++        }
++        if (p & 0x10u) {
++            cue(s, CD_0020CD60);
++            (void)em_options_001FE8D0(s);
++            r = 3;
++            goto out;
++        }
++        if (p & 0x40u) {
++            cue(s, CD_0020CD40);
++            (void)em_options_001FE8D0(s);
++            if (ui_lbu(s, m + 0x14u) != 2 || chosen_slot(s, m) == 1) {
++                r = 1;
++                goto out;
++            }
++        }
++    }
++    if ((ui_lhu(s, UI_D_00810E78) & 0x1000u) && ui_lbu(s, m + 0xAu) > 0) {
++        cue(s, CD_0020CDA0);
++        ui_sb(s, m + 0xAu, ui_lbu(s, m + 0xAu) - 1u);
++    }
++    if (ui_lhu(s, UI_D_00810E78) & 0x4000u) {
++        if (ui_lbu(s, m + 0xAu) < 4) {
++            ui_sb(s, m + 0xAu, ui_lbu(s, m + 0xAu) + 1u);
++            cue(s, CD_0020CDA0);
++        }
++    }
++    {
++        const uint32_t v = info(s, port_of(s, m), slot_of(s, m), m, 0, 0);
++        r = ui_lw(s, D_00275C58) != 0 ? 4u : verdict(s, m, v, 0, 4);
++    }
++out:
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00227980(m), the confirmation (byte-matched C): the question (save mode
++ * by the slot's presence 0 / 1 / 2: lines 0x14 / 0x15 / 0x27; load mode
++ * 0x1A), the Yes / No line 001FCBD0(0x8C, 0xC3, 7, 2) and the marker by
++ * m[9] (0: 00225700, 1: 002256E0); the Sync poll (busy: 0); m[3] 0: m[3] =
++ * 1, m[9] = 0; 1: Cross: 0020CD40, 001FE8D0, m[9] = 0 and 3 on m[9] == 1
++ * (Yes), else 1; Circle: 0020CD60, m[9] = 0, 001FE8D0, 1; Triangle: the
++ * same, 2; Left (0x2000) on m[9] != 0 / Right (0x8000) on m[9] == 0 move
++ * it (cue). Then the GetInfo poll's verdict (4 with the error flag). */
++int em_card_00227980(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00227980u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227980u, 0x20);
++    uint32_t r = 0;
++    if (ui_lbu(s, m + 0x14u) == 1) {
++        switch (chosen_slot(s, m)) {
++        case 0: line(s, 0x3C, 0x9B, 0x14); break;
++        case 1: line(s, 0x3C, 0x9B, 0x15); break;
++        case 2: line(s, 0x3C, 0x9B, 0x27); break;
++        default: break;
++        }
++    } else {
++        line(s, 0x3C, 0x9B, 0x1A);
++    }
++    line(s, 0x8C, 0xC3, 2);
++    switch (ui_lbu(s, m + 9u)) {
++    case 0: (void)em_options_00225700(s); break;
++    case 1: (void)em_options_002256E0(s); break;
++    default: break;
++    }
++    if (sync_poll(s, m) == 0) goto out;
++    switch (ui_lbu(s, m + 3u)) {
++    case 0:
++        ui_sb(s, m + 3u, 1);
++        ui_sb(s, m + 9u, 0);
++        break;
++    case 1: {
++        const uint32_t p = pad(s);
++        if (p & 0x40u) {
++            cue(s, CD_0020CD40);
++            (void)em_options_001FE8D0(s);
++            if (ui_lbu(s, m + 9u) == 1) {
++                ui_sb(s, m + 9u, 0);
++                r = 3;
++            } else {
++                ui_sb(s, m + 9u, 0);
++                r = 1;
++            }
++            goto out;
++        }
++        if (p & 0x20u) {
++            cue(s, CD_0020CD60);
++            ui_sb(s, m + 9u, 0);
++            (void)em_options_001FE8D0(s);
++            r = 1;
++            goto out;
++        }
++        if (p & 0x10u) {
++            cue(s, CD_0020CD60);
++            ui_sb(s, m + 9u, 0);
++            (void)em_options_001FE8D0(s);
++            r = 2;
++            goto out;
++        }
++        if ((p & 0x2000u) && ui_lbu(s, m + 9u) != 0) {
++            cue(s, CD_0020CDA0);
++            ui_sb(s, m + 9u, 0);
++        }
++        if ((pad(s) & 0x8000u) && ui_lbu(s, m + 9u) == 0) {
++            cue(s, CD_0020CDA0);
++            ui_sb(s, m + 9u, 1);
++        }
++        break;
++    }
++    default:
++        break;
++    }
++    {
++        const uint32_t v = info(s, port_of(s, m), slot_of(s, m), m, 0, 0);
++        r = ui_lw(s, D_00275C58) != 0 ? 4u : verdict(s, m, v, 0, 4);
++    }
++out:
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00227010(m), the done message (byte-matched C): its line (save mode
++ * over an unusable slot 0x24, save mode 0x12, load mode 0x18); m[3] 0:
++ * m[3] = 1, the count m+0x10 = 45; 1: the count down, at 0: over an
++ * unusable slot in save mode m[1] = 0 and 00225CF0(m, 2, 7) (the card
++ * check again), else 3. Else 0. */
++int em_card_00227010(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00227010u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227010u, 0x20);
++    uint32_t r = 0;
++    const uint32_t ph = ui_lbu(s, m + 0x14u);
++    if (ph == 1 && chosen_slot(s, m) == 2)
++        line(s, 0x3C, 0x9B, 0x24);
++    else if (ph == 1)
++        line(s, 0x3C, 0x9B, 0x12);
++    else
++        line(s, 0x3C, 0x9B, 0x18);
++    switch (ui_lbu(s, m + 3u)) {
++    case 0:
++        ui_sb(s, m + 3u, 1);
++        ui_sw(s, m + 0x10u, 0x2D);
++        break;
++    case 1:
++        ui_sw(s, m + 0x10u, ui_lw(s, m + 0x10u) - 1u);
++        if (ui_lw(s, m + 0x10u) == 0) {
++            if (ui_lbu(s, m + 0x14u) == 1 && chosen_slot(s, m) == 2) {
++                ui_sb(s, m + 1u, 0);
++                clear(s, m, 2, 7);
++            } else {
++                r = 3;
++            }
++        }
++        break;
++    default:
++        break;
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00227160(m), the failure message (byte-matched C): its line (0x25 /
++ * 0x13 / 0x19 as 00227010's); Cross: 0020CD40, 1; Circle: 0020CD60, 1;
++ * Triangle: 0020CD60, 2; else 0. */
++int em_card_00227160(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00227160u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227160u, 0x10);
++    uint32_t r = 0;
++    const uint32_t ph = ui_lbu(s, m + 0x14u);
++    if (ph == 1 && chosen_slot(s, m) == 2)
++        line(s, 0x3C, 0x9B, 0x25);
++    else if (ph == 1)
++        line(s, 0x3C, 0x9B, 0x13);
++    else
++        line(s, 0x3C, 0x9B, 0x19);
++    const uint32_t p = pad(s);
++    if (p & 0x40u) {
++        cue(s, CD_0020CD40);
++        r = 1;
++    } else if (p & 0x20u) {
++        cue(s, CD_0020CD60);
++        r = 1;
++    } else if (p & 0x10u) {
++        cue(s, CD_0020CD60);
++        r = 2;
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00226E90(m), the screen for the card check's result 2 (byte-matched C):
++ * save mode 00227C60(m): 0 / 1 / 2 returned, 3 (formatted): m[1] = m[2] =
++ * 2, 00225CF0(m, 3, 7), D_00810CB2 -= 4, the presence bytes m+0x6C..73
++ * cleared (00121A28), m[0xA] = 0, and 0. Load mode: the slot rows
++ * 002293B0(m) and the cursor 00229170(m): 2 -> 1, 3 -> 2, 4 -> m[0x15] =
++ * m[1] = 1, 00225A20, 001FE8D0, 00225CF0(m, 2, 7); else 0. */
++int em_card_00226E90(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00226E90u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00226E90u, 0x20);
++    uint32_t r = 0, v = 0;
++    if (ui_lbu(s, m + 0x14u) == 1) {
++        (void)em_card_00227C60(s, m, &v);
++        if (v == 1 || v == 2) {
++            r = v;
++        } else if (v == 3) {
++            ui_sb(s, m + 1u, 2);
++            ui_sb(s, m + 2u, 2);
++            clear(s, m, 3, 7);
++            cb2_add(s, -4);
++            uint64_t a[3] = {ui_sx(m + 0x6Cu), 0, 8};
++            ui_call(s, CD_00121A28, 3, a, 0, NULL, NULL, NULL);
++            ui_sb(s, m + 0xAu, 0);
++        }
++    } else {
++        (void)em_card_002293B0(s, m);
++        (void)em_card_00229170(s, m, &v);
++        if (v == 2) {
++            r = 1;
++        } else if (v == 3) {
++            r = 2;
++        } else if (v == 4) {
++            ui_sb(s, m + 0x15u, 1);
++            ui_sb(s, m + 1u, 1);
++            (void)em_options_00225A20(s);
++            (void)em_options_001FE8D0(s);
++            clear(s, m, 2, 7);
++        }
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00227C60(m) (the instructions; asm body) on m[3]: 0: m[3] = 1, 0. 1:
++ * 00227DE0(m): 3 -> m[3] = 2, 0; 2 -> 2; 1 -> 1; 0 -> 0; other -> 1. 2:
++ * the line 0x1B and 00228070(m): 1 -> m[3] = 3, 00225CF0(m, 4, 7), 3; 0 ->
++ * 0; other -> m[3] = 4, 00225CF0(m, 4, 7), 0. 3: 0. 4: 00227270()'s
++ * result. Any other: 1. */
++int em_card_00227C60(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00227C60u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227C60u, 0x20);
++    uint32_t r = 0, v = 0;
++    switch (ui_lbu(s, m + 3u)) {
++    case 0:
++        ui_sb(s, m + 3u, 1);
++        break;
++    case 1:
++        (void)em_card_00227DE0(s, m, &v);
++        if (v == 3)
++            ui_sb(s, m + 3u, 2);
++        else if (v != 0)
++            r = v == 2 ? 2u : 1u;
++        break;
++    case 2:
++        line(s, 0x3C, 0x9B, 0x1B);
++        (void)em_card_00228070(s, m, &v);
++        if (v == 1) {
++            ui_sb(s, m + 3u, 3);
++            clear(s, m, 4, 7);
++            r = 3;
++        } else if (v != 0) {
++            ui_sb(s, m + 3u, 4);
++            clear(s, m, 4, 7);
++        }
++        break;
++    case 3:
++        break;
++    case 4:
++        (void)em_card_00227270(s, &r);
++        break;
++    default:
++        r = 1;
++        break;
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00227DE0(m), the format prompt (byte-matched C) on m[4]: 1 the line 0xD;
++ * 2 the line 0x1F, the Yes / No line and its marker by m[9]. The Sync
++ * poll (busy: 0); Circle: 0020CD60, m[9] = 0, 001FE8D0, 1; Triangle: the
++ * same, 2; m[4] 0: m[4] = 1, m[9] = 0; 1: Cross: 0020CD40, m[4] = 2; 2:
++ * Cross: 0020CD40, 001FE8D0, 3 on m[9] != 0 (Yes) else 1, m[9] = 0; Left on
++ * m[9] != 0 / Right on m[9] == 0 move it (cue). Then GetInfo's verdict:
++ * 0, or 1 (no error flag test). */
++int em_card_00227DE0(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00227DE0u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227DE0u, 0x20);
++    uint32_t r = 0;
++    switch (ui_lbu(s, m + 4u)) {
++    case 1:
++        line(s, 0x3C, 0x9B, 0xD);
++        break;
++    case 2:
++        line(s, 0x3C, 0x9B, 0x1F);
++        line(s, 0x8C, 0xC3, 2);
++        switch (ui_lbu(s, m + 9u)) {
++        case 0: (void)em_options_00225700(s); break;
++        case 1: (void)em_options_002256E0(s); break;
++        default: break;
++        }
++        break;
++    default:
++        break;
++    }
++    if (sync_poll(s, m) == 0) goto out;
++    if (pad(s) & 0x20u) {
++        cue(s, CD_0020CD60);
++        ui_sb(s, m + 9u, 0);
++        (void)em_options_001FE8D0(s);
++        r = 1;
++        goto out;
++    }
++    if (pad(s) & 0x10u) {
++        cue(s, CD_0020CD60);
++        ui_sb(s, m + 9u, 0);
++        (void)em_options_001FE8D0(s);
++        r = 2;
++        goto out;
++    }
++    switch (ui_lbu(s, m + 4u)) {
++    case 0:
++        ui_sb(s, m + 4u, 1);
++        ui_sb(s, m + 9u, 0);
++        break;
++    case 1:
++        if (pad(s) & 0x40u) {
++            cue(s, CD_0020CD40);
++            ui_sb(s, m + 4u, 2);
++        }
++        break;
++    case 2:
++        if (pad(s) & 0x40u) {
++            cue(s, CD_0020CD40);
++            (void)em_options_001FE8D0(s);
++            if (ui_lbu(s, m + 9u) != 0) {
++                ui_sb(s, m + 9u, 0);
++                r = 3;
++            } else {
++                ui_sb(s, m + 9u, 0);
++                r = 1;
++            }
++            goto out;
++        }
++        if ((pad(s) & 0x2000u) && ui_lbu(s, m + 9u) != 0) {
++            ui_sb(s, m + 9u, 0);
++            cue(s, CD_0020CDA0);
++        }
++        if ((pad(s) & 0x8000u) && ui_lbu(s, m + 9u) == 0) {
++            ui_sb(s, m + 9u, 1);
++            cue(s, CD_0020CDA0);
++        }
++        break;
++    default:
++        break;
++    }
++    {
++        const uint32_t v = info(s, port_of(s, m), slot_of(s, m), m, 0, 0);
++        r = verdict(s, m, v, 0, 1);
++    }
++out:
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00228070(m) (byte-matched C): the Sync poll (busy: 0); 001FED40(port,
++ * slot): 0 -> 1; then 2 with the error flag, else that. */
++int em_card_00228070(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00228070u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00228070u, 0x30);
++    uint32_t r = 0;
++    if (sync_poll(s, m) != 0) {
++        uint32_t v = 0;
++        (void)em_card_001FED40(s, port_of(s, m), slot_of(s, m), &v);
++        r = v == 0 ? 1u : 0u;
++        if (ui_lw(s, D_00275C58) != 0) r = 2;
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 001FED40(port, slot) (byte-matched C): phase 0: the phase 0x10 (stored
++ * before the call), 00114D18(port, slot) (a nonzero v0 sets the error
++ * flag), -1; phase 0x10: the kept result D_00275C64 zero: the phase 0, 0;
++ * nonzero: the error flag, -1; any other phase: the error flag, -1. */
++int em_card_001FED40(EmArea01Ui *s, uint64_t a0, uint64_t a1, uint32_t *result)
++{
++    if (begin(s, 0x001FED40u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x001FED40u, 0x20);
++    uint32_t r = MINUS1;
++    const uint32_t phase = ui_lw(s, D_00275C5C);
++    if (phase == 0x10u) {
++        if (ui_lw(s, D_00275C64) != 0) {
++            ui_sw(s, D_00275C58, 1);
++        } else {
++            ui_sw(s, D_00275C5C, 0);
++            r = 0;
++        }
++    } else if (phase == 0) {
++        ui_sw(s, D_00275C5C, 0x10);
++        uint64_t v0 = 0, a[2] = {a0, a1};
++        ui_call(s, CD_00114D18, 2, a, 0, NULL, &v0, NULL);
++        if (v0 != 0) ui_sw(s, D_00275C58, 1);
++    } else {
++        ui_sw(s, D_00275C58, 1);
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00227270() (byte-matched C): the line 0x1E; Cross: 0020CD40, 1; Circle:
++ * 0020CD60, 1; Triangle: 0020CD60, 2; else 0. */
++int em_card_00227270(EmArea01Ui *s, uint32_t *result)
++{
++    if (begin(s, 0x00227270u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00227270u, 0x10);
++    uint32_t r = 0;
++    line(s, 0x3C, 0x9B, 0x1E);
++    const uint32_t p = pad(s);
++    if (p & 0x40u) {
++        cue(s, CD_0020CD40);
++        r = 1;
++    } else if (p & 0x20u) {
++        cue(s, CD_0020CD60);
++        r = 1;
++    } else if (p & 0x10u) {
++        cue(s, CD_0020CD60);
++        r = 2;
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* The common end of 00226B90 and 00226D50: Circle 1, Triangle 2 (each
++ * 0020CD60, 001FE8D0), then (after Cross for 00226D50) the Sync poll
++ * (busy: 0) and the GetInfo poll's verdict: 1 with the error flag. */
++static uint32_t card_still_there(EmArea01Ui *s, uint32_t m)
++{
++    if (sync_poll(s, m) == 0) return 0;
++    const uint32_t v = info(s, port_of(s, m), slot_of(s, m), m, 0, 0);
++    if (ui_lw(s, D_00275C58) != 0) return 1;
++    return verdict(s, m, v, 0, 1);
++}
++
++/* 00226B90(m), the screen for the card check's result 3 (byte-matched C)
++ * on m[3]: 0: m[3] = 1; 1: the line 5, Cross: 0020CD40, m[3] = 2; 2: the
++ * line 7, Cross: 0020CD40, 001FE8D0, 1. Then Circle: 0020CD60, 001FE8D0,
++ * 1; Triangle: the same, 2; the Sync poll and GetInfo's verdict. */
++int em_card_00226B90(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00226B90u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00226B90u, 0x20);
++    uint32_t r = 0;
++    switch (ui_lbu(s, m + 3u)) {
++    case 0:
++        ui_sb(s, m + 3u, 1);
++        break;
++    case 1:
++        line(s, 0x3C, 0x9B, 5);
++        if (pad(s) & 0x40u) {
++            cue(s, CD_0020CD40);
++            ui_sb(s, m + 3u, 2);
++        }
++        break;
++    case 2:
++        line(s, 0x3C, 0x9B, 7);
++        if (pad(s) & 0x40u) {
++            cue(s, CD_0020CD40);
++            (void)em_options_001FE8D0(s);
++            r = 1;
++            goto out;
++        }
++        break;
++    default:
++        break;
++    }
++    if (pad(s) & 0x20u) {
++        cue(s, CD_0020CD60);
++        (void)em_options_001FE8D0(s);
++        r = 1;
++    } else if (pad(s) & 0x10u) {
++        cue(s, CD_0020CD60);
++        (void)em_options_001FE8D0(s);
++        r = 2;
++    } else {
++        r = card_still_there(s, m);
++    }
++out:
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 002267A0(m), the screen for a failed card check or load enumeration
++ * (the instructions; NEARMISS C): the line 0xF on port 1 (m+0x48 != 0),
++ * else 0xE; Cross: 0020CD40, 001FE8D0, 1; Circle or Triangle: 0020CD60,
++ * 001FE8D0, 2; the frame count m+0x10 += 1; the error flag: 00226010(m),
++ * 0; the Sync poll (busy: 0). Then m[7] picks the port GetInfo(port, 0,
++ * m + 0x58, 0, 0) asks: 0 the chosen port, 1 the other (poll_port; the
++ * port's flag is +0x28 for port 0, +0x2C for port 1). Returns 1 once a
++ * port answers 0 / -2 / -3 (the SDK's 0, -1, -2) with type 2, else 0. */
++/* One poll. The first of a turn (m[7] == 0, `first`): -1 asks again; 0,
++ * -2 or -3 with type 2: 001FE8D0, the flag 1, 1; with another type m[7] =
++ * 1; any other result: the flag 0 and m[7] = 1. The second (m[7] == 1):
++ * -1 asks again; 0: the flag = (type == 2), m[7] = 0; -2 or -3 with type
++ * 2: 001FE8D0, the flag 1, 1, with another type m[7] = 0; any other: the
++ * flag 0, m[7] = 0. */
++static uint32_t poll_port(EmArea01Ui *s, uint32_t m, uint32_t port, int first)
++{
++    const uint32_t flag = port ? m + 0x2Cu : m + 0x28u;
++    const uint32_t v = info(s, port, 0, m, 0, 0);
++    if (v == MINUS1) return 0;
++    if (first) {
++        if (v == 0 || v == 0xFFFFFFFDu || v == 0xFFFFFFFEu) {
++            if (ui_lw(s, m + 0x58u) == 2) {
++                (void)em_options_001FE8D0(s);
++                ui_sw(s, flag, 1);
++                return 1;
++            }
++        } else {
++            ui_sw(s, flag, 0);
++        }
++        ui_sb(s, m + 7u, 1);
++        return 0;
++    }
++    if (v == 0) {
++        ui_sw(s, flag, ui_lw(s, m + 0x58u) == 2 ? 1u : 0u);
++    } else if (v == 0xFFFFFFFDu || v == 0xFFFFFFFEu) {
++        if (ui_lw(s, m + 0x58u) == 2) {
++            (void)em_options_001FE8D0(s);
++            ui_sw(s, flag, 1);
++            return 1;
++        }
++    } else {
++        ui_sw(s, flag, 0);
++    }
++    ui_sb(s, m + 7u, 0);
++    return 0;
++}
++
++int em_card_002267A0(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x002267A0u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x002267A0u, 0x20);
++    uint32_t r = 0;
++    line(s, 0x3C, 0x9B, ui_lw(s, m + 0x48u) != 0 ? 0xF : 0xE);
++    const uint32_t p = pad(s);
++    if (p & 0x40u) {
++        cue(s, CD_0020CD40);
++        (void)em_options_001FE8D0(s);
++        r = 1;
++        goto out;
++    }
++    if (p & 0x30u) {
++        cue(s, CD_0020CD60);
++        (void)em_options_001FE8D0(s);
++        r = 2;
++        goto out;
++    }
++    ui_sw(s, m + 0x10u, ui_lw(s, m + 0x10u) + 1u);
++    if (ui_lw(s, D_00275C58) != 0) {
++        (void)em_options_00226010(s, m, NULL);
++        goto out;
++    }
++    if (sync_poll(s, m) == 0) goto out;
++    {
++        const uint32_t chosen = ui_lw(s, m + 0x48u) != 0 ? 1u : 0u;
++        const uint32_t turn = ui_lbu(s, m + 7u);
++        if (turn == 0)
++            r = poll_port(s, m, chosen, 1);
++        else if (turn == 1)
++            r = poll_port(s, m, chosen ^ 1u, 0);
++    }
++out:
++    put(result, r);
++    return ui_leave(s, fr);
++}
++
++/* 00226D50(m), the screen for the load enumeration's result 3
++ * (byte-matched C): the line 0x28; Cross: 0020CD40, 001FE8D0, 1; Circle:
++ * 0020CD60, 001FE8D0, 1; Triangle: the same, 2; then the Sync poll and
++ * GetInfo's verdict. */
++int em_card_00226D50(EmArea01Ui *s, uint32_t m, uint32_t *result)
++{
++    if (begin(s, 0x00226D50u) < 0) return -1;
++    UiFrame fr = ui_enter(s, 0x00226D50u, 0x20);
++    uint32_t r = 0;
++    line(s, 0x3C, 0x9B, 0x28);
++    const uint32_t p = pad(s);
++    if (p & 0x40u) {
++        cue(s, CD_0020CD40);
++        (void)em_options_001FE8D0(s);
++        r = 1;
++    } else if (p & 0x20u) {
++        cue(s, CD_0020CD60);
++        (void)em_options_001FE8D0(s);
++        r = 1;
++    } else if (p & 0x10u) {
++        cue(s, CD_0020CD60);
++        (void)em_options_001FE8D0(s);
++        r = 2;
++    } else {
++        r = card_still_there(s, m);
++    }
++    put(result, r);
++    return ui_leave(s, fr);
++}
+diff --git a/src/game/em_card_original.h b/src/game/em_card_original.h
+new file mode 100644
+index 0000000..f0a03f2
+--- /dev/null
++++ b/src/game/em_card_original.h
+@@ -0,0 +1,100 @@
++/* em_card_original.h - the memory-card screen past the slot choice: the
++ * card check, the slot list, the confirmation, the save or load it runs
++ * and the card's error screens, translated from the original instructions
++ * (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md section 6. Prefix
++ * em_card_. Not wired yet: the options binding (em_options_live) still
++ * faults at 002267A0 and 00227300.
++ *
++ * The record is the card screen's, D_00810040 (docs/OPTIONS.md, SAVE_GAME.md
++ * section 2.2): +1 the screen (0 the card check, 1 the load enumeration, 2
++ * the slot list, 4 an error screen), +2 its step, +3 / +4 a step's state,
++ * +7 the card poll's alternation, +9 the Yes / No cursor, +0xA the chosen
++ * slot, +0x10 a frame counter, +0x14 the mode (1 save, 2 load), +0x15 the
++ * slot screen's state (00225D20), +0x20 the card check's retry count,
++ * +0x28 / +0x2C the two ports' card flags, +0x48 the chosen port, +0x4C the
++ * card slot, +0x50 / +0x54 the Sync cells, +0x58 / +0x5C / +0x60
++ * GetInfo's type / free / format words, +0x6C + n slot n's presence byte
++ * (0 empty, 1 saved, 2 unusable) and +0x74 + 12 n its record.
++ *
++ * Hand translations (the decomp's C where it is byte-matched; the
++ * instructions for the NEARMISS 002280F0, 00228320, 002293B0, 002267A0 and
++ * the asm body 00227C60):
++ *
++ *   00227300(m)   the screen on m[1]: the port's title line, then 0 the
++ *                 card check 002280F0, 1 the load enumeration 002283B0, 2
++ *                 the slot list (002293B0) on m[2]: 0 the cursor 00229170,
++ *                 1 the confirmation 00227980, 2 the save 00228A90 (save
++ *                 mode; 00229680 over an unusable slot) or LOAD GAME's read
++ *                 00228B60, 3 the done message 00227010, 4 the failure
++ *                 message 00227160; 4 the error screens on m[2]: 00226E90,
++ *                 00226B90, 002267A0, 00226D50. Returns 1 back to the
++ *                 card choice, 2 out, 3 done (a game saved or loaded)
++ *   002280F0(m)   the card check on m[2]: GetInfo (the format word), the
++ *                 game's directory (GetDir), GetInfo with the free count
++ *   00228320(m)   the free count covers a new directory
++ *   002293B0(m)   the five slot rows: number, place and play time
++ *   00229170(m)   the slot cursor (Up / Down, Cross, Circle, Triangle)
++ *   00227980(m)   the Yes / No confirmation
++ *   00227010(m)   the done message, 45 frames
++ *   00227160(m)   the failure message
++ *   00226E90(m)   error screen 0 (the card check's 2: the format word
++ *                 never 1): save mode the format prompt 00227C60, load
++ *                 mode the slot list and the cursor again
++ *   00227C60(m)   the format step on m[3]: 00227DE0, the format 00228070,
++ *                 00227270
++ *   00227DE0(m)   the format prompt and its Yes / No
++ *   00228070(m)   the format command 001FED40, gated by the Sync poll
++ *   001FED40(port, slot)  the libmc Format command (00114D18) on the card
++ *                 helpers' phase D_00275C5C = 0x10
++ *   00227270()    the failed format's message
++ *   00226B90(m)   error screen 1 (the card check's 3: the free count short)
++ *   002267A0(m)   error screen 2 (the card check's 4 or the enumeration's
++ *                 2): the two ports polled in turn for a card of type 2
++ *   00226D50(m)   error screen 3 (the enumeration's 3: the card refused)
++ *
++ * Callees run as their translations: 001FCBD0, 001FE9A0, 001FECB0,
++ * 001FE8D0, 00225CF0, 00225A20, 00226010, 002256E0, 00225700
++ * (em_options_original), 002283B0, 00228A90, 00229680, 00228B60, 001FEC20
++ * (em_save_original). Every other original is reached through
++ * EmArea01Ui.call by its address: the cues 0020CD40 / 60 / A0, the text
++ * 001CC1E0 / 001FC770, sprintf 00122D10, 00121A28, the libmc SDK.
++ *
++ * Memory, frames, the fail-stop latch: the AREA01 UI lane's
++ * (em_area01_ui.h). Oracle: tools/test_card_screen_reference.py. */
++#ifndef EM_CARD_ORIGINAL_H
++#define EM_CARD_ORIGINAL_H
++
++#include <stdint.h>
++
++#include "game/em_area01_ui.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* All entries: 0, or -1 on a (latched) fault. *result is the original's
++ * v0 where it has one (NULL allowed). */
++int em_card_00227300(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_002280F0(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00228320(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_002293B0(EmArea01Ui *s, uint32_t m);
++int em_card_00229170(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00227980(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00227010(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00227160(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00226E90(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00227C60(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00227DE0(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00228070(EmArea01Ui *s, uint32_t m, uint32_t *result);
++/* 001FED40 passes its argument registers on to 00114D18 unchanged. */
++int em_card_001FED40(EmArea01Ui *s, uint64_t a0, uint64_t a1, uint32_t *result);
++int em_card_00227270(EmArea01Ui *s, uint32_t *result);
++int em_card_00226B90(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_002267A0(EmArea01Ui *s, uint32_t m, uint32_t *result);
++int em_card_00226D50(EmArea01Ui *s, uint32_t m, uint32_t *result);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* EM_CARD_ORIGINAL_H */
+diff --git a/tools/test_card_screen_reference.py b/tools/test_card_screen_reference.py
+new file mode 100644
+index 0000000..655be20
+--- /dev/null
++++ b/tools/test_card_screen_reference.py
+@@ -0,0 +1,895 @@
++#!/usr/bin/env python3
++"""Execute the ORIGINAL memory-card screen past the slot choice and compare
++the native em_card_* translations byte for byte.
++
++docs/SAVE_GAME.md section 6. The method, the harness and the card model are
++tools/test_save_reference.py's and tools/test_load_reference.py's (the
++user's pinned ELF and the fork's c10/options/opt_07_load_cancel and
++c10/damage/dmg_05_load_screen images, both on the card screen's load row;
++nothing is embedded). The oracle runs the original routine over a captured
++image with every callee outside the lane run as ORIGINAL code too (the text
++leaves under 001FCBD0, 001CC1E0, 001FC770, sprintf 00122D10, the cues
++0020CD40 / 60 / A0, 00121A28 ...), nested, its entry logged; the native
++module runs over a second copy whose callees run the same original code. At
++every callee entry RAM, the scratchpad and the arguments must equal the
++oracle's; at the end the results, the call log, RAM and scratchpad.
++
++The lane: the card screen 00227300 and the routines below it that were not
++translated before (002280F0, 00228320, 002293B0, 00229170, 00227980,
++00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40,
++00227270, 00226B90, 002267A0, 00226D50), with the save and load lanes'
++translations (em_save_*) and the options lane's text and card helpers
++(001FCBD0, 001FE9A0, 001FECB0, 001FE8D0, 00225CF0, 00225A20, 00226010,
++002256E0, 00225700) as theirs.
++
++Scripted boundary (both sides, entry checked and logged, not run): the
++libmc SDK, test_load_reference's card model plus GetInfo's free and format
++words (stored through a3 / t0 when they are nonzero) and Format 00114D18
++(the card emptied, result 0). The answers are the test's inputs, not claims
++about the IOP's card server (em_memcard's own answers are
++test_memcard_host's). sprintf 00122D10 is logged with the argument
++registers its format consumes.
++
++Cases: each routine on its states, with the pad words D_00810E74 / E78, the
++GetInfo results and types, the Sync gate and the error flag; whole card
++screens frame by frame from 00227300's first call, with a pad script made
++on the oracle alone from the screen's state (a press every other frame):
++a load of each slot (D_00810700 checked against the slot file), a save to a
++new card and over an existing directory (the card checked against
++SAVE_GAME.md section 2), a declined confirmation, Circle / Triangle out of
++each screen, a card without a directory, an unformatted card (the format
++prompt, Yes and No), a card too full, a removed card, a rejected card, a
++failing read and write.
++
++EM_TEST_FULL=1 runs every case; the default a covering sample. Commands:
++`debug <group>[:i,..]`, `cover`.
++"""
++import ctypes as C
++import multiprocessing
++import os
++import random
++import struct
++import sys
++import time
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'tools'))
++os.environ.setdefault('EM_LANE', 'card')
++import reference_mode as RM  # noqa: E402
++import reference_root as refs  # noqa: E402
++import test_save_reference as S  # noqa: E402
++import test_load_reference as L  # noqa: E402
++import test_options_reference as O  # noqa: E402
++import test_area01_render_reference as R  # noqa: E402
++import test_area01_ui_reference as U  # noqa: E402
++from test_player_slide_reference import RETURN, STACK_TOP  # noqa: E402
++
++MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
++NEG = 0xFFFFFFFF
++OUT = ROOT / 'build' / 'card' / 'reference'
++R.OUT = U.OUT = S.OUT = OUT
++
++MC, BLOCK = S.MC, S.BLOCK
++OPEN, MKDIR, CLOSE, WRITE, GETDIR, SYNC = S.OPEN, S.MKDIR, S.CLOSE, S.WRITE, S.GETDIR, S.SYNC
++READ, GETINFO = L.READ, L.GETINFO
++FORMAT = 0x114D18
++C58, C5C, C64 = S.C58, S.C5C, S.C64
++E74, E78 = 0x810E74, 0x810E78
++CB2 = 0x810CB2
++PACKET = 0x811CD4      # the text's packet pointer; each 00227300 frame advances it, the main loop resets it
++DIR = L.DIR
++SPRINTF = 0x122D10
++
++CAP = refs.capture('c10')
++IMAGES = {
++    'o7': CAP / 'options' / 'opt_07_load_cancel',
++    'd5': CAP / 'damage' / 'dmg_05_load_screen',
++}
++
++CARD_LANE = {
++    0x227300: 0x678, 0x2280F0: 0x22C, 0x228320: 0x8C, 0x2293B0: 0x288, 0x229170: 0x238, 0x227980: 0x2DC,
++    0x227010: 0x14C, 0x227160: 0x10C, 0x226E90: 0x17C, 0x227C60: 0x17C, 0x227DE0: 0x28C, 0x228070: 0x7C,
++    0x1FED40: 0x88, 0x227270: 0x90, 0x226B90: 0x1BC, 0x2267A0: 0x3EC, 0x226D50: 0x140,
++}
++OPTIONS_LANE = {a: O.LANE[a] for a in (0x1FCBD0, 0x1FE9A0, 0x1FECB0, 0x1FE8D0, 0x225CF0, 0x225A20, 0x226010,
++                                       0x2256E0, 0x225700, 0x1FE920)}
++LANE = {**S.LANE, **L.LOAD_LANE, **OPTIONS_LANE, **CARD_LANE}
++
++P, U8, U32, U64 = C.POINTER, C.c_uint8, C.c_uint32, C.c_uint64
++ENTRIES = {a: ([U64] * 2, True) if a == 0x1FED40 else (([], True) if a == 0x227270 else
++                                                       ([U32], a != 0x2293B0)) for a in CARD_LANE}
++SOURCES = ['src/game/em_card_original.c', 'src/game/em_save_original.c', 'src/game/em_options_original.c',
++           'src/game/em_startup_load_gaps.c']
++
++WSPEC = {**O.WSPEC, **S.WSPEC, **L.LOAD_WSPEC, FORMAT: (2, 0, 'v0'), GETINFO: (5, 0, 'v0')}
++TEXT_LEAVES = (0x1CC1E0, 0x1FC770)          # the glyph packets 001FCBD0 / 002293B0 draw
++STUBS = {OPEN, MKDIR, CLOSE, WRITE, READ, GETDIR, GETINFO, SYNC, FORMAT}
++
++
++def build_native():
++    import hashlib
++    import subprocess
++    OUT.mkdir(parents=True, exist_ok=True)
++    lib = OUT / ('card' + ('.dylib' if sys.platform == 'darwin' else '.so'))
++    h = hashlib.sha256(repr(S.CFLAGS).encode())
++    for q in list(SOURCES) + sorted(str(x) for x in (ROOT / 'src').rglob('*.h')):
++        h.update(str(q).encode())
++        h.update((ROOT / q).read_bytes())
++    stamp = lib.with_suffix(lib.suffix + '.sha256')
++    if not (lib.exists() and stamp.exists() and stamp.read_text() == h.hexdigest()):
++        subprocess.run(['cc'] + S.CFLAGS + list(SOURCES) + ['-o', str(lib)], cwd=ROOT, check=True)
++        stamp.write_text(h.hexdigest())
++    native = C.CDLL(str(lib))
++    for address, (args, result) in ENTRIES.items():
++        fn = getattr(native, 'em_card_%08X' % address)
++        fn.argtypes = [P(U.UiState)] + args + ([P(U32)] if result else [])
++        fn.restype = C.c_int
++    return native
++
++
++# ---- the card model -------------------------------------------------------------
++
++class CardModel(L.LoadCard):
++    """L.LoadCard plus GetInfo's three words and Format. CARD keys (beyond
++    LoadCard's): 'types' / 'formats' / 'frees' (per GetInfo call, the last
++    repeating; defaults 2, 1, 8000), 'infos' (GetInfo's result per call,
++    the last repeating; default 0), 'format_result'."""
++
++    def __init__(self, cfg):
++        super().__init__(cfg)
++        self.ninfo = 0
++
++    @staticmethod
++    def nth(seq, n, default):
++        if not seq:
++            return default
++        return seq[min(n, len(seq) - 1)]
++
++    def serve(self, mem, address, args, k):
++        if address == GETINFO:
++            n, self.ninfo = self.ninfo, self.ninfo + 1
++            cfg = self.cfg
++            for at, value in ((args[2], self.nth(cfg.get('types'), n, 2)), (args[3], self.nth(cfg.get('frees'), n, 8000)),
++                              (args[4], self.nth(cfg.get('formats'), n, 1))):
++                if at & MASK:
++                    self.put_bytes(at, struct.pack('<I', value & MASK))
++            self.order.append(('getinfo', args[0] & MASK))
++            return self.nth(cfg.get('infos'), n, 0)
++        if address == FORMAT:
++            self.order.append(('format', args[0] & MASK))
++            self.files.clear()
++            self.dirs.clear()
++            return self.cfg.get('format_result', 0)
++        return super().serve(mem, address, args, k)
++
++
++def conversions(mem, at):
++    fmt, n, i = S.cstr(mem, at), 0, 0
++    while i < len(fmt):
++        if fmt[i] == '%':
++            if fmt[i + 1:i + 2] == '%':
++                i += 2
++                continue
++            n += 1
++        i += 1
++    return n
++
++
++# Quick mode: the text leaves (and sprintf) are memoized on the oracle side
++# and their stores replayed on the native side after its entry check. The
++# memo's key is the entry's stack pointer and every integer argument
++# register the callee is passed (U.memo_run keys on a0 alone, which these
++# multi-argument leaves cannot use; none takes a float argument), and a hit
++# needs every value the recorded run read (instruction fetches included)
++# unchanged.
++MEMO_ON = set() if RM.FULL else set(TEXT_LEAVES) | {SPRINTF}
++MEMO = {}
++
++
++def memo_run(e, address, nargs):
++    key = (address, e.r[29] & MASK) + tuple(e.r[4 + i] & MASK64 for i in range(nargs))
++    for reads, writes, v0, f0 in MEMO.get(key, ()):
++        if all(e.load(a, n) == v for (a, n), v in reads):
++            for is_spad, at, data in writes:
++                (e.spad if is_spad else e.mem)[at:at + len(data)] = data
++                e.journal.append((is_spad, at, data))
++            return v0, f0
++    reads, written = {}, set()
++    load0, save0, write0 = e.load, e.save, e.write
++
++    def load(a, size=4):
++        v = load0(a, size)
++        a &= MASK
++        if (a, size) not in reads and all(b not in written for b in range(a, a + size)):
++            reads[(a, size)] = v
++        return v
++
++    def save(a, value, size=4):
++        a &= MASK
++        written.update(range(a, a + size))
++        save0(a, value, size)
++
++    def write(a, data):
++        a &= MASK
++        written.update(range(a, a + len(data)))
++        write0(a, data)
++    j0 = len(e.journal)
++    e.load, e.save, e.write = load, save, write
++    try:
++        v0, f0 = U.SAR.nested_bits(e, address)
++    finally:
++        e.load, e.save, e.write = load0, save0, write0
++    MEMO.setdefault(key, []).append((tuple(reads.items()), list(e.journal[j0:]), v0, f0))
++    return v0, f0
++
++
++def logged(e, address, spec):
++    entry = U.entry_of(e, address, spec)
++    e.entries.append((len(e.journal), entry))
++    if address in MEMO_ON:
++        v0, f0 = memo_run(e, address, spec[0])
++    else:
++        v0, f0 = U.SAR.nested_bits(e, address)
++    e.calls.append(entry + (U.result_of(spec, v0, f0),))
++    e.exits.append((len(e.journal), v0, f0))
++    e.r[2], e.f[0] = v0, f0
++
++
++def sprintf_hook(e):
++    logged(e, SPRINTF, (2 + conversions(e.mem, e.r[5]), 0, None))
++
++
++def oracle_hooks(ee):
++    S.oracle_hooks(ee)
++    ee.hooks[SPRINTF] = sprintf_hook
++    for a in TEXT_LEAVES:
++        ee.hooks[a] = lambda e, a=a: logged(e, a, U.WSPEC[a])
++
++
++class Native(S.Native):
++    def call(self, address, args):
++        types, result = ENTRIES[address]
++        fn = getattr(U.NATIVE, 'em_card_%08X' % address)
++        out = U32(0)
++        rc = fn(C.byref(self.state), *args, *([C.byref(out)] if result else []))
++        return rc, (out.value if result else None)
++
++
++def install():
++    S.LANE = dict(LANE)
++    S.TRPC = frozenset(pc for a, n in LANE.items() for pc in range(a, a + n, 4))
++    S.ENTRIES = dict(ENTRIES)
++    S.WSPEC = dict(WSPEC)
++    S.STUBS = set(STUBS)
++    S.SDK = {**S.SDK, READ: 5, GETINFO: 1, FORMAT: 0x10}
++    S.Card = FailCard
++    S.IMAGES = dict(IMAGES)
++    S.BEATS = list(IMAGES)
++    U.UIEE = L.LoadEE
++    S.install()
++    U.REPLAY = set(MEMO_ON)
++    U.Native = Native
++    U.oracle_hooks = oracle_hooks
++    U.ENTRIES = dict(ENTRIES)
++
++
++def setup():
++    install()
++    S.ELF = U.ELF = R.ELF = S.read_elf()
++    S.NATIVE = U.NATIVE = build_native()
++    install()
++    U.ELF = R.ELF = S.ELF
++    R.TRACKER = R.build_tracker()
++    S.load_images()
++    S.check_code()
++    got = S.callee_set()
++    missing = sorted(hex(a) for a in got if a not in WSPEC and a not in U.INLINE)
++    assert not missing, ('callees without a spec', missing)
++
++
++def run_both(item, spad, steps, check=None):
++    return S.run_both(item, spad, steps, check=check)
++
++
++# ---- case helpers ------------------------------------------------------------------
++
++def rec(mode=2, port=0, screen=0, step=0, st3=0, st4=0, yes=0, chosen=0, poll=0, present=(), count=0,
++        retry=0, frames=0):
++    b = [(MC + 1, screen, 1), (MC + 2, step, 1), (MC + 3, st3, 1), (MC + 4, st4, 1), (MC + 5, 0, 1),
++         (MC + 6, 0, 1), (MC + 7, poll, 1), (MC + 9, yes, 1), (MC + 0xA, chosen, 1), (MC + 0x10, frames, 4),
++         (MC + 0x14, mode, 1), (MC + 0x15, 2, 1), (MC + 0x20, retry, 4), (MC + 0x28, 1, 4), (MC + 0x2C, 1, 4),
++         (MC + 0x48, port, 4), (MC + 0x4C, 0, 4), (MC + 0x50, 0, 4), (MC + 0x54, 0, 4), (MC + 0x58, 0, 4),
++         (MC + 0x5C, 0, 4), (MC + 0x60, 0, 4), (MC + 0x64, 0, 4), (MC + 0x68, count, 4)]
++    b += [(MC + 0x6C + n, present[n] if n < len(present) else 0, 1) for n in range(8)]
++    return b
++
++
++def helpers(err=0, phase=0, last=0):
++    return L.helpers(err, phase, last)
++
++
++def records(beat, present):
++    """Slot records +0x74 + 12 n for the row renderer (as the enumeration
++    stores them from saved(): area, place, glyph choice, play time)."""
++    out = []
++    for n in range(5):
++        r = MC + 0x74 + 12 * n
++        out += [(r, PLACES[n], 1), (r + 1, n % 2, 1), (r + 6, n & 1, 1), (r + 8, TIMES[n], 4)]
++    return out
++
++
++def pads(e74=0, e78=0):
++    return [(E74, e74, 2), (E78, e78, 2)]
++
++
++def one_case(item):
++    group, beat, knobs = item
++    S.CARD = knobs.get('card', {})
++    ram, spad = S.make(beat, knobs)
++    steps = [('call', knobs['fn'], tuple(knobs.get('args', (MC,))))] * knobs.get('frames', 1)
++    return run_both(item, bytes(spad), steps)
++
++
++# ---- unit items -----------------------------------------------------------------------
++
++PRESSES = (0, 0x40, 0x20, 0x10, 0x2000, 0x8000)
++
++
++def gate(kind):
++    """The helpers' state for a GetInfo poll's outcome (the Sync before it
++    done): 'issue' the poll issued (-1), 'ok' result 0, 'new' result -1
++    (the SDK's: -2 back), 'bad' result 5, 'err' the error flag set."""
++    return {'issue': helpers(), 'ok': helpers(0, 1, 0), 'new': helpers(0, 1, NEG), 'bad': helpers(0, 1, 5),
++            'err': helpers(1, 1, 0)}[kind]
++
++
++def unit_items():
++    out = []
++    for beat in ('o7', 'd5'):
++        b0 = records(beat, ())
++        # 002280F0: each state, the poll kinds, type / format / free / retry, GetDir's results
++        for st in (0, 2):
++            for kind in ('issue', 'ok', 'new', 'bad', 'err'):
++                for typ, fmt, retry in ((2, 1, 0), (0, 1, 0), (2, 0, 0), (2, 0, 6), (2, 0, 5)):
++                    if kind != 'ok' and (typ, fmt, retry) != (2, 1, 0):
++                        continue
++                    for mode in ((1, 2) if st == 0 else (1,)):
++                        for free in ((8000, 0) if st == 2 and kind == 'ok' and fmt == 1 else (8000,)):
++                            b = rec(mode, 0, step=st, retry=retry) + gate(kind) + [(MC + 0x58, typ, 4),
++                                                                                    (MC + 0x60, fmt, 4),
++                                                                                    (MC + 0x5C, free, 4)]
++                            out.append(('unit', beat, {'fn': 0x2280F0, 'b': b + b0}))
++        for mode in (1, 2):
++            for last in (0, 1, NEG):
++                out.append(('unit', beat, {'fn': 0x2280F0, 'b': rec(mode, 1, step=1) + helpers(0, 0xD, last)}))
++            out.append(('unit', beat, {'fn': 0x2280F0, 'b': rec(mode, step=1) + helpers()}))
++        out.append(('unit', beat, {'fn': 0x2280F0, 'b': rec(step=3) + helpers()}))
++        out.append(('unit', beat, {'fn': 0x2280F0, 'b': rec(step=3) + helpers(1)}))
++        out.append(('unit', beat, {'fn': 0x2280F0, 'b': rec(step=0) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        # 00228320 over free counts around the bound
++        for free in (0, 18, 86, 87, 88, 89, 0x80, 8000, 0x7FFFFFFF, NEG):     # the bound: 18 + 70 KiB of icon
++            out.append(('unit', beat, {'fn': 0x228320, 'b': [(MC + 0x5C, free, 4)]}))
++        # 002293B0 over presence patterns and record kinds
++        for present in ((0, 0, 0, 0, 0), (1, 1, 1, 1, 1), (2, 1, 0, 2, 1), (1, 0, 2, 0, 1)):
++            out.append(('unit', beat, {'fn': 0x2293B0, 'b': rec(present=present) + b0}))
++        # negative and boundary play times (the divisions' signs)
++        times = [(MC + 0x74 + 12 * n + 8, t, 4) for n, t in enumerate((0x80000000, NEG, 215999, 216000, 3599))]
++        out.append(('unit', beat, {'fn': 0x2293B0, 'b': rec(present=(1, 1, 1, 1, 1)) + b0 + times}))
++        # the cursor 00229170: modes, presses, repeats, the cursor's bounds, the poll
++        for mode in (1, 2):
++            for count in ((0, 2) if mode == 2 else (0,)):
++                for press in PRESSES:
++                    for chosen, present in ((0, (1, 0, 0, 0, 0)), (2, (1, 0, 0, 0, 0)), (4, (0, 0, 0, 0, 2))):
++                        out.append(('unit', beat, {'fn': 0x229170, 'b': rec(mode, chosen=chosen, present=present,
++                                                                            count=count) + pads(press) + gate('ok')}))
++        for chosen in (0, 2, 4):
++            for rep in (0x1000, 0x4000, 0x5000):
++                out.append(('unit', beat, {'fn': 0x229170, 'b': rec(2, chosen=chosen) + pads(0, rep) + gate('ok')}))
++        for kind in ('issue', 'new', 'bad', 'err'):
++            out.append(('unit', beat, {'fn': 0x229170, 'b': rec(2) + gate(kind)}))
++        out.append(('unit', beat, {'fn': 0x229170, 'b': rec(2) + gate('ok') + [(MC + 0x58, 2, 4)],
++                                   'card': {'types': [0]}}))
++        out.append(('unit', beat, {'fn': 0x229170, 'b': rec(2) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        # the confirmation 00227980
++        for mode, present in ((1, (0,)), (1, (1,)), (1, (2,)), (1, (3,)), (2, (1,))):
++            for st3 in (0, 1, 2):
++                for yes in (0, 1, 2):
++                    for press in PRESSES:
++                        if st3 != 1 and press:
++                            continue
++                        if mode == 2 and present != (1,):
++                            continue
++                        out.append(('unit', beat, {'fn': 0x227980, 'b': rec(mode, st3=st3, yes=yes, present=present)
++                                                   + pads(press) + gate('ok')}))
++        for kind in ('issue', 'new', 'bad', 'err'):
++            out.append(('unit', beat, {'fn': 0x227980, 'b': rec(2, st3=1) + gate(kind)}))
++        out.append(('unit', beat, {'fn': 0x227980, 'b': rec(2, st3=1) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        out.append(('unit', beat, {'fn': 0x227980, 'b': rec(2, st3=1, yes=1) + pads(0x2000 | 0x8000) + gate('ok')}))
++        # the messages 00227010 / 00227160 and 00227270
++        for mode, present in ((1, (2,)), (1, (1,)), (2, (0,))):
++            for st3, frames in ((0, 0), (1, 5), (1, 1), (2, 1)):
++                out.append(('unit', beat, {'fn': 0x227010, 'b': rec(mode, st3=st3, present=present, frames=frames)}))
++            for press in PRESSES[:4]:
++                out.append(('unit', beat, {'fn': 0x227160, 'b': rec(mode, present=present) + pads(press)}))
++        for press in PRESSES[:4]:
++            out.append(('unit', beat, {'fn': 0x227270, 'args': (), 'b': pads(press)}))
++        # 00227DE0 / 00228070 / 001FED40 / 00227C60
++        for st4 in (0, 1, 2, 3):
++            for yes in (0, 1):
++                for press in PRESSES:
++                    if st4 in (0, 3) and press not in (0, 0x20):
++                        continue
++                    out.append(('unit', beat, {'fn': 0x227DE0, 'b': rec(1, st4=st4, yes=yes) + pads(press) +
++                                               gate('ok')}))
++        for kind in ('issue', 'new', 'bad', 'err'):
++            out.append(('unit', beat, {'fn': 0x227DE0, 'b': rec(1, st4=1) + gate(kind)}))
++        out.append(('unit', beat, {'fn': 0x227DE0, 'b': rec(1, st4=1) + gate('ok'), 'card': {'types': [3]}}))
++        out.append(('unit', beat, {'fn': 0x227DE0, 'b': rec(1, st4=1) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        for phase, last, err in ((0, 0, 0), (0x10, 0, 0), (0x10, 3, 0), (7, 0, 0), (0x10, 0, 1)):
++            for v0 in ((0, 1) if phase == 0 else (0,)):
++                out.append(('unit', beat, {'fn': 0x228070, 'b': rec(1) + helpers(err, phase, last),
++                                           'card': {'issue': {0: v0}} if v0 else {}}))
++                out.append(('unit', beat, {'fn': 0x1FED40, 'args': (1, 0), 'b': helpers(err, phase, last),
++                                           'card': {'issue': {0: v0}} if v0 else {}}))
++        out.append(('unit', beat, {'fn': 0x228070, 'b': rec(1) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        for st3 in (0, 1, 2, 3, 4, 7):
++            for v in ((0x40, 0), (0x20, 0), (0x10, 0), (0, 0)):
++                out.append(('unit', beat, {'fn': 0x227C60, 'b': rec(1, st3=st3, st4=1) + pads(*v) + gate('ok')}))
++        out.append(('unit', beat, {'fn': 0x227C60, 'b': rec(1, st3=1, st4=2, yes=1) + pads(0x40) + gate('ok')}))
++        out.append(('unit', beat, {'fn': 0x227C60, 'b': rec(1, st3=1, st4=1) + gate('bad')}))
++        out.append(('unit', beat, {'fn': 0x227C60, 'b': rec(1, st3=2) + helpers(0, 0x10, 0)}))
++        out.append(('unit', beat, {'fn': 0x227C60, 'b': rec(1, st3=2) + helpers(0, 0x10, 4)}))
++        # 00226E90 both modes
++        for st3, st4, yes, press in ((1, 2, 1, 0x40), (1, 1, 0, 0x20), (1, 1, 0, 0x10), (0, 0, 0, 0), (2, 0, 0, 0)):
++            out.append(('unit', beat, {'fn': 0x226E90, 'b': rec(1, st3=st3, st4=st4, yes=yes) + pads(press) +
++                                       gate('ok') + b0}))
++        out.append(('unit', beat, {'fn': 0x226E90, 'b': rec(1, st3=2) + helpers(0, 0x10, 0) + b0}))
++        for press, kind in ((0x40, 'ok'), (0x20, 'ok'), (0x10, 'ok'), (0, 'bad'), (0, 'ok')):
++            out.append(('unit', beat, {'fn': 0x226E90, 'b': rec(2, present=(1,)) + pads(press) + gate(kind) + b0}))
++        # 00226B90 / 00226D50
++        for st3 in (0, 1, 2, 3):
++            for press in PRESSES[:4]:
++                out.append(('unit', beat, {'fn': 0x226B90, 'b': rec(1, st3=st3) + pads(press) + gate('ok')}))
++        for fn in (0x226B90, 0x226D50):
++            for kind in ('issue', 'new', 'bad', 'err'):
++                out.append(('unit', beat, {'fn': fn, 'b': rec(2, st3=3) + gate(kind)}))
++            out.append(('unit', beat, {'fn': fn, 'b': rec(2, st3=3) + gate('ok'), 'card': {'types': [0]}}))
++            out.append(('unit', beat, {'fn': fn, 'b': rec(2, st3=3) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        for press in PRESSES[:4]:
++            out.append(('unit', beat, {'fn': 0x226D50, 'b': rec(2) + pads(press) + gate('ok')}))
++        # 002267A0: both ports chosen, both turns, every poll result and type
++        for port in (0, 1):
++            for poll in (0, 1, 2):
++                for kind in ('issue', 'ok', 'new', 'bad'):
++                    for typ in (2, 0):
++                        if kind in ('issue', 'bad') and typ == 0:
++                            continue
++                        if poll == 2 and kind != 'ok':
++                            continue
++                        out.append(('unit', beat, {'fn': 0x2267A0, 'b': rec(2, port, poll=poll) + gate(kind) +
++                                                   [(MC + 0x58, typ, 4)], 'card': {'types': [typ]}}))
++                out.append(('unit', beat, {'fn': 0x2267A0, 'b': rec(2, port, poll=poll) + helpers(0, 1, 0xFFFFFFFE) +
++                                           [(MC + 0x58, 2, 4)]}))
++        for press in PRESSES[:4]:
++            out.append(('unit', beat, {'fn': 0x2267A0, 'b': rec(2, 1) + pads(press) + gate('ok')}))
++        out.append(('unit', beat, {'fn': 0x2267A0, 'b': rec(2) + helpers(1, 1, 0)}))
++        out.append(('unit', beat, {'fn': 0x2267A0, 'b': rec(2) + helpers(), 'card': {'pending': 1, 'busy': 1}}))
++        # 00227300 one frame on each screen / step (the children's own cases above)
++        for mode in (1, 2):
++            for port in (0, 1, 2):
++                for screen, step in ((0, 0), (1, 0), (2, 0), (2, 1), (2, 3), (2, 4), (2, 5), (3, 0), (4, 0), (4, 1),
++                                     (4, 2), (4, 3), (4, 4), (5, 0)):
++                    if port == 2 and (screen, step) != (0, 0):
++                        continue
++                    out.append(('unit', beat, {'fn': 0x227300, 'b': rec(mode, port, screen, step, present=(1, 2)) +
++                                               gate('issue') + b0}))
++        # the states the cases above leave out: GetInfo type 2 on the error
++        # screens' tails, a Yes / No cursor and a presence byte outside their
++        # values, 00227300 with its children's results 4 and 2
++        for fn in (0x226B90, 0x226D50):
++            out.append(('unit', beat, {'fn': fn, 'b': rec(2, st3=3) + gate('ok') + [(MC + 0x58, 2, 4)],
++                                       'card': {'types': [2]}}))
++        out.append(('unit', beat, {'fn': 0x227DE0, 'b': rec(1, st4=2, yes=2) + gate('ok')}))
++        out.append(('unit', beat, {'fn': 0x2293B0, 'b': rec(present=(3, 1, 3, 0, 2)) + b0}))
++        out.append(('unit', beat, {'fn': 0x227300, 'b': rec(2, 0, 1, 0) + helpers(1) + b0}))
++        for step, st3, press in ((0, 0, 0), (1, 1, 0), (1, 1, 0x10)):
++            card = {} if press else {'types': [0]}
++            extra = [] if press else [(MC + 0x58, 0, 4)]
++            out.append(('unit', beat, {'fn': 0x227300, 'b': rec(2, 0, 2, step, st3=st3, present=(1,)) + pads(press) +
++                                       gate('ok') + extra + b0, 'card': card}))
++    return out
++
++
++# ---- whole screens ---------------------------------------------------------------------
++
++PLACES = (0x0B, 0x01, 0x00, 0x15, 0x0B)          # area bytes the place tables resolve
++TIMES = (0, 59, 216000 * 3 + 3600 * 59 + 30, 0x7FFFFFFF, 216000 * 99 + 3599)
++
++
++def saved(block, tag):
++    """A slot as the writer leaves it, its header bytes the row renderer
++    reads made distinct and resolvable: byte 0 an area, 1 its place, 0xA the
++    glyph choice, word 0x50 the play time (the other bytes the live
++    block's: later frames' text reads the loaded block); +0xF = 1 and the
++    check byte."""
++    b = bytearray(block)
++    b[0], b[1], b[0xA] = PLACES[tag], tag % 2, tag & 1
++    b[0x50:0x54] = struct.pack('<I', TIMES[tag])
++    b[0xF] = 1
++    b[0x63F] = (0x100 - sum(b[:0x63F])) & 0xFF
++    return bytes(b)
++
++
++def card_files(beat, present, drop=()):
++    block = L.live_block(beat)
++    out = {DIR + '/' + DIR: bytes(0x48), DIR + '/EX.ico': bytes(range(256)) * 4, DIR + '/icon.sys': bytes(0x3C4)}
++    for n in range(5):
++        out[DIR + '/EX_DATA.%02d' % n] = saved(block, n) if n in present else L.blank(block)
++    for d in drop:
++        out.pop(DIR + '/' + d)
++    return out
++
++
++def policy(ee, goal, frame):
++    """The pad words for the next frame from the screen's state (the oracle
++    alone; both sides then get the same pokes). A press every other frame."""
++    if frame & 1:
++        return 0, 0
++    b = lambda off: ee.load(MC + off, 1)  # noqa: E731
++    screen, step, st3, st4, yes, cur = b(1), b(2), b(3), b(4), b(9), b(0xA)
++    mode = b(0x14)
++
++    def cursor():
++        if cur < goal.get('slot', 0):
++            return 0, 0x4000
++        if cur > goal.get('slot', 0):
++            return 0, 0x1000
++        return goal.get('pick', 0x40), 0
++
++    def confirm(want, active):
++        if not active:
++            return 0, 0
++        if want and yes == 0:
++            return 0x8000, 0
++        if not want and yes != 0:
++            return 0x2000, 0
++        return 0x40, 0
++
++    if screen == 2:
++        if step == 0:
++            return cursor()
++        if step == 1:
++            return confirm(goal.get('yes', True), st3 == 1)
++        if step == 4:
++            return goal.get('fail', 0x40), 0
++        return 0, 0
++    if screen == 4:
++        if step == 0 and mode == 1:
++            if st3 == 1:
++                if st4 == 1:
++                    return goal.get('format_first', 0x40), 0
++                if st4 == 2:
++                    return confirm(goal.get('format', True), True)
++                return 0, 0
++            if st3 == 4:
++                return goal.get('err', 0x40), 0
++            return 0, 0
++        if step == 0:
++            return cursor()
++        if step == 1 and st3 == 1:
++            return 0x40, 0
++        if step == 2 and frame < goal.get('wait', 0):
++            return 0, 0
++        return goal.get('err', 0x40), 0
++    return 0, 0
++
++
++def flow_items():
++    """Whole card screens; 'want' is 00227300's result that ends each."""
++    out = []
++    for beat in ('o7', 'd5'):
++        def add(want, **k):
++            out.append(('flow', beat, dict(k, want=want)))
++        # LOAD GAME: each slot, both ports
++        for slot in range(5):
++            for port in (0, 1):
++                if port and slot not in (1, 4):
++                    continue
++                add(3, mode=2, port=port, present=(0, 1, 2, 3, 4), goal={'slot': slot})
++        add(3, mode=2, present=(1, 3), goal={'slot': 3}, card={'busy': 1})
++        add(2, mode=2, present=(1, 3), goal={'slot': 1, 'yes': False, 'then': 0x10})      # No, then Triangle
++        add(1, mode=2, present=(2,), goal={'slot': 0, 'pick': 0x20})                       # Circle on the list
++        add(2, mode=2, present=(2,), goal={'slot': 0, 'pick': 0x10})                       # Triangle on the list
++        add(2, mode=2, present=None, goal={'slot': 0, 'pick': 0x10})                       # no directory
++        add(1, mode=2, present=(2,), drop=('icon.sys',), goal={'err': 0x40})               # the card refused
++        add(2, mode=2, present=(2,), drop=('icon.sys',), goal={'err': 0x10})
++        add(1, mode=2, present=(2,), goal={'slot': 2}, card={'fail_read': True})           # a failing read
++        add(2, mode=2, present=(2,), goal={'slot': 2, 'err': 0x20}, card={'types': [0]})   # no card of type 2
++        add(1, mode=2, port=1, present=(2,), goal={'slot': 2, 'wait': 200},                # the card back
++            card={'types': [0, 0, 0, 0, 0, 2]})
++        add(2, mode=2, present=(2,), goal={'slot': 0, 'pick': 0x10}, card={'formats': [0]})
++        # SAVE: a new card, an existing directory, both ports
++        for slot in (0, 3):
++            for port in (0, 1):
++                add(3, mode=1, port=port, present=None, goal={'slot': slot})
++                add(3, mode=1, port=port, present=(1, 3), goal={'slot': slot})
++        add(1, mode=1, present=(1,), goal={'slot': 1, 'yes': False, 'then': 0x20})          # No, then Circle
++        add(1, mode=1, present=None, goal={'slot': 2}, card={'frees': [8000, 5]})          # too full
++        add(1, mode=1, present=None, goal={'slot': 2, 'err': 0x20}, card={'frees': [8000, 5]})
++        add(3, mode=1, present=None, goal={'slot': 0}, card={'formats': [0]})              # format, then save
++        add(1, mode=1, present=None, goal={'slot': 0, 'format': False}, card={'formats': [0]})
++        add(2, mode=1, present=None, goal={'slot': 0, 'format_first': 0x10}, card={'formats': [0]})
++        add(1, mode=1, present=None, goal={'slot': 0}, card={'formats': [0], 'format_result': -1})
++        add(1, mode=1, present=None, goal={'slot': 1}, card={'fail_write': True})          # a failing write
++        add(1, mode=1, present=(2,), goal={'slot': 2, 'pick': 0x20})
++        # an unusable slot (presence 2) in save mode: 00229680 writes the New
++        # Game block, the card check runs again, then the save; and its failure
++        add(3, mode=1, present=None, goal={'slot': 0}, start={'screen': 2, 'step': 2, 'present': (2,)})
++        add(1, mode=1, present=None, goal={'slot': 0}, start={'screen': 2, 'step': 2, 'present': (2,)},
++            card={'fail_write': True})
++        # a failing command in the load enumeration (its 2)
++        add(2, mode=2, present=(1, 2), goal={'slot': 1, 'err': 0x20}, card={'result': {19: -4}})   # its GetInfo
++    return out
++
++
++FLOW_FRAMES = 600
++
++
++def flow_setup(item):
++    group, beat, knobs = item
++    present = knobs['present']
++    files = {} if present is None else card_files(beat, set(present), knobs.get('drop', ()))
++    cfg = dict(knobs.get('card', {}), files=files)
++    S.CARD = cfg
++    st = knobs.get('start', {})
++    b = rec(knobs['mode'], knobs.get('port', 0), st.get('screen', 0), st.get('step', 0),
++            present=st.get('present', ())) + helpers() + records(beat, ())
++    ram, spad = S.make(beat, {'b': b})
++    return cfg, files, bytes(spad)
++
++
++def flow_steps(item, spad, cfg):
++    """The oracle alone: the pad script and the frame of 00227300's first
++    nonzero result."""
++    goal = item[2]['goal']
++    U.WSPEC = {a: spec for a, spec in S.WSPEC.items() if a not in S.LANE}
++    ee = U.oracle_ee(spad)
++    oracle_hooks(ee)
++    steps = []
++    then, confirming = None, False
++    packet = ee.load(PACKET)
++    for frame in range(FLOW_FRAMES):
++        e74, e78 = policy(ee, goal, frame)
++        if then is not None:
++            e74, e78 = (0, 0) if frame & 1 else (then, 0)
++        for at, v, n in ((E74, e74, 2), (E78, e78, 2), (PACKET, packet, 4)):
++            ee.save(at, v, n)
++            steps.append(('poke', at, v, n))
++        ee.r[4], ee.r[29], ee.r[31] = MC, STACK_TOP, RETURN
++        ee.run(0x227300)
++        steps.append(('call', 0x227300, (MC,)))
++        if ee.r[2] & MASK:
++            return steps, ee.r[2] & MASK, ee
++        # a declined confirmation, back on the cursor: the goal's exit press
++        on_list = ee.load(MC + 1, 1) == 2
++        if on_list and ee.load(MC + 2, 1) == 1:
++            confirming = True
++        elif on_list and ee.load(MC + 2, 1) == 0 and confirming and goal.get('yes') is False:
++            then = goal.get('then', 0x10)
++    return steps, 0, ee
++
++
++class FailCard(CardModel):
++    """A card whose slot reads (fail_read) or whose first slot write
++    (fail_write) are refused with -4."""
++
++    def serve(self, mem, address, args, k):
++        if address == READ and self.cfg.get('fail_read') and self.fds.get(args[0] & MASK, '').endswith('.02') and \
++                self.loaded:
++            self.order.append(('read', 'refused', 0))
++            return -4
++        if address == WRITE and self.cfg.get('fail_write') and 'EX_DATA' in self.fds.get(args[0] & MASK, ''):
++            self.order.append(('write', 'refused', 0))
++            return -4
++        return super().serve(mem, address, args, k)
++
++    @property
++    def loaded(self):
++        # the enumeration's reads are done once GetInfo after them was asked
++        return sum(1 for o in self.order if o[0] == 'getinfo') >= 2
++
++
++def flow_case(item):
++    group, beat, knobs = item
++    cfg, files, spad = flow_setup(item)
++    steps, value, oracle = flow_steps(item, spad, cfg)
++    goal = knobs['goal']
++    assert value == knobs['want'], (item, 'the card screen ended', value, 'not', knobs['want'],
++                                    [hex(oracle.load(MC + i, 1)) for i in range(1, 5)])
++    failing = cfg.get('fail_read') or cfg.get('fail_write') or knobs.get('drop') or cfg.get('types') or \
++        cfg.get('formats') or cfg.get('frees') or cfg.get('result') or 'start' in knobs
++    done = value == 3
++    slot = goal.get('slot', 0)
++    model = S.MODELS['oracle']
++    if not failing and goal.get('yes', True) and goal.get('pick', 0x40) == 0x40:
++        present = knobs['present']
++        if knobs['mode'] == 2 and present is not None and slot in present:
++            assert done, (item, 'LOAD GAME did not complete', value)
++        if knobs['mode'] == 1:
++            assert done, (item, 'the save did not complete', value)
++
++    def check(ee):
++        name = DIR + '/EX_DATA.%02d' % slot
++        if done and knobs['mode'] == 2:
++            assert bytes(ee.mem[BLOCK:BLOCK + 0x640]) == files[name], (item, 'D_00810700 is not the slot file')
++        if done and knobs['mode'] == 1:
++            live = bytes(ee.mem[BLOCK:BLOCK + 0x640])
++            assert model.files[name] == live, (item, 'the slot written is not the live block')
++            assert sum(live) & 0xFF == 0 and live[0xF] == 1, (item, 'check byte')
++            start = struct.unpack_from('<h', R.IMAGES[beat][0], CB2)[0]
++            now = struct.unpack_from('<h', bytes(ee.mem), CB2)[0]
++            want = start if 'start' in knobs else start - 4      # 00229680's path gives its 4 back first
++            assert now == want, (item, 'D_00810CB2 after a save', start, now)
++            if knobs['present'] is None:
++                assert sorted(model.files) == sorted(DIR + '/' + f for f in L.FILES), (item, sorted(model.files))
++        return True
++    r = run_both(item, spad, steps, check=check)
++    assert S.MODELS['oracle'].order == S.MODELS['native'].order, (item, 'command order differs')
++    assert S.MODELS['oracle'].files == S.MODELS['native'].files, (item, 'cards differ')
++    return r
++
++
++def case_groups():
++    return [('unit', unit_items(), one_case), ('flow', flow_items(), flow_case)]
++
++
++# Branch outcomes no input reaches. A GetInfo poll result other than 0 and
++# -1 always comes with the error flag set (001FECB0 sets it), which 00226B90,
++# 00226D50, 00227980 and 00229170 test first, so their -1 test never sees
++# another value; each switch over a callee's result has an arm for a value
++# the callee never returns (00227C60 and 00227DE0 return 0..3, 00229170
++# 0..4, 002280F0 0..4, 002283B0 0..3, 00227980 0..4, 00228A90 / 00228B60 /
++# 00229680 0..2); 002280F0's second type test repeats the first (type 2
++# known).
++UNREACHED = {
++    (0x226D28, True), (0x226E6C, True), (0x227C38, True), (0x229384, True),
++    (0x226ED8, False), (0x226F90, False), (0x227404, False), (0x2274A8, False), (0x22762C, False),
++    (0x227848, False), (0x2277BC, False), (0x227CE8, False), (0x228184, True), (0x228280, True),
++}
++
++# The default run: the greedy branch-outcome cover of the full sweep (the
++# `cover` command prints it; item indices into each group's deterministic
++# list), plus the decodes: LOAD GAME of slot 0 (flow 0, D_00810700 equal to
++# the slot file) and the saves to a new card and over an existing directory
++# (flows 18, 19, the card checked); the cases added for the outcomes the
++# first sweep missed (unit 498..505, flows 35..37).
++QUICK = {
++    'flow': [0, 4, 7, 8, 9, 12, 14, 16, 17, 18, 19, 22, 27, 32, 33, 35, 36, 37],
++    'unit': [12, 21, 23, 24, 26, 33, 37, 77, 109, 112, 116, 131, 138, 145, 167, 177, 202, 245, 252, 253, 257, 264,
++             276, 277, 279, 295, 298, 304, 305, 306, 315, 318, 324, 328, 341, 349, 354, 359, 362, 363, 364, 365, 366,
++             370, 371, 380, 385, 389, 391, 394, 395, 398, 399, 400, 402, 403, 405, 406, 407, 408, 409, 410, 411, 412,
++             413, 414, 420, 422, 423, 425, 427, 428, 429, 430, 431, 435, 436, 437, 438, 439, 446, 447, 452, 453, 468,
++             477, 498, 499, 500, 501, 502, 503, 504, 505],
++}
++
++
++def decode(item):
++    """Cases every run keeps beside the cover: the free count's bound
++    (00228320), the rows' text (002293B0) and the load-mode Cross on each
++    kind of slot (00229170), whose stores and results the cover's branch
++    outcomes do not pin."""
++    group, beat, knobs = item
++    if group != 'unit' or beat != 'o7':
++        return False
++    if knobs['fn'] in (0x228320, 0x2293B0):
++        return True
++    b = dict((at, v) for at, v, _ in knobs.get('b', ()))
++    return knobs['fn'] == 0x229170 and b.get(MC + 0x14) == 2 and b.get(E74) == 0x40
++
++
++def sample(items, name):
++    if RM.FULL or name not in QUICK:
++        return items
++    keep = set(QUICK[name]) | {i for i, it in enumerate(items) if decode(it)}
++    return [items[i] for i in sorted(keep)]
++
++
++def run_groups(full):
++    per, outcomes, cases, calls, entries, counts = [], set(), 0, 0, 0, []
++    for name, items, fn in case_groups():
++        chosen = items if full else sample(items, name)
++        for i, r in enumerate(S.pmap(fn, chosen)):
++            cases += 1
++            if r in ('unmeasured', 'skipped'):
++                continue
++            outcomes.update(r[0])
++            calls += r[1]
++            entries += r[2]
++            per.append((name, i, frozenset(o for o in r[0] if o[0] in CARD_PCS)))
++        counts.append(RM.part(len(chosen), len(items), name + ' cases'))
++    return per, outcomes, cases, calls, entries, counts
++
++
++CARD_PCS = frozenset(pc for a, n in CARD_LANE.items() for pc in range(a, a + n, 4))
++
++
++def card_branches():
++    return {pc for pc in S.all_branches() if pc in CARD_PCS}
++
++
++def with_pool(fn):
++    if S.JOBS > 1 and 'fork' in multiprocessing.get_all_start_methods():
++        S.POOL = multiprocessing.get_context('fork').Pool(S.JOBS)
++    try:
++        return fn()
++    finally:
++        if S.POOL is not None:
++            R.close_pool(S.POOL)
++            S.POOL = None
++
++
++def cover():
++    setup()
++    per = with_pool(lambda: run_groups(True))[0]
++    left = set().union(*(o for _, _, o in per))
++    chosen = {}
++    while left:
++        name, i, o = max(per, key=lambda t: len(t[2] & left))
++        chosen.setdefault(name, []).append(i)
++        left -= o
++    for must, idx in (('flow', {0, 18, 19}),):      # the decodes, every run: a load, a save to a new card and over a directory
++        chosen[must] = sorted(set(chosen.get(must, [])) | idx)
++    print('QUICK = {')
++    for name in sorted(chosen):
++        print('    %r: %r,' % (name, sorted(chosen[name])))
++    print('}')
++
++
++def main():
++    t0 = time.time()
++    setup()
++    _, outcomes, cases, calls, entries, counts = with_pool(lambda: run_groups(RM.FULL))
++    branches = card_branches()
++    need = {(pc, t) for pc in branches for t in (True, False)}
++    got = {o for o in outcomes if o[0] in CARD_PCS}
++    missing = sorted((hex(pc), t) for pc, t in need - got if (pc, t) not in UNREACHED)
++    RM.banner(*counts, f'{cases} cases', f'{calls} callee calls, {entries} entries with RAM + scratchpad + '
++              'arguments equal to the original\'s',
++              f'{len(branches)} conditional branches of the card screen: {len(need & got)} of {len(need)} '
++              'outcomes seen')
++    if RM.FULL:
++        assert not missing, ('branch outcomes never seen', missing)
++    elif missing:
++        print('outcomes not in this sample (EM_TEST_FULL=1 requires all):', len(missing))
++    if missing and os.environ.get('EM_SAVE_SHOW_MISSING'):
++        print('missing:', missing)
++    print('elapsed %.1f s' % (time.time() - t0))
++    print('card screen reference: PASS')
++
++
++def debug(names):
++    setup()
++    table = {name: (items, fn) for name, items, fn in case_groups()}
++    for name in names:
++        group, _, idx = name.partition(':')
++        items, fn = table[group]
++        chosen = items if not idx else [items[int(i)] for i in idx.split(',')]
++        for i, it in zip(idx.split(',') if idx else range(len(chosen)), chosen):
++            t = time.time()
++            try:
++                r = fn(it)
++                print('ok', i, repr(it)[:160], 'calls', r[1] if r not in ('unmeasured', 'skipped') else r,
++                      '%.2fs' % (time.time() - t))
++            except AssertionError as ex:
++                print('FAIL', i, repr(it)[:200], repr(ex)[:3000])
++
++
++if __name__ == '__main__':
++    _ = random
++    if len(sys.argv) > 1 and sys.argv[1] == 'debug':
++        debug(sys.argv[2:])
++    elif len(sys.argv) > 1 and sys.argv[1] == 'cover':
++        cover()
++    else:
++        main()

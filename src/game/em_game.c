@@ -163,6 +163,7 @@
  * loop quits (see move_test_script). Combine with EM_CAPTURE to grab a
  * mid-walk frame (the move test suppresses the capture path's early quit).
  */
+#include "game/em_frontend.h"
 #include "game/em_game.h"
 
 #include <dirent.h>
@@ -834,6 +835,7 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
 void em_game_legacy_variant_head(int cutscene)
 {
     em_new_game_state_test_before_frame();
+    em_frontend_load_test_before_frame();
     em_opening_control_test_before_frame();
     if (cutscene)
         return;
@@ -1301,6 +1303,35 @@ int em_game_reinstall_new_001AC070(void)
     return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
 }
 
+/* 001AC070 state 4 for a loaded game (state 5's 00225AC0(0) returned 2:
+ * LOAD GAME read the slot into the progress block D_00810700, 001AF150 ran
+ * and D_00275BE0 = 1): the same 001AB790(001ACEC0) with a cleared record.
+ * 001ACEC0 state 0 runs 001AD1A0 and, D_00275BE0 being 1, goes to state 2
+ * (+8 = 3, +9 = 5): no 001AD230 (no 001AF2C0 reset) and no 001AD360 (no
+ * intro, no AREA11 store); 001ADF50 reads the block's area D_00810700 /
+ * 701, and the frame machine's state 0 places the player from the block's
+ * load pose (001B07C0 with D_00275BE0 == 1; 001B0460 clears it). The
+ * opening is not requested (no New Game). The port's stand-ins outside that
+ * route are cleared as for New Game. 0, or -1. */
+int em_game_reinstall_loaded_001AC070(void)
+{
+    if (em_scene_state()->d275BE0 != 1) {
+        fprintf(stderr, "em_game: 001AC070 state 4 (a loaded game) without D_00275BE0 = 1\n");
+        return -1;
+    }
+    g.pd_state    = 0;
+    g.pd_sub      = 0;
+    g.pd_phase    = 0;
+    g.pd_hold     = 0;
+    g.pd_iframes  = 0;
+    g.pd_pend_hp  = 0.0f;
+    g.pd_pend_inf = 0.0f;
+    g.pd_clip     = 0;
+    g.pd_infected = 0;
+    g.pd_low      = 0;
+    return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
+}
+
 /* The port's own assets of an area (S12a; formerly the one-frame
  * game_load_task): the renderer's and the collision's formats. Since chain
  * step H7 001ADF50's 001FF080(1, 0) runs the slot-2 loader task 001FF0D0
@@ -1434,8 +1465,19 @@ void em_game_new_game_reset_001AF2C0(void)
     game_state_new_game(&g);
 }
 
-/* Process-level game-state init shared by both entries: g cleared, the
- * env-selected captures and self-tests read. No task is registered. */
+/* The demo status's health and infection (75, 60), stored in their one
+ * storage D_00810858 / D_0081085C (the progress block). */
+static void game_demo_vitals(void)
+{
+    em_scene_state()->d810858 = 75.0f;
+    em_scene_state()->d81085C = 60.0f;
+}
+
+/* Process-level game-state init shared by the entries: g cleared, the
+ * env-selected captures and self-tests read. No task is registered, and
+ * the progress block is not touched: the New Game entries and the fixture
+ * store the demo vitals after it (game_demo_vitals), a loaded game keeps
+ * the slot's. */
 static void game_install_state(void)
 {
     player_pose_unload();
@@ -1548,13 +1590,16 @@ static void game_install_state(void)
 void em_game_install(void)
 {
     game_install_state();
+    game_demo_vitals();
     em_pickup_reset();   /* new-game inventory/taken wipe — the engine's
                           * D_00810700-block memset (func_001AF2C0) */
-    /* The progress bytes in that same memset (D_00810791, D_00810811
-     * opening complete, D_00810841[11] terminal unlock) are already 0
-     * from the memset of g above; they PERSIST across an intra-area
-     * room-move scene reload and are cleared again only by the
-     * 001AF2C0 routes (New Game's 001AD230, game-over option 0). */
+    /* That reset stores 001AF2C0's health 100 / infection 0 in the block;
+     * the fixture keeps the demo status's (above). The progress bytes
+     * (D_00810791, D_00810811 opening complete, D_00810841[11] terminal
+     * unlock) PERSIST across an intra-area room-move scene reload and are
+     * cleared again only by the 001AF2C0 routes (New Game's 001AD230,
+     * game-over option 0). */
+    game_demo_vitals();
     (void)em_game_legacy_area_load(g.scene_dir);
     em_scene_bindings_fixture_loaded(em_task_register(0, em_scene_task_001ACEC0));
 }
@@ -1571,6 +1616,7 @@ void em_game_install(void)
 void em_game_install_new(void)
 {
     game_install_state();
+    game_demo_vitals();
     snprintf(g.scene_dir, sizeof g.scene_dir, "%s", AREA11_SCENE_DIR);
     em_opening_runtime_request();
     em_opening_control_test_begin();
@@ -1580,6 +1626,27 @@ void em_game_install_new(void)
         (void)em_task_replace_current(em_scene_task_001ACEC0);
     else
         (void)em_task_register(0, em_scene_task_001ACEC0);
+}
+
+/* 001AC070 state 4 for a loaded game on the boot's title (state 5's
+ * 00225AC0(0) returned 2 there: LOAD GAME read the slot into D_00810700,
+ * 001AF150 ran, D_00275BE0 = 1): 001AB790(001ACEC0) replaces the title task
+ * with the game task, its record cleared, as em_game_install_new does for
+ * the boot's New Game. The game state starts as at that New Game
+ * (game_install_state) except for the progress block, which is the slot's:
+ * no demo vitals, no opening request, no New Game fixtures. The chain then
+ * runs as after a death's LOAD GAME (em_game_reinstall_loaded_001AC070):
+ * 001AD1A0, state 2 without 001AD230 / 001AD360, 001ADF50 on the block's
+ * area, the placement from the load pose. 0, or -1. */
+int em_game_install_loaded_001AC070(void)
+{
+    if (em_scene_state()->d275BE0 != 1 || !em_task_current()) {
+        fprintf(stderr, "em_game: 001AC070 state 4 (a loaded game) without D_00275BE0 = 1 "
+                        "or outside the title task\n");
+        return -1;
+    }
+    game_install_state();
+    return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
 }
 
 void em_game_shutdown(void)

@@ -20,6 +20,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
 #include "game/em_player_floor.h"
+#include "game/em_scene_bindings.h"
 
 /* Is the player in a hit reaction / dying / at the game-over screen?
  * (the movement + input + menu lock; also the producer-side immunity
@@ -79,8 +80,8 @@ static void player_enter_struggle(void)
     g.pd_hold     = 0;
     g.pd_clip     = PD_CLIP_CLING;
     g.struggle_n  = 0;
-    g.status.health -= PD_LATCH_HIT;          /* 10 HP on connect (live) */
-    if (g.status.health < 0.0f) g.status.health = 0.0f;
+    em_scene_state()->d810858 -= PD_LATCH_HIT;          /* 10 HP on connect (live) */
+    if (em_scene_state()->d810858 < 0.0f) em_scene_state()->d810858 = 0.0f;
 }
 
 /* LIVE-VERIFIED 2026-06-12 (PCSX2): a clinging bug is shaken off by
@@ -97,16 +98,16 @@ void player_struggle_tick(void)
     /* DRAIN + INFECT while any bug clings (direct — the reaction locks
      * the normal damage pipeline). Infection maxing or health 0 = death. */
     if (g.go_state == 0 && g.pd_sub != 1 && g.pd_sub != 3) {
-        g.status.infection += PD_LATCH_INFECT * (float)latched;
-        if (g.status.infection > 100.0f) g.status.infection = 100.0f;
-        g.status.health    -= PD_LATCH_DRAIN  * (float)latched;
-        if (g.status.infection >= 100.0f && !g.pd_infected) {
+        em_scene_state()->d81085C += PD_LATCH_INFECT * (float)latched;
+        if (em_scene_state()->d81085C > 100.0f) em_scene_state()->d81085C = 100.0f;
+        em_scene_state()->d810858    -= PD_LATCH_DRAIN  * (float)latched;
+        if (em_scene_state()->d81085C >= 100.0f && !g.pd_infected) {
             g.pd_infected       = 1;            /* infected latch (cap 60) */
             g.status.health_max = PD_INFECTED_MAX;
             em_sfx_play_at(PD_SFX_INFECTED, g.pos, 300.0f);
         }
-        if (g.status.health <= 0.0f) {
-            g.status.health = 0.0f;
+        if (em_scene_state()->d810858 <= 0.0f) {
+            em_scene_state()->d810858 = 0.0f;
             g.pd_state = 0;
             g.pd_phase = 0;
             em_enemy_shake_off();              /* the bugs go with you   */

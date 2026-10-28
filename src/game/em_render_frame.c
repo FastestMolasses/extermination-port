@@ -318,14 +318,14 @@ static void ui_scene_render(EmGfx *gfx)
         g.ui_t        = 0.0;
         g.ui_ramp     = 1.0f;
         g.ui_ramp_dir = 0;
-        g.ui_low      = g.status.health <= UI_LOW_HEALTH;
+        g.ui_low      = em_scene_state()->d810858 <= UI_LOW_HEALTH;
     }
 
     /* Clip select (engine: init picks by displayed health; recovery
      * past 35 swaps back to the stance; never TO the low clip
      * mid-open). The port reads the status target — the engine's
      * display copy only lags it during the open count-up. */
-    if (g.ui_low && g.status.health > UI_LOW_HEALTH) {
+    if (g.ui_low && em_scene_state()->d810858 > UI_LOW_HEALTH) {
         g.ui_low = 0;
         g.ui_t   = 0.0;
     }
@@ -438,7 +438,7 @@ static void ui_scene_render(EmGfx *gfx)
         /* Infection tint pulse (engine +0x80 color delta, GS 128 base,
          * approximated multiplicatively; infection 0 = opaque white =
          * bit-identical to the untinted draw per the em_gfx contract). */
-        float inf = g.status.infection;
+        float inf = em_scene_state()->d81085C;
         float dr = -0.8f * inf * g.ui_ramp;
         float dg = -1.0f * inf * g.ui_ramp;
         float db = -0.3f * inf * g.ui_ramp;
@@ -843,6 +843,8 @@ void frame_close_out(void)
      * (D_00810C62 / D_00810CB4) every frame, exactly like the engine UI
      * re-reading the globals. */
     em_hud_forced_update(em_frame_input());
+    g.status.health    = em_scene_state()->d810858; /* D_00810858 / 5C (the block) */
+    g.status.infection = em_scene_state()->d81085C;
     g.status.mag     = em_weapon_mag();
     g.status.reserve = em_weapon_reserve();
     g.status.battery = em_pickup_battery_charge() >> 1;

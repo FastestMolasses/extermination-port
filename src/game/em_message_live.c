@@ -533,7 +533,7 @@ int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t av
                           const EmMessageDrawConfig *cfg)
 {
     if (!ready()) { report(); return -1; }
-    if (!text || !cfg || !memchr(text, 0, avail) ||
+    if (!text || !memchr(text, 0, avail) ||
         em_message_draw_fc770(&s.draw, x, y, text, cfg) < 0 || s.fault) {
         fail("001FC770");
         report();

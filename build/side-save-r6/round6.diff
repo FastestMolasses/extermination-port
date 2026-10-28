@@ -1,0 +1,691 @@
+diff --git a/Makefile b/Makefile
+index 5db1f3b..c13e549 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1481,6 +1481,19 @@ test-card-screen-reference:
+ test-memcard-host:
+ 	python3 tools/test_memcard_host.py
+ 
++# The start-point saves EM_START_AT is to load (docs/SAVE_GAME.md section 7):
++# the original save writer over each area's arrival in the fork recordings,
++# read back by the original load code, into the ignored build/start_saves/
++# (disc-derived). start-saves builds them (about 12 s); test-start-saves
++# builds them into a temporary folder and checks them (3 s warm, about 7 s
++# when it builds its libraries).
++.PHONY: start-saves test-start-saves
++start-saves:
++	python3 tools/build_start_saves.py
++
++test-start-saves:
++	python3 tools/test_start_saves.py
++
+ # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
+ # (em_menu_hover) against the original instructions; the MAP page's model
+ # bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against
+diff --git a/docs/SAVE_GAME.md b/docs/SAVE_GAME.md
+index eb5d3d8..94963cb 100644
+--- a/docs/SAVE_GAME.md
++++ b/docs/SAVE_GAME.md
+@@ -18,9 +18,10 @@ instruction of the original is reproduced here.
+ | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
+ | LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated | - |
+ | The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
+-| Start-point saves, `EM_START_AT` | - | not built | - |
++| Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
++| `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
+ 
+-Next steps: section 7.
++Next steps: section 8.
+ 
+ ## 2. The save on the card
+ 
+@@ -392,25 +393,108 @@ the minutes' divisor, the load-mode Cross test, the Yes test, the done
+ message's 45 frames, the battery's 4, 002267A0's turn, 00227DE0's verdict,
+ 001FED40's phase): all fail the quick run.
+ 
+-## 7. Next steps
+-
+-In order: wire the card screen: em_options_live's 002267A0 / 00227300
+-dispatched to em_card_*, the libmc file commands and Format through
+-`em_memcard_call`, em_memcard answering GetInfo's free and format words
+-(today it faults on them: no recording shows the server's values); a fork
+-recording of the original saving at AREA01's save terminal on a separate
+-card file (the user's decisions of 2026-10-09, HANDOFF item 9: a dedicated
+-card, never the user's own), whose libmc results (the Sync result words,
+-GetInfo's free and format words, the GetDir table) check em_memcard's
+-answers and whose card files check section 2 against the card the IOP
+-wrote; what the card screen's callers do with its result 2 (0022A650's
+-r == 2, 001AC070's title load: the restore and the area entry) and the
+-save terminal's Yes path (0020CDC0, request 6); the start-point save
+-builder (the fork recordings route_a01 / route_a00 / route_a01r at each
+-area arrival, kept in ignored build/); `EM_START_AT` (docs/STARTUP.md
+-"Developer switches").
+-
+-## 8. Re-exports
+-
+-None: the save code is in the boot ELF, and the test reads the recordings
+-in the reference `tools/reference_root.py` selects.
++## 7. Start-point saves (round 6)
++
++What `EM_START_AT` is to load (not wired yet, section 8): one memory card
++per start point, made by the ORIGINAL save writer from the state a fork
++route recording starts its area from. `tools/build_start_saves.py`
++(`make start-saves`) builds them into `build/start_saves/<name>/`, which is
++git-ignored: the card holds the disc's icon and the recording's block.
++
++| Name | Arrival state (the route manifest's first beat's source state) | D_00810700 +0..+3 there |
++|---|---|---|
++| `area01` | `s87/route/15_level_exit`, where `s87/route_a01`'s a01_00_train_room starts | 01 00 04 01 |
++| `area00` | `s87/route_a01/a01_07_level_exit`, where `s87/route_a00`'s a00_00_descend starts | 00 00 00 00 |
++| `area01-revisit` | `s87/route_a00/a00_10_progression_exit`, where `s87/route_a01r`'s a01r_00_to_train_room starts | 01 00 00 01 |
++
++How each card is made and checked (the builder refuses and writes nothing
++when a check fails):
++
++- The arrival state is found through the route's `manifest.json` (its one
++  beat named `<prefix>_00_*`, that beat's `source_state`, a folder under the
++  decomp's `build/fork_refs/`). Its `eeMemory.bin` must have the SHA-256 its
++  own `snapshot.json` records, the block's byte +0 must be the area the name
++  says, and the block's bytes +0..+3 must equal the first beat's first
++  trace row (`area4`).
++- The save: 00228A90 frame by frame from its first call over that RAM and
++  scratchpad (chosen slot 0, port 0, a card without the game's directory),
++  test_memcard_host's `save_both`: the original in the reference interpreter
++  and the translation em_save_00228A90 over a second copy, each on its own
++  host card through em_memcard; RAM, scratchpad and arguments equal at
++  every callee entry, the 26 card commands in the same order, the two card
++  folders byte-identical, and the layout of section 2
++  (test_save_reference.check_card). The writer's New Game block (001AF2C0,
++  run as original code over the arrival RAM) fills the other four slots.
++- The read back, over the c10 opt_07 recording's RAM (the options' load
++  row; its own block differs from every start point's): the load
++  enumeration 002283B0 from its first call until it reports 1, then LOAD
++  GAME's read 00228B60 of slot 0, each on both sides of test_load_reference's
++  harness with the host card answering, equal at every callee entry (154
++  per start point). Only slot 0 is listed, with its record (bytes 0..5, 0xA
++  and the word at 0x50); after the read D_00810700 holds the slot's 0x640
++  bytes.
++- The slot is the arrival's block with +0xF = 1 and the check byte +0x63F
++  that makes all 0x640 bytes sum to zero; no other byte differs.
++
++Output, a host card root em_memcard can serve: `slot1/BASCUS-97112-DS00-00/`
++(the eight files of section 2, the save in `EX_DATA.00`), an empty `slot2/`,
++and `start.json` (the source folder, its SHA-256, the route beat, the
++block's first 16 bytes, each file's SHA-256). A rebuild rewrites only the
++files that differ; a folder holding anything else, or a symlink, is
++refused.
++
++What this is and is not. The original saves only at a save terminal
++(00225AC0(1), docs/OPTIONS.md section 7). A start-point save holds what the
++writer's code makes of the block at the arrival frame, a frame the tool
++chooses; it is not a save the original made. What LOAD GAME does after the
++read (the restore of the rest of the state and the area entry, section 1)
++is not translated, so whether loading one of these cards enters the area at
++the recorded arrival is not shown yet: that is `EM_START_AT`'s proof.
++
++`make test-start-saves` (`tools/test_start_saves.py`) builds all three into
++a temporary folder and checks each card again from the recording files
++alone (the slot from the arrival's `eeMemory.bin`, the four New Game slots
++one block with +0xF = 0 and the area bytes zero, `start.json`'s hashes, the
++three slots distinct); negative controls: a slot byte flipped and EX.ico
++removed make the original enumeration refuse the card (3); an unknown name,
++a wrong area byte, a missing recording and a manifest without the beat are
++refused before anything runs; a card folder with a foreign file or a
++symlink is refused, a second write changes nothing and a changed file is
++rewritten. An existing `build/start_saves/<name>` must equal the fresh build
++(a stale card fails). Run 2026-10-20: PASS, 2.8 s warm (6.3 s when it builds
++its libraries). Mutants (the writer's
++bytes reduced to +0xF, the listed slot, the restored block, the area check
++dropped): all fail it; the record's byte 0xA read as 0xB survives, since
++both are 0 in every arrival block.
++
++## 8. Next steps
++
++In order: wire the card screen into the game: em_options_live's 002267A0 /
++00227300 dispatched to em_card_*, the libmc file commands through
++`em_memcard_call`, em_memcard answering GetInfo's format word (today it
++faults on the free and format words: no recording shows the server's
++values; a round-5 attempt at this wiring was set aside unmerged); the
++progress block D_00810700 as one storage (LOAD GAME's read writes all 0x640
++bytes; the port holds only its canonical ranges, em_scene_state.h); what the
++card screen's callers do with its result 2 (0022A650's r == 2, 001AC070's
++title load: the restore and the area entry); `EM_START_AT=<name>`
++(docs/STARTUP.md "Developer switches"): em_memcard on
++`build/start_saves/<name>` and the title's LOAD GAME on slot 0 of port 0,
++off by default, refusing an unknown name or a card that is not built; the
++save terminal's Yes path (0020CDC0, request 6) and the save mode's leaves
++(GetInfo's free count, Format 00114D18, 001AF2C0, block_copy 00121870, the
++icon container *D_0028A4A0 as a window); a fork recording of a save at
++AREA01's save terminal on a separate, formatted card file (the user's
++decisions of 2026-10-09, HANDOFF item 9: never the user's own card), whose
++libmc results check em_memcard's answers and whose files check section 2
++against the card the IOP wrote. The lane's round-5 attempt on the
++emulator's fresh card files found them unformatted (GetInfo's format word
++0) and the game's Format failing with -2 on both ports, so nothing was
++written (receipt: the lane's build/side-save-r5/card_rec/summary.json).
++
++## 9. Re-exports
++
++`python3 tools/build_start_saves.py` after the fork recordings or the save
++code change (test-start-saves fails on a stale `build/start_saves`).
++Otherwise none: the save code is in the boot ELF, and the tests read the
++recordings in the reference `tools/reference_root.py` selects.
+diff --git a/src/game/em_memcard.h b/src/game/em_memcard.h
+index daa734b..931a52b 100644
+--- a/src/game/em_memcard.h
++++ b/src/game/em_memcard.h
+@@ -77,7 +77,7 @@ extern "C" {
+  * open, a Write on a read-only one or a Read on a write-only one, and a
+  * GetDir with mode != 0 or of a directory that is missing. A descriptor is
+  * the lowest free of 0..2 (the server's handle table; the recording that
+- * checks it is docs/SAVE_GAME.md section 7's next step). Open does not
++ * checks it is docs/SAVE_GAME.md section 8's next step). Open does not
+  * truncate; Write and Read move the descriptor's offset.
+  *
+  * GetDir: a name without a wildcard stores its one entry when it exists
+diff --git a/src/game/em_save_original.h b/src/game/em_save_original.h
+index b5dc637..3f5af52 100644
+--- a/src/game/em_save_original.h
++++ b/src/game/em_save_original.h
+@@ -2,7 +2,7 @@
+  * routines that write a saved game to the card and read it back,
+  * translated from the original
+  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
+- * em_save_. Not wired yet (docs/SAVE_GAME.md section 7): the card screen
++ * em_save_. Not wired yet (docs/SAVE_GAME.md section 8): the card screen
+  * 00227300 that runs it is translated (em_card_original) but the options
+  * binding still faults there. Its libmc callees are answered by
+  * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder
+diff --git a/tools/test_memcard_host.py b/tools/test_memcard_host.py
+index 852f9a6..03a45f4 100644
+--- a/tools/test_memcard_host.py
++++ b/tools/test_memcard_host.py
+@@ -31,7 +31,7 @@ docs/SAVE_GAME.md section 5. Two parts:
+ The card server is the IOP's, not EE code: what em_memcard answers (a
+ descriptor 0..2, GetDir's entries, the counts) is checked here against what
+ the original EE code accepts and reads back, not against a recording of the
+-server; that recording is docs/SAVE_GAME.md section 7's next step.
++server; that recording is docs/SAVE_GAME.md section 8's next step.
+ 
+ Host folders live in a temporary directory removed at the end. Quick by
+ default (a covering set of saves); EM_TEST_FULL=1 runs every slot and port
+diff --git a/tools/build_start_saves.py b/tools/build_start_saves.py
+new file mode 100644
+index 0000000..8903aed
+--- /dev/null
++++ b/tools/build_start_saves.py
+@@ -0,0 +1,316 @@
++#!/usr/bin/env python3
++"""Build the start-point saves EM_START_AT will load (docs/SAVE_GAME.md
++section 7).
++
++A start-point save is a memory card holding one saved game made by the
++ORIGINAL save writer from the state the fork recordings start an area from:
++the progress block D_00810700 as it is at that area's arrival, written with
++the original's own code into the original's card layout (docs/SAVE_GAME.md
++section 2). Nothing is synthesized by hand: the writer 00228A90 runs in the
++reference interpreter over the recording's RAM, the card answered by the
++port's host card em_memcard on a folder, and the port's translation
++em_save_00228A90 runs the same save on a second folder, which must be
++byte-identical (test_save_reference's harness, as test_memcard_host runs it).
++
++Each card is then read back with the original's load code over another
++recording's RAM (c10 opt_07, the options' load row): the load enumeration
++002283B0 must list exactly the saved slot with its record, and LOAD GAME's
++read 00228B60 must put the slot's 0x640 bytes into D_00810700; the
++translations em_save_002283B0 / em_save_00228B60 run the same reads and
++must equal the original at every callee entry. The block read back is the
++arrival's block with +0xF = 1 and the check byte +0x63F (the two bytes the
++writer sets), and nothing else changed. A card failing any check is not
++written.
++
++The start points (the state each route recording starts from, named by the
++route's manifest: its first beat's source state):
++
++  area01           s87/route_a01's a01_00 source, AREA11's level exit:
++                   the AREA01 arrival (block area 1)
++  area00           s87/route_a00's a00_00 source, AREA01's level exit:
++                   the AREA00 arrival (block area 0)
++  area01-revisit   s87/route_a01r's a01r_00 source, AREA00's progression
++                   exit: the AREA01 revisit arrival (block area 1)
++
++Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
++host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
++makes, the save in EX_DATA.00 on port 0; slot2/ empty) and start.json (the
++source state, its SHA-256, the block's area bytes, each file's SHA-256).
++The folder is git-ignored (build/). An existing card is overwritten file by
++file only when it differs; a folder holding anything else is refused.
++
++Usage (native arm64 macOS, about 15 s for all three):
++
++  python3 tools/build_start_saves.py             # every start point
++  python3 tools/build_start_saves.py area01      # one
++  python3 tools/build_start_saves.py --list
++
++Needs the user's pinned ELF (tools/test_player_slide_reference.read_elf) and
++the fork recordings in the reference tools/reference_root.py selects.
++"""
++import hashlib
++import json
++import os
++import struct
++import sys
++import tempfile
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'tools'))
++os.environ.setdefault('EM_LANE', 'start_saves')
++import reference_root as refs  # noqa: E402
++import test_save_reference as S  # noqa: E402
++import test_load_reference as L  # noqa: E402
++import test_memcard_host as MH  # noqa: E402
++import test_area01_render_reference as R  # noqa: E402
++
++MASK = 0xFFFFFFFF
++MC, BLOCK, SIZE = S.MC, S.BLOCK, 0x640
++DIR = MH.DIR
++SLOT, PORT = 0, 0                  # the save: EX_DATA.00 on port 0 (data/memcard/slot1)
++LOAD_BEAT = 'o7'                   # the RAM the load runs over (c10 opt_07, the options' load row)
++OUT = ROOT / 'build' / 'start_saves'
++FILES = [DIR + '/' + f for f in (DIR, 'EX.ico', 'icon.sys')] + MH.SLOTS
++WRITTEN = (0xF, 0x63F)             # the bytes the writer sets in the chosen slot (docs/SAVE_GAME.md 2.1)
++
++START_POINTS = {
++    'area01': {'route': 's87/route_a01', 'first': 'a01_00_', 'area': 1},
++    'area00': {'route': 's87/route_a00', 'first': 'a00_00_', 'area': 0},
++    'area01-revisit': {'route': 's87/route_a01r', 'first': 'a01r_00_', 'area': 1},
++}
++
++
++class Refused(Exception):
++    """A start point that cannot be built (the message says why)."""
++
++
++def sha256(data):
++    return hashlib.sha256(data).hexdigest()
++
++
++def image_key(name):
++    return 'start:' + name
++
++
++def arrival(name, points=None):
++    """The recording state the start point is built from: the source state of
++    its route's first beat (the manifest's), checked against that snapshot's
++    own hash and against the first beat's first row (the area bytes)."""
++    points = START_POINTS if points is None else points
++    if name not in points:
++        raise Refused(f'unknown start point {name!r} (known: {", ".join(sorted(points))})')
++    p = points[name]
++    route = refs.capture(p['route'])
++    manifest = route / 'manifest.json'
++    if not manifest.is_file():
++        raise Refused(f'{name}: the recording {manifest} is missing')
++    beats = json.loads(manifest.read_text())['beats']
++    first = [b for b in beats if b.startswith(p['first'])]
++    if len(first) != 1:
++        raise Refused(f'{name}: {manifest} has {len(first)} beats named {p["first"]}* (want one)')
++    beat = beats[first[0]]
++    state = Path(beat['source_state']).resolve()
++    folder = state.parent
++    fork = refs.FORK.resolve()
++    if fork not in folder.parents:
++        raise Refused(f'{name}: the source state {state} is not a fork recording under {fork}')
++    ee, spad, snap = folder / 'eeMemory.bin', folder / 'scratchpad.bin', folder / 'snapshot.json'
++    for f in (ee, spad, snap):
++        if not f.is_file():
++            raise Refused(f'{name}: {f} is missing')
++    ram = ee.read_bytes()
++    want = json.loads(snap.read_text()).get('ee_sha256')
++    if sha256(ram) != want:
++        raise Refused(f'{name}: {ee} does not match its snapshot.json ee_sha256')
++    block = ram[BLOCK:BLOCK + SIZE]
++    if block[0] != p['area']:
++        raise Refused(f'{name}: the arrival block\'s area byte is {block[0]}, not {p["area"]}')
++    trace = route / first[0] / 'trace.json'
++    if not trace.is_file():
++        raise Refused(f'{name}: {trace} is missing')
++    row0 = json.loads(trace.read_text())['rows'][0]
++    if row0.get('area4') != block[:4].hex():
++        raise Refused(f'{name}: the first row of {first[0]} has the area bytes {row0.get("area4")}, '
++                      f'the state {block[:4].hex()}')
++    return {'name': name, 'folder': folder, 'beat': first[0], 'ram': ram, 'spad': spad.read_bytes(),
++            'ee_sha256': want, 'block': bytes(block)}
++
++
++def register(arrivals):
++    """The arrival images in the save harness, beside its own recordings."""
++    for a in arrivals:
++        key = image_key(a['name'])
++        S.IMAGES[key] = a['folder']
++        R.IMAGES[key] = (a['ram'], a['spad'])
++    S.BEATS = list(S.IMAGES)
++
++
++def save(tmp, a):
++    """00228A90 on both sides of the harness, each on its own host card:
++    returns the oracle's card folder (test_memcard_host.save_both checks the
++    two cards are byte-identical and the layout docs/SAVE_GAME.md section 2
++    records)."""
++    _end_ram, _end_spad, start, root = MH.save_both(tmp, 'save-' + a['name'], image_key(a['name']), SLOT, PORT,
++                                                    False)
++    assert start[BLOCK:BLOCK + SIZE] == a['block'], (a['name'], 'the save started from another block')
++    files = MH.card_files(root, PORT)
++    if sorted(files) != sorted(FILES):
++        raise Refused(f'{a["name"]}: the writer made {sorted(files)}')
++    slot = files[MH.SLOTS[SLOT]]
++    changed = [i for i in range(SIZE) if slot[i] != a['block'][i]]
++    if not set(changed) <= set(WRITTEN) or slot[0xF] != 1 or sum(slot) & 0xFF:
++        raise Refused(f'{a["name"]}: the saved slot is not the arrival block with +0xF and its check byte '
++                      f'(changed {[hex(i) for i in changed]})')
++    return root, files, len(S.MODELS['oracle'].order)
++
++
++def host_cards(root, n):
++    MH.HostCard.roots, MH.HostCard.dirs = [root] * n, ()
++
++
++def load(root, files, name):
++    """The original's load code over the card, on both sides of the load
++    harness: the enumeration lists only the saved slot; LOAD GAME's read puts
++    the slot into D_00810700."""
++    blk = files[MH.SLOTS[SLOT]]
++    S.CARD = {}
++    # the load enumeration 002283B0 from its first call
++    host_cards(root, 3)                # the oracle's pre-run, then both sides
++    b = L.rec(PORT) + L.helpers() + [(MC + 0x6C + n, 0xEE, 1) for n in range(5)]
++    b += [(MC + 0x74 + i, 0xEE, 1) for i in range(60)]
++    _ram, spad = S.make(LOAD_BEAT, {'b': b})
++    frames, value = L.prerun(bytes(spad), 0x2283B0, 400)
++    if value != 1:
++        raise Refused(f'{name}: the original load enumeration answered {value} on the card')
++
++    def listed(ee):
++        got = [ee.load(MC + 0x6C + n, 1) for n in range(5)]
++        assert got == [1 if n == SLOT else 0 for n in range(5)], (name, 'slots present', got)
++        assert ee.load(MC + 0x68) == 1, (name, 'count')
++        rec = bytes(ee.mem[MC + 0x74 + 12 * SLOT:MC + 0x80 + 12 * SLOT])
++        assert rec[:7] + rec[8:] == blk[0:6] + blk[0xA:0xB] + blk[0x50:0x54], (name, 'slot record', rec.hex())
++        return True
++    entries = S.run_both(('start-load', name), bytes(spad), [('call', 0x2283B0, (MC,))] * frames,
++                         check=listed)[2]
++    assert S.MODELS['oracle'].order == S.MODELS['native'].order, (name, 'load command order differs')
++    # LOAD GAME's read 00228B60 of the slot into D_00810700
++    host_cards(root, 3)
++    ram, spad = S.make(LOAD_BEAT, {'b': L.rec(PORT, SLOT) + L.helpers()})
++    assert bytes(ram[BLOCK:BLOCK + SIZE]) != blk, (name, 'the load RAM already holds the block')
++    frames, value = L.prerun(bytes(spad), 0x228B60, 40)
++    if value != 1:
++        raise Refused(f'{name}: LOAD GAME\'s read answered {value}')
++
++    def restored(ee):
++        assert bytes(ee.mem[BLOCK:BLOCK + SIZE]) == blk, (name, 'D_00810700 is not the saved slot')
++        assert S.cstr(ee.mem, L.PATH) == MH.SLOTS[SLOT], (name, 'the path')
++        return True
++    entries += S.run_both(('start-read', name), bytes(spad), [('call', 0x228B60, (MC,))] * frames,
++                          check=restored)[2]
++    assert S.MODELS['oracle'].order == S.MODELS['native'].order, (name, 'read command order differs')
++    return entries
++
++
++def setup(names, points=None):
++    """Every requested arrival (refusing before anything runs), then the
++    save harness over them. Returns the arrivals."""
++    arrivals = [arrival(n, points) for n in names]
++    MH.LIB = MH.build_lib()
++    register(arrivals)
++    S.setup()
++    S.Card = MH.HostCard               # both sides of the harness answer from em_memcard
++    return arrivals
++
++
++def build(names, out=OUT, points=None):
++    """Build, check and write each start point under `out`. Returns
++    {name: (status, folder, checks)}, status 'written' or 'up to date',
++    checks the save's card commands and the load's callee entries compared
++    on both sides."""
++    out = Path(out)
++    if out.is_symlink() or (out.exists() and not out.is_dir()):
++        raise Refused(f'{out} is not a folder')
++    arrivals = setup(names, points)
++    made = {}
++    with tempfile.TemporaryDirectory(prefix='em_start_saves_') as tmp:
++        for a in arrivals:
++            made[a['name']] = save(tmp, a)
++        L.setup()                      # the load lane on the same harness
++        S.Card = MH.HostCard
++        checks = {}
++        for a in arrivals:
++            root, files, commands = made[a['name']]
++            checks[a['name']] = (commands, load(root, files, a['name']))
++        result = {}
++        for a in arrivals:
++            _root, files, _n = made[a['name']]
++            result[a['name']] = write(out / a['name'], a, files) + (checks[a['name']],)
++    MH.LIB.em_memcard_reset()
++    return result
++
++
++def manifest(a, files):
++    return {
++        'name': a['name'],
++        'what': 'a start-point save: the original writer 00228A90 over the arrival state '
++                '(docs/SAVE_GAME.md section 7)',
++        'source': str(a['folder'].relative_to(refs.BUILD.resolve())),
++        'route_beat': a['beat'],
++        'ee_sha256': a['ee_sha256'],
++        'block_head': a['block'][:16].hex(),
++        'card': {'port': PORT, 'slot': SLOT, 'folder': 'slot%d' % (PORT + 1)},
++        'files': {k: sha256(v) for k, v in sorted(files.items())},
++    }
++
++
++def write(dest, a, files):
++    """The card under dest (a host card root) and its start.json; file by
++    file, only where different; anything else in dest refuses."""
++    dest = Path(dest)
++    want = {'slot%d/%s' % (PORT + 1, k): v for k, v in files.items()}
++    want['start.json'] = (json.dumps(manifest(a, files), indent=1) + '\n').encode()
++    dirs = {'slot1', 'slot2', 'slot%d/%s' % (PORT + 1, DIR)}
++    if dest.is_symlink() or (dest.exists() and not dest.is_dir()):
++        raise Refused(f'{dest} is not a folder')
++    if dest.exists():
++        for p in sorted(dest.rglob('*')):
++            rel = str(p.relative_to(dest))
++            if p.is_symlink() or not (rel in want and p.is_file() or rel in dirs and p.is_dir()):
++                raise Refused(f'{dest} holds {rel}, which this tool does not write: move it away first')
++    status = 'up to date'
++    for d in sorted(dirs):
++        (dest / d).mkdir(parents=True, exist_ok=True)
++    for rel, data in sorted(want.items()):
++        p = dest / rel
++        if not (p.is_file() and p.read_bytes() == data):
++            p.write_bytes(data)
++            status = 'written'
++    return status, dest
++
++
++def main(argv):
++    if argv == ['--list']:
++        for n, p in START_POINTS.items():
++            print('%-15s %s (%s*), block area %d' % (n, p['route'], p['first'], p['area']))
++        return 0
++    names = argv or list(START_POINTS)
++    if len(set(names)) != len(names):
++        print('build_start_saves: a start point is named twice', file=sys.stderr)
++        return 2
++    try:
++        result = build(names)
++    except AssertionError as ex:       # a check of the harness (the two sides, the card read back)
++        print(f'build_start_saves: refused: a check failed: {ex}', file=sys.stderr)
++        return 2
++    except Refused as ex:
++        print(f'build_start_saves: refused: {ex}', file=sys.stderr)
++        return 2
++    for n, (status, folder, (commands, entries)) in result.items():
++        print(f'{n}: {status}: {folder.relative_to(ROOT)} (the save: {commands} card commands, both sides equal; '
++              f'read back: {entries} callee entries equal to the original\'s)')
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main(sys.argv[1:]))
+diff --git a/tools/test_start_saves.py b/tools/test_start_saves.py
+new file mode 100644
+index 0000000..bb1a216
+--- /dev/null
++++ b/tools/test_start_saves.py
+@@ -0,0 +1,152 @@
++#!/usr/bin/env python3
++"""The start-point saves (tools/build_start_saves.py, docs/SAVE_GAME.md
++section 7): built by the ORIGINAL save writer from each area's arrival
++state, read back by the original's load code.
++
++1. All three start points built into a temporary folder: the builder runs
++   the original 00228A90 and its translation over the arrival RAM on two
++   host cards (byte-identical, the layout of docs/SAVE_GAME.md section 2),
++   then the original load enumeration 002283B0 and LOAD GAME's read
++   00228B60 and their translations over the opt_07 RAM (equal at every
++   callee entry; only the saved slot listed; D_00810700 = the slot).
++2. Each card checked again here from the recording files alone: the saved
++   slot is the arrival's D_00810700 (read from its eeMemory.bin) with +0xF
++   = 1 and the check byte that makes all 0x640 bytes sum to zero, the other
++   four slots one block with +0xF = 0 and the area bytes zero, start.json's
++   hashes the files'; the three slots differ from each other.
++3. Negative controls: a slot byte flipped, then EX.ico removed: the
++   original's enumeration refuses the card (the builder writes nothing);
++   an unknown name, an arrival whose area byte is not the expected one and
++   a missing recording are refused before anything runs; a card folder
++   holding a foreign file or a symlink is refused; a second write of the
++   same card changes nothing.
++4. If build/start_saves/<name> exists (python3 tools/build_start_saves.py),
++   it must equal the fresh build: a stale card fails.
++
++About 20 s, no EM_TEST_FULL variant (every start point every run).
++"""
++import json
++import os
++import sys
++import tempfile
++import time
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'tools'))
++import build_start_saves as B  # noqa: E402
++import test_memcard_host as MH  # noqa: E402
++
++BLOCK, SIZE = B.BLOCK, B.SIZE
++
++
++def tree(folder):
++    folder = Path(folder)
++    return {str(p.relative_to(folder)): p.read_bytes() for p in sorted(folder.rglob('*')) if p.is_file()}
++
++
++def refused(fn, text):
++    try:
++        fn()
++    except B.Refused as ex:
++        assert text in str(ex), ('refused for another reason', str(ex), text)
++        return
++    raise AssertionError(('not refused', text))
++
++
++def check_card(name, folder):
++    a = B.arrival(name)
++    raw = (a['folder'] / 'eeMemory.bin').read_bytes()
++    live = bytearray(raw[BLOCK:BLOCK + SIZE])
++    assert live[0] == B.START_POINTS[name]['area'], name
++    live[0xF] = 1
++    live[0x63F] = (0x100 - sum(live[:0x63F])) & 0xFF
++    files = tree(folder)
++    base = 'slot1/' + B.DIR + '/'
++    assert sorted(files) == sorted(['start.json'] + ['slot1/' + f for f in B.FILES]), (name, sorted(files))
++    slot = files[base + 'EX_DATA.00']
++    assert slot == bytes(live) and sum(slot) & 0xFF == 0, (name, 'EX_DATA.00 is not the arrival block saved')
++    others = {files[base + 'EX_DATA.%02d' % n] for n in range(1, 5)}
++    assert len(others) == 1, (name, 'the four other slots differ')
++    blank = others.pop()
++    assert len(blank) == SIZE and blank[0xF] == 0 and blank[:3] == bytes(3), (name, 'the New Game slots')
++    assert (Path(folder) / 'slot2').is_dir() and not any((Path(folder) / 'slot2').iterdir()), (name, 'slot2')
++    meta = json.loads(files['start.json'])
++    assert meta['name'] == name and meta['ee_sha256'] == a['ee_sha256'], name
++    assert meta['block_head'] == a['block'][:16].hex(), name
++    for rel, digest in meta['files'].items():
++        assert B.sha256(files['slot1/' + rel]) == digest, (name, rel)
++    return slot
++
++
++def negative_controls(tmp, made_root):
++    """The original's enumeration over damaged copies of a built card."""
++    a = B.arrival('area01')
++    good = tree(made_root)
++    for damage in ('flip', 'drop'):
++        root = Path(tmp) / ('damaged-' + damage)
++        for rel, data in good.items():
++            if rel.startswith('slot1/'):
++                (root / rel).parent.mkdir(parents=True, exist_ok=True)
++                (root / rel).write_bytes(data)
++        (root / 'slot2').mkdir(parents=True, exist_ok=True)
++        files = MH.card_files(root, 0)
++        if damage == 'flip':
++            p = root / 'slot1' / B.DIR / 'EX_DATA.00'
++            d = bytearray(p.read_bytes())
++            d[0x100] ^= 1
++            p.write_bytes(bytes(d))
++        else:
++            (root / 'slot1' / B.DIR / 'EX.ico').unlink()
++        refused(lambda: B.load(root, files, a['name']), 'the original load enumeration answered 3')
++
++
++def main():
++    t0 = time.time()
++    names = list(B.START_POINTS)
++    # refusals before anything runs
++    refused(lambda: B.arrival('area02'), 'unknown start point')
++    wrong = {'area01': dict(B.START_POINTS['area01'], area=0)}
++    refused(lambda: B.arrival('area01', wrong), 'area byte is 1, not 0')
++    missing = {'area01': dict(B.START_POINTS['area01'], route='s87/route_none')}
++    refused(lambda: B.arrival('area01', missing), 'is missing')
++    swapped = {'area00': dict(B.START_POINTS['area00'], first='a01_00_')}
++    refused(lambda: B.arrival('area00', swapped), 'beats named a01_00_*')
++    with tempfile.TemporaryDirectory(prefix='em_test_start_saves_') as tmp:
++        out = Path(tmp) / 'out'
++        result = B.build(names, out)
++        assert sorted(result) == sorted(names), result
++        slots = {}
++        for n, (status, folder, (commands, entries)) in result.items():
++            assert status == 'written' and folder == out / n, (n, status)
++            assert commands == 26 and entries > 0, (n, commands, entries)
++            slots[n] = check_card(n, folder)
++        assert len(set(slots.values())) == 3, 'two start points saved the same block'
++        # the write is file by file and refuses what it does not own
++        a = B.arrival('area01')
++        files = MH.card_files(out / 'area01', 0)
++        assert B.write(out / 'area01', a, files)[0] == 'up to date'
++        (out / 'area01' / 'notes.txt').write_bytes(b'x')
++        refused(lambda: B.write(out / 'area01', a, files), 'holds notes.txt')
++        (out / 'area01' / 'notes.txt').unlink()
++        (out / 'link').symlink_to(out / 'area01')
++        refused(lambda: B.write(out / 'link', a, files), 'is not a folder')
++        stale = out / 'area01' / 'slot1' / B.DIR / 'EX_DATA.01'
++        kept = stale.read_bytes()
++        stale.write_bytes(b'\0' * len(kept))
++        assert B.write(out / 'area01', a, files)[0] == 'written' and stale.read_bytes() == kept
++        negative_controls(tmp, out / 'area01')
++        # the developer's built cards, if any, are the fresh build
++        built = [n for n in names if (B.OUT / n).exists()]
++        for n in built:
++            assert tree(B.OUT / n) == tree(out / n), (n, 'build/start_saves is stale: '
++                                                         'run python3 tools/build_start_saves.py')
++    MH.LIB.em_memcard_reset()
++    print(f'{len(names)} start points built by the original writer and read back by the original load code '
++          f'(both sides equal); {len(built)} of build/start_saves current')
++    print('elapsed %.1f s' % (time.time() - t0))
++    print('start saves: PASS')
++
++
++if __name__ == '__main__':
++    main()

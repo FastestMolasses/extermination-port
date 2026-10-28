@@ -488,6 +488,92 @@ def check_dmg_load(ticks, run, state):
           f'their fade-outs as recorded ({lat[0][1]}, {lat[1][1]} frames)')
 
 
+# dmg_load_game's card (tools/test_level_smoke_damage.py copies the
+# area01 start-point card there, docs/SAVE_GAME.md section 7) and the slot
+# LOAD GAME reads: slot 1 on port 0 (EX_DATA.00).
+LOAD_GAME_CARD = Path(__file__).resolve().parents[1] / 'build/level_smoke_damage/dmg_load_game_card'
+LOAD_GAME_SLOT = 'slot1/BASCUS-97112-DS00-00/EX_DATA.00'
+
+
+def check_dmg_load_game(ticks, run, state, card=LOAD_GAME_CARD):
+    """dmg_load_game: dmg_00..dmg_03 as dmg_flame, the title's load screen
+    as dmg_load's way in, then LOAD GAME of slot 1 on port 0 (no recording
+    of a load exists: these are the original code's own steps, docs/
+    SAVE_GAME.md section 6.3). The title rows: the load mode (+0x14 = 2),
+    the slot choice, the screen's end with the done state (+0 = 3) and the
+    result 2 (+0x16), then one row of state 4 and none after it (001AB790
+    replaced the title task). The game task's states after the handoff
+    (+8, +9 from the tick log): 0 (001AD1A0), 2, then 3 / 5 (001ADF50) and
+    3 / 1 (the frame machine): never 1 (001AD230, the New Game reset) nor
+    3 / 0 (001AD360, the intro). The area bytes after the handoff are the
+    slot's, the placement is the slot's load pose (D_00810710..718 and the
+    heading D_00810724: 001B07C0 with D_00275BE0 = 1), D_00275BE0 is 0
+    again (001B0460), the health is the slot's D_00810858, and the card
+    folder is unchanged by the load."""
+    summary = flame_to_title(ticks, run, state, 'dmg_load_game')
+    block = (card / LOAD_GAME_SLOT).read_bytes()
+    assert len(block) == 0x640, ('dmg_load_game: the card\'s slot', len(block))
+    end = re.search(r'^level smoke: dmg_load_game: the load screen ends at counter (\d+) \(title state (\d+), '
+                    r'card (\d+) (\d+) (\d+) (\d+)\)$', run, re.M)
+    assert end, 'dmg_load_game: the load screen did not end'
+    end_c = int(end.group(1))
+    assert end.group(2) == '4' and end.group(3) == '3' and end.group(6) == '2', \
+        ('dmg_load_game: the load screen did not end with a game loaded (state 4, +0 = 3, +0x16 = 2)', end.groups())
+    port = [(int(m.group(1)) - 1, *(int(m.group(k)) for k in range(2, 11))) for m in TITLE_ROW.finditer(run)]
+    screen = [r for r in port if r[1] == 5]
+    assert any(r[7] == 2 for r in screen), 'dmg_load_game: 00225AC0 never stored the load mode (+0x14 = 2)'
+    assert any(r[5] == 1 and r[8] == 1 for r in screen), 'dmg_load_game: the slot choice (+0x15 = 1) never ran'
+    after = [r for r in port if r[0] >= end_c]
+    assert [r[1] for r in after] == [4], ('dmg_load_game: the title rows after the load (one row of state 4)',
+                                          [r[1] for r in after])
+    first = next(i for i, t in enumerate(ticks) if t['counter'] > end_c + 1)
+    # The whole-run checks describe the boot's game: they stop where the
+    # loaded game begins (test_level_smoke.py), as after dmg_flame's second
+    # New Game.
+    state['second_game'] = first
+    seq = []
+    for t in ticks[first:]:
+        post = bytes.fromhex(t['post'])
+        key = (post[0], post[1]) if post[0] == 3 else (post[0],)
+        if not seq or seq[-1] != key:
+            seq.append(key)
+        assert post[POST_AREA:POST_AREA + 3] == block[0:3], \
+            ('dmg_load_game: the area bytes after the load', t['counter'], post[POST_AREA:POST_AREA + 3].hex(),
+             block[0:3].hex())
+        if key == (3, 1) and post[3] == 1:
+            break
+    assert seq == [(0,), (2,), (3, 5), (3, 1)], ('dmg_load_game: the game task after the handoff', seq)
+    m = re.search(r'^level smoke: dmg_load_game: the loaded block\'s area ([0-9A-F]{2}) ([0-9A-F]{2}) '
+                  r'([0-9A-F]{2}), D_00275BE0 (\d+)$', run, re.M)
+    assert m and bytes(int(m.group(k), 16) for k in (1, 2, 3)) == block[0:3] and m.group(4) == '1', \
+        ('dmg_load_game: the block at the handoff', m and m.groups(), block[0:3].hex())
+    # 001AF150 (001AC070 state 5's r == 2): the settings and the screen
+    # offset back from the block (D_00810708 / 709 / 70C, D_00810754 / 756).
+    # On a card whose settings are the defaults this cannot tell a skipped
+    # 001AF150 from a run one.
+    m = re.search(r'^level smoke: dmg_load_game: the settings after 001AF150 (\d+) (\d+) (\d+) (-?\d+) (-?\d+) '
+                  r'offset (-?\d+) (-?\d+)$', run, re.M)
+    h754, h756 = struct.unpack_from('<hh', block, 0x54)
+    assert m and [int(m.group(k)) for k in range(1, 8)] == [block[8], block[9], block[0xC], h754, h756, h754, h756], \
+        ('dmg_load_game: the settings after 001AF150 are not the slot\'s', m and m.groups())
+    m = re.search(r'^level smoke: dmg_load_game: placed at counter (\d+) \(([-\d.]+),([-\d.]+),([-\d.]+)\) '
+                  r'yaw=([-\d.]+) health=([-\d.]+)$', run, re.M)
+    assert m, 'dmg_load_game: no placement after the load'
+    pose = struct.unpack_from('<3f', block, 0x10) + (struct.unpack_from('<f', block, 0x24)[0],)
+    hp = struct.unpack_from('<f', block, 0x158)[0]
+    got = [float(m.group(k)) for k in (2, 3, 4, 5, 6)]
+    want = list(pose) + [hp]
+    tol = (5e-4, 5e-6, 5e-4, 5e-6, 0.05)
+    assert all(abs(x - y) <= e for x, y, e in zip(got, want, tol)), \
+        ('dmg_load_game: the placement is not the slot\'s load pose and health', got, want)
+    assert re.search(r'^level smoke: dmg_load_game: control in the loaded area ', run, re.M), \
+        'dmg_load_game: no control in the loaded area'
+    print(f'level smoke: dmg_load_game: {summary}; LOAD GAME of slot 1: the screen to the result 2, 001AC070 '
+          f'state 4, the game task {" -> ".join("/".join(map(str, k)) for k in seq)} in area '
+          f'{block[0]:02X} {block[1]:02X} {block[2]:02X}, placed at the slot\'s load pose '
+          f'({pose[0]:.3f}, {pose[1]:.3f}, {pose[2]:.3f}, heading {pose[3]:.5f}) with health {hp:.1f}')
+
+
 def check_dmg_crevice_fall(ticks, run, state):
     c = [crow(r) for r in capture('dmg_06_crevice_fall')['rows']]
     p = prows(ticks, phase_start(run, 'dmg_crevice_fall', ticks))
