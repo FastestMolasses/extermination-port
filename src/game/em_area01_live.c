@@ -339,6 +339,40 @@ static int hull_record(void *ctx,const EmActor *body,uint8_t out[EM_ACTOR_RECORD
 }
 static const uint8_t *hull_slot(void *ctx,uint32_t address,uint32_t size)
 { return em_area01_model_slot_bytes(&((EmArea01Live *)ctx)->model,address,size); }
+/* --- AREA01 revisit: the player's hull for 0019AA80 / 001A7280 (the
+ * collision view's player_chain). D_008102B0's +0x00, +0x09, +0x58, +0x5C
+ * and +0x110 slot words are read through the player view into a call-local
+ * record; em_area01_hull_chain borrows its +0x58 chain from the delivered
+ * resources and copies the slots' +0x90 matrices. */
+static int player_hull_record(void *ctx,const EmActor *body,uint8_t out[EM_ACTOR_RECORD_SIZE])
+{
+    (void)body;
+    memset(out,0,EM_ACTOR_RECORD_SIZE);
+    const uint8_t *p=bytes(ctx,EM_AREA01_PLAYER_BASE,0x60,0);
+    if(!p)return -1;
+    memcpy(out,p,0x60);
+    if(out[9]>EM_OWNER_SERVICES_MAX_BONES)return -1;
+    if(out[9]) {
+        if(!(p=bytes(ctx,EM_AREA01_PLAYER_BASE+0x110u,4u*out[9],0)))return -1;
+        memcpy(out+0x110,p,4u*out[9]);
+    }
+    return 0;
+}
+static const uint8_t *player_hull_slot(void *ctx,uint32_t address,uint32_t size)
+{ return bytes(ctx,address,size,0); }
+static const uint8_t *player_hull_rest(void *ctx,uint32_t address,uint32_t *size)
+{ (void)ctx;return em_area11_roger_player_hull_rest(address,size); }
+static EmArea01HullView s_player_hull;
+static int player_chain(void *ctx,EmActor *player,EmCollHullChain *out)
+{
+    uint8_t record[EM_ACTOR_RECORD_SIZE];
+    if(!player || player_hull_record(ctx,NULL,record)<0)return -1;
+    player->status=record[0];
+    memcpy(&player->w58,record+0x58,4);memcpy(&player->w5C,record+0x5C,4);
+    if(!out)return 0;
+    s_player_hull.host=(EmArea01HullHost){ctx,player_hull_record,player_hull_rest,player_hull_slot};
+    return em_area01_hull_chain(&s_player_hull,player,out);
+}
 int em_area01_live_hull_chain(void *ctx,const EmActor *body,EmCollHullChain *out)
 {
     EmArea01Live *l=ctx;
@@ -924,6 +958,7 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_live_resume(l)<0)return -1;
         return rc;
     }
+    case 0x0019AA80u: /* the AREA01 revisit's 0x8282F0 probe */
     case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
     case 0x001A5C30u: case 0x0019AD00u: {
@@ -1179,6 +1214,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
     collision.file.address=ld->d28A490[0x42];collision.file.d28A5A8=ld->d28A490[0x46];
     collision.file.bytes=em_module_loader_memory_rest(h->loader,collision.file.address,&collision.file.size);
     collision.file_rest=collision_file_rest;
+    collision.player_chain=player_chain;
     const uint8_t *count=em_module_loader_memory(h->loader,collision.file.d28A5A8,2);
     if(!count)return fail(l,0x0028A5A8u);
     memcpy(&collision.file.d28A5A8_value,count,2);

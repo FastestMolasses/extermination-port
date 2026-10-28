@@ -265,6 +265,14 @@ static int get(EmArea01CollisionView *v,uint32_t a,void *out,uint32_t n)
     if(!p&&!em_area01_collision_view_owns(v,a,n))p=v->host.bytes(v->host.ctx,a,n,0);
     if(!p)return fail(v,a,1);memcpy(out,p,n);return 0;
 }
+/* 0019AA80's hull world: the player's call-local record and chain. */
+typedef struct { EmActor actor; EmArea01CollisionView *v; } PlayerHull;
+static int player_hull_chain(void *ctx,const EmActor *body,EmCollHullChain *out)
+{
+    PlayerHull *ph=ctx;
+    if(body!=&ph->actor||!out)return -1;
+    return ph->v->host.player_chain(ph->v->host.ctx,&ph->actor,out);
+}
 int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
 {
     if(!v||!c||v->fault||v->active)return fail(v,c?c->function:0,1);
@@ -301,6 +309,8 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
             mover_x=v->host.bytes(v->host.ctx,at+0xB0,4,1);mover_z=v->host.bytes(v->host.ctx,at+0xB8,4,1);
             if(!mover_x||!mover_z)return fail(v,at+0xB0,1);
         }break;}
+    case 0x19AA80:
+        if(c->na<3||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;break;
     case 0x19F1A0:
         if(c->na<2||get(v,(uint32_t)c->a[0],a,12)<0)return -1;break;
     case 0x19ED80:
@@ -328,6 +338,37 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
          * it); bit 31 added the hit delta to the actor's x and z. */
         v->host.shared->move_last=1;
         if(mover_x){memcpy(mover_x,&mover.position[0],4);memcpy(mover_z,&mover.position[2],4);}
+        break;}
+    case 0x19AA80:{
+        /* 0019AA80(a0, a1, a2) (byte-matched decomp C): the segment a0 ->
+         * a1 into 0x70003190 / 0x700031A0 (w = 1.0), 0x700031D4 = 0, then
+         * 001A7280(a2 & 0xFFFF), the player's hull lock
+         * (em_coll_grid_hull); a hit gives 1, a miss 0 with 0x700031D0 = 0;
+         * 0x700031D8 = the result. The AREA01 revisit's 0x8282F0 probe.
+         * The lock reads the player through a call-local record (the
+         * host's player_chain) and stores him as the hit entity, which is
+         * the view's player identity. */
+        PlayerHull ph;memset(&ph,0,sizeof ph);ph.v=v;
+        if(!v->host.player_chain||v->host.player_chain(v->host.ctx,&ph.actor,NULL)<0)return fail(v,0x1A7280,4);
+        const EmCollHullWorld hw={&ph,player_hull_chain,&ph.actor};
+        for(int k=0;k<3;k++){s->start[k]=a[k];s->end[k]=b[k];}
+        s->start[3]=s->end[3]=1.0f;s->entity=NULL;
+        EmCollSegmentFaceScratch *f=seg->face;
+        EmCollHullScratch h;memset(&h,0,sizeof h);
+        memcpy(h.start,s->start,12);memcpy(h.end,s->end,12);memcpy(h.point,s->point,12);
+        memcpy(h.cell_normal,s->cell_normal,12);h.cell_class=s->cell_class;
+        h.word_1c=f->hull_word_1c;h.word_20=f->hull_word_20;h.entity=NULL;
+        r=em_coll_grid_hull_001A7280(&hw,&h,(uint32_t)c->a[2]&0xFFFFu);
+        if(r<0)break;
+        if(h.entity&&h.entity!=&ph.actor){r=-1;break;}
+        memcpy(s->point,h.point,12);memcpy(s->cell_normal,h.cell_normal,12);s->cell_class=h.cell_class;
+        f->hull_word_1c=h.word_1c;f->hull_word_20=h.word_20;
+        s->entity=h.entity ? (const EmActor *)decode(v,0x008102B0u) : NULL;
+        if(h.entity&&!s->entity){r=-1;break;}
+        if(h.record_cell){s->record=EM_COLL_PROBE_RECORD_CELL;s->node=-1;}
+        r=r!=0;
+        if(!r){s->record=EM_COLL_PROBE_RECORD_NONE;s->node=-1;}
+        s->kind=r;
         break;}
     case 0x19F1A0:r=em_coll_probe_0019F1A0(grid(v),s,a,(uint32_t)c->a[1]);break;
     case 0x19ED80:r=em_coll_probe_0019ED80(grid(v),s,node);break;

@@ -12,6 +12,17 @@ static uint64_t cv_generation(void *ctx){(void)ctx;return CV.generation;}
 static uint8_t cv_stack[0x100000];
 static uint8_t *cv_fallback(void *ctx,uint32_t a,uint32_t n,int write)
 { Bridge *b=ctx;(void)write;if(a>=0x7F000000u&&n&&a-0x7F000000u<=sizeof cv_stack&&n<=sizeof cv_stack-(a-0x7F000000u))return cv_stack+(a-0x7F000000u);return a<=b->ram.size&&n<=b->ram.size-a?(uint8_t *)b->ram.ram+a:NULL; }
+/* 0019AA80's player hull: the bridged 0x8102B0 record's words from the
+ * test RAM and its chain through the segment oracle's RAM chain reader. */
+static int cv_player_chain(void *ctx,EmActor *player,EmCollHullChain *out)
+{
+    Bridge *b=ctx;int i=find(b,0x008102B0u);
+    if(i<0||!b->hulls.chain)return -1;
+    const uint8_t *r=b->ram.ram+0x008102B0u;
+    player->status=r[0];memcpy(&player->w58,r+0x58,4);memcpy(&player->w5C,r+0x5C,4);
+    if(!out)return 0;
+    return b->hulls.chain(b->hulls.context,&b->rec[i],out);
+}
 int cv_setup(Bridge *b,BState *st,uint32_t file,uint32_t file_size,uint32_t table,uint32_t fourth)
 {
     memset(&CV,0,sizeof CV);CV.b=b;CV.generation=1;
@@ -19,7 +30,8 @@ int cv_setup(Bridge *b,BState *st,uint32_t file,uint32_t file_size,uint32_t tabl
     b->cells.ranks=&b->grid;b->cells.grid=&b->emcl;CV.shared.word_31BC=fourth;
     EmArea01CollisionHost h={.shared=&CV.shared,.segment=&b->seg,.move=&CV.move,
         .file={.address=file,.bytes=b->ram.ram+file,.size=file_size,.d28A5A8=table,.d28A5A8_value=b->table.count},
-        .ctx=b,.address=cv_address,.identity=cv_identity,.generation=cv_generation,.bytes=cv_fallback};
+        .ctx=b,.address=cv_address,.identity=cv_identity,.generation=cv_generation,.bytes=cv_fallback,
+        .player_chain=cv_player_chain};
     return em_area01_collision_view_bind(&CV.view,&h);
 }
 /* A loader re-mapping of the file after bind (a sub-area bank delivery

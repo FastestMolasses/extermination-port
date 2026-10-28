@@ -27,6 +27,12 @@ typedef struct {
     const void *(*identity)(void *, uint32_t address);
     uint64_t (*generation)(void *);
     uint8_t *(*bytes)(void *, uint32_t, uint32_t, int);
+    /* Optional: the player's hull for 001A7280 (0019AA80): `player` gets
+     * D_008102B0's +0x00, +0x58 and +0x5C words and, when `out` is not
+     * NULL (the lock asks only past its +0x58 / +0x00 tests), its +0x58
+     * chain and bone matrices (valid until the next request). NULL: 0019AA80
+     * faults. */
+    int (*player_chain)(void *, EmActor *player, EmCollHullChain *out);
 } EmArea01CollisionHost;
 
 typedef struct {

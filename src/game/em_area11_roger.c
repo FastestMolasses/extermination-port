@@ -241,6 +241,17 @@ const uint8_t *em_area11_roger_door_bank_rest(uint32_t address,uint32_t *size)
     return r->bytes+address-r->address;
 }
 
+const uint8_t *em_area11_roger_player_hull_rest(uint32_t address,uint32_t *size)
+{
+    if (!size || load_resources()<0) return NULL;
+    *size=0;
+    const Region *r=region_at(R.table[0x3A],1);
+    if (!r || r->address!=R.table[0x3A] || address<r->address ||
+        address-r->address>=r->size) return NULL;
+    *size=r->size-(address-r->address);
+    return r->bytes+address-r->address;
+}
+
 const uint8_t *em_area11_roger_library_rest(uint32_t address,uint32_t *size)
 {
     if (!size || load_resources()<0) return NULL;

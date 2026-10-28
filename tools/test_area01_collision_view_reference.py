@@ -128,6 +128,12 @@ def main():
             ground_stage=[(a,struct.pack('<4f',*p,0)+struct.pack('<4f',0,80,0,0)),(P.PLAYER,bytes(actor))]
             for mask in (0,2,4,6,0x80000006):check(0x19AB20,(P.PLAYER,a,a+16,mask),case,ground_stage)
             check(0x19B4C0,(P.PLAYER,a,a+16,6),case,ground_stage)
+            # 0019AA80 (the AREA01 revisit's 0x8282F0 beam probe): the
+            # player's hull lock 001A7280 over a segment past him and one
+            # through his body.
+            for seg in ((p,to),((pos[0]-20,pos[1]+5,pos[2]),(pos[0]+20,pos[1]+5,pos[2]))):
+                beam=[(a,struct.pack('<4f',*seg[0],0)+struct.pack('<4f',*seg[1],0)),(P.PLAYER,bytes(actor))]
+                for mask in (0x20,0xFFFF0020):check(0x19AA80,(a,a+16,mask),case,beam)
             # 0019AD00 (the move probe 00129780's selectors 2 / 7 call in
             # AREA00): segment (actor +0xB0.x, target.y, actor +0xB8.z) ->
             # target through the view's move adapter (export, walk, import).
@@ -264,6 +270,7 @@ def main():
     for fn in (0x19ED80,0x1A4030,0x1A50A0,0x1A5C30):assert hits.get((fn,1),0)>0
     assert hits.get((0x19AB20,4),0)>0 and hits.get((0x19B4C0,4),0)>0
     assert moves>0 and any(fn==0x19AD00 for fn,_ in hits)
+    assert hits.get((0x19AA80,0),0)>0 and hits.get((0x19AA80,1),0)>0
     print(f'PASS: {count} original collision calls on {len(beats)} AREA01 snapshots ({moves} 0019AD00 move probes); {contracts} canonical aliases, pointer commits, metadata and refusal checks')
     print('Different-area end snapshot excluded:',outside)
     print('results:',{hex(fn)+':'+str(value):number for (fn,value),number in sorted(hits.items())})
