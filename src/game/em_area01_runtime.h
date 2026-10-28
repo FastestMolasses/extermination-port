@@ -10,6 +10,8 @@
 #include "game/em_area01_exitb.h"
 #include "game/em_area01_room.h"
 #include "game/em_area01_side.h"
+#include "game/em_area01_revisit.h"
+#include "game/em_area00_return.h"
 
 typedef struct {
     uint32_t function, sp;
@@ -41,6 +43,12 @@ typedef struct {
     EmArea01Exitb exitb;
     EmArea01Room room;
     EmArea01Side side;
+    /* The AREA01 revisit owners and the AREA01 routines of the AREA00
+     * return (em_area01_runtime_revisit.inc). */
+    EmArea01RevisitHooks revisit;
+    EmArea01RevisitFault revisit_fault;
+    EmArea00ReturnHooks ret;
+    EmArea00ReturnFault ret_fault;
     uint32_t sp, fault_address;
     int fault;
     unsigned area;

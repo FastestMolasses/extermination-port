@@ -53,8 +53,11 @@
  * entries with a result) a NULL result pointer. A hook that re-enters an
  * entry with the same fault record is not covered.
  *
- * Unbound: nothing in the port calls these entries yet (level-3/4 side
- * track; docs/AREA01_REVISIT.md "Binding").
+ * Bound (2026-10-28): em_area01_runtime_revisit.inc dispatches the external
+ * entries from the AREA01 runtime and routes every hook back through it by
+ * address (a callee without a worker faults there); 0x8282F0 is served by
+ * em_area01_gun_aux. tools/test_area01_revisit_runtime_reference.py checks
+ * the binding; docs/AREA01_REVISIT.md "Binding".
  *
  * stdint only; floats follow the EE model of em_ee_float.h.
  */

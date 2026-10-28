@@ -98,7 +98,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c src/game/em_area00_state.c src/game/em_area00_overlay.c \
            src/game/em_area01_actor_view.c src/game/em_area01_player_view.c src/game/em_area01_scene_view.c \
-           src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_live.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area01_pickup_live.c src/game/em_area01_effects_services.c src/game/em_area01_timeline.c src/game/em_area01_audio_services.c \
+           src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_live.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area00_return.c src/game/em_area01_pickup_live.c src/game/em_area01_effects_services.c src/game/em_area01_timeline.c src/game/em_area01_audio_services.c \
            src/game/em_area01_model_draw.c src/game/em_area01_door_live.c \
            src/game/em_area01_collision_view.c src/game/em_area01_interaction_live.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_indicator_live.c src/game/em_area01_prop_live.c src/game/em_area01_gun_aux.c src/game/em_area01_shared_services.c src/game/em_area01_light_live.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c src/game/em_area01_math_player.c \
@@ -1856,6 +1856,9 @@ test-area01-model-draw-reference:
 	python3 tools/test_area01_model_draw_reference.py
 test-area01-runtime-reference:
 	python3 tools/test_area01_runtime_reference.py
+.PHONY: test-area01-revisit-runtime-reference
+test-area01-revisit-runtime-reference:
+	python3 tools/test_area01_revisit_runtime_reference.py
 test-area01-door-live-reference:
 	python3 tools/test_area01_door_live_reference.py
 test-level2-dynamic-vu-reference:

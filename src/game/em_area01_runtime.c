@@ -54,6 +54,7 @@ CALL_ADAPTER(side_call, EmArea01SideCall)
 
 #include "game/em_area01_runtime_overlay.inc"
 #include "game/em_area00_runtime_overlay.inc"
+#include "game/em_area01_runtime_revisit.inc"
 
 /* 001F4E20 is already translated by the AREA00 FX owner. Its only
  * callee keeps both address registers and adds the original second float. */
@@ -92,6 +93,7 @@ int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *h
     overlay_workers(r); r->overlay.w_callback = overlay_callback;
     r->overlay00.ctx = r; r->overlay00.view = bytes;
     overlay00_workers(r); r->overlay00.w_callback = overlay_callback;
+    revisit_workers(r);
     r->sys.ctx = r; r->sys.view = bytes; r->sys.call = sys_call;
     r->exita.ctx = r; r->exita.view = bytes; r->exita.call = exita_call;
     r->exitb.ctx = r; r->exitb.view = bytes; r->exitb.call = exitb_call;
@@ -146,6 +148,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 0 && c->function >= 0x00823500u)
         return dispatch_overlay00(r, c);
     int rc;
+    if (dispatch_revisit(r, c, &rc))
+        return rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;
     uint64_t u64 = 0;
@@ -267,6 +271,8 @@ int em_area01_runtime_call(EmArea01Runtime *r, EmArea01Call *c)
         else if (r->exitb.fault) address = r->exitb.fault_address;
         else if (r->room.fault) address = r->room.fault_address;
         else if (r->side.fault) address = r->side.fault_address;
+        else if (r->revisit_fault.code) address = r->revisit_fault.address;
+        else if (r->ret_fault.code) address = r->ret_fault.address;
         return fail(r, address);
     }
     return r->fault ? -1 : 0;
