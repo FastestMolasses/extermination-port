@@ -56,6 +56,11 @@ int em_page_draw_cba50(EmPageDraw *draw, int32_t slot, int32_t x, int32_t y, int
                        int32_t height, const uint8_t *text, uint32_t avail,
                        const EmMessageTextStyle *style);
 int em_page_draw_background(EmPageDraw *draw, uint64_t tex0);
+/* 0020A7A0 already stepped at its call time (em_status_background_live_step,
+ * the bound pages' sink: STATUS_FIELD.md 3f): the render draws that step's
+ * sprites (em_status_background_render_step with `token`) instead of
+ * stepping D_002655A0 again. */
+int em_page_draw_background_step(EmPageDraw *draw, uint64_t tex0, uint32_t token);
 /* One 00208AD0 arc (the health gauge's 24-float descriptor, drawn as
  * em_status_hub_ui draws it: em_item_geometry_arc's strip). */
 int em_page_draw_arc(EmPageDraw *draw, const float descriptor[24]);

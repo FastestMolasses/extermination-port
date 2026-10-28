@@ -40,6 +40,16 @@ the census rows), and since the one-owner step (2026-09-27, census 1.28)
 | 001A97B0 | BM | missing | verified-unbound | Class-0xD entries (status 1; type 3 with +0xD 0 and +0x56 != 0, type 5, or type 6 with +0xD 2) against the class-2 list (status 1, class byte not 0xA): inner types 0, 2..7, 9..11, 16..19, and 1 unless (+0xD 3 and (+5 == 9 or D_00810354 < 50.0)); handler by the outer type: 5 -> 001A9360, 3 -> 001A96F0, else 001A9480. |
 | 001A9B10 | BM | missing | verified-unbound | Class-2 type-0 entries whose +0x2D4 word >> 8 is 1..3 against the class-4 list: type 7 with a nonzero +0x38 float -> 001A99E0(outer, inner). |
 | 001A99E0 | BM (matching wave 2026-10-28) | missing | live (2026-10-28) | 001A9B10's pair callee: when the outer (class-2) record is within 67 + the first float of its +0x30 record of the inner (class-4 type-7) record in x/z (0011E748 over dx dx + dz dz, the sum in the accumulator) and within 8 in y (0011DF78), its x/z are rotated about the inner point by the inner +0x38 angle a (x = f.x + (dx cos a + dz sin a), z = f.z + (dx -sin a + dz cos a), cosf 0011DE90 / sinf 0011E2A8 called once per term), its +0xC4 heading = 001B1470(heading + a), and 0x70003B88 = 0 (the inner walk ends). Not reached on the census route. Executed on its own by the oracle. |
+| 001A8840 | BM | missing (AREA01 had its SYS owner) | live (2026-10-28) | 001A8BE0's type-3 callee (player, entry): the player's +0xA0 point in the entry's box (half sizes at its +0x30 record, re-read per axis) \|dx\| <= w[0], \|dz\| <= w[2], \|dy\| <= 1.5 + w[1] (0011DF78); inside, by the entry's +0xD: 0 -> entry +0x0A = 1, 00187EC0(6, entry +0x56) (D_008102BB = 1, D_008104EA, D_008105CE: player-record bytes), and with the entry's +0xB set, D_00810707 != 1 and the player's +0 at 1: player +0x22C = 5.0, +0 = 3; 1 -> 00187EC0(7, 0); any contact zeroes 0x70003B86. An area that binds its own SYS owner (AREA01) keeps it. Executed on its own by the oracle. |
+| 001A8970 | BM | missing | live (2026-10-28; one path fails stop) | 001A8BE0's type-5 callee (player, entry): \|x\| and \|z\| gates against the entry's +0x30 record, \|player +0xA4 + h - entry.y\| <= h + w1[1] (h = the player's height / 2), the entry's +0x34 behaviour(entry, player, player + 0xB0); reaction (+0xD) 5: player +0xF = 0xA, +0x224 = +0x220, +0 = 3, +0x70 = normalize(player +0xA0 - entry +0xB0, w = 1); otherwise with the player's +0 at 1: +0xD 0xE and 0021BD10 -> +0xF = 2, the speed table D_0024A7C0 / D_0024A800 (by D_0081070A) into +0x22C and +0x224 (reactions 9, 0xC, 0xD) or +0x224, +0 = 3 and the same direction; both commits and a player +0 other than 1 zero 0x70003B86. Reactions 6 and 7 with the player's +0 at 1 compare the caller's f20 register (never set in 001A8970; it comes from 001AAD00's caller chain): the port faults there (0x1A8AC4). Executed on its own by the oracle. |
+| 001A8E80 | BM | missing | live (2026-10-28) | 001A9000's callee for class-4 types 6 / 0x1C / 0x1E / 0x1F / 0x50: sqrt(dx dx + dz dz) (inner - outer, the sum in the accumulator) <= 7 + the outer radius and \|6 + inner.y - outer.y\| <= 8: inner +0x36 = 0x14, 0x70003B88 = 0. Executed on its own by the oracle. |
+| 001A8F40 | BM | missing | live (2026-10-28) | 001A9000's callee for class-4 types 0xA / 0xC / 0x18 / 0x2A: 0x700038A0 = inner +0xB0 - outer +0xB0 (001028D0, four lanes), w = 0, 0x70003A20 = its xyz dot (00102738), 0x70003A24 = (3 + the outer radius) squared in place; within: inner +0x36 = 0x2014, 0x70003B88 = 0. Executed on its own by the oracle. |
+| 001A9360 | BM | missing | live (2026-10-28) | 001A97B0's callee for an outer type 5: 00183C40(inner, 0x700038B0) (the anchor point: the +0xB0 point unless the class byte & 0x1F is 2; class 2 by type the +0xC0 point of the node at +0x118 / +0x11C / +0x120 / +0x124 / +0x130 / +0x148, type 16 the point with y + 6, type 18 (0, 6, 0, 1) through the matrix at (+0x110) + 0x90 by 001026A0), the scratch distance against (r0 + r1) squared; within: 001A91C0(outer, inner, sqrt) (+0x36 by the outer +0xD: 0x3C, 0x64, 0x50 / 0x1E or the +0x94 table by distance < 10, 5, 0x28, none for 11 / 14, then \|= 0x2000), inner +0x70 = the normal (00102760, w = 1), 0x70003B88 = 0. Executed on its own by the oracle. |
+| 001A96F0 | BM (matching wave 2026-10-28) | missing | live (2026-10-28) | 001A97B0's callee for an outer type 3: the inner +0xB0 point in the outer box, \|dy\| <= 1.0 + w[1]: inner +0x54 = 1, 0x70003B86 = 0. Executed on its own by the oracle. |
+| 001A9480 | BM | missing | live (2026-10-28) | 001A97B0's callee for other outer types: the 001A9360 distance test; for an inner type 0xB that fails it, the twelve D_0024A840 node indices in order (the node at inner +0x110 + 4 index, its +0xC0 point within 6 + r0); on a hit inner +0x36 = 0x400A, inner +0x70 = outer +0xC0 (00102948), 0x70003B88 = 0. Executed on its own by the oracle. |
+| 001A9E00 | BM | missing (AREA01 had its SYS owner) | live (2026-10-28) | 001A9F60's callee (player, entry): within r0 + r1 in x/z and \|player +0xA4 + h - entry.y\| <= h + h1 / 2 with the entry's +3 at 0: ang = 001B1470(0011E620(dx, dz)), entry x/z = player +0xA0 / +0xA8 - sum 0011E2A8(ang) / sum 0011DE90(ang), entry +0xB = 1 unless the player's +0 has bit 2. Executed on its own by the oracle. |
+| 001AA000 | BM | missing (AREA01 had its SYS owner) | live (2026-10-28) | 001AA140's callee (a, b, a + 0x1F0, b + 0x1F0): nothing unless the +0x2D4 words match; 0x200 zeroes 0x70003B86 only; within ra + rb in x/z and sqrt(dy dy) <= ra[1] + rb[1]: a's x/z = b's + r 0011E2A8(ang) / r 0011DE90(ang), 0x70003B86 = 0. Executed on its own by the oracle. |
+| 0021BD10 | BM | missing | live (2026-10-28) | 001A8660's and 001A8970's gate: 1 when the player's +0 is 1 and 0021BB00(player) (the +0x1F0 state list, 0x2C by +0xD, 0xF by +4 / +5 / +6) is 0. Executed on its own by the oracle. |
 | 001A9D20 | BM | missing | verified-unbound | Class-1 x class-2 (counts in registers, re-read from the globals per outer entry): active inner types 0, 1, 4..7 -> 001A9C40(outer, inner). |
 | 001A9C40 | C, no NEARMISS marker (FUNCTIONS.csv: undecompiled); translated from the .s | missing | live (2026-10-02) | 001A9D20's pair callee: unless the inner record's +0 has bit 1, the distance of the two +0xB0 points (0011E748 over dx dx + dy dy + dz dz, the sum in the accumulator) against the inner record's radius by its +3 type (D_0026DB30: types 0 / 4 15.0, 1 / 5 / 6 / 7 20.0, any other none); inside it the inner +0x0A gets bit 0. First reached by the AIM capture aim_04 (an impact marker 0018ABA0, class 1, against Roger, class 2). Executed on its own by the oracle (section 3). |
 | 001A9F60 | BM | missing | verified-unbound | Unless 0x70003B8D or D_0028A9A0: class-2 entries with class byte 2, active, type 0 -> 001A9E00(player, entry). |
@@ -131,7 +141,8 @@ Read from the captures:
   there.
 - None of the thirteen worker callees (001A8840 .. 001AA000, 0021BD10) and
   neither 001000C0 nor the behaviour 0x00823580 ran anywhere on the census
-  route.
+  route. (Since 2026-10-28 every one of them is translated and bound; see
+  the last section.)
 
 ## 3. Verification
 
@@ -531,17 +542,16 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
      (em_effect_original_00102760); the behaviour call at the entry's +0x34
      (for AREA11's 0x00823580, an overlay routine with no translation yet,
      so `em_coll_list_passes_unported_behaviour` until it has one);
-     `em_coll_list_passes_unported` for the pair workers 001A8840,
-     001A8970, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480
-     and 001A9E00 (001A9C40 is bound to its translation
-     `em_coll_list_passes_001A9C40` since 2026-10-02, 001A8CE0 to
-     `em_coll_list_passes_001A8CE0` since 2026-10-08, 001A99E0 to
-     `em_coll_list_passes_001A99E0` since 2026-10-28); `em_coll_list_passes_unported_001AA000`
-     and `em_coll_list_passes_unported_0021BD10` for those two. Keep each
-     binding until its callee is translated. None of these callees ran on
-     the census route, so the route never reaches the fault. A reached one
-     returns -1, and `passes->fault` holds the original address of the call
-     site.
+     every pair worker is bound to its translation
+     (`em_coll_list_passes_<address>`: 001A9C40 since 2026-10-02, 001A8CE0
+     since 2026-10-08, 001A99E0 and the rest, 001A8840, 001A8970,
+     001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480, 001A9E00, 001AA000
+     and 0021BD10, since 2026-10-28; AREA01 keeps its SYS owners for
+     001A8840, 001A9E00 and 001AA000). The `em_coll_list_passes_unported*`
+     bindings remain as the explicit fail-stop for a binder without a
+     translation (the oracle's fault cases use them). None of these callees
+     ran on the census route. A worker that faults returns -1, and
+     `passes->fault` holds the original address of the call site.
 5. **One storage for 0x70003B86 / 0x70003B88.** `EmCollProbeState.span_lo`
    / `span_hi` (the walkers) and `EmCollListGlobals.s3B86` / `s3B88` (the
    list passes) are the same two scratchpad words. In the original, the
@@ -562,10 +572,12 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
 - The hooks are live over empty class-1/2/0xD lists: records (item 4's
   original-layout images), D_0024A740 and the behaviour 0x00823580 are
   fail-stop. Item 2 needs the grid record bytes and its caller (L09).
-- The callees still bound as `em_coll_list_passes_unported*` (section 4
-  item 4; 001A9C40, 001A8CE0 and 001A99E0 are translated) and the +0x34
-  behaviour are not translated. They are hooked in the oracle and bound as fail-stop workers; the census
-  shows none of them on the route.
+- Every pair callee is translated (section 4 item 4); the +0x34 behaviour
+  is whatever the binder supplies (AREA11's flame 0x00823580; any other
+  routine faults at the call). 001A8970's reaction-6/7 path reads its
+  caller's f20 register and faults (0x1A8AC4) until the coordinator can
+  supply that register's value. The census shows none of them on the
+  route.
 - The route evidence for the passes is the snapshot lists, not the
   frame-by-frame lists. The census shows every pass running every frame from
   S2 on, but it does not record which branches ran.
@@ -687,3 +699,50 @@ byte-matches it (src/func_001A99E0.c, matching wave 2026-10-28), so:
   written unwrapped all fail; computing dx (-sin a) as -(sin a dx)
   survives (equivalent in the float model). Inside the passes it stays a
   hooked boundary.
+
+## 2026-10-28: the remaining pair callees bound (port-stub group G)
+
+The pair callees still bound as `em_coll_list_passes_unported*` (001A8840,
+001A8970, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480, 001A9E00,
+001AA000) and 001A8660's 0021BD10 are byte-matched in the decomp, so each
+is translated statement for statement in em_coll_list_passes.c (section 1
+rows), with its callees: 00187EC0 (three player-record bytes), 00183C40 (the
+anchor point into 0x700038B0, type 18 through 001026A0), 001A91C0 (the
++0x36 response), 0021BB00 (over the player record), and the SDK 001028D0 /
+00102738 / 00102948 (em_sdk_vu0.h and the VU0 model; quadword addresses
+ignore their low four bits), 00102760 (the `normalize` worker), 0011E748 /
+0011E620 / 0011DE90 / 0011E2A8 / 0011DF78 (em_sdk_math_original) and
+001B1470 (em_effect_original). EmCollListGlobals gained D_00810707 (filled
+from the canonical progress byte at every close-out), 0x700038B0..BC and
+0x70003A20 / 0x70003A24. All are bound in em_collision_world, so the
+passes no longer fault when these pair types meet (none occurs on the
+census route); AREA01 keeps its SYS owners for 001A8840, 001A9E00 and
+001AA000.
+
+One path stays fail-stop: 001A8970 with the player's +0 at 1 and the
+entry's reaction byte 6 or 7 compares the caller's f20 register with 0.8
+times itself (f20 is never written in 001A8970 and is callee-saved through
+001A8BE0 and 001AAD00), so the outcome depends on a register value the port
+does not hold; the translation faults there (0x1A8AC4).
+
+Evidence: tools/test_coll_list_passes_reference.py executes each original
+on its own over staged records (`stage_pair_callees`, every third world in
+the default run, every world with EM_TEST_FULL=1): every gate at equality
+and one ulp beyond, the branch bytes each value reaches (001A8840's +0xD /
++0xB / D_00810707 / player +0; 001A8970's reactions with both speed tables
+and 0021BD10 results; 00183C40's class and every type byte 0..19 with one
+node per slot; 001A91C0's +0xD 0..15 and the +0x94 table; the 001A9480 node
+scan hitting at each index or none; 001AA000's +0x2D4 words; 0021BD10's
++0x1F0 byte 0..0x30 with its 0x2C and 0xF sub-tests), the walk counters
+preset, and compares every RAM byte, 0x700038A0..BC, 0x70003A20 / A24,
+the counters, the worker calls and 0021BD10's result. Default run: 1,650
+staged runs, both outcomes of each callee reached; the f20 path is checked
+to fault natively. Mutants killed: 001A8840's 1.5 margin, the D_0081070A
+table pick, 001A91C0's < 10 test, a missing 0021BB00 state, the 6.0 node
+radius, the 0011DE90 / 0011E2A8 roles in 001AA000, a wrong 00183C40 slot,
+001A9E00's +0 bit, 001A96F0's +0x54 value, the D_00810707 gate, and the
+f20 fault widened to reaction 8. Survivor (equivalent on the staged values):
+001A8E80's accumulator sum computed as two rounded products. Coincident
+x / z points are not staged for 001A9E00 / 001AA000 (atan2f(0, 0) takes
+0011E620's error path, whose errno store the bridge does not bind;
+tools/test_sdk_math_original_reference.py covers it).

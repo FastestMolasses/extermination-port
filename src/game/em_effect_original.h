@@ -4,6 +4,9 @@
  * Hand translation of the original functions
  *   001EFD90  spawn at (pos, rot)              byte-matched C
  *   001EFD20  spawn at pos, rot = 0            byte-matched C
+ *   001EFE00  spawn at an owner record         byte-matched C
+ *   001F00A0  spawn at (pos, dir), owner +0x38 byte-matched C
+ *   001F0060  spawn without a position         byte-matched C
  *   001EF9D0  effect allocator                 NEARMISS: logic read from the .s
  *   001EF940  effect sound                     byte-matched C (prototype from the .s)
  *   001D80E0 / 001D8100  point-light presets   byte-matched C (001D7FA0 is a worker)
@@ -107,6 +110,12 @@ typedef struct {
     float matrix[16];  /* +0xD0..+0x10F, row 3 (+0x100) = translation */
     EmEffectOriginalWork work;
     uint8_t freed;     /* native: 1 after the 001AFC10 worker ran */
+    /* +0x24: the owner word 001EFE00 (the owner's +0x14) and 001F0060 (its
+     * argument) store, valid once w24_written. In em_effects_live this is
+     * the slot's one +0x24 word (em_effects_live_node_field reads and writes
+     * it). 001EF9D0 itself never writes +0x24. */
+    uint32_t w24;
+    uint8_t w24_written;
 } EmEffectOriginalNode;
 
 /* Globals and scratchpad words the chain reads or writes. */
@@ -200,6 +209,21 @@ int em_effect_original_001EF9D0(EmEffectOriginal *e, uint32_t id, const float *p
 int em_effect_original_001EFD90(EmEffectOriginal *e, uint32_t id, const float pos[4],
                                 const float rot[4], EmEffectOriginalNode **node);
 int em_effect_original_001EFD20(EmEffectOriginal *e, uint32_t id, const float pos[4],
+                                EmEffectOriginalNode **node);
+/* 001EFE00(id, owner) (byte-matched C): the spawn at an owner record. `b0`
+ * and `c0` are the owner's +0xB0 / +0xC0 quadwords, `w14` its +0x14 word.
+ * 001EF9D0(id, a copy of +0xB0 raised by 10.0 in y for id 0x80000027,
+ * 1.0); a node gets +0x24 = w14, +0xB0 = b0 and +0xC0 = c0. */
+int em_effect_original_001EFE00(EmEffectOriginal *e, uint32_t id, const float b0[4],
+                                const float c0[4], uint32_t w14, EmEffectOriginalNode **node);
+/* 001F00A0(id, pos, dir, owner) (byte-matched C): 001EF9D0(id, pos,
+ * dir[3]); a node gets +0xB0 = pos, +0xC0 = dir, +0xBC = 1.0 and +0x38 =
+ * owner. */
+int em_effect_original_001F00A0(EmEffectOriginal *e, uint32_t id, const float pos[4],
+                                const float dir[4], int32_t owner, EmEffectOriginalNode **node);
+/* 001F0060(id, owner) (byte-matched C): 001EF9D0(id, 0, 1.0); a node gets
+ * +0x24 = owner. */
+int em_effect_original_001F0060(EmEffectOriginal *e, uint32_t id, uint32_t owner,
                                 EmEffectOriginalNode **node);
 /* 001EF940(entity at vram `entity`, pos). */
 int em_effect_original_001EF940(EmEffectOriginal *e, uint32_t entity, const float pos[4]);

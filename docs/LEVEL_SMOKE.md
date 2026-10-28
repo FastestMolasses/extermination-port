@@ -1093,7 +1093,11 @@ the magazine 0x10 (SPR4's notice) and the map 0x08 (MAP zoomed on map 8:
 R1 for 8 frames, the D-pad right and up for 6 each, Circle to the list,
 Cross zooms again with the player's marker, R2 for 4 frames, Circle twice
 to the hub; then MAP from the hub again with map 8 owned: Cross, Circle,
-Circle), each closed with START. **In process:** every step's page-core
+Circle), each closed with START; last (since 2026-10-21, STATUS_FIELD.md
+3g; added at the end so every earlier frame keeps its place), START and
+DATABASE again with the steps of the original's captured visit (Cross on
+id 0's record, Cross, right, up at the top: the scroll, Cross on a blank
+entry, Circle twice), START. **In process:** every step's page-core
 state is reached in time, MAP, SPR4, DATABASE, EQUIPMENT, EVENT and HEALING
 were shown, the fire mode changed and
 the health ends at 60 and then 100. **Against the original

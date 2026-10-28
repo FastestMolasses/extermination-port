@@ -68,7 +68,8 @@ SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/ga
            'src/game/em_script_door_fan.c', 'src/game/em_director_original.c',
            'src/game/em_player_closure_10_12_19.c', 'src/game/em_interaction_projection.c',
            'src/game/em_item_sdk_math.c',
-           'src/game/em_collision.c', 'src/game/em_collision_world.c', 'src/game/em_actor_collision.c',
+           'src/game/em_collision.c', 'src/game/em_collision_world.c', 'src/game/em_player_hull_shove.c',
+           'src/game/em_actor_collision.c',
            'src/game/em_actor_pool.c', 'src/game/em_coll_probe_original.c', 'src/game/em_coll_grid_hull.c',
            'src/game/em_coll_segment_walkers.c', 'src/game/em_coll_list_passes.c',
            'src/game/em_coll_list_passes_walkers.c', 'src/game/em_sdk_math_original.c',
@@ -76,6 +77,8 @@ SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/ga
            # The render context (census L32 / L30): the zoom the camera's view
            # publication reads, the 001DD950 store of its 001DD980 calls.
            'src/game/em_render_context_live.c', 'src/game/em_gs_blocks_original.c', 'src/game/em_frame_kick.c',
+           # its 001D19E0 / 001DDAA0 callees' translations (RENDER_CONTEXT.md 8.6)
+           'src/game/em_point_light.c', 'src/game/em_level9_port_fx.c', 'src/game/em_random.c',
            'src/game/em_frame_render_heads.c',
            'src/game/em_render_context.c', 'src/game/em_packet_chain_original.c',
            'src/game/em_status_ui_leftovers.c', 'src/game/em_load_veil_particles.c',

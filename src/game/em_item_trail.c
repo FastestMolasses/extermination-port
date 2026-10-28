@@ -55,12 +55,17 @@ void em_item_trail_reset(EmItemTrail *trail)
 }
 
 static int fan(float x, float y, float radius, float angle, unsigned intensity,
-               const EmItemMath *math, EmItemTrailEmit emit, void *context)
+               const EmItemMath *math, EmItemTrailEmit emit, EmItemTrailFan sink, void *context)
 {
     float sine = math->sine(math->context, angle);
     float cosine = math->cosine(math->context, angle);
     float sine_step = math->sine(math->context, 0.09817477f);
     float cosine_step = math->cosine(math->context, 0.09817477f);
+    if (sink) {
+        const float pos[4] = {x, y, radius, 28}, trig[4] = {sine, cosine, sine_step, cosine_step};
+        if (sink(context, pos, (int32_t)intensity, angle, trig) != 1)
+            return 0;
+    }
     float k = multiply(2, sine_step);
     float a = multiply(radius, cosine), b = multiply(radius, sine);
     /* c = MULA a*sin_step, MADD + cos_step*(28 sin); d = MULA b*sin_step,
@@ -88,6 +93,13 @@ static int fan(float x, float y, float radius, float angle, unsigned intensity,
 int em_item_trail_step(EmItemTrail *trail, const EmItemStick *stick, float x, float y,
                        const EmItemMath *math, EmItemTrailEmit emit, void *context)
 {
+    return em_item_trail_step_fans(trail, stick, x, y, math, emit, NULL, context);
+}
+
+int em_item_trail_step_fans(EmItemTrail *trail, const EmItemStick *stick, float x, float y,
+                            const EmItemMath *math, EmItemTrailEmit emit, EmItemTrailFan sink,
+                            void *context)
+{
     if (!trail || !stick || !math || !math->sine || !math->cosine || !emit)
         return 0;
     x = add(1792, x);
@@ -100,7 +112,7 @@ int em_item_trail_step(EmItemTrail *trail, const EmItemStick *stick, float x, fl
         float center_y = add(y, multiply(0.5f, multiply(44, slot->y)));
         float radius = add(28, multiply(16, slot->magnitude));
         unsigned intensity = (unsigned)multiply(16, add(1, slot->magnitude));
-        if (!fan(center_x, center_y, radius, slot->angle, intensity, math, emit, context))
+        if (!fan(center_x, center_y, radius, slot->angle, intensity, math, emit, sink, context))
             return 0;
         slot->magnitude = multiply(slot->magnitude, 0.8f);
     }

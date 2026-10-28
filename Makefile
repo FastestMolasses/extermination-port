@@ -37,7 +37,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_weather_packets.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
-           src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
+           src/game/em_collision_world.c src/game/em_player_hull_shove.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_spu2_dsp.c src/game/em_spu2_reverb.c src/game/em_spu2_effects.c src/game/em_spu2_output.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
@@ -56,6 +56,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
+           src/game/em_ui_packet_original.c src/game/em_ui_font_raw.c src/game/em_status_gs_page.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c src/game/em_face_attach.c \
            src/game/em_indicator_child.c src/game/em_indicator_bind_live.c src/game/em_effect_kinds.c \
@@ -110,11 +111,12 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
            src/game/em_truck_original.c src/game/em_pad_actuator.c \
            src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c src/game/em_area01_render_vif.c \
+           src/game/em_level9_port_fx.c \
            src/game/em_replay.c \
            src/game/em_static_world.c src/game/em_static_world_compose.c src/game/em_static_world_draw.c \
            src/game/em_static_world_live.c \
            src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c \
-           src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
+           src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c src/game/em_player_equipment_variants.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
            src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c src/game/em_load_veil_live.c \
@@ -724,6 +726,10 @@ test-player-floor-reference:
 test-player-probe-reference:
 	python3 tools/test_player_probe_reference.py
 
+.PHONY: test-player-hull-shove-reference
+test-player-hull-shove-reference:
+	python3 tools/test_player_hull_shove_reference.py
+
 .PHONY: test-shadow-original
 test-shadow-original:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/shadow_original_test.c src/game/em_shadow_original.c -lm -o build/shadow_original_test && ./build/shadow_original_test
@@ -959,6 +965,10 @@ test-effect-kinds-reference:
 .PHONY: test-player-equipment-reference
 test-player-equipment-reference:
 	python3 tools/test_player_equipment_reference.py
+
+.PHONY: test-player-equipment-variants-reference
+test-player-equipment-variants-reference:
+	python3 tools/test_player_equipment_variants_reference.py
 
 .PHONY: test-frame-render-heads-reference
 test-frame-render-heads-reference:
@@ -1209,6 +1219,36 @@ test-gs-memory-reference:
 .PHONY: test-dof-pass-reference
 test-dof-pass-reference:
 	python3 tools/test_dof_pass_reference.py
+
+# The status pages' GS lists against the original (decomp
+# build/status_field_capture, the PCSX2 fork's software renderer;
+# STATUS_FIELD.md, GS_EXACT.md sections 3.4, 7 and 8.8): the original's
+# BATTERY page lists through the model bit-exact, the drawn field equal to
+# the displayed one, in strict mode too (nothing refused); the four column
+# probes (p10_cols, p11_open, p12_open, the held-out p13_holdout) exact in
+# both modes. Default: one frame; EM_TEST_FULL=1: all five.
+.PHONY: test-status-field-reference
+test-status-field-reference:
+	python3 tools/test_status_field_reference.py
+
+# The status pages' GS packet builders (src/game/em_ui_packet_original.c,
+# STATUS_FIELD.md section 3a) against the original instructions, every byte
+# and the cursor, and the five captured slot-1 chains rebuilt byte for byte
+# and drawn to the displayed field. Default: a sample and one frame drawn;
+# EM_TEST_FULL=1: every case and five frames.
+.PHONY: test-ui-packet-reference
+test-ui-packet-reference:
+	python3 tools/test_ui_packet_reference.py
+
+# The status pages' GS packets as the live game builds them
+# (src/game/em_status_gs_page.c, STATUS_FIELD.md section 3b): the headless
+# game to the battery take with EM_STATUS_GS_DUMP; every dumped frame decodes
+# into the builders' packets, route 01's f300 / f400 are built byte for byte
+# at the frames the counts give and drawn to the displayed field (about 16 s;
+# EM_TEST_FULL=1, about 25 s: on to route 03's panel page, both drawn).
+.PHONY: test-status-gs-page
+test-status-gs-page: $(BIN)
+	python3 tools/test_status_gs_page.py
 
 # The Original profile's GS frame (src/gs/em_gs_world.h, GS_EXACT.md section
 # 9): 1, 2, 3 and 8 workers draw the same fields and memory over designed

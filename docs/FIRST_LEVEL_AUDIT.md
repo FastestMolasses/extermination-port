@@ -805,8 +805,9 @@ status pages live, MAP included; STATUS_PAGES.md section 7, census 1.36 and
   decomp's decoder).
 - **Callee gaps.** 0020D930 is one owner (`em_menu_hover`, all three tables:
   the hub, the ITEM root and SPR4's selector); 001C47E0 and 0015C700 /
-  0015C7C0 are translated with oracles; 0015C750, 00185420's non-battery
-  kinds and 00182B30 are unreachable in AREA11 and keep their fail-stops.
+  0015C7C0 are translated with oracles; 0015C750 and 00182B30 are bound
+  (2026-10-28) though unreachable in AREA11; 00185420's non-battery kinds
+  keep their fail-stops.
 - **Evidence.** The level smoke's designed side run `status_pages` (part of
   make test-level-smoke-side): 1,143 page calls replayed through the
   original instructions over the status-hub capture, 12,636 callee entries
@@ -2047,6 +2048,45 @@ pool's free list (item 5): those are port work that needs no new recording
      exact at 15); the skewed strips (markup tag 3) are not;
    - the status screen's frames (the hub and its pages, the MAP page's
      models on the renderer's skinned path) draw with the GPU renderer;
+     since 2026-10-20 (side lane "status", STATUS_FIELD.md) the CPU GS model
+     draws the original's own BATTERY page lists bit-exact (five fork
+     captures, all of local memory; the UV sprite column rule measured,
+     GS_EXACT.md 3.4); the page packets' builders are translated byte for
+     byte (em_ui_packet_original, STATUS_FIELD.md 3a: the five captured
+     slot-1 chains rebuilt and drawn to the displayed field); since step
+     3's first part (STATUS_FIELD.md 3b) the live game builds the BATTERY
+     page's and the glyph runs' packets in the slot-1 arena (route 01's
+     f300 / f400 byte for byte); since step 3d (STATUS_FIELD.md 3d) the
+     Original profile draws every BATTERY page frame as the GS field from
+     the kicked list and presents it (route 01's f300 / f400 presented
+     exactly, 0 pixels off; the UV row rule measured by two fork probes,
+     strict mode refuses no UV sprite); since step 3e (STATUS_FIELD.md 3e)
+     the ITEM root too (0020F170 / 0020F2A0 and 0020AC70's sixteen Gouraud
+     fans, 001D66A0, built byte for byte against the original instructions;
+     the status_pages side run's 54 root frames presented as GS fields, two
+     of them 0 pixels off two fork captures given the port's D_002655A0);
+     since step 3f (STATUS_FIELD.md 3f) the ITEM children EQUIPMENT and
+     EVENT (em_status_pages_live's packet sink; the side run's 100 frames
+     of theirs presented as GS fields, four of them 0 pixels off fork
+     captures given the port's D_002655A0 and the Circle frame off none);
+     since step 3g (STATUS_FIELD.md 3g) the hub's DATABASE page (00214020:
+     its list, records, category steps, the scroll's 00207D90 SCISSOR_1
+     packets, blank entries; the side run's 329 frames of its two hub
+     visits and the key take presented as GS fields, the last visit's
+     pages exactly the original's visit's, eight frames 0 pixels off fork
+     captures given the port's D_002655A0 and its Circle frame off none);
+     since step 3h (STATUS_FIELD.md 3h) the SPR4 page with its part pages
+     (00211970: the selector and 0020AC70's fans through the sink, LOWER
+     U.R.S., SELECTOR SWITCH, its prompt, Yes and commit; the side run's
+     322 frames of its hub visit and the magazine take presented as GS
+     fields, the hub visit's pages exactly the original's visit's at rest
+     and an aligned schedule's with the stick moving, twelve frames 0
+     pixels off fork captures given the port's D_002655A0 and a part
+     module's load frame off none);
+     HEALING (its health gauge's 002082B0 arcs), MAP, the hub, the
+     page transitions (the page core's module loads around SPR4 and
+     DATABASE: the original's lists there are the head alone) and the
+     other pages still draw with the GPU renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make
@@ -2224,7 +2264,8 @@ pool's free list (item 5): those are port work that needs no new recording
    side-save, not merged yet) a chosen slot and LOAD GAME run on the title,
    after a death and on the boot's title (SAVE_GAME.md sections 6.1, 6.3,
    6.4; no recording loads a game; the user's rule forbids writing a card
-   in PCSX2), while the options' load stops at 001D2610; quit Yes (001AD140)
+   in PCSX2), while the options' load is bound past 001D2610 since 2026-10-28
+   but not run end to end; quit Yes (001AD140)
    is bound and not recorded; the title's OPTIONS entry stays pending; the
    first level has no save path (00225AC0(1) unreached in AREA11).
 10. **Feel: what damage paths no run plays.** The fan's hit is closed

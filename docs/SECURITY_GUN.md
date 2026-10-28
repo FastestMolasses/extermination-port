@@ -84,7 +84,7 @@ The jal instructions of 0x825940 encode 0x826F30 and 0x827400.
 | 001A2370 hull | worker | worker; `em_actor_cells_retransform_001A2370` is verified and live | reused |
 | 001B1190 taken-bit set | no verified implementation for the cable's `w_001B1190` | `em_gun_rest_001B1190` | oracle (30 cases) |
 | 001B11E0 taken-bit test | verified, static in `em_actor_roster.c` | reused, exported as `em_actor_roster_001B11E0` (L24) | test_actor_census_reference |
-| 001EFE00 (cable FX 0x80000045) | verified (`em_player_misc_001EFE00`, and `em_area01_side_001EFE00`); spawn view unbound | `em_area01_side_001EFE00` through em_aim_fire_world_live (AIM_FIRE.md; in ordinary play since 2026-10-02, section 10.5); `em_player_misc_001EFE00` stays the player's, unbound | see 2.5 |
+| 001EFE00 (cable FX 0x80000045) | verified (`em_effect_original_001EFE00`, and `em_area01_side_001EFE00`) | `em_area01_side_001EFE00` through em_aim_fire_world_live (AIM_FIRE.md; in ordinary play since 2026-10-02, section 10.5); the player's paths use `em_effect_original_001EFE00` (em_effects_live_001EFE00), both storing the slot's one +0x24 word | see 2.5 |
 | 0021AAC0 (the node 0x80000045 spawns) | untranslated | `em_gun_rest_0021AAC0` | oracle (65 runs incl. spawn to free) |
 | 001EFEB0 (0021AAC0's spawn) | untranslated | `em_gun_rest_001EFEB0` | oracle |
 | 0021A500 (the 0x8000003B strip node) | untranslated | `em_gun_rest_0021A500` | oracle (32 runs) |
@@ -239,8 +239,8 @@ With (a0 & 0xFF) ≠ 0, it sets bit (a0 & 0x1F) of the word at D_00810860 +
 ### 2.5 The cable's hit reach
 
 The cable's lifecycle 1 reacts to a hit (`em_gun_cable_tick`). It calls
-001EFE00(0x80000045, cable), which is `em_player_misc_001EFE00`. That calls
-001EF9D0.
+001EFE00(0x80000045, cable), which is `em_area01_side_001EFE00` here (the
+player's paths use `em_effect_original_001EFE00`). That calls 001EF9D0.
 
 **The spawned node.** Record 0x45 of the global effect table (read from the
 user's ELF) gives:

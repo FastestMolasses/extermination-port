@@ -21,11 +21,34 @@ void em_gfx_overlay_canvas(EmGfx *gfx, float width, float height)
 void em_hud_decor_invalidate(void)
 {
 }
+static int own_steps, drawn_steps, step_result = 1;
+static uint32_t drawn_token;
+static float drawn_uvwh[4], own_uvwh[4];
 int em_status_background_render(struct EmGfx *gfx, float u, float v, float width, float height)
 {
     (void)gfx;
+    ++own_steps;
+    own_uvwh[0] = u;
+    own_uvwh[1] = v;
+    own_uvwh[2] = width;
+    own_uvwh[3] = height;
     printf("B %.9g %.9g %.9g %.9g\n", u, v, width, height);
     return 1;
+}
+/* The GPU renderer's path with the item sink bound: the render draws the
+ * step 0020F170 made at call time (em_item_ui_background_stepped) instead
+ * of stepping D_002655A0 again. Only the stepped section below reaches it. */
+int em_status_background_render_step(struct EmGfx *gfx, uint32_t token, float u, float v, float width,
+                                     float height)
+{
+    assert(gfx);
+    ++drawn_steps;
+    drawn_token = token;
+    drawn_uvwh[0] = u;
+    drawn_uvwh[1] = v;
+    drawn_uvwh[2] = width;
+    drawn_uvwh[3] = height;
+    return step_result;
 }
 void em_status_background_frame(struct EmGfx *gfx)
 {
@@ -76,6 +99,25 @@ int main(int argc, char **argv)
     puts("R");
     assert(em_item_ui_render(ui, (EmGfx *)1, 0, -1, trail, NULL));
     assert(uploads == 2);
+    /* Stepped: one render draws that step (its token, the ITEM tile the own
+     * step was given) and never steps itself; the token is consumed, so the
+     * next render steps on its own again. A refused draw fails the render
+     * and is consumed too. */
+    assert(own_steps > 0 && !drawn_steps);
+    const int own_before = own_steps;
+    em_item_ui_background_stepped(ui, 0x1234u);
+    assert(em_item_ui_render(ui, (EmGfx *)1, 0, -1, trail, NULL));
+    assert(drawn_steps == 1 && drawn_token == 0x1234u && own_steps == own_before);
+    for (int i = 0; i < 4; i++)
+        assert(drawn_uvwh[i] == own_uvwh[i]);
+    assert(em_item_ui_render(ui, (EmGfx *)1, 0, -1, trail, NULL));
+    assert(drawn_steps == 1 && own_steps == own_before + 1);
+    step_result = 0;
+    em_item_ui_background_stepped(ui, 0x1235u);
+    assert(!em_item_ui_render(ui, (EmGfx *)1, 0, -1, trail, NULL));
+    assert(drawn_steps == 2 && drawn_token == 0x1235u && own_steps == own_before + 1);
+    assert(em_item_ui_render(ui, (EmGfx *)1, 0, -1, trail, NULL));
+    assert(drawn_steps == 2 && own_steps == own_before + 2);
     em_item_ui_free(ui);
     puts("PASS");
 }

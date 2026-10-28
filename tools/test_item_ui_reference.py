@@ -59,6 +59,7 @@ def main():
     assert list(lines)[-1] == 'PASS'
     report = {'original_ordered_commands': checks, 'hover_layouts': 6,
               'atlas_upload_and_page_invalidation': 'PASS',
+              'sink_stepped_background_drawn_once_and_consumed': 'PASS',
               'asan_ubsan': 'PASS', 'boundaries': 'analog fan, glyph metrics and final pixels'}
     (out / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))

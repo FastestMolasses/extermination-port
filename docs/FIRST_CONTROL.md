@@ -563,13 +563,24 @@ mechanism still lacks; in AREA11 it lacks nothing):
   last query state.
 - **Fail-stop workers.** Each names its original and is reached only by
   states or data no route beat enters:
-  - 00178440, 001784E0, 0017E6E0, 0017F130, 0017F1C0 (hang, ledge and
-    crawl helpers; 00178390, 001782A0 and 00178080 are translated and bound
-    since 2026-10-28, PLAYER_LADDER_ENTRY.md);
-  - 00188570 / 590 / 5B0 / 610;
-  - 0021C200, 00182AF0, 0015C1F0 (with 001CA6E0 / 001C6150 / 00200890 on
-    the player), 001FAFD0, 001AFA90, 00187EE0, 001FB9F0,
-    001CA6E0, 001C6150, 00200890, 001B1380, 001AAC00 (area 0x15);
+  - 001784E0, 0017E6E0, 0017F130, 0017F1C0 (hang, ledge and crawl
+    helpers; 00178390, 001782A0 and 00178080 are translated and bound
+    since 2026-10-28, PLAYER_LADDER_ENTRY.md, and so is 00178440, the
+    surface-0x33 grab, since lane g1 the same day);
+  - 00188610 (the crawl row clip, through its own hook); 00188570 /
+    00188590 / 001885B0 run their translation since lane g1
+    (PLAYER_RECORD_HELPERS.md);
+  - 00182AF0, 001AFA90 from 0016BAE0 (the crawl spawn: the node's
+    00188340 / 00188430 / 00188180 / 00188250 are not translated),
+    00187EE0, 001B1380, 001AAC00 (area 0x15);
+  - 001FB9F0 with a 0011A270 word other than 0x1000 (no caller passes
+    one; the request pair a2 / a3 is free since lane g1);
+  (Bound since lane g1, 2026-10-28: 0021C200 (em_player_reaction), the
+  model refresh 0015C1F0 with 001CA6E0 / 001C6150 / 00200890 (the spawn's
+  bindings; 00200890 is the module loader's send during play,
+  MODULE_LOADER.md), the stream test 001FAFD0 (em_stream_lanes,
+  STREAM_LANES.md), and the mask-bit-31 arms of 0019AD00 / 0019AFE0
+  (em_coll_move_player_move_xz / _sweep_xz, COLL_MOVE.md).)
   (001B0460(1), the camera re-seat of AREA00's duct / shaft drops from
   0016D130 state 13 and 0016DE40 states 0 / 0x17, is bound since
   2026-10-20 to the scene bindings' re-seat em_scene_bindings_001B0460
@@ -590,9 +601,12 @@ mechanism still lacks; in AREA11 it lacks nothing):
 
   Effects the closure spawns (001EFD90) run the live effect binder
   (em_effects_live, census L26; EFFECT_MANAGER.md section 8). The attach
-  001EFE00 (the reaction's and major2's `attach` / `w001EFE00`) faults: its
-  001EF9D0 node view is not bound, and only the hit and death paths call it
-  (EFFECT_MANAGER.md 8.2).
+  001EFE00 (the reaction's and major2's `attach` / `w001EFE00`) runs
+  em_effects_live_001EFE00 (em_effect_original_001EFE00, the one
+  translation, as the player stage also binds it) since the g-lane
+  integration; the node's +0x24 is the binder's own slot word.
+  Only the hit and death paths call it; the records they spawn whose
+  callback has no binding fault in the binder (EFFECT_MANAGER.md 8.2).
 - **Stand-ins that remain.**
   - No longer a stand-in: the takeover. A script owner's frame (the
     director, Roger, the truck trigger, the fence door) is the stage's own

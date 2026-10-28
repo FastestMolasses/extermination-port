@@ -293,10 +293,9 @@ static const struct {
                                                "(em_game_legacy_manifest_spawn at 001AFCA0)"},
     [UM_001B6990_LEGACY_WORLD] = {0x001B6990u, "scene without an original roster: one legacy_world "
                                                "pool node runs the S10a legacy block"},
-    [UM_001D19E0] = {0x001D19E0u, "its callees skin_arena_init (001D2E20) and 001D7BB0 (the point-light pool "
-                                  "and the room lists) run on the render context; 001D9720, 001DD940, "
-                                  "001E0C30, 001D9060, 001D71F0 and the flag registrations after them have no "
-                                  "port counterpart here (RENDER_CONTEXT.md 8.4)"},
+    [UM_001D19E0] = {0x001D19E0u, "scene without an original world: only skin_arena_init (001D2E20) and "
+                                  "001D7BB0 (the point-light pool and the room lists) run; a world scene runs "
+                                  "the whole routine (em_rcl_001D19E0, RENDER_CONTEXT.md 8.6)"},
     [UM_001C1DC0] = {0x001C1DC0u, "its 001D2830 registrations and 001C1E70..001C1F50 passes have no "
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
@@ -360,16 +359,30 @@ static int w_001FC9B0(void *ctx)
     return em_message_live_reset();
 }
 /* 001D19E0 (the render reset at the area load, src/func_001D19E0.c):
- * skin_arena_init, the callee the object units need (the skin records' VIF
- * codes and GIF tags, docs/OWNER_DRAW.md "Binding"), and 001D7BB0 (the
- * point-light pool's reset, em_point_light_reset over the context's
- * +0x210.., then its 001F68B0 / 001F6E40: the room lists registered
- * through 001D7FA0, em_effects_live_room_lights; docs/AREA11_POINT_LIGHT.md).
- * The callees between them (001D9720 .. 001D71F0) and after stay
- * unmirrored. */
+ * in a world scene the whole routine runs on the render context
+ * (em_rcl_001D19E0, every callee bound: skin_arena_init, 001D9720,
+ * 001DD940, 001E0C30, 001D9060, 001D71F0, 001D7BB0 with the scene's room
+ * lists 001F68B0 / 001F6E40 (em_effects_live_room_lights), the flag and
+ * word clears, 001E0CC0 and, for the area key 0x1100, 001E0380; docs/RENDER_CONTEXT.md
+ * section 8.6). A scene without an original world keeps the callees the
+ * object units and the point lights need (skin_arena_init and the
+ * point-light reset with the room lists) and reports the rest. */
+static int world_scene(void);
+static int rcl_fault(void);
+static int um_room_lists(void *ctx)
+{
+    (void)ctx;
+    return em_effects_live_room_lights(&s_state) < 0 ? -1 : 0;
+}
 static int um_001D19E0(void *ctx)
 {
     (void)ctx;
+    if (world_scene() && em_rcl_bound()) {
+        if (em_rcl_001D19E0(um_room_lists, NULL) < 0)
+            return em_scene_faulted(&s_state) ? -1 : rcl_fault();
+        g.point_lights_loaded = 1;
+        return 0;
+    }
     if (em_rcl_loaded()) {
         if (em_rcl_skin_arena_init() < 0) return -1;
         EmPointLightPool *pool = em_rcl_point_lights();
@@ -461,6 +474,17 @@ static int w_001D2880(void *ctx)
 {
     (void)ctx;
     return em_rcl_001D2880() < 0 ? rcl_fault() : 0;
+}
+/* 001D2610(f12) (0x1AE040 state 2, 0022A650's r == 2: a game loaded from
+ * the options screen's LOAD GAME): the render context's projection zoom
+ * (em_rcl_001D2610, the same translation 001D2880 ends with), its float
+ * argument passed as its IEEE-754 bits. */
+static int w_001D2610(void *ctx, float a0)
+{
+    (void)ctx;
+    uint32_t bits;
+    memcpy(&bits, &a0, sizeof bits);
+    return em_rcl_001D2610(bits) < 0 ? rcl_fault() : 0;
 }
 static int w_001FA790(void *ctx, int a0, int a1) { (void)ctx; return em_stream_live_001FA790(a0, a1); }
 static int w_001FAB50(void *ctx) { (void)ctx; return em_stream_live_001FAB50(); }
@@ -2823,6 +2847,13 @@ static void spawn_commit(const EmSpawnIo *io)
 static int c1f0_bind_model(void *ctx, EmPlayerLiveActor *actor, uint32_t handle)
 {
     (void)ctx;
+    return em_scene_bindings_player_001CA6E0(actor, handle);
+}
+
+int em_scene_bindings_player_001CA6E0(struct EmPlayerLiveActor *actor, uint32_t handle)
+{
+    if (!actor)
+        return -1;
     EmRogerActor ra;
     EmRogerActorRecord record;
     memset(&ra, 0, sizeof ra);
@@ -4591,10 +4622,11 @@ static int w_001AEBA0(void *ctx, int16_t a0)
  * world is frozen; no 001D1EA0 runs), as the game-over screen's. r == 1
  * closes: 001AF1C0 (the settings into the progress block, 001AF470), the
  * cue 0xD and 001FAE70(0). r == 2 (a game loaded: LOAD GAME through
- * 00227300, its read of the slot into the progress block) runs 001AEBA0
- * and 001AF150, then faults at 001D2610 (not bound: loading a game is the
- * save lane's next step, docs/SAVE_GAME.md section 8); r == 3 (quit, Yes)
- * runs 001AD140 as the death does. */
+ * 00227300, its read of the slot into the progress block) runs 001AEBA0,
+ * 001AF150 and 001D2610(0.0) (w_001D2610), then D_00275BE0 = 1 and the game
+ * task's +8 = 3 / +9 = 5: the area read of the loaded block, as the title's
+ * load (docs/SAVE_GAME.md section 6.3); r == 3 (quit, Yes) runs 001AD140 as
+ * the death does. */
 static int options_frame(EmOptionsFrame *f)
 {
     if (!s_user) return -1;
@@ -4795,10 +4827,10 @@ static void bindings_init(void)
     w->w_001AEBA0 = w_001AEBA0;
     w->w_001AB790 = w_001AB790;
 
-    /* The options screen (0x1AE040 state 2, chain step OPTIONS). 001D2610,
-     * the r == 2 arm's, stays unbound: a load is reached only through
-     * 00227300, which faults first. */
+    /* The options screen (0x1AE040 state 2, chain step OPTIONS), with its
+     * r == 2 arm's 001D2610 (a LOAD GAME through 00227300). */
     w->w_0022A650 = w_0022A650;
+    w->w_001D2610 = w_001D2610;
     w->w_001AF1C0 = w_001AF1C0;
     w->w_001AF150 = w_001AF150;
     w->w_001FB9F0 = w_001FB9F0;
@@ -5091,7 +5123,8 @@ static int loader_bank(void *ctx, uint32_t address, const uint8_t *bytes, uint32
  *    where the drive delivered it: AREA11's one A entry is the area's
  *    texture upload (docs/DISC_TEXTURES.md section 1: GS blocks
  *    0x2A00..0x377F);
- *  - 00200890's player texture packet (state 7): one of the slot words
+ *  - 00200890's player texture packet (state 7, and 0015C1F0's call during
+ *    play through em_scene_bindings_00200890): one of the slot words
  *    D_0028A4B0..D_0028A4C0 that module 3's load relocated (GS blocks
  *    0x1B80..0x1BFF for slot 8).
  *  - 001FF590(0xAC, 1)'s A entries (state 8, the nested block of an area
@@ -5110,6 +5143,16 @@ static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, ui
     EmModuleLoader *ml = ctx;
     const EmTask *rec = em_module_loader_record(ml);
     const EmStatusSceneLoader *ld = em_module_loader_state(ml);
+    if (ld && bytes && size && em_module_loader_player_packet(ml)) {
+        /* 00200890 during play (em_scene_bindings_00200890): only the
+         * player's texture packet words. */
+        for (uint32_t k = 0; k < 5; ++k)
+            if (chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0 + k]) {
+                s_area_uploads[1]++;
+                return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
+            }
+        return -1;
+    }
     if (!rec || !ld || !bytes || !size || rec->user[0] != 1)
         return -1;
     if (rec->user[1] == 4 && rec->user[2] == 2 && chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C]) {
@@ -5263,6 +5306,15 @@ void em_scene_bindings_module_loader_shutdown(void)
     free(s_loader_replay);
     s_loader_replay = NULL;
     s_loader_replay_n = 0;
+}
+
+int em_scene_bindings_00200890(void)
+{
+    if (!s_loader) {
+        fprintf(stderr, "em_scene: 00200890 without the screen-module loader\n");
+        return -1;
+    }
+    return em_module_loader_00200890(s_loader);
 }
 
 void em_scene_bindings_module_loader_field(void)

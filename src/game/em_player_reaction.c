@@ -296,6 +296,22 @@ int em_player_reaction_0021C120(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
     return rumble(w, 1, 0xEE, 0x3C, 1);
 }
 
+/* 0021C200 (byte-matched src/func_0021C200.c): when health +220 <= 0 (the
+ * FPU's c.le) and D_008106F1 is set, sound 0x14D at the actor
+ * (001FBD50(p, 0x14D, 0, 300.0)) then 001EFE00(0x80000048, p), whose result
+ * is unused. Nothing is written here. */
+int em_player_reaction_0021C200(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
+                                const EmPlayerReactionWorkers *w)
+{
+    if (!em_ee_c_le_bits(fw(a, 0x220), K_0)) return 0;          /* 0021C214 */
+    if (!s->d8106F1) return -1;
+    if (*s->d8106F1 == 0) return 0;                              /* 0021C22C */
+    FAULT(sound(w, a, 0x14D));                                   /* 0021C240 */
+    uint32_t handle;
+    if (!w->attach) return -1;
+    return w->attach(w->context, a, 0x80000048u, &handle) < 0 ? -1 : 0;   /* 0021C250 */
+}
+
 /* 0021C190: *result 1 when the +31F countdown passed zero this call. */
 int em_player_reaction_0021C190(EmPlayerLiveActor *a, EmPlayerReactionScene *s,
                                 const EmPlayerReactionWorkers *w, int *result)
@@ -1416,6 +1432,13 @@ int em_player_reaction_w0021C120(void *context, EmPlayerLiveActor *actor)
     const EmPlayerReaction *b = actor ? helper_binding(context) : NULL;
     if (!b) return -1;
     return em_player_reaction_0021C120(actor, b->scene, &b->workers) < 0 ? -1 : 0;
+}
+
+int em_player_reaction_w0021C200(void *context, EmPlayerLiveActor *actor)
+{
+    const EmPlayerReaction *b = actor ? helper_binding(context) : NULL;
+    if (!b) return -1;
+    return em_player_reaction_0021C200(actor, b->scene, &b->workers) < 0 ? -1 : 0;
 }
 
 int em_player_reaction_w0021C190(void *context, EmPlayerLiveActor *actor, int *result)

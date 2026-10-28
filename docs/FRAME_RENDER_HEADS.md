@@ -15,9 +15,9 @@ render reset at area load, and the lighting-mode dispatch.
 **Bound live since 2026-09-25** through the one canonical render context
 (`src/game/em_render_context_live.{h,c}`, docs/RENDER_CONTEXT.md section 8):
 001D1AE0 (main-loop step B), 001D1C50, 001D1EA0, 001D2830, 001D2960,
-001D2D20, 001D30A0 and the zoom helpers run live. 001C1D00, 001D19E0,
-001D1EF0, 001D9070 / 001D19D0, 001D8060 / 001D80B0 and 001D88B0 / 001D8C30
-do not; section 4 says why.
+001D2D20, 001D30A0 and the zoom helpers run live; 001D19E0 runs live since
+2026-10-28 (RENDER_CONTEXT.md section 8.6). The others' bindings are in
+section 4.
 
 The module contains no original code or data. It cites original addresses.
 Its constants are the values the original materialises: float bit patterns,
@@ -83,7 +83,7 @@ the status since the binding step (2026-09-25, section 4).
 | 001D2610 scope zoom | BM | unverified | live |
 | 001C1D00 render-env step | BM | stand-in | verified-unbound (not bound: section 4) |
 | 001D1EF0 tear-down frame | BM | missing | verified-unbound |
-| 001D19E0 render reset | BM | missing | verified-unbound |
+| 001D19E0 render reset | BM | missing | live since 2026-10-28: the area load (0x1AE040 state 0) in a world scene, em_rcl_001D19E0 with every callee bound (RENDER_CONTEXT.md 8.6) |
 | 001D2830 registration dispatch | AW | missing | live (the frame head's, 001C1DC0's and the script host's calls) |
 | 001D9070 fade weights | NM | missing | live since the lighting step (2026-10-02): the New Game's 001AD1A0 -> 001D19D0 over the library model 0x16 (em_area11_roger_001D19D0) |
 | 001D19D0 thunk | BM | missing | live (the same binding) |
@@ -394,9 +394,10 @@ interaction host's 0x43F02F4F and the camera's EmInteractionProjection record
 are removed). The worker map below is kept as the reference it was written
 as; where it says "stand-in" the table in RENDER_CONTEXT.md 8.2 gives the
 current state. 001C1D00 is bound since the static-world step (2026-09-28).
-001D19E0 is not bound as a whole: its skin_arena_init and, since the
-lighting step (2026-10-02, audit 1b item 4), its 001D7BB0 run at their
-position (um_001D19E0). Since the lighting step 001D19D0 / 001D9070 (the
+001D19E0 is bound as a whole since 2026-10-28 (em_rcl_001D19E0 at
+um_001D19E0's position in a world scene; RENDER_CONTEXT.md section 8.6);
+before that only its skin_arena_init and 001D7BB0 ran there, which is
+still what a scene without an original world runs. Since the lighting step 001D19D0 / 001D9070 (the
 New Game's 001AD1A0, over the library model 0x16), 001D8060 / 001D80B0 (the
 room lists' release) and 001D8C30 (through em_actor_light_001D8C30) are
 bound; 001D88B0 is bound since the face step.
@@ -433,7 +434,7 @@ add it, as one owner, before binding.
 | em_frh_001D1C50 | `w_001D1C50` in `em_scene_bindings.c` → `em_render_001D1C50`, which runs only `point_light_tick()`, in both variants and the status frame | Workers: w_001D7C30 = the point-light tick (`em_point_light_tick`, `em_point_light.c`). The fog workers: 0021B9A0 is `em_packet_chain_0021B9A0` (adapter `em_packet_chain_w_0021B9A0_heads`, docs/PACKET_CHAIN.md); 0021B970 and 0021BA80 are the L31 translations (`em_fog_gs`, `em_game`). w_001B0070 = the request word D_008106C8 (L01). w_0015D2F0 is lane L28; its live `em_weapon.c` is a stand-in. |
 | em_frh_001C1D00 | `w_001C1D00` → `em_render_001C1D00` (`render_env_init`, an empty skeleton) | 001E2260 and 001E0CF0 are lane L31 (`em_background_gs`). 001D5370 is lane L30. |
 | em_frh_001D1EA0 | `w_001D1EA0` → `em_render_001D1EA0` / `frame_close_out` | The native renderer stays the GS/VU1 boundary. 001CB800 is the kick, where the renderer consumes the list. 001E0D70 and 001DDA00 are lane L30. |
-| em_frh_001D1EF0, em_frh_001D19E0 | `um_001D1EF0`, `um_001D19E0` | Unmirrored bindings today. |
+| em_frh_001D1EF0, em_frh_001D19E0 | `um_001D1EF0`, `um_001D19E0` | Both bound since (001D1EF0 2026-09-27, 001D19E0 2026-10-28). |
 | em_frh_001D19D0 | bound since the lighting step: the 001AD1A0 binding calls `em_area11_roger_001D19D0` (the library's model 0x16 in the Roger export's writable region) | |
 | em_frh_001D2830 | `um_001D2830` (scene) and `veil_001D2830` (load veil) | 001D2730 and 001D2910 are boundary-classified in the census, but they are context-flag logic. 001E0C80 is lane L30. |
 | em_frh_001D2610, em_frh_001D25F0 | three live stand-ins, listed below | |

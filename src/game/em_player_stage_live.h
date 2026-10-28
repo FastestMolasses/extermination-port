@@ -18,7 +18,8 @@
  *              anim_advance_time on the live path. The record-level
  *              translation em_player_stage_anim_advance (and its clip
  *              resolve / sampler callees) waits for the display lane.
- *   sound      the live 001FBD50 (em_sfx_play_at at the record's +B0)
+ *   sound      the live 001FBD50 (em_sfx_play_at_mode_track at the record's
+ *              +B0; a nonzero flat byte measures the distance in x/z)
  *   sound_stop the live 0011A070 body (em_sfx_stop_track)
  *   major[4]   0015B530 with 001837A0 (byte-matched, empty) and 00182DF0
  *              (em_player_stage_00182DF0 through the pose host, which also
@@ -31,18 +32,41 @@
  *   commit     00183090 with 001D0C70 = the AREA11 interaction host's face
  *              tick and bone_init 001C63E0 / anim_clip_init 001C67E0 on the
  *              record pose
+ *   effects    001EFE00 / 001F00A0 / 001F0060 (em_effect_original's
+ *              translations on em_effects_live, the area's effect binder:
+ *              001EFE00 takes the record's +B0 / +C0 quadwords and +14 word;
+ *              001F00A0's record is handed out as an image of the node's
+ *              +D0..+10F that record_written stores back after 0021CBB0's
+ *              copy). A node whose callback has no pool binding faults in
+ *              the binder (0x80000048's 001F8350, 0x80000044's 0021AE90,
+ *              0x80000061..63's 001E7310 / 001E7440 / 001E7570 are not
+ *              bound in AREA11); 0x8000001B is the bound driver 001EA240.
+ *   atan2      SDK 0011E620 on the area's SDK context (em_collision_world_
+ *              sdk, em_sdk_math_original); the slot has no error channel,
+ *              so a fault reports and quits the frame
+ *   link20     the +20 object is the equipment node 0015C310 stored there
+ *              (0018A880(0, 0)); its +C0 / +C8 are em_equipment_live's
+ *   w0015C9D0  em_player_0015C9D0 (byte-matched C) with 001749A0 on the
+ *              record pose; D_00248A00..08 from the pose's table region,
+ *              D_002754C0..DA from the status pages' exported windows
+ *              (em_area11_interaction_host_data16)
  *   takeover   the AREA11 interaction host at 0015B130's prelude position
  *              (player_pose_stage_hook): 1 the runtime consumed the stage
  *              (the panel, terminal and items), 2 a script owner's frame,
  *              whose takeover 0015B130's prelude performs itself
- *   fail-stop  001B61C0 (rumble), 001EFE00, 001F00A0, 001F0060 (effects),
- *              SDK 0011E620 and link20 (the +20 object, whose handle the
- *              port does not keep), 0015C9D0 and link1C (the +1C object;
- *              0 in every AREA11 capture). Each is reached only by a hit,
- *              pending damage or infection, a low health latch or the
- *              area-8 room-2 effect; none occurs on the first-level route
- *              (every route capture: health 100, +F 0, +224 = +22C = 0,
- *              +234 0, D_0081083C 0, D_008106C8 bit 2 clear, +1C 0).
+ *   cue        001B61C0 on the pad block (em_pad_actuator)
+ *   major[5]   0015B610 with 00183240 (byte-matched, empty) and the closure
+ *              binder's 00183250; 001833F0 / 00183440 / 001834E0 are
+ *              translated (em_player_floor) but unwired: their 001662D0
+ *              (the ladder climb lane) and 00175900 are the closure
+ *              binder's, and 001834E0's 0016BAE0 is not bound there
+ *   fail-stop  link1C (the +1C object; 0 in every AREA11 capture) and the
+ *              unwired major[5] routines. The effect, atan2, link20 and
+ *              0015C9D0 paths are reached only by a hit, pending damage or
+ *              infection, a low health latch or the area-8 room-2 effect;
+ *              none occurs on the first-level route (every route capture:
+ *              health 100, +F 0, +224 = +22C = 0, +234 0, D_0081083C 0,
+ *              D_008106C8 bit 2 clear, +1C 0).
  *
  * The scene views the workers read are loaded before every stage from the
  * canonical storage: D_008106C8 (the request word), D_00810701, D_0081083C
@@ -57,5 +81,9 @@
 int em_player_stage_live_bind(void);
 /* Faults the fail-stop workers reported (a reached untranslated worker). */
 unsigned em_player_stage_live_faults(void);
+/* 00182B30(D_008102B0) on the live player record through the bound stage
+ * host (em_player_stage_scripted_check): *result = its return value. 0, or
+ * -1 before the bind. */
+int em_player_stage_live_00182B30(int *result);
 
 #endif

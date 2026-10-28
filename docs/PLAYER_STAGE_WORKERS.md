@@ -79,15 +79,17 @@ Callees (`host.callees`):
 
 | Worker | Bound to |
 |---|---|
-| `sound` | the live 001FBD50: `em_sfx_play_at(id, record +B0, radius)` |
+| `sound` | the live 001FBD50: `em_sfx_play_at_mode_track(id, record +B0, flat, radius)` (a nonzero flat byte, 001FBF50's a3, measures the distance in x/z; em_sfx's gain model) |
 | `sound_stop` | `em_sfx_stop_track(track, hard)` (em_sfx.c: T_STOP, or T_HALT for 0x8000) |
 | `w001D0C70` | the AREA11 interaction host's face tick (`em_area11_interaction_host_face_tick_001D0C70`: `em_face_slot_001D0C70`, 001D0720 on the slot at the player's +0x90; a fault while +0x90 is 0) |
 | `bone_init`, `clip_init` | 001C63E0 / 001C67E0 on the record pose (`em_pose_host_stage_bone_init` / `_clip_init`) |
 | `cue` (001B61C0) | `em_pad_actuator_001B61C0` on the pad block D_00810E40 (since census L23; 0015D000's heartbeat at health <= 35 and 0021C440's hit rumble, compared with the DAMAGE recordings since chain step DAMAGE) |
-| `w001EFE00`, `w001F00A0`, `w001F0060` | fail-stop (the effect manager is not live, L26) |
-| `atan2`, `link20` | fail-stop (hit facing; the port keeps no +20 handle, census 7.2) |
+| `w001EFE00`, `w001F00A0`, `w001F0060` | em_effect_original's translations (`em_effect_original_001EFE00` / `_001F00A0` / `_001F0060`, byte-matched C, EFFECT_ORIGINAL.md) on the area's effect binder (`em_effects_live_001EFE00` / `_001F00A0` / `_001F0060`). 001EFE00 takes the record's +B0 / +C0 quadwords and +14 word. 001F00A0 hands the caller an image of the node's +D0..+10F; after 0021CBB0's copy `record_written` stores it into the node (em_effects_live_node_field). A spawned node whose callback has no AREA11 pool binding faults in the binder: 0x80000048 (001F8350), 0x80000044 (0021AE90), 0x80000061..63 (001E7310 / 001E7440 / 001E7570); 0x8000001B is the bound driver 001EA240 |
+| `atan2` | SDK 0011E620 on the area's SDK context (`em_sdk_math_original_float_0011E620` over `em_collision_world_sdk`, as the closure's); the slot has no error channel, so a fault reports and quits the frame |
+| `link20` | the +20 word is the equipment node 0015C310 stores there (0018A880(0, 0)); its +C0 / +C8 are `em_equipment_live_field` reads |
 | `clip_lookup`, `request` | 0017B490 on the record (`em_player_closure_live_0017B490`, em_locomotion_display's translation) and 001749A0 on the record (the pose host) |
-| `w0015C9D0` | fail-stop (untranslated; 0015D100's low-health latch) |
+| `w0015C9D0` | `em_player_0015C9D0` (byte-matched C) with 001749A0 on the record pose; D_00248A00..08 from the pose's table region, D_002754C0..DA from the status pages' exported windows (`em_area11_interaction_host_data16`) |
+| `record_written` | not an original call: stores 0021CBB0's +D0..+10F writes into the 001F00A0 node |
 | `link1C` | fail-stop (+1C is 0 in every route capture; the port keeps no +1C object) |
 | `clip_resolve`, `skeleton_frame`, `w001C8710`, `w001C87C0`, `sample_bones` | not bound (they serve only `em_player_stage_anim_advance`) |
 
@@ -254,12 +256,12 @@ NULL.
 | `sound` | 001FBD50(p, id, 0, 300.0) | ids 0x149, 0x14D, 0x152, 0x159. |
 | `cue` | 001B61C0(big, small, dur, force) | Pad rumble: (0, 0xC0, 5, 1), (0, 0xE0, 4, 0), (0, 0xD0, 4, 0). |
 | `w001EFE00` | 001EFE00(id, p) | 0x80000044, 0x80000048. |
-| `w001F00A0` | 001F00A0(0x8000001B, p+B0, p+C0, 0) | Returns the effect record (≥ 0x110 bytes, original layout) or NULL. The caller writes +D0..+10F (the player's +D0 matrix) and +104 = +250. |
+| `w001F00A0` | 001F00A0(0x8000001B, p+B0, p+C0, 0) | Returns the effect record (≥ 0x110 bytes, original layout) or NULL. The caller writes +D0..+10F (the player's +D0 matrix) and +104 = +250, then calls `record_written` when it is set. |
 | `w001F0060` | 001F0060(id, 0) | 0x80000061/62 (0021D4E0), 0x80000063 (drain). |
 | `atan2` | SDK 0011E620 | The same binding as the floor workers' atan2: an adapter over the SDK translation (`em_sdk_math_original_0011E620`, SDK-math lane) or `em_director_original_0011E620`. |
 | `link20` | the +C0/+C8 words of *(p+20) | The object the player faces in 0021D6C0 and on hits in state 0x1D/0x1E. |
 | `clip_lookup`, `request` | 0017B490, 001749A0 | The same row lookup and request the reversal and climb lanes bind. |
-| `w0015C9D0` | 0015C9D0(p) | Clip re-trigger (001749A0 requests only, no state writes). Untranslated. |
+| `w0015C9D0` | 0015C9D0(p) | Clip re-trigger (001749A0 requests only, no state writes). Translated as `em_player_0015C9D0`. |
 | `link1C` | *(u8 *)(*(p+1C) + 4) = 2 | The linked object's major byte (00182D70). |
 | `sound_stop` | em_sfx_driver_stop(track, hard) | `em_sfx.c` has no public stop-by-track call: its `loop_stop` (T_STOP hand-off) is static. The binder needs a public wrapper for it in em_sfx.c (owned elsewhere). |
 
@@ -340,6 +342,11 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
     lookup's clip, a negative +20C, D_00248C90's +0 halfword zero or not,
     +1C, +224 / +22C including denormals), the player record of every
     captured image with +2F3 0 and 1, and 13 fail-stop checks.
+  - 0015C9D0: the live clip +20C at every halfword of D_00248A00..08 and
+    D_002754C0..DA (each tested clip and each paired one), the extremes and
+    random clips (35 by default, more in the full run); the 001749A0
+    request, the halfword reads (inside the two tables only) and the
+    untouched record are compared, and a failing reader or request faults.
 - **0011A070's decode.** The original frees track arg & 0x7FFF through
   00121A28 and sends command 3 to the track's kind-2 voice only when
   arg & 0x8000. The forwarder hands the same (track, hard) to the stop
@@ -445,9 +452,13 @@ are the remaining part of the gap.
   - the record-level advance (a clip-header/resolve binder over the player
     bank, stateful as described in section 2.2, and the display sampler
     workers; display lane);
-  - the effect and rumble binders;
-  - the two object links (+20, +1C);
-  - 0015C9D0, which is untranslated.
+  - the +1C object link;
+  - the pool bindings of the effect nodes 001EFE00 / 001F0060 spawn
+    (001F8350, 0021AE90, 001E7310 / 001E7440 / 001E7570): reaching one
+    faults in the effect binder;
+  - 0015B610's 001833F0 / 00183440 / 001834E0, translated in em_player_floor
+    (PLAYER_FLOOR.md) but unwired (their 001662D0 and 00175900 are the
+    closure binder's; 001834E0's 0016BAE0 is not bound there).
 - **Hits outside AREA11.** Port enemy hits fault in the +4 = 2 reaction
   states, which are bound only in AREA11 (section 2.1).
 - **Scripted hooks.** atan2 is the host model on both sides, as in the floor

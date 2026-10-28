@@ -170,6 +170,14 @@ int em_coll_move_player_move(void *player, const float position[3], const float 
                              unsigned mask, EmPlayerProbeHit *hit);
 int em_coll_move_player_sweep(void *player, const float from[3], const float to[3], unsigned mask,
                               EmPlayerProbeHit *hit);
+/* The same with mask bit 31: `position` is the record's +0xB0..+0xB8 (in);
+ * on a hit with bit 31 its x / z gain the hit delta 0x700031C0 / C8 (out),
+ * the record stores 0019AD00 / 0019AFE0 make. The player closure's
+ * bit-31 calls (its ladder and misc lanes). */
+int em_coll_move_player_move_xz(void *player, float position[3], const float target[3], unsigned mask,
+                                EmPlayerProbeHit *hit);
+int em_coll_move_player_sweep_xz(void *player, float position[3], const float from[3], const float to[3],
+                                 unsigned mask, EmPlayerProbeHit *hit);
 /* EmPlayerClimbWorkers.move / .sweep (0015DF10 and its sweeps). */
 int em_coll_move_climb_move(void *player, const float position[3], const float target[4],
                             unsigned mask, EmPlayerClimbHit *hit);

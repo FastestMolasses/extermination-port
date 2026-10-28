@@ -36,4 +36,23 @@ int em_item_root_tick(EmItemRoot *state, unsigned buttons, EmItemRootWorker work
  * the stick resets hover without a sound. */
 int em_item_root_hover(EmItemRoot *state, float magnitude, float angle);
 
+/* The ITEM root's draw, 0020F170 and 0020F2A0 (decomp src/func_0020F170.c
+ * and src/func_0020F2A0.c, both byte-matched C): their leaf calls, in the
+ * original's order, with the original's arguments. 0020F2A0 is entered
+ * after its 0020D930 (em_item_root_hover, the caller's): it stores 248.0 /
+ * 208.0 at D_700038A0 / D_700038A4 and calls 0020AC70(self, &D_700038A0,
+ * 0) (`trail` with those two floats and the reset flag 0), then the
+ * blend / sprite calls of its five regions (region N lit when hover == N).
+ * Each worker returns 1; anything else stops the draw (0). */
+typedef struct {
+    void *context;
+    int (*background)(void *, uint64_t tex0);          /* 0020A7A0(tex0) */
+    int (*blend)(void *, int32_t slot, int32_t mode);  /* 00207D00 */
+    int (*sprite)(void *, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                  uint64_t tex0);                      /* 00207E40 */
+    int (*trail)(void *, float x, float y, int32_t reset); /* 0020AC70 */
+} EmItemRootLeaves;
+int em_item_root_draw_0020F170(const EmItemRootLeaves *leaves);
+int em_item_root_draw_0020F2A0(const EmItemRootLeaves *leaves, uint8_t hover);
+
 #endif

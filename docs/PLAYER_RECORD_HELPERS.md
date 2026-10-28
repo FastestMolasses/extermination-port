@@ -31,6 +31,7 @@ binding recipe.
 | 0019A180 | the column-table entry attribute | `em_player_helper_0019A180` | `em_player_record_0019A180` | EmPlayerRecoveryWorkers.attribute |
 | 0017F320 | the four hang clearance sweeps (1 when all are clear) | `em_player_helper_0017F320` | `em_player_record_0017F320` | EmPlayerLandWorkers.test_0017F320, EmPlayerHangWorkers.hang_clear, EmPlayerRecoveryWorkers.hang_clear |
 | 00188550 | the hang row clip D_002754C0[+235 & 1] (0x7B / 0x8E) | `em_player_helper_00188550` | `em_player_record_00188550` | EmPlayerLandWorkers.pose_clip, EmPlayerRecoveryWorkers.hang_row, EmPlayerHangWorkers / EmPlayerLadderClimbWorkers / EmPlayerClosureWorkers clip_row, EmPlayerClosure1019Workers.clip_88550, EmPlayerMajor2Workers.w00188550 |
+| 00188570 / 00188590 / 001885B0 | the row clips D_002754C4 / C8 / CC [+235 & 1] (0x97 / 0xB3, 0x98 / 0xB4, 0xBB / 0xDC; read-only .data) | `em_player_helper_00188570` / `_00188590` / `_001885B0` | `em_player_record_00188570` / `_00188590` / `_001885B0` | the player closure's x_00188570 / x_00188590 / x_001885B0: the misc lane's clip_0 / clip_1 (0017FF80), EmPlayerMajor2Workers.w001885B0, EmPlayerClosure1019Workers.clip_885B0 (since lane g1, 2026-10-28; fail-stop stand-ins before) |
 | 00174FD0 | the stick quadrant +24C, with +23F, +244, +248 and 0x70003A20 | (entry only) | `em_player_record_00174FD0` | EmPlayerHangWorkers / EmPlayerLadderClimbWorkers steer_input, EmPlayerClosureWorkers.steer, EmPlayerClosure1019Workers.steer |
 
 Before this lane, 001755B0 had no translation, and the rest existed only as
@@ -42,7 +43,7 @@ a composite context whose first member is the `EmPlayerRecordHelpers`. This
 is the same convention as `em_player_heading_record_worker`.
 
 **What was read.** The byte-matched C of 001755B0, 00177510, 001775E0,
-00174FD0 and 00188550 was read. So was the readable C of the NEARMISS
+00174FD0, 00188550, 00188570, 00188590 and 001885B0 was read. So was the readable C of the NEARMISS
 001776E0, 00177CF0, 0017F320 and 0019A180, with its operand and evaluation
 order checked against the instructions.
 

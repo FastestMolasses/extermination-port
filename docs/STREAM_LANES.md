@@ -29,6 +29,7 @@ Make target: `test-stream-lanes` runs both.
 | 001FD470 | Mask stop: bit 0 calls 001FBC50 (worker), bit 1 calls 001FABB0 | byte-matched |
 | 001FAE70 | Music cue select / resume | byte-matched |
 | 001FB0B0 | D_00810D38 = cue, then 001FAE70(1) | byte-matched |
+| 001FAFD0 | The cue-0x18 gate (0021C190's stream test) | byte-matched |
 | 00119828, 0011A608, 0011A6A0, 0011A6E8 | Pack arguments into 001157F0 commands 0x16, 0x40, 0x42, 0x43 | .s (eegcc) |
 | 0011A4B8, 0011A4E8, 0011A658 | From 001F9820: commands 0x3C, 0x3E (0011A4E8 also sets or clears the voice's bit in D_0027F740 for flag bits 0 / 1) and 0x41 | .s (eegcc; 0011A4E8 NEARMISS) |
 | 0011A730 | `voice < 0x30 ? D_00281880[voice] : 0` | byte-matched |
@@ -114,6 +115,12 @@ Make target: `test-stream-lanes` runs both.
   - Phase 2 calls 00112D18(1). A 0 result marks +0x03 = 2. When the lane's +0x03 is no longer 1, it calls
     00113478(1) instead.
   - The lane index then advances, wrapping at 3.
+- **001FAFD0()** (lane g1, 2026-10-28): nothing unless 0x70003B90 is set and 0x70003B8D clear (the caller
+  passes both scene bytes: `em_stream_lanes_001FAFD0(L, spad3B90, spad3B8D)`, live `em_stream_live_001FAFD0`).
+  - D_008104E4 == 1: when the lane-0 cue is below 0x1D (signed), D_00810D38 is none of 0xB / 0xC / 0x17 and
+    D_00810700 is not 0x15, and the cue is not already 0x18: 001FAAC0(0), then 001FABF0(0, 0x18, 0xB4, 1).
+  - Otherwise, when the lane-0 cue is 0x18: 001FAE70(1).
+  - Its one caller is 0021C190 (the player reaction's +31F countdown end), bound by the player closure.
 - **001FAE70(a0)**:
   1. Calls 001FC280.
   2. cue = bits 8..15 of D_008106C8; when D_00810D38 != 0, cue = (cue & 0x80) | D_00810D38.
@@ -182,6 +189,8 @@ Case families (quick counts):
 - start 360: in full mode all 247 lane-0 cues (68 music rows, then the voice rows as lane 0 reads them) and all
   179 voice cues on lanes 1/2; quick keeps 0x18, 25, 29, 63, 68, 127, 143..151 and the last rows;
 - select 440: 001FAE70 and 001FB0B0 over D_008106C8, D_00810D38, area, D_008104E4, lane-0 cue and active;
+- gate 160 (full 1,440): 001FAFD0 over 0x70003B90 / 0x70003B8D, D_008104E4, the lane-0 cue (0, 0x18, 0x1C, 0x1D,
+  29, -1), D_00810D38, area and lane-0 active;
 - stop 56;
 - read 360;
 - ring 90: voice cues 143..151;

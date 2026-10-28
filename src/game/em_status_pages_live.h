@@ -93,6 +93,14 @@ typedef struct {
      * the SCISSOR_1 window `clip` (x0, y0, x1, y1 on the 512 x 448
      * canvas). 1 drawn. */
     int (*models_draw)(void *context, EmGfx *gfx, const float clip[4]);
+    /* 00182B30(D_008102B0), the EVENT page's Cross: *result = its return
+     * value (0 when the player may act) over the live player record */
+    int (*player_00182B30)(void *context, int32_t *result);
+    /* 0015C750(D_008102B0), HEALING kind 2's hand-off, over the live player
+     * record: `table16` reads 0015C7C0's .data halfwords, `d810707` is the
+     * page's D_00810707 byte. 0, or -1. */
+    int (*player_0015C750)(void *context, int (*table16)(void *, uint32_t, int16_t *),
+                           void *table_context, uint8_t *d810707);
 } EmStatusPagesHost;
 
 /* Indices of the request bytes the page core keeps a view of. */
@@ -161,5 +169,43 @@ int em_status_pages_live_render(EmStatusPagesLive *live, EmGfx *gfx);
 void em_status_pages_live_deactivate(EmStatusPagesLive *live);
 /* For tests: the calls the last tick made, by original callee address. */
 unsigned em_status_pages_live_calls(const EmStatusPagesLive *live, uint32_t callee);
+
+/* The live packet sink of the bound pages (docs/STATUS_FIELD.md 3f, 3g,
+ * 3h; bound by em_status_gs_page in both profiles). Bound: the ITEM
+ * children EQUIPMENT 00214570 and EVENT 00215870, DATABASE 00214020 (3g)
+ * and SPR4 00211970 with its five part pages (3h). On a
+ * tick of a bound page every leaf call reaches the sink at its call time,
+ * in the original's order, as well as em_page_draw: 0020A7A0 is stepped
+ * there (background; em_page_draw draws that step), 00207D00, 00207D90
+ * (scissor: DATABASE's 00213CC0), 00207E40, 00207F80 (rectangle), the
+ * small-font runs 001CBA50 (text, proportional 0: `style` the 8 bytes of
+ * the style record, NULL for none, which the bound sink refuses) and
+ * 0020AC70's trail (its 00207D00(1, 1) to blend, then fan: SPR4's selector, 3h). A
+ * leaf the sink has no builder for (00208040, 00208AD0's gauge, 001B0000's
+ * models) faults on a bound page. The tall-font runs 001CC1E0 go to
+ * em_message_live_cc1e0, whose glyph packets reach the slot-1 list through
+ * the message service's glyph sink, not this one. Each returns 1; anything else fails the page. NULL, the default
+ * (the reference tests): no page is bound and the render steps the
+ * background. */
+typedef struct {
+    void *context;
+    int (*background)(void *, uint64_t tex0, uint32_t *token);
+    int (*blend)(void *, int32_t slot, int32_t mode);
+    int (*sprite)(void *, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                  uint64_t tex0);
+    int (*rectangle)(void *, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                     uint32_t rgba);
+    int (*scissor)(void *, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1);
+    int (*text)(void *, int proportional, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                const char *text, const uint8_t *style);
+    /* 0020AC70's sixteen 00208AB0 fans (em_item_trail_step_fans' form;
+     * SPR4's selector, STATUS_FIELD.md 3h), after its 00207D00(1, 1),
+     * which reaches `blend` */
+    int (*fan)(void *, const float pos[4], int32_t colour, float angle, const float trig[4]);
+} EmStatusPagesSink;
+void em_status_pages_live_set_sink(const EmStatusPagesSink *sink);
+/* 1 when the last tick ran a bound page with the sink set (its frame's
+ * leaves built packets), else 0. */
+int em_status_pages_live_sunk(const EmStatusPagesLive *live);
 
 #endif

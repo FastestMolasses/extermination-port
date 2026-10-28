@@ -1066,6 +1066,28 @@ long notices stay up.
   line) is drawn by its own node 001C5930 through the same 001CC1E0 glyph
   runs since the units step (2026-10-02; the entry "The area title card"
   below).
+- The GS field (the Original profile; side lane "status", 2026-10-20,
+  `STATUS_FIELD.md` 3d to 3h): the BATTERY page's and the ITEM root's
+  frames are drawn from the original's own slot-1 packets (the leaf
+  builders, the message glyph runs and the ITEM root's Gouraud fans
+  translated byte for byte against the original instructions) through the
+  CPU GS model and presented as the field, so their sprites' bilinear
+  sampling and their glyphs are the GS's pixels, not the renderer's: route
+  01's f300 / f400 (the BATTERY page) and two ITEM root frames (fork
+  captures given the port's D_002655A0) are 0 of 114,688 pixels off the
+  field the original displayed. Since 2026-10-21 (`STATUS_FIELD.md` 3f)
+  the ITEM children EQUIPMENT and EVENT too: four of their frames (fork
+  captures given the port's D_002655A0) and the frame Circle leaves on are
+  0 of 114,688 pixels off; and (`STATUS_FIELD.md` 3g) the hub's DATABASE
+  page, its list, a record, the category step, the scroll (its SCISSOR_1
+  window) and a blank entry: eight of its frames (fork captures given the
+  port's D_002655A0) and its Circle frame are 0 of 114,688 pixels off; and
+  (`STATUS_FIELD.md` 3h) the SPR4 page with its part pages, the selector's
+  analog glow at rest and with the stick moving, LOWER U.R.S., SELECTOR
+  SWITCH, its prompt and Yes: twelve of its frames (fork captures given
+  the port's D_002655A0) and a part module's load frame are 0 of 114,688
+  pixels off. The hub and the other pages are still drawn by the renderer
+  as described above.
 - Status: **PARTIAL**. Glyph pixels are
   drawn from the port's own atlas (the original's TEX0 / CLUT, TEST and
   ALPHA are not modelled) and are not compared (no fb2 frame shows text).
@@ -1931,7 +1953,8 @@ layout.
   the block's area loaded and the player placed at the slot's load pose),
   on the boot's title too since save2 round 5 (`SAVE_GAME.md` section 6.4:
   the card screen on the title's own binding, the GS memory module 0x2A's
-  upload alone); from the options it stops at 001D2610.
+  upload alone); from the options the result 2 runs 001D2610 and the game
+  task's area read since 2026-10-28 (not run end to end).
 - Evidence: `make test-options-reference`: the original routines executed
   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
@@ -1959,8 +1982,8 @@ layout.
   against the original code only (no recording chooses one); a loaded game
   from the title (the side run dmg_load_game; on the boot's title `make
   test-title-load-game`) is checked against the original code's own steps
-  only (no recording loads a game), and from the
-  options loading stops at 001D2610;
+  only (no recording loads a game), and loading from the options
+  (bound since 2026-10-28) has not been run end to end;
   saving (the first level has no save point) and
   quitting with Yes are not recorded and stop the game or are untested; the
   host card's format word (1) follows the code's test, its free count is

@@ -610,7 +610,8 @@ static void probe_out(Bridge *b, const EmPlayerProbeHit *h, BridgeProbe *o)
 }
 
 /* which: 0 player move, 1 player sweep, 2 climb move, 3 climb sweep, 4 slide
- * move, 5 slide sweep, 6 owner move (live = NULL; self = the owner). */
+ * move, 5 slide sweep, 6 owner move (live = NULL; self = the owner), 7 / 8
+ * the player's bit-31 move / sweep (position in and out, with the hit). */
 int bridge_adapter(void *p, int which, BridgeScratch *io, const uint8_t *live_bytes, uint32_t self,
                    uint32_t *position, const uint32_t *a, const uint32_t *c, uint32_t mask, BridgeProbe *o)
 {
@@ -640,6 +641,8 @@ int bridge_adapter(void *p, int which, BridgeScratch *io, const uint8_t *live_by
         case 3: r = em_coll_move_climb_sweep(&pl, va, vc, mask, &climb); hit = climb.probe;
                 o->pickup_box = climb.pickup_box; break;
         case 4: r = em_coll_move_slide_move(&pl, pos, va, mask); break;
+        case 7: r = em_coll_move_player_move_xz(&pl, pos, va, mask, &hit); break;
+        case 8: r = em_coll_move_player_sweep_xz(&pl, pos, va, vc, mask, &hit); break;
         default: r = em_coll_move_slide_sweep(&pl, va, vc, mask, &hit); break;
         }
         if (r >= 0 && which != 4) probe_out(b, &hit, o);
@@ -1553,6 +1556,14 @@ def adapter_cases(rng):
             mask = 0x80000006 if which == 4 else (0x80000007 if which == 6 else rng.choice((6, 7)))
             owner = rng.choice([o for o, _, _ in boxes])
             cases.append(('adapter', beat, (which, owner, s, e, mask, 'adapter %d uid %d #%d' % (which, uid, k))))
+        # the player's bit-31 move / sweep (their own draws: the cases above keep theirs)
+        own = random.Random(zlib.crc32(('xz ' + beat).encode()))
+        for k in range(4):
+            a, uid, box = own.choice(boxes)
+            s, e = segment_near(box, own)
+            which = 7 + k % 2
+            mask = own.choice((0x80000006, 0x80000007, 0x80000002))
+            cases.append(('adapter', beat, (which, PLAYER, s, e, mask, 'adapter %d uid %d #%d' % (which, uid, k))))
     return cases
 
 
@@ -1699,7 +1710,7 @@ def adapter_case(w, which, owner, s, e, mask, label):
     act = Actor(0, 0, 0, 0, pos)
     vec_at = QUERY + 0x800
     setup_ram = [(at, bytes(rec[:0xC0])), (vec_at, struct.pack('<4I', *eb, 0)), (vec_at + 0x10, struct.pack('<4I', *sb, 0))]
-    sweep = which in (1, 3, 5)
+    sweep = which in (1, 3, 5, 8)
 
     def native(b, io):
         a_vec, c_vec = (u32s(sb), u32s(eb)) if sweep else (u32s(eb), u32s(eb))

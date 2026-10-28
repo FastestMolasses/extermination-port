@@ -51,6 +51,10 @@ void player_pose_set_release_worker(int (*worker)(void *, EmPlayerLiveActor *), 
 /* 0015B530's 00182DF0 on the stage's own takeover: the release, then the
  * takeover's end hook. 0, or -1. */
 int player_pose_stage_release(EmPlayerLiveActor *actor);
+/* 001749A0(actor, clip, flags, blend) on the player record's pose, as
+ * 0015C700's 0015C7C0 requests it (em_player_record_pose_request): 0, or -1
+ * for another record or a refused request. */
+int player_pose_record_request(EmPlayerLiveActor *actor, int clip, int flags, float blend);
 /* 1 when the record holds the pose the port displays (the source started
  * at the attach, valid, and no port stand-in holds the display):
  * only then are its node records the player's drawn pose (0015C160's
@@ -74,8 +78,9 @@ int player_pose_display(void);
 
 
 /* WP-15 P16 (docs/PLAYER_FLOOR.md): player_wall_probes runs the translated
- * 001764E0 over the port's collision; unbound workers it reaches (00176180,
- * 001762E0 shove, 00174A50 row request) are counted here. */
+ * 001764E0 over the port's collision; unbound workers it reaches (on the
+ * legacy probe set 00176180; 001762E0 shove, 00174A50 row request) are
+ * counted here. */
 unsigned player_probe_faults(void);
 
 /* ---- Live player states (docs/FIRST_CONTROL.md "Live player states") ------

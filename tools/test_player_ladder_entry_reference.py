@@ -14,6 +14,7 @@ embedded here. Routines executed unmodified:
             float_to_int 001281C0, executed unmodified: native
             em_player_float_to_int)
   00178080  the column lock-on scan (0019BC40, 0011E620, 001B1470 hooked)
+  00178440  the surface-0x33 grab (through 00199DB0)
   00165B60  state 0xB, the ladder entry     00176DC0  the radial wall probes
   0017FC80  clip by +2F1                    00182A70  climb step sound
   001B61C0  pad vibration request           00102948 / 001031E0 (copies)
@@ -106,11 +107,11 @@ class LadderEE(FallEE):
 USE, REFRESH, FACING, CLASSIFY = 0x15D4C0, 0x176F90, 0x177030, 0x180300
 CENTER, CORNERS, STATE_B, WALLS = 0x199DB0, 0x199FA0, 0x165B60, 0x176DC0
 CLIPS, STEP, RUMBLE, QCOPY, COPY3 = 0x17FC80, 0x182A70, 0x1B61C0, 0x102948, 0x1031E0
-LEDGE, GRAB, LOCKON = 0x178390, 0x1782A0, 0x178080
+LEDGE, GRAB, LOCKON, GRAB33 = 0x178390, 0x1782A0, 0x178080, 0x178440
 SIZES = {USE: 0x9F8, REFRESH: 0x9C, FACING: 0x430, CLASSIFY: 0x120, CENTER: 0x1EC,
          CORNERS: 0x1DC, STATE_B: 0x770, WALLS: 0x1CC, CLIPS: 0x74, STEP: 0x3C, RUMBLE: 0x84,
          QCOPY: 0xC, COPY3: 0x1C, 0x1885D0: 0x1C, 0x1885F0: 0x1C, LEDGE: 0xA4, GRAB: 0xF0,
-         LOCKON: 0x220}
+         LOCKON: 0x220, GRAB33: 0x94}
 TRANSLATED = set(SIZES)
 # Executed unmodified but not branch-covered here: the SDK's float_to_int
 # (its one translation, em_player_float_to_int, is em_player_stage_workers').
@@ -278,6 +279,7 @@ def build_native():
     native.em_player_ladder_00199FA0.argtypes = [P(World), P(Scratch), PU, PU, P(I)]
     native.em_player_ladder_00178390.argtypes = [P(World), P(Scratch), LA, P(I)]
     native.em_player_ladder_001782A0.argtypes = [P(World), P(Scratch), LA, P(I)]
+    native.em_player_ladder_00178440.argtypes = [P(World), P(Scratch), LA, P(I)]
     native.em_player_ladder_00178080.argtypes = [W, LA, P(I)]
     for name in ('em_player_ladder_00165B60', 'em_player_ladder_00176DC0',
                  'em_player_ladder_00182A70', 'em_player_ladder_state_b'):
@@ -411,6 +413,9 @@ class Script:
 ENTRIES = ('use',) * 14 + ('refresh', 'facing', 'facing', 'facing', 'classify', 'center', 'corners') + \
     ('state_b',) * 10 + ('walls', 'clips', 'step', 'rumble', 'ledge', 'grab', 'grab', 'lockon', 'lockon',
                          'lockon')
+# 00178440's cases run on their own seeds (from GRAB33_BASE), so the main
+# seeds keep their entries and draws.
+GRAB33_BASE = 1 << 20
 
 
 def elf_d2754D0():
@@ -423,6 +428,8 @@ def elf_d2754D0():
 def make_case(seed):
     rng = random.Random(seed)
     entry = rng.choice(ENTRIES)
+    if seed >= GRAB33_BASE:
+        entry = 'grab33'
     actor = bytearray(rng.getrandbits(8) for _ in range(0x320))
     for off in (0xB0, 0xB8, 0x290, 0x294, 0x298, 0x254, 0x2E0, 0x2E4, 0x2E8):
         put(actor, off, 4, F(rng.uniform(-400, 400)))
@@ -638,6 +645,8 @@ class UnitOracle:
             ee.call(LEDGE, (ACTOR,)); v0 = s32(ee.r[2])
         elif entry == 'grab':
             ee.call(GRAB, (ACTOR,)); v0 = s32(ee.r[2])
+        elif entry == 'grab33':
+            ee.call(GRAB33, (ACTOR,)); v0 = s32(ee.r[2])
         elif entry == 'lockon':
             ee.call(LOCKON, (ACTOR,)); v0 = s32(ee.r[2])
         elif entry == 'state_b':
@@ -845,6 +854,9 @@ class NativeRun:
         elif entry == 'grab':
             result = n.em_player_ladder_001782A0(C.byref(self.world), C.byref(self.scratch), A,
                                                  C.byref(out)); v0 = out.value
+        elif entry == 'grab33':
+            result = n.em_player_ladder_00178440(C.byref(self.world), C.byref(self.scratch), A,
+                                                 C.byref(out)); v0 = out.value
         elif entry == 'lockon':
             result = n.em_player_ladder_00178080(W, A, C.byref(out)); v0 = out.value
         elif entry == 'state_b':
@@ -889,7 +901,8 @@ def native_rumble(native, case, missing=None):
 UNREACHABLE = {(0x15DA94, True)}
 
 NULL_RECORD_SITES = {0x176FF8, 0x177054, 0x177370, 0x1772E8, 0x18039C, 0x15D628, 0x15D750,
-                     0x15D9FC, 0x15DA78, 0x15DBAC, 0x15DCD8, 0x15DE2C, 0x1780B0, 0x1781D0}
+                     0x15D9FC, 0x15DA78, 0x15DBAC, 0x15DCD8, 0x15DE2C, 0x1780B0, 0x1781D0,
+                     0x178474}
 # The first load of a record's +0x34..+0x3F in each reader (axis_missing).
 AXIS_SITES = {0x177054, 0x177370, 0x1772E8, 0x15DA78, 0x15DBB8}
 PAD_FIELDS = [4, 5, 6, 7, 8, 9, 10, 11, 0x12, 0x16, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x28, 0x29]
@@ -1368,7 +1381,8 @@ def main():
     NATIVE = build_native()
     total = reference_mode.pick(40000, 40000)
     seeds = reference_mode.select(range(total), 5000, 0x1ADD)
-    results = reference_mode.parallel_map(run_case, seeds)
+    grab33 = range(GRAB33_BASE, GRAB33_BASE + reference_mode.pick(4000, 400))
+    results = reference_mode.parallel_map(run_case, list(seeds) + list(grab33))
     outcomes, entries, kinds = set(), {}, {}
     faults = calls = 0
     for entry, count, fault, kind, cover in results:
@@ -1382,7 +1396,7 @@ def main():
                      for pc in sites for taken in (True, False)
                      if (pc, taken) not in outcomes and (pc, taken) not in UNREACHABLE)
     assert not missing, ('branch outcomes never exercised', missing)
-    absent = [e for e in set(ENTRIES) if e not in entries]
+    absent = [e for e in set(ENTRIES) | {'grab33'} if e not in entries]
     assert not absent, ('entry points never run', absent)
     stops = missing_worker_checks(NATIVE)
     data = data_fault_checks(NATIVE)
@@ -1392,7 +1406,7 @@ def main():
           'identical, every one of %d conditional branches both ways, %d fault-stop cuts, '
           '%d missing-worker refusals, %d data-fault checks, native data faults proven against '
           'the original: %s (%.1fs)' % (
-              len(seeds), ', '.join('%s %d' % kv for kv in sorted(entries.items())), calls,
+              len(seeds) + len(grab33), ', '.join('%s %d' % kv for kv in sorted(entries.items())), calls,
               len(sites), faults, stops, data,
               ', '.join('%s %d' % kv for kv in sorted(kinds.items()) if kv[0] != 'ok'),
               time.time() - started))

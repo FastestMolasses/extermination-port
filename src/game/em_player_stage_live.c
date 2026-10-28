@@ -5,9 +5,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_area11_boxes.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_collision_world.h"
+#include "game/em_effects_live.h"
+#include "game/em_equipment_live.h"
+#include "game/em_sdk_math_original.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
@@ -33,6 +37,11 @@ static struct {
     EmPlayerStageWorkers major5_workers;
     EmPlayerStageRelease release;   /* 00182DF0's context */
     EmPlayerStageFade fade;
+    /* 001F00A0's record as 0021CBB0 writes it: +0xD0..+0x10F of the node
+     * w_001F00A0 spawned (em_effects_live's storage), handed back through
+     * record_written. */
+    uint8_t record_image[0x110];
+    uint32_t record_node;
     unsigned faults;
     int reported;
 } live;
@@ -66,42 +75,135 @@ static int stub_cue(void *c, int a0, int a1, int a2, int a3)
     (void)c;
     return em_pad_actuator_001B61C0((uint8_t)a0, (uint8_t)a1, a2, a3);
 }
-static int stub_001EFE00(void *c, uint32_t id, EmPlayerLiveActor *a)
+/* ---- The effect spawns at the record (em_effects_live, census L26) -------
+ * 001EFE00 / 001F00A0 / 001F0060 are em_effect_original's translations on
+ * the area's effect binder; the node they allocate binds to its pool
+ * behaviour there (a callback without one faults in the binder). */
+static int effect_fault(uint32_t address)
 {
-    (void)c; (void)id; (void)a;
-    return unbound("001EFE00 (effect at the player)");
+    char what[96];
+    snprintf(what, sizeof what, "%08X on the effect binder (em_effects_live fault %08X)", (unsigned)address,
+             (unsigned)em_effects_live_fault());
+    return unbound(what);
 }
-static int stub_001F00A0(void *c, uint32_t id, EmPlayerLiveActor *a, int a3, uint8_t **record)
+static void record_quad(const EmPlayerLiveActor *a, unsigned at, float out[4])
 {
-    (void)c; (void)id; (void)a; (void)a3;
+    memcpy(out, a->bytes + at, 4 * sizeof *out);
+}
+/* 001EFE00(id, p): the record's +0xB0 / +0xC0 quadwords and +0x14 word. */
+static int w_001EFE00(void *c, uint32_t id, EmPlayerLiveActor *a)
+{
+    (void)c;
+    if (!a) return unbound("001EFE00 without the record");
+    float b0[4], c0[4];
+    record_quad(a, 0xB0, b0);
+    record_quad(a, 0xC0, c0);
+    return em_effects_live_001EFE00(id, b0, c0, em_live_u32(a, 0x14), NULL) < 0 ? effect_fault(0x001EFE00u) : 0;
+}
+/* 001F00A0(id, p + 0xB0, p + 0xC0, a3): *record is record_image, whose
+ * +0xD0..+0x10F hold the node's (0021CBB0 copies over them); w_record_written
+ * stores them back into the node. */
+static int w_001F00A0(void *c, uint32_t id, EmPlayerLiveActor *a, int a3, uint8_t **record)
+{
+    (void)c;
     if (record) *record = NULL;
-    return unbound("001F00A0 (effect record)");
+    if (!a || !record) return unbound("001F00A0 without the record");
+    float b0[4], c0[4];
+    record_quad(a, 0xB0, b0);
+    record_quad(a, 0xC0, c0);
+    uint32_t node = 0;
+    if (em_effects_live_001F00A0(id, b0, c0, a3, &node) < 0) return effect_fault(0x001F00A0u);
+    live.record_node = node;
+    if (!node) return 0;
+    const void *m = em_effects_live_node_field(node + 0xD0u, 0x40, 0);
+    if (!m) return unbound("001F00A0's node +0xD0..+0x10F (no effect-slot view)");
+    memset(live.record_image, 0, sizeof live.record_image);
+    memcpy(live.record_image + 0xD0, m, 0x40);
+    *record = live.record_image;
+    return 0;
 }
-static int stub_001F0060(void *c, uint32_t id, int a1)
+static int w_record_written(void *c, uint8_t *record)
 {
-    (void)c; (void)id; (void)a1;
-    return unbound("001F0060 (effect)");
+    (void)c;
+    if (record != live.record_image || !live.record_node)
+        return unbound("record_written for a record w_001F00A0 did not hand out");
+    void *m = em_effects_live_node_field(live.record_node + 0xD0u, 0x40, 1);
+    if (!m) return unbound("001F00A0's node +0xD0..+0x10F (no effect-slot view)");
+    memcpy(m, record + 0xD0, 0x40);
+    live.record_node = 0;
+    return 0;
 }
-/* 0021C440 calls atan2 only after link20 (face_link), which faults first;
- * this worker has no error channel, so it quits directly. */
-static float stub_atan2(void *c, float y, float x)
+/* 001F0060(id, owner). */
+static int w_001F0060(void *c, uint32_t id, int a1)
 {
-    (void)c; (void)y; (void)x;
-    (void)unbound("SDK 0011E620 atan2 (0021D6C0 / hit facing)");
-    em_frame_request_quit();
-    return 0.0f;
+    (void)c;
+    return em_effects_live_001F0060(id, (uint32_t)a1, NULL) < 0 ? effect_fault(0x001F0060u) : 0;
 }
-static int stub_link20(void *c, uint32_t word, uint32_t *c0, uint32_t *c8)
+/* SDK 0011E620 (atan2f) on the area's one SDK context (em_sdk_math_original,
+ * as the closure's). The slot has no error channel: a fault of the
+ * translation (or no SDK context) is reported and quits the frame. */
+static float w_atan2(void *c, float y, float x)
 {
-    (void)c; (void)word;
+    (void)c;
+    EmSdkMathContext *sdk = em_collision_world_sdk();
+    if (!sdk || sdk->fault) {
+        (void)unbound("SDK 0011E620 atan2 (no SDK context, or it has faulted)");
+        em_frame_request_quit();
+        return 0.0f;
+    }
+    const float r = em_sdk_math_original_float_0011E620(sdk, y, x);
+    if (sdk->fault) {
+        char what[80];
+        snprintf(what, sizeof what, "SDK 0011E620 atan2 (fault at %08X)", (unsigned)sdk->fault);
+        (void)unbound(what);
+        em_frame_request_quit();
+        return 0.0f;
+    }
+    return r;
+}
+/* The record's +0x20 word is the equipment node 0015C310 stored there
+ * (0018A880(0, 0)); its +0xC0 and +0xC8 floats are em_equipment_live's
+ * fields of that node. */
+static int w_link20(void *c, uint32_t word, uint32_t *c0, uint32_t *c8)
+{
+    (void)c;
     if (c0) *c0 = 0;
     if (c8) *c8 = 0;
-    return unbound("the +20 object's +C0/+C8 (the port keeps no +20 handle)");
+    const uint8_t *p0 = word ? em_equipment_live_field(word + 0xC0u, 4, 0) : NULL;
+    const uint8_t *p8 = word ? em_equipment_live_field(word + 0xC8u, 4, 0) : NULL;
+    if (!c0 || !c8 || !p0 || !p8) {
+        char what[96];
+        snprintf(what, sizeof what, "the +20 object %08X's +C0/+C8 (no equipment-node view)", (unsigned)word);
+        return unbound(what);
+    }
+    memcpy(c0, p0, 4);
+    memcpy(c8, p8, 4);
+    return 0;
 }
-static int stub_0015C9D0(void *c, EmPlayerLiveActor *a)
+/* 0015C9D0 (em_player_0015C9D0): its halfwords D_00248A00..08 from the
+ * record pose's table region (as r_00248A00), D_002754C0..DA from the
+ * status pages' exported windows; 001749A0 on the record pose. */
+static int r_table16(void *c, uint32_t address, int16_t *value)
 {
-    (void)c; (void)a;
-    return unbound("0015C9D0 (0015D100's low-health clip re-trigger; untranslated)");
+    (void)c;
+    const uint8_t *p = player_pose_record_bytes(address, 2);
+    if (p) {
+        *value = (int16_t)(uint16_t)(p[0] | p[1] << 8);
+        return 0;
+    }
+    if (em_area11_interaction_host_data16(address, value) == 0) return 0;
+    char what[112];
+    snprintf(what, sizeof what, "the halfword %08X (0015C9D0; python3 tools/export_status_pages.py)",
+             (unsigned)address);
+    return unbound(what);
+}
+static int c9d0_request(void *c, EmPlayerLiveActor *a, int clip, int flags, float blend)
+{
+    return em_pose_host_stage_request(c, a, clip, flags, blend);
+}
+static int w_0015C9D0(void *c, EmPlayerLiveActor *a)
+{
+    return em_player_0015C9D0(a, r_table16, NULL, c9d0_request, c);
 }
 static int stub_link1C(void *c, uint32_t word, uint8_t value)
 {
@@ -197,9 +299,13 @@ static int stub_00183910(void *c, EmPlayerLiveActor *a)
     return unbound("00183910 (0015B530 +5 = 0x17; no original collision world, so its callees are unbound)");
 }
 
-/* 0015B610's routines that are not bound: +5 = 2, 3 and 4 (no first-level
- * spawn record or script writes them; 00183250, +5 = 1, is bound by the
- * closure binder over the original world). */
+/* 0015B610's routines that are not bound: +5 = 1 (00183250, which the
+ * closure binder installs over the original world), and +5 = 2, 3, 4 (no
+ * first-level spawn record or script writes them). 001833F0 / 00183440 /
+ * 001834E0 are translated (em_player_floor's em_player_001833F0 /
+ * _00183440 / _001834E0) but stay unwired: their 001662D0 (the ladder climb
+ * lane) and 00175900 are the closure binder's (em_player_closure_live.c),
+ * and 001834E0's 0016BAE0 (the crawl spawn) is not bound there. */
 static int stub_00183250(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
@@ -208,17 +314,18 @@ static int stub_00183250(void *c, EmPlayerLiveActor *a)
 static int stub_001833F0(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
-    return unbound("001833F0 (0015B610 +5 = 2; untranslated)");
+    return unbound("001833F0 (0015B610 +5 = 2; translated, its 001662D0 is not bound here)");
 }
 static int stub_00183440(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
-    return unbound("00183440 (0015B610 +5 = 3; untranslated)");
+    return unbound("00183440 (0015B610 +5 = 3; translated, its 001662D0 is not bound here)");
 }
 static int stub_001834E0(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
-    return unbound("001834E0 (0015B610 +5 = 4; untranslated)");
+    return unbound("001834E0 (0015B610 +5 = 4; translated, its 0016BAE0 (crawl spawn) and 00175900 "
+                   "are not bound here)");
 }
 
 /* ---- bound workers ------------------------------------------------------ */
@@ -237,13 +344,14 @@ static int w_00183240(void *c, EmPlayerLiveActor *a)
     return 0;
 }
 
-/* 001FBD50(p, id, 0, radius): the live play path at the record's +B0. */
+/* 001FBD50(p, id, flat, radius): the live play path at the record's +B0
+ * (a nonzero flat byte measures the distance in x/z, em_sfx). */
 static int w_sound(void *c, EmPlayerLiveActor *a, int id, int a2, float radius)
 {
     (void)c;
-    if (!a || id < 0 || a2 != 0) return unbound("001FBD50 with an argument the live path does not take");
+    if (!a || id < 0) return unbound("001FBD50 with an argument the live path does not take");
     const float at[3] = { em_live_f32(a, 0xB0), em_live_f32(a, 0xB4), em_live_f32(a, 0xB8) };
-    em_sfx_play_at((unsigned)id, at, radius);
+    (void)em_sfx_play_at_mode_track((unsigned)id, at, a2, radius);
     return 0;
 }
 
@@ -357,15 +465,16 @@ int em_player_stage_live_bind(void)
     c->sample_bones = em_pose_host_stage_sample_bones;
     c->sound = w_sound;
     c->cue = stub_cue;
-    c->w001EFE00 = stub_001EFE00;
-    c->w001F00A0 = stub_001F00A0;
-    c->w001F0060 = stub_001F0060;
-    c->atan2 = stub_atan2;
-    c->link20 = stub_link20;
+    c->w001EFE00 = w_001EFE00;
+    c->w001F00A0 = w_001F00A0;
+    c->record_written = w_record_written;
+    c->w001F0060 = w_001F0060;
+    c->atan2 = w_atan2;
+    c->link20 = w_link20;
     /* 0017B490 on the record (em_locomotion_display's translation over the
      * record pose's regions, which map the exported D_00248AB0 rows). */
     c->clip_lookup = em_player_closure_live_0017B490;
-    c->w0015C9D0 = stub_0015C9D0;
+    c->w0015C9D0 = w_0015C9D0;
     c->link1C = stub_link1C;
     c->sound_stop = w_sound_stop;
 
@@ -418,6 +527,8 @@ int em_player_stage_live_bind(void)
         /* 001756E0's 00174A50(p, 12.0) in the probe set. */
         em_collision_world_bind_player_pose(em_player_stage_row_request, &live.host,
                                             player_states_actor_mut());
+        /* 00176180's 0x700031F0 store (the carry flag's one storage). */
+        em_collision_world_bind_carry31F0(em_area11_boxes_carry31F0());
         /* The FLOOR state closure and the Use roots (census L02 / L04 / L09;
          * em_player_closure_live.c binds every state callback with the
          * translations the module docs name). */
@@ -443,4 +554,13 @@ int em_player_stage_live_bind(void)
 unsigned em_player_stage_live_faults(void)
 {
     return live.faults;
+}
+
+/* 00182B30 (byte-matched decomp C) over the live record: the same
+ * translation the 0015B130 prelude runs (the stage host's scripted_check),
+ * for a caller outside the stage (the EVENT status page's Cross). */
+int em_player_stage_live_00182B30(int *result)
+{
+    if (!result || !live.host.stage) return -1;
+    return em_player_stage_scripted_check(&live.host, player_states_actor_mut(), result);
 }

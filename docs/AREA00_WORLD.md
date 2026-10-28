@@ -451,8 +451,8 @@ workers, the binding is an adapter from that worker to the entry:
 
 - `em_player_equipment.h` / `em_equipment_live.c`: `w_00189EC0`, `w_00189FE0`,
   `w_0018A180` and `w_0019B2C0` (the equipment module; `em_equipment_live.c` binds all
-  four to fail-stop stand-ins today, `x_00189EC0`, `x_00189FE0`, `x_node`, `x_0019B2C0`,
-  as callees no first-level route reaches, PLAYER_EQUIPMENT.md 4.2). The live module holds native records, not EE bytes;
+  four through the AIM composition, PLAYER_EQUIPMENT.md 4.2; the fail-stop stand-ins this
+  note once named are gone). The live module holds native records, not EE bytes;
   the adapter needs the EE view of the node (the same need as lane EXITB's owners).
 - `em_security_gun_rest.h`: `w_0019AA80` (the revisit-only probe of the AREA11 gun,
   SECURITY_GUN.md section 6).
