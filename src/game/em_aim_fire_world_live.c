@@ -203,9 +203,9 @@ typedef struct Bridge {
     EmPoseRegion parent_view;
     /* The glow node 001F6FB0's parent record (its +0x24): header, +0x60,
      * +0x80 and +0xB0 as the pool's fields, +0xD0 a read-only copy. */
-    EmPoseRegion glow_view[5];
+    EmPoseRegion glow_view[6];
     unsigned glow_views;
-    uint8_t glow_matrix[64];
+    uint8_t glow_matrix[64], glow_block[0x100];
     uint32_t point[4];
     /* The published class-4 list (D_00275B7C / D_00275B84, base D_0028AE30)
      * as views: 001AA840 walks it (the knife's reach). */
@@ -651,6 +651,11 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
         if(!w->actor_snapshot || w->actor_snapshot(w->context,parent+0xD0u,64,b.glow_matrix)<0)
             return fault(h,c->function,parent+0xD0u);
         b.glow_view[b.glow_views++]=(EmPoseRegion){parent+0xD0u,64,b.glow_matrix,0};
+        /* Its work block (the glow reads the halfword +0xF4, the parent's
+         * animation flags), read only. */
+        if(w->actor_snapshot(w->context,parent+0x1F0u,0x100,b.glow_block)<0)
+            return fault(h,c->function,parent+0x1F0u);
+        b.glow_view[b.glow_views++]=(EmPoseRegion){parent+0x1F0u,0x100,b.glow_block,0};
     }
     if(refresh(&b)<0) {
         fprintf(stderr,"aim/fire world: %08X refresh failed (%u views)\n",

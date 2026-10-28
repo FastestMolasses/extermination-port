@@ -66,11 +66,18 @@ HAZARD_WINDOWS = ((0x00253740, 6 * 0x90),)
 # D_00257480 to 001CFBE0 (the first and last in the exported 0x257360
 # window), 001EEEB0 D_00257510 / D_00257900 / D_00257630 and rewrites the
 # parameter rows D_00257530 / D_00257650 inside them: the 0x257510 window
-# (three blocks and their rows) and the 0x257870 window (two blocks).
-HAZARD_EFFECT_WINDOWS = ((0x00257510, 0x1B0), (0x00257870, 0x120))
+# (three blocks and their rows) and the 0x257870 window (its blocks
+# D_00257870 / D_00257900, and the box-break spray 001EF510's tables
+# D_00257990 / D_00257A20 / D_00257AB0, adjacent: 0x2D0 bytes).
+HAZARD_EFFECT_WINDOWS = ((0x00257510, 0x1B0), (0x00257870, 0x2D0))
 # 001EEEB0's stores into its window (D_00257530 = (8, 24, 8, 0 x5),
 # D_00257650 = (24, 112, 24, 128, 24, 112, 24, 0)): a capture holds either
 # the ELF's words there or these (the handler ran); the ELF's are exported.
+# The subtype-3 handler 001ECFB0 (byte-matched decomp C; AREA00 a00_09)
+# passes the three descriptor blocks D_002571B0 + 0x90 k (k = 0..2), and the
+# creatures' glow node 001F6FB0 (em_area00_fx_glow.c) the block D_0025D800,
+# whose +0x10..+0x18 it rewrites before each 001CFBE0: one window each.
+CREATURE_EFFECT_WINDOWS = ((0x002571B0, 0x1B0), (0x0025D800, 0x90))
 HAZARD_EFFECT_ROWS = {0x00257530: struct.pack('<8f', 8, 24, 8, 0, 0, 0, 0, 0),
                       0x00257650: struct.pack('<8f', 24, 112, 24, 128, 24, 112, 24, 0)}
 
@@ -119,7 +126,7 @@ def blocks(elf):
         raise ValueError('Not the pinned SCUS-97112 boot ELF')
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
-               *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS)
+               *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -160,7 +167,7 @@ def verify_windows(data, paths):
     for path in paths:
         ram = path.read_bytes()
         for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS,
-                              *FOOTSTEP_WINDOWS, *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS):
+                              *FOOTSTEP_WINDOWS, *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *CREATURE_EFFECT_WINDOWS):
             if ram[address:address + size] != wanted[address]:
                 raise ValueError('AREA00 immutable table differs from pinned ELF')
         verify_hazard_effects(wanted, ram)

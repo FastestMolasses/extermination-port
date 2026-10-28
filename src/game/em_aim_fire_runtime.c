@@ -56,6 +56,10 @@ static uint32_t shot_flag;                 /* 0x700031E8 */
 static uint32_t scratch_3600[16];          /* 0x70003600..0x7000363F */
 static uint32_t *shared_3600;
 static uint32_t d275C3C;                   /* D_00275C3C (001F0190 / 001F0290) */
+/* 0x700036E0..0x7000371F: the glow node 001F6FB0's spark matrix (each
+ * spark's 001029C0 writes all four rows, row 3 first, before 00102918 /
+ * 00102900 / 001C7900 read it); write-first within one call. */
+static uint32_t scratch_36E0[16];
 
 /* The records the composition allocates itself (001861C0's 001AFA90(1),
  * the impact marker): the bytes beyond the pool header the marker
@@ -81,7 +85,7 @@ static struct {
     EmArea00HudVu vu;
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
-    EmPoseRegion bss[14];
+    EmPoseRegion bss[16];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
 } R;
 
@@ -801,6 +805,13 @@ static int add_windows(void)
     const EmRogerActorWorld *slots=em_area11_boxes_slot_world();
     if (!slots || !slots->d00275BCC) return -1;
     R.bss[n++]=(EmPoseRegion){0x275BCC,2,(uint8_t *)slots->d00275BCC,0};
+    /* D_0025D800, the creatures' glow node 001F6FB0's 001CFBE0 source
+     * block (it rewrites +0x10..+0x18 first; export_area00_runtime_tables.py
+     * CREATURE_EFFECT_WINDOWS). Optional: an export without it leaves the
+     * glow's access unmapped (its fail-stop). */
+    uint8_t *glow=(uint8_t *)(uintptr_t)em_effects_live_window(0x25D800u,0x90u);
+    if (glow) R.bss[n++]=(EmPoseRegion){0x25D800,0x90,glow,1};
+    R.bss[n++]=(EmPoseRegion){0x700036E0,sizeof scratch_36E0,(uint8_t *)scratch_36E0,1};
     R.world.region_count=n;
     return 0;
 }

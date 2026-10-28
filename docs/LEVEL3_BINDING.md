@@ -14,6 +14,29 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 17 (port main b4a4147 and `pretrans-a00` merged):
+the C side runs a00_09 to frame 13225** (674 rows; a00_00..a00_08 unchanged),
+where a bug's sub-state machine `0012C490` faults (node 0x7BDFE0). Not the
+first unit: from row 152 the a00_09 rows differ (creature 0x71 dies late),
+and from about row 462 the player is hit and the rows diverge (`hp`, `pos`,
+`req`), so the stop sits inside a diverged run. The creature drift
+(iteration 16) is the next unit.
+
+- **`001F6FB0`, the glow node, plays through:** its source block
+  D_0025D800 (exported, `CREATURE_EFFECT_WINDOWS`; mapped writable in the
+  aim/fire composition when present, the glow rewrites +0x10..+0x18), its
+  parent's work block (read-only copy, the halfword +0xF4) and the spark
+  matrix 0x700036E0..0x7000371F (write-first storage in
+  em_aim_fire_runtime) are views. docs/AREA00_PRETRANS.md stop S2.
+- **`001ECFB0` (byte-matched decomp C), effect subtype 3, is bound** as an
+  em_effects_live handler beside 001EEBA0 / 001EEEB0 (its sources
+  D_002571B0 + 0x90 k exported). Stop S1.
+- The 0x257870 window grows to 0x2D0 bytes (001EF510's tables D_00257990 /
+  D_00257A20 / D_00257AB0, stop S3, adjacent); em_effects_live takes up to
+  96 windows (65 exported). A private `effect_tables.emet` is rebuilt from
+  scratch (`rm assets/effect_tables.emet` first) because a window changed
+  size.
+
 **2026-10-28, iteration 16: the C side plays a00_00..a00_08 and 429 rows of
 a00_09, and stops at a00_09 frame 12980** (the creatures' glow node
 `001F6FB0`, now bound but faulting on its parent's +0x2E4; next unit).

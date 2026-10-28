@@ -77,7 +77,7 @@ static struct {
     EmEffectKindsTables ktables;
     EmHeadSpriteOriginalTables htables;
     uint8_t sources[0x480];                   /* D_002565E0..D_00256A60 */
-    struct { uint32_t address, size; } window[64];   /* the exported blocks */
+    struct { uint32_t address, size; } window[96];   /* the exported blocks */
     uint32_t windows;
     /* 001CFBE0 source blocks an overlay owner hands 001D04B0 (the AREA11
      * flame's D_00828340): their 0x90 bytes, readable by the page. */
@@ -928,9 +928,12 @@ static int handler_001ED7A0(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
-/* 001EEBA0 / 001EEEB0 (effect subtypes 0x19 / 0x1A, entities 0x80000029 /
- * 0x8000002A; byte-matched decomp C), the spat hazard 001E2E80's launch and
- * hit effects (AREA00 a00_04 on): the twins of 001ED7A0 over their own
+/* 001ECFB0 (effect subtype 3, byte-matched decomp C; AREA00 a00_09: three
+ * draws of D_002571B0 + 0x90 k, export_area00_runtime_tables.py
+ * CREATURE_EFFECT_WINDOWS) and 001EEBA0 / 001EEEB0 (effect subtypes 0x19 /
+ * 0x1A, entities 0x80000029 / 0x8000002A; byte-matched decomp C), the spat
+ * hazard 001E2E80's launch and hit effects (AREA00 a00_04 on): the twins of
+ * 001ED7A0 over their own
  * descriptor windows (export_area00_runtime_tables.py: D_00257360 for
  * 001EEBA0's rows D_00257380 / D_002574A0, HAZARD_EFFECT_WINDOWS'
  * D_00257510 for 001EEEB0's rows D_00257530 / D_00257650); their other
@@ -939,7 +942,7 @@ static int handler_hazard(u32 handler, EmEffectOriginalNode *node, int32_t depth
 {
     Slot *slot=slot_of_node(node);
     if(!slot || !work || work!=&node->work)return fail(handler,"hazard effect without its node");
-    const u32 window=handler==0x001EEBA0u ? 0x00257360u : 0x00257510u;
+    const u32 window=handler==0x001EEBA0u ? 0x00257360u : handler==0x001EEEB0u ? 0x00257510u : 0x002571B0u;
     uint8_t *sources=(uint8_t *)em_effects_live_window(window,0x1B0u);
     if(!sources)return fail(window,"hazard effect descriptors not delivered");
     u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
@@ -954,7 +957,8 @@ static int handler_hazard(u32 handler, EmEffectOriginalNode *node, int32_t depth
     EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
                        .call=impact_worker,.ctx=&call,.sp=HANDLER_SP};
     const int rc=handler==0x001EEBA0u ? em_area00_hud_001EEBA0(&owner,at+0xD0u,(u32)depth)
-                                      : em_area00_hud_001EEEB0(&owner,at+0xD0u,(u32)depth);
+               : handler==0x001EEEB0u ? em_area00_hud_001EEEB0(&owner,at+0xD0u,(u32)depth)
+                                      : em_area00_hud_001ECFB0(&owner,at+0xD0u,(u32)depth);
     if(rc<0)return fail(owner.fault_address?owner.fault_address:handler,"hazard effect HUD handler fault");
     return 0;
 }
@@ -1048,7 +1052,8 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);
     if (handler == 0x001EBC30u) return handler_001EBC30(node, depth, work);
-    if (handler == 0x001EEBA0u || handler == 0x001EEEB0u) return handler_hazard(handler, node, depth, work);
+    if (handler == 0x001EEBA0u || handler == 0x001EEEB0u || handler == 0x001ECFB0u)
+        return handler_hazard(handler, node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -1122,7 +1127,9 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00256EE0u || source == 0x00256F70u ||
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               source == 0x00257510u || source == 0x00257630u || source == 0x00257870u ||
-                              source == 0x00257900u ||
+                              source == 0x00257900u || source == 0x002571B0u || source == 0x00257240u ||
+                              source == 0x002572D0u || source == 0x00257990u || source == 0x00257A20u ||
+                              source == 0x00257AB0u ||
                               (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))
                                ? em_effects_live_window(source, 0x90)
                                : NULL;
