@@ -112,7 +112,26 @@ FRAMES) and the user's font export.
    entry's state 3) as in 7: every call, the written bytes, the presented
    field and picture.
 
-About 16 s (the game run; EM_TEST_FULL=1 about 2.5 to 5.5 min: three more runs; --item alone, sections 6 to 8, about 2 min); --dump FILE --run-log FILE reuse a run.
+9. SPR4 (00211970 with its five part pages; STATUS_FIELD.md section 3h;
+   the same run as 6): a bound page frame whose background tile (0020A7A0's
+   TEX0) is the selector's or a part page's (SPR4_TEX); an empty one is
+   the page of the bound frames around its run (page_of). Its frames form
+   two visits: the hub visit (the selector, LOWER U.R.S. with its refused
+   Cross, Circle back, SELECTOR SWITCH with the other fire mode, its
+   prompt, Yes and the commit, Circle to the hub) and the magazine 0x10
+   take's notice. The original's visit has the same steps over its own
+   page core (fork state slot14_status_hub, build/status_field_capture/
+   spr4/drive.py; every list of loop tops SPR4_VISIT by capture_lists.py):
+   the hub visit's distinct pages after the background, each fan
+   (0020AC70's sixteen 001D66A0) by its packet's bytes, are exactly the
+   original's (both ways); the take's frames by structure only (no
+   capture). Every SPR4 frame is presented as a GS field; the empty ones
+   (SPR4's state 0, state 3's part page module loads, the frames next to
+   the page core's module reloads) present the displayed field of
+   SPR4_EMPTY (an original state 3 frame, no slot-1 packet); the written-
+   background pairs as in 7.
+
+About 16 s (the game run; EM_TEST_FULL=1 about 2.5 to 7 min: three more runs; --item alone, sections 6 to 9, about 2 to 6 min); --dump FILE --run-log FILE reuse a run.
 """
 from __future__ import annotations
 
@@ -163,6 +182,40 @@ DB_INJECTED = {'list': [(DB_BEAT + '_bg6989', 44), (DB_BEAT + '_bg6989', 45)],
                'record': [(DB_BEAT + '_bg7019', 70), (DB_BEAT + '_bg7019', 71)],
                'scroll': [(DB_BEAT + '_bg7095', 128), (DB_BEAT + '_bg7095', 129)],
                'blank': [(DB_BEAT + '_bg7109', 156), (DB_BEAT + '_bg7109', 157)]}
+
+# SPR4 (section 9): 00211970 and its five part pages, by the page module's
+# background tile (0020A7A0's TEX0): the selector's, then LOWER U.R.S.
+# 00218D90, UPPER U.R.S. 00217090, SCOPE 00218640, MULTI 002177B0 and
+# SELECTOR SWITCH 00217FA0 (em_status_pages_spr4.c, em_status_pages_parts.c)
+SPR4_TEX = {0x200479459D422300: 'selector', 0x200438859D422130: 'LOWER U.R.S.', 0x200419E59D4220A0: 'UPPER U.R.S.',
+            0x200424C59D4220D0: 'SCOPE', 0x200427C59D422110: 'MULTI', 0x200412A59D422040: 'SELECTOR SWITCH'}
+DATABASE_TEX = 0x200450A59D422200
+# the original's visit (slot14_status_hub, build/status_field_capture/spr4/
+# drive.py: the side run's SPR4 steps over the original's page core; every
+# list of loop tops SPR4_VISIT by capture_lists.py), a full capture of it
+# (the fonts, the RAM under the lists), a frame of it with no slot-1 packet
+# (00211970 state 3, the part page module's load) and the written-background
+# pairs (D_002655A0 of port frame N; frames N + 1, N + 2)
+SPR4_BEAT = 'slot14_status_hub_spr4'
+SPR4_VISIT = (7, 337)               # 7: the page module's load (no slot-1 packet); 337: the last before the hub
+SPR4_BASE = (SPR4_BEAT, 46)
+SPR4_EMPTY = (SPR4_BEAT, 76)
+# the moving stick (the selector's hover 6 and 4, the sticks the Cross
+# follows): the drive's schedule has its inputs two loop tops later than the
+# side run relative to the page's 0020E020 (the drive reads the page core
+# after the step), so the ring of 0020AC70 holds another history there; the
+# aligned schedule (spr4/aligned_schedule.json: the same steps, the stick and
+# Cross set where the side run's reach the page: the stick on the 31st
+# 0020AC70 call after the selector's reset, Cross on the 33rd; after the
+# reload the 32nd and 34th) has them, its lists at loop tops 58..68 and
+# 194..204
+SPR4_ALIGNED = [(SPR4_BEAT + '_aligned', (58, 68)), (SPR4_BEAT + '_aligned2', (194, 204))]
+SPR4_INJECTED = {'selector': [(SPR4_BEAT + '_bg3009', 46), (SPR4_BEAT + '_bg3009', 47)],
+                 'LOWER U.R.S.': [(SPR4_BEAT + '_bg3059', 100), (SPR4_BEAT + '_bg3059', 101)],
+                 'SELECTOR SWITCH': [(SPR4_BEAT + '_bg3181', 240), (SPR4_BEAT + '_bg3181', 241)],
+                 'its prompt': [(SPR4_BEAT + '_bg3229', 280), (SPR4_BEAT + '_bg3229', 281)],
+                 'Yes': [(SPR4_BEAT + '_bg3241', 292), (SPR4_BEAT + '_bg3241', 293)],
+                 'the moving stick': [(SPR4_BEAT + '_aligned_bg3031', 62), (SPR4_BEAT + '_aligned_bg3031', 63)]}
 
 FAILS = t.FAILS
 
@@ -259,7 +312,9 @@ def records(dump: Path, backgrounds: dict | None = None) -> list[tuple[int, int,
     return out
 
 
-def capture(beat: str, T: int) -> dict:
+def capture(beat: str, T: int, moving: bool = False) -> dict:
+    """A full capture's chain decoded; moving: its fans of a moving stick
+    by their shape (args None; SPR4's 'the moving stick' pair)."""
     d = t.CAP / beat / f'f{T:04d}'
     info = json.loads((d / 'capture.json').read_text())
     ram = (d / 'ee_V_T1.bin').read_bytes()
@@ -270,14 +325,22 @@ def capture(beat: str, T: int) -> dict:
     small = struct.unpack_from('<I', ram, t.FONT_SMALL_PTR)[0] & 0x1FFFFFF
     fonts = (ram[tall:tall + t.FONT_TALL_SIZE], ram[small:small + t.FONT_SMALL_SIZE])
     blocks = struct.unpack_from('<I', ram, t.GS_BLOCKS_PTR)[0]
-    calls = t.decode(ram, first + 0x30, end - 0x30, blocks, *fonts, inv)
+    calls = t.decode(ram, first + 0x30, end - 0x30, blocks, *fonts, inv, skewed=moving)
+    if moving and any(a is None and w != t.B_1D66A0 for _, w, a in calls):
+        raise SystemExit(f'test_status_gs_page: FAIL ({beat} f{T:04d}: a skewed glyph strip, which only the fans\' '
+                         f'bytes form compares)')
     return dict(d=d, info=info, ram=ram, first=first, end=end, inv=inv, fonts=fonts, blocks=blocks,
                 calls=[(w, a) for _, w, a in calls])
 
 
 def written_mask(lib, ram: bytes, context: int, start: int, port: bytes, calls) -> np.ndarray:
     """The bytes the native builders write when they replay `calls` from
-    `start` (two fills; a byte both runs set to the same value is written)."""
+    `start` (two fills; a byte both runs set to the same value is written).
+    A fan of a moving stick (001D66A0 decoded by its shape, args None) is not
+    replayed: its GIF data (the 0x86 quadwords after its tag) count as
+    written with the port's bytes, so they are compared with the capture's
+    only (its builder is test_item_trail_reference's: the fans of 43 ticks
+    of stick history byte-equal to the original instructions')."""
     n = t.Native(lib, ram, context, BLOCKS)
     cell = context + 0x14
     builds = []
@@ -287,6 +350,11 @@ def written_mask(lib, ram: bytes, context: int, start: int, port: bytes, calls) 
         for idx, (at, which, args) in enumerate(calls):
             if struct.unpack('<I', cbuf)[0] != at:
                 raise RuntimeError(f'call {idx}: cursor {struct.unpack("<I", cbuf)[0]:#x}, packet at {at:#x}')
+            if which == t.B_1D66A0 and args is None:
+                o = at - start
+                buf[o + 0x10:o + 0x870] = port[o + 0x10:o + 0x870]
+                cbuf[:] = struct.pack('<I', at + 0x870)
+                continue
             rc, why = n.call(which, args, [(cell, cbuf), (start, buf)])
             if rc != 0:
                 raise RuntimeError(f'call {idx} ({t.NAME[which]}) refused: {why}')
@@ -360,6 +428,7 @@ def status_pages(lib, rlib, report: dict) -> None:
     shots = item_root(lib, port, bgs, plog, ref, context, report)
     shots += item_pages(lib, port, bgs, plog, ref, context, report)
     shots += database_page(lib, port, bgs, plog, ref, context, report)
+    shots += spr4_section(lib, port, bgs, plog, ref, context, report)
     # the presented pictures, the overlay pass included
     import test_fb2_pixels as F
     lines = [json.loads(x) for x in (OUT / 'ticks.jsonl').open()]
@@ -385,10 +454,11 @@ def status_pages(lib, rlib, report: dict) -> None:
     dump.unlink(missing_ok=True)
 
 
-def injected(lib, ref, context, plog, section: str, keys, frames, by_fc, res: dict):
+def injected(lib, ref, context, plog, section: str, keys, frames, by_fc, res: dict, moving: bool = False):
     """The captures `keys` (CAPTURE_WRITE of D_002655A0) against port frames
-    `frames`: every call, the written bytes, the presented field hash."""
-    caps = [capture(*k) for k in keys]
+    `frames`: every call, the written bytes, the presented field hash
+    (moving: the fans of a moving stick by their bytes, written_mask)."""
+    caps = [capture(*k, moving=moving) for k in keys]
     out = []
     for (beat, T), c, fc in zip(keys, caps, frames):
         where = f'{beat} f{T:04d}'
@@ -484,18 +554,32 @@ def item_root(lib, port, bgs, plog, ref, context, report: dict) -> list:
     return injected(lib, ref, context, plog, '6', ROOT_INJECTED, (n0 + 1, n0 + 2), by_fc, res['injected'])
 
 
+def spr4_page(cs: list) -> str | None:
+    """The SPR4 page (SPR4_TEX) a frame's background tile names, or None."""
+    n = background_calls(cs)
+    return SPR4_TEX.get(cs[1][1][6]) if n else None
+
+
 def page_of(port) -> dict[int, str]:
-    """{frame: 'database' or 'item'} for the bound page frames (flag 8): a
-    DATABASE frame by its calls (database()); an empty one is the page of
-    the bound frame just before it (a Circle frame leaving the page) or,
-    with none there, of the one just after it (the first frame of a page a
-    take opens: DATABASE's state 0 with the request returns before any
-    leaf)."""
+    """{frame: 'database', 'spr4' or 'item'} for the bound page frames (flag
+    8): a DATABASE frame by its calls (database()), an SPR4 one by its
+    background tile (spr4_page); an empty one is the page of the bound
+    frame with packets just before its run of consecutive empty bound frames
+    (a Circle frame leaving the page; SPR4's state 3, the part page module's
+    load) or, with none there, of the one just after it (the first frame of
+    a page a take opens: DATABASE's state 0 with the request returns before
+    any leaf; SPR4's state 0)."""
     bound = {fc: [(w, a) for _, w, a in calls] for fc, st, en, fl, b, calls in port if fl & 8}
-    kind = {fc: ('database' if database(cs) else 'item') for fc, cs in bound.items() if cs}
+    kind = {fc: ('database' if database(cs) else 'spr4' if spr4_page(cs) else 'item')
+            for fc, cs in bound.items() if cs}
     out = {}
-    for fc, cs in bound.items():
-        out[fc] = kind.get(fc) or kind.get(fc - 1) or kind.get(fc + 1) or 'item'
+    for fc in bound:
+        before = after = fc
+        while before - 1 in bound and before - 1 not in kind:
+            before -= 1
+        while after + 1 in bound and after + 1 not in kind:
+            after += 1
+        out[fc] = kind.get(fc) or kind.get(before - 1) or kind.get(after + 1) or 'item'
     return out
 
 
@@ -656,12 +740,181 @@ def database_page(lib, port, bgs, plog, ref, context, report: dict) -> list:
     return shots
 
 
+def light_raw(base: dict, beat: str, T: int) -> tuple[list, bytes]:
+    """light()'s calls with their addresses, and the RAM they decode from;
+    the fans of a moving stick by their shape (page_key keys them by their
+    bytes)."""
+    raw = (t.CAP / beat / 'lists' / f'f{T:04d}.bin').read_bytes()
+    start, first, end, _ = struct.unpack_from('<4I', raw, 4)
+    ram = bytearray(base['ram'])
+    ram[start:start + 0x4000] = raw[20:20 + 0x4000]
+    ram[first:end] = raw[20 + 0x4000:]
+    calls = t.decode(ram, first + 0x30, end - 0x30, base['blocks'], *base['fonts'], base['inv'], skewed=True)
+    return calls, bytes(ram)
+
+
+def page_key(calls: list, mem, offset: int = 0) -> tuple:
+    """A frame's calls after the background as a comparable key: each fan
+    (001D66A0) by its GIF data's bytes (the 0x86 quadwords after its CNT
+    tag, which decode checked: its centre, rim and colours, whatever its
+    ring held; the tag's upper half, which 001D66A0 does not write, left
+    out), every other call by its decoded arguments. `mem` holds the
+    packets at `at - offset`."""
+    cs = [(w, a) for _, w, a in calls]
+    n = background_calls(cs)
+    if any(a is None and w != t.B_1D66A0 for w, a in cs):
+        raise SystemExit('test_status_gs_page: FAIL (an SPR4 frame holds a skewed glyph strip, which page_key '
+                         'does not key)')
+    return tuple((w, bytes(mem[at - offset + 0x10:at - offset + 0x870])) if w == t.B_1D66A0 else (w, a)
+                 for at, w, a in calls[n:])
+
+
+def spr4_section(lib, port, bgs, plog, ref, context, report: dict) -> list:
+    """Section 9 of the docstring."""
+    which = page_of(port)
+    frames = [p for p in port if which.get(p[0]) == 'spr4']
+    res: dict = {'frames': len(frames), 'injected': {}}
+    report['spr4'] = res
+    print(f'  9: {len(frames)} SPR4 frames')
+    if not frames:
+        fail('9: no SPR4 frame was dumped')
+        return []
+    base = capture(*SPR4_BASE)
+    visit_o = {T: light_raw(base, SPR4_BEAT, T) for T in range(SPR4_VISIT[0], SPR4_VISIT[1] + 1)}
+    if [(w, a) for _, w, a in visit_o[SPR4_BASE[1]][0]] != base['calls']:
+        fail(f'9: the light capture f{SPR4_BASE[1]:04d} is not the full capture of the same frame')
+    empty_c = capture(*SPR4_EMPTY)
+    if empty_c['calls'] or visit_o[SPR4_EMPTY[1]][0]:
+        fail(f'9: {SPR4_EMPTY[0]} f{SPR4_EMPTY[1]:04d}: the original\'s state 3 frame builds slot-1 packets')
+    # the visits: SPR4 frames with gaps of at most 30 frames between them (the
+    # page core's module reloads, presented as before: section 5) in the side
+    # run's order: the hub visit, then the magazine 0x10 take's notice
+    visits: list[list] = []
+    for p in frames:
+        if visits and p[0] - visits[-1][-1][0] <= 30:
+            visits[-1].append(p)
+        else:
+            visits.append([p])
+    if len(visits) != 2:
+        fail(f'9: {len(visits)} SPR4 visits, not the hub visit and the 0x10 take')
+        return []
+    # the pages, each fan by its packet's bytes (page_key): the original's
+    # visit at rest (its frames of a moving stick are the drive's timing,
+    # left out) and the aligned schedule's frames
+    moving = lambda calls: any(w == t.B_1D66A0 and a is None for _, w, a in calls)
+    o_pages: dict = {}
+    o_parts: dict = {}
+    o_empty, o_moving = [], []
+    for T, (calls, ram) in visit_o.items():
+        cs = [(w, a) for _, w, a in calls]
+        if not cs:
+            o_empty.append(T)
+        elif not spr4_page(cs):
+            fail(f'9: {SPR4_BEAT} f{T:04d}: a frame of the original\'s visit that is no SPR4 page')
+        elif moving(calls):
+            o_moving.append(T)
+        else:
+            o_pages.setdefault(page_key(calls, ram), []).append((SPR4_BEAT, T))
+            o_parts[spr4_page(cs)] = o_parts.get(spr4_page(cs), 0) + 1
+    aligned_runs = []
+    for beat, (a, b) in SPR4_ALIGNED:
+        run = []
+        for T in range(a, b + 1):
+            calls, ram = light_raw(base, beat, T)
+            if calls:
+                key = page_key(calls, ram)
+                o_pages.setdefault(key, []).append((beat, T))
+                if moving(calls):
+                    run.append((T, key))
+        aligned_runs.append((beat, run))
+    p_pages: dict = {}
+    p_parts: dict = {}
+    for fc, st, en, fl, b, calls in visits[0]:
+        if calls:
+            cs = [(w, a) for _, w, a in calls]
+            p_pages.setdefault(page_key(calls, b, st), []).append(fc)
+            p_parts[spr4_page(cs)] = p_parts.get(spr4_page(cs), 0) + 1
+    unmatched = [fcs for k, fcs in p_pages.items() if k not in o_pages]
+    missing = [Ts for k, Ts in o_pages.items() if k not in p_pages]
+    if unmatched:
+        fail(f'9: frames of the hub visit equal no frame of the original\'s visit after the background: {unmatched}')
+    if missing:
+        fail(f'9: frames of the original\'s visit no frame of the hub visit equals after the background: {missing}')
+    # the aligned frames of a moving stick: each one port frame, in order
+    moved = []
+    for beat, run in aligned_runs:
+        got = [p_pages.get(key, []) for _, key in run]
+        if not run or any(len(g) != 1 for g in got) or [g[0] for g in got] != list(range(got[0][0], got[0][0] + len(run))):
+            fail(f'9: {beat}: its frames of a moving stick ({[T for T, _ in run]}) are not one port frame each, '
+                 f'in order: {got}')
+        else:
+            moved.append(f'{beat} f{run[0][0]:04d}..f{run[-1][0]:04d} = {got[0][0]}..{got[-1][0]}')
+    kinds: dict[str, int] = {}
+    for p in frames:
+        k = plog.get(p[0], ('none',))[0]
+        kinds[k] = kinds.get(k, 0) + 1
+    if kinds != {'field': len(frames)}:
+        fail(f'9: the SPR4 frames are presented as {kinds}, not all as GS fields')
+    empty = [p[0] for p in frames if not p[5]]
+    disp_empty = fnv64((empty_c['d'] / 'displayed_field_T2.rgba').read_bytes())
+    bad = [fc for fc in empty if plog.get(fc, ('none',))[0] != 'field' or plog[fc][3] != disp_empty]
+    if bad:
+        fail(f'9: empty SPR4 frames {bad} do not present the field of {SPR4_EMPTY[0]} f{SPR4_EMPTY[1]:04d}')
+    take = visits[1]
+    take_bad = [p[0] for p in take if p[5] and spr4_page([(w, a) for _, w, a in p[5]]) != 'selector']
+    if take_bad:
+        fail(f'9: frames {take_bad} of the 0x10 take are not the selector\'s page')
+    runs = lambda xs: [f'{a}..{b}' if a != b else f'{a}' for a, b in _runs(xs)]
+    span = lambda v: f'{v[0][0]}..{v[-1][0]}'
+    print(f'  9: the hub visit ({span(visits[0])}; {p_parts}): its {len(p_pages)} distinct pages after the '
+          f'background (each fan by its packet\'s bytes) are exactly the {len(o_pages)} of the original\'s visit '
+          f'(loop tops {SPR4_VISIT[0]}..{SPR4_VISIT[1]}, every list, at rest; {o_parts}; its {len(o_moving)} '
+          f'frames of a moving stick left out) and of the aligned schedule; its frames of a moving stick frame for '
+          f'frame: {"; ".join(moved)}; every frame presented as a GS '
+          f'field; {len(empty)} empty ({", ".join(runs(empty))}) presenting the field of {SPR4_EMPTY[0]} '
+          f'f{SPR4_EMPTY[1]:04d} (the original\'s empty frames: {", ".join(runs(o_empty))}); the 0x10 take '
+          f'({span(take)}) by structure only')
+    res.update({'visits': [span(v) for v in visits], 'hub_pages': len(p_pages), 'original_pages': len(o_pages),
+                'moving_aligned': moved, 'original_moving_left_out': o_moving,
+                'hub_parts': p_parts, 'original_parts': o_parts, 'presented': kinds, 'empty': runs(empty),
+                'original_empty': runs(o_empty), 'take': span(take)})
+    by_fc = {p[0]: p for p in frames}
+    where = f'{SPR4_EMPTY[0]} f{SPR4_EMPTY[1]:04d}'
+    res['injected'][where] = {'frame': empty[0] if empty else None}
+    shots = [('9', where, empty[0], empty_c, res['injected'])] if empty else []
+    for name, keys in SPR4_INJECTED.items():
+        mv = name == 'the moving stick'
+        first = capture(*keys[0], moving=mv)
+        if (first['info'].get('write') or {}).get('at_loop_top') != keys[0][1] - 1:
+            fail(f'9: {keys[0][0]}: its capture wrote no D_002655A0 at loop top {keys[0][1] - 1}')
+            continue
+        n0 = written_bg('9', first, bgs)
+        if n0 is None or n0 + 1 not in by_fc or n0 + 2 not in by_fc:
+            fail(f'9: {name}: the port frame holding the written D_002655A0 is {n0}, not an SPR4 frame N with '
+                 f'N + 1 and N + 2 SPR4 frames')
+            continue
+        print(f'  9: {name}: N = {n0} holds the written D_002655A0')
+        shots += injected(lib, ref, context, plog, '9', keys, (n0 + 1, n0 + 2), by_fc, res['injected'], mv)
+    return shots
+
+
+def _runs(xs: list) -> list:
+    out: list = []
+    for x in xs:
+        if out and x == out[-1][1] + 1:
+            out[-1][1] = x
+        else:
+            out.append([x, x])
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--dump', type=Path, help='reuse an EM_STATUS_GS_DUMP file instead of running the game')
     ap.add_argument('--run-log', type=Path, help='the reused run\'s log (its hub_draws count)')
     ap.add_argument('--item', action='store_true',
-                    help='sections 6 to 8 (the status_pages run: the ITEM root, EQUIPMENT, EVENT and DATABASE) only')
+                    help='sections 6 to 9 (the status_pages run: the ITEM root, EQUIPMENT, EVENT, DATABASE and SPR4) '
+                         'only')
     args = ap.parse_args()
     if args.item:
         OUT.mkdir(parents=True, exist_ok=True)
@@ -888,7 +1141,7 @@ def main() -> int:
         return 1
     print(f'test_status_gs_page: PASS ({len(recs)} live frames decode into the builders\' packets; route 01 '
           f'f300 / f400 built byte for byte by the live page and presented as the displayed field'
-          f'{"; the ITEM root, EQUIPMENT, EVENT and DATABASE (sections 6 to 8)" if FULL and args.dump is None else ""}; '
+          f'{"; the ITEM root, EQUIPMENT, EVENT, DATABASE and SPR4 (sections 6 to 9)" if FULL and args.dump is None else ""}; '
           f'{dt:.1f} s)')
     return 0
 

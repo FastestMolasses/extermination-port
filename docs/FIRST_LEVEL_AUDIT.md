@@ -2074,9 +2074,18 @@ pool's free list (item 5): those are port work that needs no new recording
      visits and the key take presented as GS fields, the last visit's
      pages exactly the original's visit's, eight frames 0 pixels off fork
      captures given the port's D_002655A0 and its Circle frame off none);
-     HEALING (its health gauge's 002082B0 arcs), SPR4, MAP, the hub, the
-     page transitions and the other pages still draw with the GPU
-     renderer;
+     since step 3h (STATUS_FIELD.md 3h) the SPR4 page with its part pages
+     (00211970: the selector and 0020AC70's fans through the sink, LOWER
+     U.R.S., SELECTOR SWITCH, its prompt, Yes and commit; the side run's
+     322 frames of its hub visit and the magazine take presented as GS
+     fields, the hub visit's pages exactly the original's visit's at rest
+     and an aligned schedule's with the stick moving, twelve frames 0
+     pixels off fork captures given the port's D_002655A0 and a part
+     module's load frame off none);
+     HEALING (its health gauge's 002082B0 arcs), MAP, the hub, the
+     page transitions (the page core's module loads around SPR4 and
+     DATABASE: the original's lists there are the head alone) and the
+     other pages still draw with the GPU renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make

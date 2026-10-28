@@ -19,8 +19,9 @@
  * ITEM root (em_status_runtime's item sink: 0020F170 / 0020F2A0's leaves,
  * their background at its call time, and 0020AC70's 00207D00(1, 1) and
  * sixteen 001D66A0 fans; STATUS_FIELD.md 3e), the ITEM children EQUIPMENT
- * and EVENT and the hub's DATABASE (em_status_pages_live's sink: their
- * leaves and background at their call time; STATUS_FIELD.md 3f, 3g) and
+ * and EVENT, the hub's DATABASE and SPR4 with its part pages
+ * (em_status_pages_live's sink: their leaves and background at their call
+ * time, SPR4's 0020AC70 fans too; STATUS_FIELD.md 3f, 3g, 3h) and
  * the message service's
  * glyph runs (em_message_live's glyph sink), in every frame. The fonts are
  * the resources' bytes rebuilt from assets/font.emfn (em_ui_font_raw);
@@ -32,7 +33,7 @@
  *
  * The GS field (Original profile; STATUS_FIELD.md sections 3d, 3e): with the
  * GS frame enabled (em_gs_frame_live), a frame whose status draw is the
- * BATTERY page, the ITEM root or a bound page (EQUIPMENT, EVENT, DATABASE;
+ * BATTERY page, the ITEM root or a bound page (EQUIPMENT, EVENT, DATABASE, SPR4;
  * em_status_runtime_render) is not drawn by
  * the GPU: at step V the
  * kicked list (em_rcl_kick: the head, channels 0 and 1, the page; all VIF
@@ -47,7 +48,7 @@
  * caller built packets appends one record at step V, before the close:
  * "SGPF", u32 frame counter, u32 the slot-1 cursor at the frame head, u32
  * the cursor now, u32 flags (1: the BATTERY page drew; 2: the ITEM root
- * drew; 8: a bound status page (EQUIPMENT, EVENT, DATABASE) drew; 4: a 0020A7A0
+ * drew; 8: a bound status page (EQUIPMENT, EVENT, DATABASE, SPR4) drew; 4: a 0020A7A0
  * ran), then the bytes
  * between the two cursors, then (flag 4) the 96 bytes of D_002655A0 before
  * the frame's first 0020A7A0 (tools/test_status_gs_page.py). At most
@@ -63,7 +64,7 @@ extern "C" {
 #endif
 
 #define EM_SGP_FONT_PATH "assets/font.emfn"
-#define EM_SGP_DUMP_FRAMES 2000u
+#define EM_SGP_DUMP_FRAMES 4000u
 
 struct EmGfx;
 
@@ -85,9 +86,10 @@ int em_sgp_001CCB10(struct EmGfx *gfx);
  * reported). */
 int em_sgp_field_claim(void);
 /* em_status_runtime_render's draw of a bound page (EQUIPMENT, EVENT,
- * DATABASE; STATUS_FIELD.md 3f, 3g): as em_sgp_field_claim, but the page
- * may have built no packets: its code returns before any leaf on the frame
- * it leaves (EQUIPMENT state 1's Circle, DATABASE state 1's, for example),
+ * DATABASE, SPR4; STATUS_FIELD.md 3f to 3h): as em_sgp_field_claim, but the
+ * page may have built no packets: its code returns before any leaf on the
+ * frame it leaves (EQUIPMENT state 1's Circle, DATABASE state 1's, for
+ * example) and in SPR4's states 0, 2 and 3 (a part page module's load),
  * and the original then kicks
  * the list without them. Marks the frame a bound page's (the dump's flag
  * 8) in both profiles. 1 or 0, as em_sgp_field_claim. */

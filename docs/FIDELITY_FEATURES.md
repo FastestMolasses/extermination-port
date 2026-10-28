@@ -1067,7 +1067,7 @@ long notices stay up.
   runs since the units step (2026-10-02; the entry "The area title card"
   below).
 - The GS field (the Original profile; side lane "status", 2026-10-20,
-  `STATUS_FIELD.md` 3d to 3g): the BATTERY page's and the ITEM root's
+  `STATUS_FIELD.md` 3d to 3h): the BATTERY page's and the ITEM root's
   frames are drawn from the original's own slot-1 packets (the leaf
   builders, the message glyph runs and the ITEM root's Gouraud fans
   translated byte for byte against the original instructions) through the
@@ -1081,9 +1081,13 @@ long notices stay up.
   0 of 114,688 pixels off; and (`STATUS_FIELD.md` 3g) the hub's DATABASE
   page, its list, a record, the category step, the scroll (its SCISSOR_1
   window) and a blank entry: eight of its frames (fork captures given the
-  port's D_002655A0) and its Circle frame are 0 of 114,688 pixels off. The
-  hub and the other pages are still drawn by the renderer as described
-  above.
+  port's D_002655A0) and its Circle frame are 0 of 114,688 pixels off; and
+  (`STATUS_FIELD.md` 3h) the SPR4 page with its part pages, the selector's
+  analog glow at rest and with the stick moving, LOWER U.R.S., SELECTOR
+  SWITCH, its prompt and Yes: twelve of its frames (fork captures given
+  the port's D_002655A0) and a part module's load frame are 0 of 114,688
+  pixels off. The hub and the other pages are still drawn by the renderer
+  as described above.
 - Status: **PARTIAL**. Glyph pixels are
   drawn from the port's own atlas (the original's TEX0 / CLUT, TEST and
   ALPHA are not modelled) and are not compared (no fb2 frame shows text).

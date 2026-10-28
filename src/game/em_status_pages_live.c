@@ -398,10 +398,12 @@ int em_status_pages_live_sunk(const EmStatusPagesLive *l)
     return l && l->sunk;
 }
 
-/* EQUIPMENT, EVENT (STATUS_FIELD.md 3f) and DATABASE (3g). */
+/* EQUIPMENT, EVENT (STATUS_FIELD.md 3f), DATABASE (3g) and SPR4 with its
+ * part pages (3h). */
 static int bound_page(uint32_t page)
 {
-    return page == 0x00214570u || page == 0x00215870u || page == 0x00214020u;
+    return page == 0x00214570u || page == 0x00215870u || page == 0x00214020u ||
+           page == 0x00211970u;
 }
 
 /* A leaf that has no packet builder yet: on a bound page it faults. */
@@ -706,6 +708,13 @@ static int trail_emit(void *c, const int32_t xy[3][2], unsigned intensity)
     return em_page_draw_triangle(((EmStatusPagesLive *)c)->draw, xy, intensity);
 }
 
+/* On a bound page each 00208AB0 call to the sink (STATUS_FIELD.md 3h). */
+static int trail_fan(void *c, const float pos[4], int32_t colour, float angle, const float trig[4])
+{
+    (void)c;
+    return s_sink->fan && s_sink->fan(s_sink->context, pos, colour, angle, trig) == 1;
+}
+
 /* ---- the dispatcher -------------------------------------------------- */
 
 static void count(EmStatusPagesLive *l, uint32_t callee)
@@ -928,7 +937,10 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
         em_item_trail_reset(fr->trail);
         return 0;
     case 0x0020AC70u: {
-        if (!unsunk(l, target))
+        /* on a bound page (SPR4's selector, STATUS_FIELD.md 3h) its
+         * 00207D00(1, 1) and the sixteen fans reach the sink, the blend
+         * first: the ring step writes no packet (decomp src/func_0020AC70.c) */
+        if (l->sunk && (!s_sink->blend || s_sink->blend(s_sink->context, 1, 1) != 1))
             return -1;
         EmItemStick stick = {0, 0, 0, 0};
         uint8_t *base = at_byte(l, U(1), 8);
@@ -941,7 +953,8 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
         float fx, fy;
         memcpy(&fx, &x, 4);
         memcpy(&fy, &y, 4);
-        if (!em_item_trail_step(fr->trail, &stick, fx, fy, fr->math, trail_emit, l))
+        if (!em_item_trail_step_fans(fr->trail, &stick, fx, fy, fr->math, trail_emit,
+                                     l->sunk ? trail_fan : NULL, l))
             return -1;
         x = em_ee_add_bits(0x44E00000u, x); /* 1792.0 + x */
         y = em_ee_add_bits(0x44E40000u, y); /* 1824.0 + y */

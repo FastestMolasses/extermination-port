@@ -162,17 +162,19 @@ void em_status_pages_live_deactivate(EmStatusPagesLive *live);
 /* For tests: the calls the last tick made, by original callee address. */
 unsigned em_status_pages_live_calls(const EmStatusPagesLive *live, uint32_t callee);
 
-/* The live packet sink of the bound pages (docs/STATUS_FIELD.md 3f, 3g;
- * bound by em_status_gs_page in both profiles). Bound: the ITEM children
- * EQUIPMENT 00214570 and EVENT 00215870, and DATABASE 00214020 (3g). On a
+/* The live packet sink of the bound pages (docs/STATUS_FIELD.md 3f, 3g,
+ * 3h; bound by em_status_gs_page in both profiles). Bound: the ITEM
+ * children EQUIPMENT 00214570 and EVENT 00215870, DATABASE 00214020 (3g)
+ * and SPR4 00211970 with its five part pages (3h). On a
  * tick of a bound page every leaf call reaches the sink at its call time,
  * in the original's order, as well as em_page_draw: 0020A7A0 is stepped
  * there (background; em_page_draw draws that step), 00207D00, 00207D90
  * (scissor: DATABASE's 00213CC0), 00207E40, 00207F80 (rectangle) and the
  * text runs 001CBA50 / 001CC1E0 (text: `style` the 8 bytes of the style
- * record, NULL for none, which the bound sink refuses). A leaf the sink
- * has no builder for (00208040, 00208AD0's gauge, 0020AC70's trail,
- * 001B0000's models) faults on a bound page. Each returns 1; anything else fails the page. NULL, the default
+ * record, NULL for none, which the bound sink refuses) and 0020AC70's
+ * trail (its 00207D00(1, 1) to blend, then fan: SPR4's selector, 3h). A
+ * leaf the sink has no builder for (00208040, 00208AD0's gauge, 001B0000's
+ * models) faults on a bound page. Each returns 1; anything else fails the page. NULL, the default
  * (the reference tests): no page is bound and the render steps the
  * background. */
 typedef struct {
@@ -186,6 +188,10 @@ typedef struct {
     int (*scissor)(void *, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1);
     int (*text)(void *, int proportional, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
                 const char *text, const uint8_t *style);
+    /* 0020AC70's sixteen 00208AB0 fans (em_item_trail_step_fans' form;
+     * SPR4's selector, STATUS_FIELD.md 3h), after its 00207D00(1, 1),
+     * which reaches `blend` */
+    int (*fan)(void *, const float pos[4], int32_t colour, float angle, const float trig[4]);
 } EmStatusPagesSink;
 void em_status_pages_live_set_sink(const EmStatusPagesSink *sink);
 /* 1 when the last tick ran a bound page with the sink set (its frame's

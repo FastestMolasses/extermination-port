@@ -13,7 +13,10 @@ A. The status pages. ../Extermination/build/status_field_capture/<beat>/
    fork state slot12_status_root (ROOT_FRAMES) and its children EQUIPMENT
    and EVENT, open and leaving with Circle (PAGE_FRAMES), and DATABASE from
    the fork state slot14_status_hub (DATABASE_FRAMES: the list, the record,
-   the scroll's scissor, a blank entry, Circle), replayed in the fork to
+   the scroll's scissor, a blank entry, Circle) and SPR4 (SPR4_FRAMES: the
+   selector with its sixteen fans at rest and of a moving stick, a part
+   page module's load, LOWER U.R.S., SELECTOR SWITCH, its prompt, Yes),
+   replayed in the fork to
    frame T, then at step V (001D21E0) of iterations T and T + 1 the EE RAM,
    the GS memory after list T (vram_after.bin) and, in a second run with
    list T's first tag made END, the GS memory list T starts from
@@ -43,7 +46,7 @@ B. The column probes (GS_EXACT.md 3.4): ../Extermination/build/
    model in both modes: nothing refused, every pixel of every test equal.
 
 Quick (default): A at 01_battery f0300, one ITEM root frame, one EQUIPMENT
-frame and DATABASE's scroll frame, and B.
+frame, DATABASE's scroll frame and SPR4's selector, and B.
 EM_TEST_FULL=1: every captured frame. A difference fails.
 """
 from __future__ import annotations
@@ -89,10 +92,26 @@ DB = 'slot14_status_hub_database'
 DATABASE_FRAMES = [(DB, 45), (DB, 70), (DB, 115), (DB, 128), (DB, 156), (DB, 182),
                    (DB + '_bg6989', 44), (DB + '_bg6989', 45), (DB + '_bg7019', 70), (DB + '_bg7019', 71),
                    (DB + '_bg7095', 128), (DB + '_bg7095', 129), (DB + '_bg7109', 156), (DB + '_bg7109', 157)]
+# SPR4 (STATUS_FIELD.md 3h): the same state, the side run's SPR4 steps over
+# the original's page core (capture.py CAPTURE_INPUTS: build/
+# status_field_capture/spr4/drive.py's schedule): the selector at rest, a
+# state 3 frame (the part page module's load: the head alone), and with
+# D_002655A0 set to the port's (CAPTURE_WRITE) of frames 3009 (the selector),
+# 3059 (LOWER U.R.S.), 3181 (SELECTOR SWITCH), 3229 (its prompt) and 3241
+# (Yes)
+SP = 'slot14_status_hub_spr4'
+SPR4_FRAMES = [(SP, 46), (SP, 76)] + [(SP + f'_bg{n}', T + k) for n, T in ((3009, 46), (3059, 100), (3181, 240),
+                                                                        (3229, 280), (3241, 292)) for k in (0, 1)]
+# and the moving stick: the aligned schedule (STATUS_FIELD.md 3h) with the
+# port's D_002655A0 of frame 3031, frames 62 and 63 (the fans hold the
+# stick's history). Through the model only: test_ui_packet_reference
+# decodes fans at rest only (RASTER_ONLY)
+RASTER_ONLY = [(SP + '_aligned_bg3031', 62), (SP + '_aligned_bg3031', 63)]
+SPR4_FRAMES += RASTER_ONLY
 QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_equipment', 60),
-         (DB, 128)]
+         (DB, 128), (SP, 46)]
 FRAMES = [('01_battery', 230), ('01_battery', 300), ('01_battery', 400),
-          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES + PAGE_FRAMES + DATABASE_FRAMES
+          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES + PAGE_FRAMES + DATABASE_FRAMES + SPR4_FRAMES
 # The column probes (B), each a batch folder under CAP.
 PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout',
           'probe_open/p14_rows', 'probe_open/p15_rows_holdout']

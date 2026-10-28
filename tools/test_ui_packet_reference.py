@@ -75,10 +75,16 @@ ENTRY = {B_7D00: 0x207D00, B_7D90: 0x207D90, B_7E40: 0x207E40, B_7F80: 0x207F80,
 NAME = {B_7D00: '00207D00', B_7D90: '00207D90', B_7E40: '00207E40', B_7F80: '00207F80', B_8040: '00208040',
         B_CC8A0: '001CC8A0', B_CBC20: '001CBC20', B_CC3B0: '001CC3B0', B_CBA50: '001CBA50',
         B_1D66A0: '001D66A0'}
-# 0020AC70's fans at rest (every ring slot zero magnitude): pos {2040, 2032,
-# 28, 28} (248 + 1792, 208 + 1824), the colour 16 (float_to_int(16 (1 + 0)))
+# 0020AC70's fans at rest (every ring slot zero magnitude): pos {x + 1792,
+# y + 1824, 28, 28} for the base (x, y) its caller passes, the colour 16
+# (float_to_int(16 (1 + 0))). The bases: the ITEM root's 0020F2A0 (248, 208)
+# and SPR4's selector 002125B0 (212, 170: its stores of 0x43540000 and
+# 0x432A0000 to D_700038A0 before the call; STATUS_FIELD.md 3h). By the
+# centre vertex's fixed-point XY (16 x the pixel).
+FAN_REST = {(16 * int(x), 16 * int(y)): tuple(struct.unpack('<I', struct.pack('<f', v))[0] for v in (x, y, 28.0, 28.0))
+            for x, y in ((2040.0, 2032.0), (2004.0, 1994.0))}
 FAN_REST_CENTRE = (16 * 2040, 16 * 2032)
-FAN_REST_A1 = tuple(struct.unpack('<I', struct.pack('<f', v))[0] for v in (2040.0, 2032.0, 28.0, 28.0))
+FAN_REST_A1 = FAN_REST[FAN_REST_CENTRE]
 FAN_REST_A2, FAN_A3 = (16, 16, 16, 0), (0, 0, 0, 0)   # A3: D_00273580, sixteen zero bytes of the ELF
 EXECUTED = ((0x207D00, 0x84), (0x207D90, 0xAC), (0x207E40, 0x134), (0x207F80, 0xB8), (0x208040, 0x160),
             (0x1CC8A0, 0x254), (0x1CCE80, 0xEC), (0x1CBC20, 0x1F0), (0x1CC3B0, 0x4E8), (0x1281C0, 0x8C),
@@ -95,7 +101,7 @@ TEXT_AREA = 0x100
 FONT_EXPORT = ROOT / 'assets/font.emfn'        # the user's own font export (tools/export_font.py)
 UFR_TALL, UFR_SMALL = 409 * 30, 256 * 32       # em_ui_font_raw's resource sizes
 CH1_BASE, CH1_STRIDE = 0x0028F700 + 0xC9000, 0x95760   # 001D1AE0's +0x14 buffers
-FRAMES = sf.FRAMES
+FRAMES = [f for f in sf.FRAMES if f not in sf.RASTER_ONLY]   # its decode reads fans at rest only
 RASTER_QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40)]
 STRIP_PAGES = (0x1B00 * 256, 0x1B00 * 256 + 0x8000)    # GS block 0x1B00, PSMT4 512 x 128 texels
 
@@ -557,7 +563,7 @@ def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font
            skewed: bool = False, fan_angles: list[int] | None = None):
     """The chain as [(address, kind, args)]: 'tag' entries for the open and
     close (their 8 written bytes), builder calls for the rest. A fan
-    (001D66A0) decodes at rest only (FAN_REST_*), its f12 the k-th of
+    (001D66A0) decodes at rest only (FAN_REST), its f12 the k-th of
     `fan_angles` (the ring's angles; default 0.0, the port's neutral stick).
     skewed: the skewed glyph strips and the fans not at rest are accepted by
     their shape alone (args None)."""
@@ -622,14 +628,14 @@ def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font
                         or struct.unpack_from('<2I', ram, p + 0x38) != (0xFFFFFF, 0)):
                     raise RuntimeError(f'fan at {at:#x}: pair {i} is not 001D66A0\'s')
             k = sum(1 for _, w, _ in out if w == B_1D66A0)
-            if centre[:2] != FAN_REST_CENTRE or centre[2:] != (0xFFFFFF, 0) or a2 != FAN_REST_A2 or a3 != FAN_A3:
+            if centre[:2] not in FAN_REST or centre[2:] != (0xFFFFFF, 0) or a2 != FAN_REST_A2 or a3 != FAN_A3:
                 if not skewed:
                     raise RuntimeError(f'fan at {at:#x}: not at rest (centre {centre[:2]}, colour {a2}): its '
                                        f'inputs are not recoverable from the packet')
                 out.append((at, B_1D66A0, None))   # by shape only (the stick moved)
             else:
                 angle = fan_angles[k] if fan_angles else 0
-                out.append((at, B_1D66A0, (1, *FAN_REST_A1, *a2, *a3, angle)))
+                out.append((at, B_1D66A0, (1, *FAN_REST[centre[:2]], *a2, *a3, angle)))
             at += 0x870
         elif (tid == 1 and qwc == 3 and q(ram, at + 0x20) == 0x1000000000008001 and q(ram, at + 0x28) == 0xE
               and q(ram, at + 0x38) == 0x40):

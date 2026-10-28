@@ -330,11 +330,12 @@ static int i_sprite(void *ctx, int32_t slot, int32_t x, int32_t y, int32_t w, in
 static const EmStatusItemSink k_item_sink = {NULL, i_background, i_blend, i_sprite, s_fan};
 
 /* ---- the bound status pages' leaves (em_status_pages_live's sink) --------
- * EQUIPMENT 00214570 and EVENT 00215870 (STATUS_FIELD.md 3f) and DATABASE
- * 00214020 (3g): 0020A7A0, 00207D00, 00207E40, 00207F80 (0020CCB0's
- * marker), 00207D90 (DATABASE's scroll) and the text runs 001CBA50 /
- * 001CC1E0 (0020B210's rows, the description; DATABASE's page numbers) as
- * the BATTERY page's above. */
+ * EQUIPMENT 00214570 and EVENT 00215870 (STATUS_FIELD.md 3f), DATABASE
+ * 00214020 (3g) and SPR4 00211970 with its part pages (3h): 0020A7A0,
+ * 00207D00, 00207E40, 00207F80 (0020CCB0's marker), 00207D90 (DATABASE's
+ * scroll) and the text runs 001CBA50 / 001CC1E0 (0020B210's rows, the
+ * description; DATABASE's page numbers; SPR4's number fields) as the
+ * BATTERY page's above, and SPR4's 0020AC70 fans as the ITEM root's. */
 static int p_background(void *ctx, uint64_t tex0, uint32_t *token)
 {
     G.frame_pages = 1;
@@ -382,8 +383,17 @@ static int p_text(void *ctx, int proportional, int32_t slot, int32_t x, int32_t 
     return s_text(ctx, proportional, x, y, w, h, text, record);
 }
 
+/* 0020AC70's fans (SPR4's selector, 002125B0: STATUS_FIELD.md 3h): s_fan,
+ * the ITEM root's, its colour word four 0 as there (the SPR4 captures'
+ * fans hold 0 too: test_ui_packet_reference's decode asserts it). */
+static int p_fan(void *ctx, const float pos[4], int32_t colour, float angle, const float trig[4])
+{
+    G.frame_pages = 1;
+    return s_fan(ctx, pos, colour, angle, trig);
+}
+
 static const EmStatusPagesSink k_pages_sink = {NULL,        p_background, p_blend, p_sprite,
-                                               p_rectangle, p_scissor,    p_text};
+                                               p_rectangle, p_scissor,    p_text,  p_fan};
 
 /* ---- 001CCB10: the glyph strip page and its CLUT ----------------------------
  * The boot's 001CCB10 (decomp src/func_001CCB10.c, func_001CCBD0.c,
@@ -408,8 +418,8 @@ int em_sgp_field_claim(void)
 {
     if (!G.field_on || G.fault) return 0;
     if (!G.frame_page) {
-        fault("a status page frame (BATTERY, ITEM root, EQUIPMENT, EVENT, DATABASE) whose page built no slot-1 "
-              "packets",
+        fault("a status page frame (BATTERY, ITEM root, EQUIPMENT, EVENT, DATABASE, SPR4) whose page built no "
+              "slot-1 packets",
               NULL);
         return -1;
     }

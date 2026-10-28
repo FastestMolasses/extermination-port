@@ -13,7 +13,8 @@ letterbox bars, the fade) stays as it is.
 Since step 3d (section 3d) the Original profile draws the BATTERY page's
 frames as the original's GS field, since step 3e (section 3e) the ITEM
 root's, since step 3f (section 3f) the ITEM children EQUIPMENT's and
-EVENT's and since step 3g (section 3g) the hub's DATABASE page's. The rest
+EVENT's, since step 3g (section 3g) the hub's DATABASE page's and since
+step 3h (section 3h) the SPR4 page's with its part pages. The rest
 of this section is the state before them, which still holds for the hub
 and the other pages. Those status frames have no GS field in the port: they are drawn
 whole by the GPU renderer
@@ -728,6 +729,131 @@ page turn), and the transitions into and out of the page (loop tops
 30..32 build no slot-1 packet in the original; the port's frames there
 are not bound pages): section 5.
 
+## 3h. Step 3, sixth part: SPR4 and its part pages in the GS field (2026-10-21)
+
+The Original profile now draws every frame of the hub's SPR4 page
+(00211970, page 2 of the hub) as the original's GS draws it and presents
+that field: the part selector (002121A0 / 002125B0 / 00212B60 with
+0020AC70's analog glow, at rest and with the stick moving), its part pages
+(states 4..8: 00218D90 LOWER U.R.S., 00217090 UPPER U.R.S., 00218640
+SCOPE, 002177B0 MULTI, 00217FA0 SELECTOR SWITCH; the side run opens
+LOWER U.R.S. and SELECTOR SWITCH from the hub, the AIM side run aim_burst
+SELECTOR SWITCH), SELECTOR SWITCH's prompt,
+Yes and commit, the frames of states 0, 2 and 3 (a part page module's
+load), and the magazine 0x10 take's notice.
+
+**What the original's list is (measured).** Hidden fork runs from the
+state slot14_status_hub with the side run's SPR4 steps
+(`build/status_field_capture/spr4/drive.py`, section 4: the stick right,
+Cross; hold 30; the stick down-left to hover 6, Cross into LOWER U.R.S.,
+hold 40, Cross on its equipped entry (refused), hold 30, Circle to the
+selector; hold 30; the stick right to hover 4, Cross into SELECTOR SWITCH,
+hold 40, down, hold 20, Cross (the prompt), hold 10, left (Yes), hold 10,
+Cross; Circle to the hub, each step over the original's own page core
+bytes) give its lists; the fourteen full captures' are DIRECT only (no
+VU1 code). The selector's (f0046: 575 calls, 1,564 primitives) is the
+background, 8 blend packets, 536 UV sprites with the background's, 12
+glyph uploads and 3 small-font strips (001CBA50's number fields) and
+0020AC70's sixteen 001D66A0 fans, at rest centred on 0020AC70's base
+(212, 170), which 002125B0 stores to D_700038A0 before the call, plus
+(1792, 1824); LOWER U.R.S.'s (f0100: 606 calls, 549 primitives) is the
+background, 7 blends, 528 sprites, 67 glyph uploads and 4 tall-font
+strips (the list's glyph runs); SELECTOR SWITCH's prompt (f0280) adds one
+00207F80 marker (0020CCB0). States 0 (the trail reset 0020E020), 2 and
+3 (the part module's load) build no slot-1 packet: the head alone, one
+primitive. Every list of loop tops 7..337 of the visit was captured
+(light: `capture_lists.py`, section 4): 14 distinct pages at rest after
+the background, each fan by its packet's bytes. The visit's frames of a
+moving stick are the drive's input timing: it reads the page core after
+the step, so its stick and Cross reach the page two loop tops later than
+the side run's relative to the selector's 0020E020, and the ring of
+0020AC70 (D_00821300, the cursor D_00275C90) holds another history. The
+aligned schedule (`spr4/aligned_schedule.json`: the same steps, the stick
+reaching the page on the 31st 0020AC70 call after the selector's reset and
+Cross on the 33rd, the 32nd and 34th after the reload) has the side run's;
+its lists at loop tops 58..68 and 194..204 were captured too. The CPU GS
+model draws all fourteen full SPR4 captures bit-exact in both modes, all
+of local memory, the two of a moving stick included (`make
+test-status-field-reference`), and the builders rebuild the twelve at rest
+byte for byte (`make test-ui-packet-reference`; its decode reads a fan at
+rest only, now from either base: FAN_REST).
+
+**The binding.** em_status_pages_live binds 00211970 (bound_page): its
+tick runs the selector and the part pages (one page address), so all six
+draw through the sink. 0020AC70 on a bound page sends its 00207D00(1, 1)
+to the sink first (decomp src/func_0020AC70.c: the ring step writes no
+packet), then em_item_trail_step_fans hands each 00208AB0 call to the
+sink's new `fan` (em_status_gs_page's p_fan: the ITEM root's s_fan, the
+colour quadword's fourth word 0 as there; every SPR4 capture's fans hold
+0 there too, which test_ui_packet_reference's decode asserts at rest and
+the moving-stick pair's written bytes cover). em_page_draw still records
+the triangles for the GPU renderer as before. The dump keeps up to 4,000
+frames (EM_SGP_DUMP_FRAMES; the side run now dumps 1,991).
+
+Proof:
+
+- `make test-status-gs-page EM_TEST_FULL=1` (section 9 of the test, the
+  same status_pages run as sections 6 to 8; `--item` alone runs the four):
+  all 322 SPR4 frames of the run (the hub visit 3001..3285, the 0x10 take
+  6044..6104) are presented as GS fields. The hub visit's 14 distinct
+  pages after the background (88 selector, 64 LOWER U.R.S. and 81
+  SELECTOR SWITCH frames) are exactly the 14 of the original's visit at
+  rest and the aligned schedule's (both ways, each fan by its GIF data's
+  bytes), and the aligned schedule's frames of a moving stick are port
+  frames 3032..3034 and 3156..3158, frame for frame. Its 29 empty frames
+  (3001, 3035..3046, 3111, 3124, 3159..3170, 3264, 6044: states 0, 2
+  and 3, and the Circle frame leaving LOWER U.R.S.) present the displayed
+  field of the original's state 3 frame f0076 (no slot-1 packet). The
+  original was given the port's D_002655A0 of port frames
+  3009 (the selector), 3059 (LOWER U.R.S.), 3181 (SELECTOR SWITCH), 3229
+  (its prompt), 3241 (Yes) and, under the aligned schedule, 3031 (the
+  moving stick) at loop top T - 1 (capture.py CAPTURE_WRITE, the only
+  write): port frames N + 1 / N + 2 equal the captures T / T + 1 (46 / 47,
+  100 / 101, 240 / 241, 280 / 281, 292 / 293, 62 / 63) in every call (575,
+  606, 596, 573, 573, 646), the written bytes equal the builders' and the
+  capture's (the moving fans' GIF data the port's and the capture's: their
+  builder is test_item_trail_reference's), their presented fields hash
+  equal to the displayed fields, and the presented pictures, the overlay
+  pass included, are 0 of 114,688 pixels off at all twelve and at the
+  empty frame 3001 (against f0076).
+- `make test-level-smoke-side` (check_status_pages): the side run's SPR4
+  page calls replayed through the original instructions, every callee
+  entry and view byte equal, as before (the binding changes no page
+  state).
+- `make test-status-field-reference EM_TEST_FULL=1`: 44 lists bit-exact
+  (14 of them SPR4's); `make test-ui-packet-reference EM_TEST_FULL=1`: 42
+  captured chains rebuilt byte for byte and drawn to the displayed field.
+- Mutations of the live binding (test_status_gs_page --item): 4 of 4
+  killed (SPR4 not bound, 0020AC70's 00207D00(1, 1) not sunk, its fans
+  not sunk, the blend after the fans).
+- **Unchanged elsewhere.** Against a build of the same tree with only
+  SPR4 unbound: the main route through the AREA01 arrival, its
+  13,813-tick log identical and all 15,070 committed frames of the same
+  kind and field hash; the status_pages side run, its 5,922-tick log
+  identical and of its 7,180 committed frames exactly the 322 SPR4 frames
+  differ (GPU frames before, GS fields now). The GPU renderer
+  (EM_GPU_RENDERER=1): the side run's tick log and present log identical
+  and the presented frames at seven SPR4 ticks (the selector at rest and
+  with the stick moving, LOWER U.R.S., SELECTOR SWITCH, its prompt, the
+  selector after the commit, the take's notice) byte-identical (one run
+  against that build, not a committed test). `make test-status-pages-reference`,
+  `test-item-trail-reference`, `test-item-ui-reference`,
+  `test-level-smoke` and `test-level-smoke-side` (the AIM side runs'
+  aim_burst SPR4 visit among them) pass; `make all` 0 warnings.
+
+Not compared by pixels: the magazine 0x10 take's notice (no capture: the
+original's take of the magazine is not captured; checked by structure: its
+frames are the selector's page), the part pages the compared runs do
+not open (UPPER U.R.S., SCOPE, MULTI: bound with the rest), and the transitions around the page (section 5): the
+page core's module loads (the load from the hub before port frame 3001,
+the reloads 3112..3123 after LOWER U.R.S.'s Circle and 3252..3263 after
+SELECTOR SWITCH's commit, and from 3286 the frames Circle leaves SPR4 for
+the hub on) are drawn by the GPU renderer, while the original's lists
+there are the head alone (loop tops 7..30, 146..169, 302..325 and
+335..337). The part module's load (states 2 and 3) is 12 frames in the port
+and 21 in the capture (the port's module loader runs at host speed by default;
+not examined further here); both are the head alone.
+
 ## 4. The captures (decomp, ignored)
 
 - `build/status_field_capture/capture.py <beat> <T> ...` (and
@@ -787,6 +913,22 @@ are not bound pages): section 5.
   list of loop tops 30..186 in `slot14_status_hub_database/lists`.
   `database/explore.py` (the page core's bytes each frame of a schedule)
   found the frames.
+- SPR4 (section 3h): `spr4/drive.py <out>` (the side run's SPR4 steps
+  over the original's page core from `state:slot14_status_hub`; writes
+  `spr4/drive/schedule.json` and the page core of every loop top,
+  `states.jsonl`); `database/capture_lists.py slot14_status_hub
+  spr4/drive/schedule.json 5 340 slot14_status_hub_spr4` (every list of
+  the visit; about 4 to 40 seconds a frame with the machine's load); with
+  `CAPTURE_INPUTS_TAG=spr4` and that schedule, `capture.py` frames 46 (the
+  selector) and 76 (state 3) in `slot14_status_hub_spr4`, and with
+  CAPTURE_WRITE of the port's D_002655A0 of frames 3009 / 3059 / 3181 /
+  3229 / 3241, frames 46, 47 / 100, 101 / 240, 241 / 280, 281 / 292, 293
+  (`..._spr4_bg3009` and so on: `spr4/chain.sh`). The aligned schedule
+  `spr4/aligned_schedule.json` (the moving stick reaching the page where
+  the side run's does): its lists at loop tops 58..68
+  (`slot14_status_hub_spr4_aligned`) and 194..204 (`..._aligned2`), and
+  with `CAPTURE_INPUTS_TAG=spr4_aligned` and the port's D_002655A0 of
+  frame 3031, frames 62 and 63 (`slot14_status_hub_spr4_aligned_bg3031`).
 - The status hub (`state:slot14_status_hub`) draws 001B0000's models
   through the VU1: its GS stream is the fork's GS dump, which `capture.py`
   records in its third pass (not yet run to completion: the hub run's
@@ -812,18 +954,23 @@ not commit to the decomp).
    001D66A0) drawn and presented as the GS field; (done, section 3f)
    em_status_pages_live's sink and EQUIPMENT / EVENT drawn and presented
    as the GS field, their Circle frame included; (done, section 3g)
-   DATABASE (00214020) with the sink's 00207D90. Still to bind: HEALING
+   DATABASE (00214020) with the sink's 00207D90; (done, section 3h) SPR4
+   (00211970) with its five part pages and the sink's 0020AC70 fans.
+   Still to bind: HEALING
    (00208AD0's health gauge: its 002082B0 arcs need a translated builder
-   first), SPR4 (00211970: its 0020AC70 fans go
-   through em_uip_001D66A0, its 00207D90 SCISSOR_1 through the sink's
-   scissor, bound in 3g), MAP (00208040's flat triangle and 001B0000's models:
+   first), MAP (00208040's flat triangle and 001B0000's models:
    VU1, item 4), the hub's 2D layer (em_status_hub_ui; with its models,
    item 4) and DRAW_OTHER, each with its 0020A7A0 at call time and each
    list checked for VU1 code with a capture first; the page transitions
-   (0020EE50 state 3's module-load frames, the frames after a Circle);
+   (0020EE50 state 3's module-load frames, the page core's module loads
+   and reloads around SPR4 and DATABASE, the frames after a Circle: the
+   original's lists there are the head alone, section 3h);
    then the video comparison's segments 8 and 14 are compared again. The ITEM root's lit frames by pixels: a designed capture
    that also writes the port's trail ring (D_00821300, D_00275C90) and
-   hover byte. DATABASE's key take (the record 0x32 and its list) and an
+   hover byte, or an input schedule aligned to the root's trail reset as
+   SPR4's (section 3h). SPR4's magazine take notice by pixels: the AREA01
+   route beat a01r_s0 shows the original's (AREA02_UI.md: status block
+   t[4] = 9), not yet captured as a list. DATABASE's key take (the record 0x32 and its list) and an
    entry with two record pages by pixels: a capture of the original's take
    or a designed write of the entry's ownership byte.
 4. The hub and the pages with models (001B0000's units through the object
