@@ -5,9 +5,10 @@ static FILE *manifest_open(const char *path,const char *mode)
 {
     if(!manifest_overflow)return fopen(path,mode);
     FILE *f=tmpfile();if(!f)return NULL;
-    const uint32_t header[4]={0x54454D45u,1,65,0},entry[4]={0x100000,0,0,0};
+    /* One entry more than em_effects_live's window table holds (96). */
+    const uint32_t header[4]={0x54454D45u,1,97,0},entry[4]={0x100000,0,0,0};
     if(fwrite(header,sizeof header,1,f)!=1){fclose(f);return NULL;}
-    for(unsigned i=0;i<65;++i)if(fwrite(entry,sizeof entry,1,f)!=1){fclose(f);return NULL;}
+    for(unsigned i=0;i<97;++i)if(fwrite(entry,sizeof entry,1,f)!=1){fclose(f);return NULL;}
     rewind(f);return f;
 }
 #define fopen manifest_open
@@ -104,7 +105,7 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     if(address<EM_ACTOR_POOL_BASE || (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE ||
        (address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY ||
        (!splash_handler(handler) && handler!=0x001ECB00u && handler!=0x001ED7A0u &&
-        handler!=0x001EB980u && handler!=0x001EBC30u))return -1;
+        handler!=0x001EB980u && handler!=0x001EBC30u && handler!=0x001EDAF0u))return -1;
     fs_seed(ram,spr);
     memcpy(S.xs.spad3AC0,spr+0x3AC0,sizeof S.xs.spad3AC0);
     memcpy(S.sources,ram+0x2565E0,sizeof S.sources);
@@ -122,6 +123,9 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     /* The box break lift 001EBC30's D_00256280 / D_00256310 (one window). */
     S.window[4].address=0x256280;S.window[4].size=0x120;S.windows=5;
     memcpy(S.elf+ELF_AT(0x256280),ram+0x256280,0x120);
+    /* 001EDAF0's D_00257510 / D_002575A0 / D_00257630 (one window, rewritten). */
+    S.window[5].address=0x257510;S.window[5].size=0x1B0;S.windows=6;
+    memcpy(S.elf+ELF_AT(0x257510),ram+0x257510,0x1B0);
     memcpy(S.spad3400_lift,spr+0x3400,sizeof S.spad3400_lift);
     if(splash_deny_descriptors)S.windows=2;
     memcpy(S.spad3600_sprite,spr+0x3600,sizeof S.spad3600_sprite);
@@ -147,6 +151,7 @@ int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_
     memcpy(spr+0x3400,S.spad3400_lift,sizeof S.spad3400_lift);
     fs_publish(ram);
     memcpy(ram+0x257360,S.elf+ELF_AT(0x257360),0x1B0);
+    memcpy(ram+0x257510,S.elf+ELF_AT(0x257510),0x1B0);
     free(S.elf);S.elf=NULL;S.windows=0;
     return rc<0 || S.fault || S.k.fault.code || S.hfault.code ? -1 : 0;
 }
