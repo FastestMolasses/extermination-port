@@ -980,6 +980,18 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_live_resume(l)<0)return -1;
         c->v0=0;return rc;
     }
+    case 0x001C47A0u: {
+        /* AREA01 revisit (0x825F00 gives item 0x20): 001C47A0(type)
+         * (byte-matched decomp C; a1 reaches 001C40B0 untouched) runs
+         * 001C40B0(type, a1), then D_008106B0 = 1, D_008106B1 = type; v0 0. */
+        if(c->na<2 || em_area01_live_suspend(l)<0)return -1;
+        int rc=em_pickup_inventory_001C40B0((int32_t)c->a[0],(int32_t)c->a[1]);
+        if(em_area01_live_resume(l)<0 || rc<0)return -1;
+        uint8_t *request=bytes(l,0x008106B0u,2,1);
+        if(!request)return -1;
+        request[0]=1;request[1]=(uint8_t)c->a[0];
+        c->v0=0;return 0;
+    }
     case 0x001A2370u: case 0x001C5570u: {
         if(c->na<(c->function==0x001C5570u ? 4u : 2u))return -1;
         EmActor *a=actor(l,(uint32_t)c->a[0]);float data[16];
