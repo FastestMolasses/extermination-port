@@ -138,6 +138,19 @@ void em_status_background_frame(struct EmGfx *g)
     assert(g);
     ++background_frames;
 }
+/* No status sink is bound here (em_status_gs_page is not linked): the
+ * render steps the background itself, so a stepped draw is a failure. */
+int em_status_background_render_step(struct EmGfx *g, uint32_t token, float u, float v, float w, float h)
+{
+    (void)g; (void)token; (void)u; (void)v; (void)w; (void)h;
+    return 0;
+}
+/* The Original profile's GS frame is off in this fixture (no GS model, no
+ * GS page fields): every status page is drawn by the GPU renderer's path. */
+int em_gfx_gs_world_enabled(EmGfx *g) { (void)g; return 0; }
+int em_gfx_gs_upload(EmGfx *g, const uint8_t *chain, size_t bytes) { (void)g; (void)chain; (void)bytes; return 0; }
+int em_sgp_field_claim(void) { return 0; }
+int em_sgp_field_claim_page(void) { return 0; }
 /* The hub's 00209DF0 draw (em_status_hub_ui): its arcs and CB4 reserve. */
 int16_t em_weapon_reserve(void) { return 60; }
 /* em_weapon's C61 / C62 / CB4 storage the status pages view. */

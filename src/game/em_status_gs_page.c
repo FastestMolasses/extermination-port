@@ -576,7 +576,7 @@ int em_sgp_install(const char *font_path)
     em_battery_ui_set_sink(&k_battery_sink);
     em_status_runtime_set_item_sink(&k_item_sink);
     em_status_pages_live_set_sink(&k_pages_sink);
-    em_message_live_set_glyph_sink(&k_glyph_sink);
+    em_message_live_set_glyph_sink(&k_glyph_sink, em_sgp_field_frame);
     return 0;
 }
 

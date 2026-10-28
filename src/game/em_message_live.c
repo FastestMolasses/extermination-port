@@ -1,7 +1,6 @@
 /* The live message service (WP-8). See em_message_live.h and
  * docs/MESSAGE_SERVICE.md "Binding". */
 #include "game/em_message_live.h"
-#include "game/em_status_gs_page.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +49,7 @@ static struct {
     EmMessageLivePresenters presenters;
     FrameGlyphs task, step;              /* see FrameGlyphs                   */
     const EmMessageGlyphWorkers *sink;   /* the glyph packets' sink, or NULL  */
+    int (*field_frame)(void);            /* the sink's GS field frame query  */
     int in_step;                         /* 1 inside step F's tick            */
     const char *fault;
     int reported;
@@ -361,8 +361,9 @@ int em_message_live_tick(void)
 void em_message_live_render(EmGfx *gfx)
 {
     /* A status page frame the GS model draws has these strips in its list
-     * (em_status_gs_page's glyph sink): the GPU does not draw them again. */
-    if (em_sgp_field_frame()) {
+     * (the glyph sink's, em_status_gs_page's em_sgp_field_frame): the GPU
+     * does not draw them again. */
+    if (s.field_frame && s.field_frame()) {
         s.task.flush_count = s.task.upload_count = 0;
         return;
     }
@@ -554,9 +555,10 @@ int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t av
     return 0;
 }
 
-void em_message_live_set_glyph_sink(const EmMessageGlyphWorkers *sink)
+void em_message_live_set_glyph_sink(const EmMessageGlyphWorkers *sink, int (*field_frame)(void))
 {
     s.sink = sink;
+    s.field_frame = sink ? field_frame : NULL;
 }
 
 EmMessageBlock *em_message_live_block(void)

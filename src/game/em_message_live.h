@@ -94,8 +94,10 @@ void em_message_live_set_presenters(const EmMessageLivePresenters *presenters); 
  * em_status_gs_page): every 001CC8A0 upload and 001CC3B0 flush the glyph
  * runs make is also handed to it at its call time, after this module's own
  * checks (the packets the original builds there). A refusal (0) is a fault
- * of the service. NULL clears (the default). */
-void em_message_live_set_glyph_sink(const EmMessageGlyphWorkers *sink);
+ * of the service. `field_frame` (may be NULL) returns 1 in a frame the GS
+ * model draws whole from those packets (em_sgp_field_frame): the render
+ * then draws none of the frame's strips. NULL clears both (the default). */
+void em_message_live_set_glyph_sink(const EmMessageGlyphWorkers *sink, int (*field_frame)(void));
 /* The service's own draw module (001FE070's layout over the loaded banks and
  * styles), for the presenters' binder; NULL before a successful install. */
 EmMessageDraw *em_message_live_draw(void);
