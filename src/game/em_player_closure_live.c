@@ -27,6 +27,8 @@
 #include "game/em_player_climb.h"
 #include "game/em_player_closure_0e_18.h"
 #include "game/em_player_closure_10_12_19.h"
+#include "game/em_player_draw_live.h"
+#include "game/em_area11_roger.h"
 #include "game/em_player_fall.h"
 #include "game/em_player_foot_stop.h"
 #include "game/em_player_hang.h"
@@ -496,6 +498,14 @@ static int w_0021C120(void *c, EmPlayerLiveActor *a)
     int r = em_player_reaction_w0021C120(&L.reaction, a);
     OUT3A20(); return r;
 }
+/* 0021C200(p): em_player_reaction_0021C200 (major2's health-out cue); its
+ * 001EFE00(0x80000048) is the reaction's attach worker. */
+static int w_0021C200(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; IN3A20();
+    int r = em_player_reaction_w0021C200(&L.reaction, a);
+    OUT3A20(); return r;
+}
 static int w_0021C190(void *c, EmPlayerLiveActor *a, int *result)
 {
     (void)c; IN3A20();
@@ -603,22 +613,27 @@ static int w_effect_bits(void *c, uint32_t id, const uint32_t point[4], const ui
     memcpy(r, at, sizeof r);
     return spawn_001EFD90(id, p, r);
 }
-/* 001EFE00(id, actor): em_player_misc_001EFE00 is its translation; its
- * 001EF9D0 node view (+0x24, +0xB0, +0xC0 of the spawned record) is not
- * bound, so it faults (as the stage's w001EFE00 does, em_player_stage_live).
- * Its callers are the hit and death paths: 0021C120 (0x80000040), 0021C200
- * (0x80000048), 0021CD9C (0x80000044, surface mode +23B 0xA, which the AREA11
- * grid census does not hold) and major2's 0x80000051. The DAMAGE side runs
- * (the flame's hit request +F 0xC, the deaths, the landing hit; docs/
- * DAMAGE.md) reach none of them. Of those ids' callbacks only 0022BBC0 has
- * an AREA11 binding row (the flame's own 001EFE00(0x80000027), through the
- * aim / fire composition); 001F8350 and 0021AE90 have none
- * (EFFECT_MANAGER.md 8.2). */
+/* 001EFE00(id, actor): em_player_misc_001EFE00, its one translation, over
+ * the misc host, whose spawn worker (mw_spawn below) is 001EF9D0 on the
+ * effect binder (em_effects_live, census L26) with the spawned node's +0x24,
+ * +0xB0 and +0xC0 as the binder's own fields. The +0x24 store (the actor's
+ * +0x14 word) is then certified to the binder (node_written). Its callers
+ * are the hit and death paths: 0021C120 (0x80000040), 0021C190 and 0021C200
+ * (0x80000048), 0021CD9C (0x80000044, surface mode +23B 0xA, which the
+ * AREA11 grid census does not hold) and major2's 0x80000051. A record whose
+ * callback has no binding faults in the binder at that callback (of these
+ * ids' callbacks 001F8350 and 0021AE90 have none, EFFECT_MANAGER.md 8.2). */
 static int w_attach(void *c, EmPlayerLiveActor *a, uint32_t id, uint32_t *handle)
 {
-    (void)c; (void)a; (void)id;
-    if (handle) *handle = 0;
-    return unbound("001EFE00 (its 001EF9D0 node view is not bound)");
+    (void)c;
+    if (!handle) return -1;
+    *handle = 0;
+    uint32_t node = 0;
+    if (em_player_misc_001EFE00(&L.misc, id, a, &node) < 0) return -1;
+    if (node && em_effects_live_node_written(node + 0x24u, 4) < 0)
+        return unbound("001EFE00's +0x24 store on the spawned node (em_effects_live refused it)");
+    *handle = node;
+    return 0;
 }
 static int w_attach_plain(void *c, uint32_t id, EmPlayerLiveActor *a)
 {
@@ -842,8 +857,11 @@ static int w_sweep_hit(void *c, EmPlayerLiveActor *a, const float from[4], const
     L.last_hit = 1;
     return em_coll_move_player_sweep(move_player(), from, to, mask, hit);
 }
-/* The mask with bit 31 (0x80000000): 0019AD00 then adds 0x700031C0/C8 to the
- * query actor's +B0 x / z; 0019AFE0 passes the bit to the walkers only. */
+/* The mask with bit 31 (0x80000000): on a hit 0019AD00 and 0019AFE0 add
+ * the hit delta 0x700031C0 / 0x700031C8 to the query actor's +B0 x / +B8 z
+ * (the byte-matched src/func_0019AD00.c / func_0019AFE0.c): the player's
+ * bit-31 adapters (em_coll_move_player_move_xz / _sweep_xz) over the
+ * record's +B0..+B8, stored back. */
 static int w_move_mask(EmPlayerLiveActor *a, const float target[4], unsigned mask, int *result,
                        EmPlayerProbeHit *hit)
 {
@@ -855,16 +873,14 @@ static int w_move_mask(EmPlayerLiveActor *a, const float target[4], unsigned mas
         *result = kind;
         return 0;
     }
+    /* Without a hit reader the record is all the caller uses (the slide's
+     * adapter, which builds no hit view). */
     float pos[3] = { em_live_f32(a, 0xB0), em_live_f32(a, 0xB4), em_live_f32(a, 0xB8) };
-    int kind = em_coll_move_slide_move(move_player(), pos, target, mask);
+    int kind = hit ? em_coll_move_player_move_xz(move_player(), pos, target, mask, hit)
+                   : em_coll_move_slide_move(move_player(), pos, target, mask);
     if (kind < 0) return -1;
     em_live_set_f32(a, 0xB0, pos[0]);
     em_live_set_f32(a, 0xB8, pos[2]);
-    if (hit) {
-        memset(hit, 0, sizeof *hit);
-        hit->kind = kind;
-        if (kind) return unbound("0019AD00 with bit 31: the hit record after the x/z response");
-    }
     *result = kind;
     return 0;
 }
@@ -872,9 +888,18 @@ static int w_sweep_mask(EmPlayerLiveActor *a, const float from[4], const float t
                         int *result, EmPlayerProbeHit *hit)
 {
     EmPlayerProbeHit local;
-    if (mask & 0x80000000u) return unbound("0019AFE0 with bit 31");
-    int kind = w_sweep_hit(NULL, a, from, to, mask, hit ? hit : &local);
+    if (!(mask & 0x80000000u)) {
+        int kind = w_sweep_hit(NULL, a, from, to, mask, hit ? hit : &local);
+        if (kind < 0) return -1;
+        *result = kind;
+        return 0;
+    }
+    L.last_hit = 1;
+    float pos[3] = { em_live_f32(a, 0xB0), em_live_f32(a, 0xB4), em_live_f32(a, 0xB8) };
+    int kind = em_coll_move_player_sweep_xz(move_player(), pos, from, to, mask, hit ? hit : &local);
     if (kind < 0) return -1;
+    em_live_set_f32(a, 0xB0, pos[0]);
+    em_live_set_f32(a, 0xB8, pos[2]);
     *result = kind;
     return 0;
 }
@@ -1012,9 +1037,11 @@ static int w_floor_query(void *c, EmPlayerLiveActor *a, const uint32_t point[3],
 
 static int x_001782A0(void *c, EmPlayerLiveActor *a, int *r);
 static int x_00178080(void *c, EmPlayerLiveActor *a, int *r);
-STUB_ACTOR_R(x_00188570, "00188570 (row clip)")
-STUB_ACTOR_R(x_00188590, "00188590 (row clip)")
-STUB_ACTOR_R(x_001885B0, "001885B0 (row clip)")
+/* 00188570 / 00188590 / 001885B0: the row clips D_002754C4 / C8 / CC
+ * [+235 & 1] (em_player_record_helpers.c, their one translation). */
+static int x_00188570(void *c, EmPlayerLiveActor *a, int *r) { (void)c; return em_player_record_00188570(NULL, a, r); }
+static int x_00188590(void *c, EmPlayerLiveActor *a, int *r) { (void)c; return em_player_record_00188590(NULL, a, r); }
+static int x_001885B0(void *c, EmPlayerLiveActor *a, int *r) { (void)c; return em_player_record_001885B0(NULL, a, r); }
 static int x_00188610(void *c, EmPlayerLiveActor *a, int *clip)
 {
     (void)c;
@@ -1022,9 +1049,28 @@ static int x_00188610(void *c, EmPlayerLiveActor *a, int *clip)
         return unbound("00188610 (crawl row clip)");
     return L.crawl_clip(L.crawl_clip_context, a, clip);
 }
-STUB_ACTOR(x_0021C200, "0021C200 (reaction)")
-STUB_ACTOR(x_0015C1F0, "0015C1F0 (player model kind select: 001CA6E0 / 00200890 are not bound)")
-static int x_stream_check(void *c) { (void)c; return unbound("001FAFD0 (0021C190's stream test)"); }
+/* 0015C1F0(p): em_player_misc_0015C1F0 (its one translation) over the misc
+ * host: the kind +2FF from +234 and D_00810C60, D_0028A490[kind] bound with
+ * 001CA6E0, +0C = 001C6150(+44), +96 = 0x28, then 00200890 (mw_bind_model,
+ * mw_bone_count and mw_00200890 below). */
+static int x_0015C1F0(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    IN3A20(); memcpy(&L.misc_scratch.s3A20, &L.land.s3A20, 4);     /* MISC_IN */
+    int r = em_player_misc_0015C1F0(&L.misc, a);
+    memcpy(&L.land.s3A20, &L.misc_scratch.s3A20, 4); OUT3A20();    /* MISC_OUT */
+    return r;
+}
+/* 001FAFD0() (0021C190's stream test): the stream lanes' translation
+ * (em_stream_live, the one owner of D_00282178 and the lanes) over the
+ * scene's 0x70003B90 / 0x70003B8D. */
+static int x_stream_check(void *c)
+{
+    (void)c;
+    if (em_stream_live_001FAFD0(scene()->spad3B90, scene()->spad3B8D) < 0)
+        return unbound("001FAFD0 (the stream lanes faulted; em_stream_live)");
+    return 0;
+}
 /* 001B0460(1) (byte-matched src/func_001B0460.c), the camera re-seat of
  * AREA00's one-way duct and shaft drops: 0016D130 state 13 (byte-matched
  * src/func_0016D130.c) after it places the player at (186, -19.5, -1463.5)
@@ -1054,11 +1100,18 @@ static int camera_1B0460(int a0)
 /* The 0E / 13 / 14 / 18 closure reads and writes the canonical scene bytes
  * directly (its D_00810702 store went through w_set_810702 first). */
 static int x_camera_1B0460(void *c, int a0) { (void)c; return camera_1B0460(a0); }
+/* 001AFA90(8) from 0016BAE0 (0016B790 sub-state 1): the node it fills
+ * runs 00188340 as its +0x10 callback, whose setup 00188430 binds model
+ * 0x46 / 0x47 (by +0xD) through 001C6120 / 001CA6E0 and allocates its bones,
+ * and whose per-type steps are 00188180 / 00188250. None of those has a
+ * port translation, so the spawn stays fail-stop here rather than
+ * allocating a node no behaviour would run. */
 static int x_alloc(void *c, int cls, uint8_t **node)
 {
     (void)c; (void)cls;
     if (node) *node = NULL;
-    return unbound("001AFA90 from 0016BAE0 (the crawl spawn)");
+    return unbound("001AFA90 from 0016BAE0 (the crawl spawn: its node's 00188340 / 00188430 / "
+                   "00188180 / 00188250 are not translated)");
 }
 /* 00182430(p, tier) over the record: em_player_step_sounds (the footstep's
  * one translation) with +23A / +23C, 00179B90 and 001FBD50(p, id, 0, 300)
@@ -1148,23 +1201,27 @@ static int x_place(void *c, EmPlayerLiveActor *a)
     w.decal = x_decal;
     return em_player_ground_effect_00187EE0(&step, step.position, &w);
 }
-/* 001FB9F0(id, 0x1000, 0x1000, 0x1000): the non-positional submit, whose
- * live binding is em_sfx_play (em_sfx.c, census row 001FB9F0; the same
- * binding the status page's and the reversal's cues use). Other request
- * words have no live binding. An id the exported AREA11 registry lacks is
- * silent (WP-14) and reported once. */
+/* 001FB9F0(id, a1, a2, a3) (byte-matched src/func_001FB9F0.c): the id's
+ * record started on a track, then 0011A270(track, a1) and 0011A218(track,
+ * a2, a3). The live binding is em_sfx_submit_001FB9F0 (em_sfx.c, census row
+ * 001FB9F0: id masked to 15 bits, the request pair a2 / a3), whose driver
+ * sets 0011A270's word to 0x1000; every closure caller passes 0x1000 there
+ * (and 0x1000 x 3, em_sfx_play's submit). Another a1 has no native driver
+ * support (docs/SFX_PITCH.md) and faults. An id the exported AREA11
+ * registry lacks is silent (WP-14) and reported once. */
 static int x_sound_1FB9F0(void *c, int a0, int a1, int a2, int a3)
 {
     (void)c;
-    if (a0 < 0 || a1 != 0x1000 || a2 != 0x1000 || a3 != 0x1000)
-        return unbound("001FB9F0 with request words other than 0x1000 (no live binding)");
+    if (a1 != 0x1000)
+        return unbound("001FB9F0 with a 0011A270 word other than 0x1000 (no native driver support)");
+    const unsigned id = (unsigned)a0 & 0x7FFFu;
     static uint64_t reported[8];
-    if (a0 < 512 && em_sfx_cue_state((unsigned)a0) == 0 && !(reported[a0 >> 6] & (1ull << (a0 & 63)))) {
-        reported[a0 >> 6] |= 1ull << (a0 & 63);
+    if (id < 512 && em_sfx_cue_state(id) == 0 && !(reported[id >> 6] & (1ull << (id & 63)))) {
+        reported[id >> 6] |= 1ull << (id & 63);
         fprintf(stderr, "player closure: sound 0x%X (001FB9F0) is not in the exported sfx registry "
-                "(WP-14); silent\n", (unsigned)a0);
+                "(WP-14); silent\n", id);
     }
-    em_sfx_play((unsigned)a0);
+    em_sfx_submit_001FB9F0(id, a2, a3);
     return 0;
 }
 static int x_area_point(void *c, int area, int sub, unsigned offset, uint32_t out[3])
@@ -2015,9 +2072,9 @@ static int mw_side(void *c, const float from[4], const float to[4], float yaw, i
 static int mw_submit(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3, int32_t *result)
 {
     (void)c;
-    if (id < 0 || a1 != 0x1000)
-        return unbound("001FB9F0 from 001FBD50 with a request word other than 0x1000");
-    int32_t track = em_sfx_submit_001FB9F0_track((unsigned)id, a2, a3);
+    if (a1 != 0x1000)
+        return unbound("001FB9F0 from 001FBD50 with a 0011A270 word other than 0x1000 (no native driver support)");
+    int32_t track = em_sfx_submit_001FB9F0_track((unsigned)id & 0x7FFFu, a2, a3);
     if (result) *result = track;
     return 0;
 }
@@ -2089,8 +2146,22 @@ static int mw_hit_point_word(void *c, uint32_t offset, uint32_t *bits)
 static int mw_edge(void *c, EmPlayerLiveActor *a, int32_t side, float x, float y, int32_t *r)
 { (void)c; return em_player_misc_0017E6E0(&L.misc, a, side, x, y, r); }
 static int mw_grab(void *c, EmPlayerLiveActor *a, int32_t *r) { int v = 0; int x = x_001782A0(c, a, &v); *r = v; return x; }
+/* 00178440(p): the surface-0x33 grab (em_player_ladder_00178440) over the
+ * probe state the last query left (0017E7C0's), as 001782A0's binding: it
+ * writes 0x700038A0..A8 through 00199DB0, whose one storage is `land`. */
 static int mw_grab_33(void *c, EmPlayerLiveActor *a, int32_t *r)
-{ (void)c; (void)a; if (r) *r = 0; return unbound("00178440 (grab, surface 0x33)"); }
+{
+    (void)c;
+    if (r) *r = 0;
+    if (!r) return -1;
+    FAULT(le_fill_last());
+    memcpy(L.le_scratch.s38A0, L.land.s38A0, sizeof L.land.s38A0);
+    int v = 0;
+    int x = em_player_ladder_00178440(&L.le_world, &L.le_scratch, a, &v);
+    memcpy(L.land.s38A0, L.le_scratch.s38A0, sizeof L.land.s38A0);
+    *r = v;
+    return x;
+}
 static int mw_reach(void *c, EmPlayerLiveActor *a, int32_t *r)
 { (void)c; return em_player_misc_001784E0(&L.misc, a, r); }
 static int mw_ledge_top(void *c, EmPlayerLiveActor *a, int32_t arg, int32_t *result)
@@ -2098,20 +2169,54 @@ static int mw_ledge_top(void *c, EmPlayerLiveActor *a, int32_t arg, int32_t *res
 static int mw_blocked(void *c, EmPlayerLiveActor *a, int32_t side, int32_t *r)
 { (void)c; return em_player_misc_0017F130(&L.misc, a, side, r); }
 static int mw_land_sound(void *c, EmPlayerLiveActor *a, int32_t tier) { return w_land_sound(c, a, tier); }
+/* 0015C1F0's callees, as the spawn's 0015C1F0 binds them
+ * (em_scene_bindings.c): 001CA6E0 = em_roger_actor_001CA6E0 writing +0x44 /
+ * +0x4C; 001C6150 = the byte at +8 of the exported player model (any other
+ * kind's model is not exported: em_player_draw_live faults); 00200890 = the
+ * module loader's send of the player's texture packet to the GS model. */
 static int mw_bind_model(void *c, EmPlayerLiveActor *a, uint32_t handle)
-{ (void)c; (void)a; (void)handle; return unbound("001CA6E0 on the player (0015C1F0)"); }
+{
+    (void)c;
+    if (em_scene_bindings_player_001CA6E0(a, handle) < 0)
+        return unbound("001CA6E0 on the player (0015C1F0; em_roger_actor faulted)");
+    return 0;
+}
 static int mw_bone_count(void *c, uint32_t model, uint8_t *count)
-{ (void)c; (void)model; if (count) *count = 0; return unbound("001C6150 on the player (0015C1F0)"); }
-static int mw_00200890(void *c) { (void)c; return unbound("00200890 (0015C1F0)"); }
-/* 001EF9D0 from 001EFE00 (em_player_misc_001EFE00): its node view (+0x24,
- * +0xB0, +0xC0 of the spawned record) is not bound, so it faults (w_attach
- * above; no live caller reaches em_player_misc_001EFE00). */
+{
+    (void)c;
+    if (em_player_draw_live_001C6150(model, count) < 0)
+        return unbound("001C6150 on the player's +0x44 (0015C1F0: the model is not the exported one)");
+    return 0;
+}
+static int mw_00200890(void *c)
+{
+    (void)c;
+    if (em_scene_bindings_00200890() < 0)
+        return unbound("00200890 (0015C1F0: the module loader refused the player's texture packet)");
+    return 0;
+}
+/* 001EF9D0(id, pos, f12) from 001EFE00 (em_player_misc_001EFE00): the
+ * effect binder's spawn (em_effects_live_001EF9D0, the one translation),
+ * returning the node address (0: nothing allocated) and, for a node, the
+ * view 001EFE00 stores through: the binder's own +0x24 word and +0xB0 /
+ * +0xC0 quadwords of that node (em_effects_live_node_field). */
 static int mw_spawn(void *c, uint32_t id, const float pos[4], float f12, uint32_t *node,
                     EmPlayerMiscEffectView *view)
 {
-    (void)c; (void)id; (void)pos; (void)f12; (void)view;
-    if (node) *node = 0;
-    return unbound("001EF9D0 from 001EFE00 (its node view is not bound)");
+    (void)c;
+    if (!node || !view) return -1;
+    *node = 0;
+    uint32_t spawned = 0;
+    if (em_effects_live_001EF9D0(id, pos, fbits(f12), &spawned) < 0)
+        return unbound("001EF9D0 from 001EFE00 (the effect binder faulted; em_effects_live)");
+    *node = spawned;
+    if (!spawned) return 0;
+    view->w24 = em_effects_live_node_field(spawned + 0x24u, 4, 1);
+    view->pos = em_effects_live_node_field(spawned + 0xB0u, 16, 1);
+    view->rot = em_effects_live_node_field(spawned + 0xC0u, 16, 1);
+    if (!view->w24 || !view->pos || !view->rot)
+        return unbound("001EFE00's node view (+0x24 / +0xB0 / +0xC0) of the node 001EF9D0 spawned");
+    return 0;
 }
 
 static int misc_scene_refresh(void)
@@ -2137,8 +2242,19 @@ static int misc_scene_refresh(void)
         if (heading) memcpy(&bits, heading, 4);
         s->d81027C = bfloat(bits);
     }
-    s->d28A490 = NULL;
-    s->d28A490_count = 0;
+    {   /* D_0028A490: the Roger export's table words (as the spawn's
+         * 0015C1F0). Without the export the table stays empty and only
+         * 0015C1F0's index read faults (em_player_misc_0015C1F0). */
+        static uint32_t table[EM_AREA11_ROGER_TABLE_WORDS];
+        static int loaded;
+        if (!loaded) {
+            loaded = 1;
+            for (uint32_t i = 0; i < EM_AREA11_ROGER_TABLE_WORDS; ++i)
+                if (em_area11_roger_table_word(0x0028A490u + 4u * i, &table[i]) < 0) loaded = -1;
+        }
+        s->d28A490 = loaded > 0 ? table : NULL;
+        s->d28A490_count = loaded > 0 ? EM_AREA11_ROGER_TABLE_WORDS : 0;
+    }
     return 0;
 }
 
@@ -2609,7 +2725,7 @@ static void bind_major2(void)
     w->w001EFE00 = w_attach_plain; w->w0015C1F0 = x_0015C1F0; w->w0021E650 = m2_0021E650;
     w->w0021D2E0 = w_teleport; w->drop = w_drop; w->floor = w_floor; w->translate = w_translate;
     w->land_sound = w_land_sound; w->w0021D250 = w_surface5d; w->w0021D490 = w_0021D490;
-    w->w0021C120 = w_0021C120; w->w0021C200 = x_0021C200; w->w0021C270 = w_0021C270;
+    w->w0021C120 = w_0021C120; w->w0021C200 = w_0021C200; w->w0021C270 = w_0021C270;
     w->w0021C350 = w_0021C350; w->w0021C190 = w_0021C190; w->w0017FC80 = w_clip_FC80;
     w->w0017FF80 = w_clip_FF80; w->random = w_random; w->w00188550 = w_00188550;
     w->w001885B0 = x_001885B0; w->root_node = w_root_node;

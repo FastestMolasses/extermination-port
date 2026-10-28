@@ -3,7 +3,7 @@
 
 The ORIGINAL instructions of 001F9820, 001F9CF0, 001FA0D0, 001FA330, 001FA5F0,
 001FA570, 001FA790, 001FABF0, 001FAD70, 001FAAC0, 001FAB50, 001FAB80,
-001FABB0, 001FD470, 001FAE70, 001FB0B0, 00119828 and the leaves they reach
+001FABB0, 001FD470, 001FAE70, 001FB0B0, 001FAFD0, 00119828 and the leaves they reach
 (0011A4B8, 0011A4E8, 0011A608, 0011A658, 0011A6A0, 0011A6E8, 0011A730,
 001281C0, 00128250, 001278C0) run in
 a bounded EE interpreter defined here, over captured original RAM (the
@@ -74,7 +74,7 @@ GLOBALS = ((0x810E90, 4), (0x8106C8, 4), (0x810D38, 4), (0x810700, 1),
 EXECUTED = ((0x1F9CF0, 0x3DC), (0x1FA0D0, 0x260), (0x1FA330, 0x234), (0x1FA570, 0x30),
             (0x1FA5F0, 0xA4), (0x1FA790, 0x328), (0x1FAAC0, 0x8C), (0x1FAB50, 0x24),
             (0x1FAB80, 0x2C), (0x1FABB0, 0x34), (0x1FABF0, 0x180), (0x1FAD70, 0xF4),
-            (0x1FAE70, 0x158), (0x1FB0B0, 0x10), (0x1FD470, 0x44), (0x119828, 0x18),
+            (0x1FAE70, 0x158), (0x1FB0B0, 0x10), (0x1FAFD0, 0xD8), (0x1FD470, 0x44), (0x119828, 0x18),
             (0x11A608, 0x4C), (0x11A6A0, 0x48), (0x11A6E8, 0x48), (0x11A730, 0x28),
             (0x1278C0, 0x90), (0x1281C0, 0x90), (0x128250, 0x98), (0x1F9820, 0x300),
             (0x11A4B8, 0x14), (0x11A4E8, 0xE0), (0x11A658, 0x48))
@@ -116,6 +116,7 @@ def modelled():
 
 MODELLED = modelled()
 READABLE = MODELLED | set(range(STATUS, STATUS + 0xC0)) | set(range(BUFFERS, BUFFERS + 12)) | {
+    0x70003B90, 0x70003B8D} | {
     base + 16 * row + off for base, rows in ((MUSIC, MUSIC_ROWS), (VOICE, VOICE_ROWS))
     for row in range(rows) for off in (0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15)}
 WRITABLE = MODELLED
@@ -405,6 +406,7 @@ int call(int fn, int a, int b, int c, int d) {
     case 0x1FD470: return em_stream_lanes_001FD470(&L, a);
     case 0x1FAE70: return em_stream_lanes_001FAE70(&L, a);
     case 0x1FB0B0: return em_stream_lanes_001FB0B0(&L, a);
+    case 0x1FAFD0: return em_stream_lanes_001FAFD0(&L, (uint8_t)a, (uint8_t)b);
     case 0x119828: return em_stream_lanes_00119828(&L, a, b, c);
     }
     return -99;
@@ -714,6 +716,23 @@ def select_cases(elf, capture, native, rng):
         Case(elf, capture, native, pokes, results=(rngv, 2, 1, 0)).call(0x1FAE70, (a0,))
         Case(elf, capture, native, pokes, results=(rngv, 2, 1, 0)).call(0x1FB0B0, (d38 ^ 0x19,))
     return 2 * len(chosen)
+
+
+def gate_cases(elf, capture, native, rng):
+    """001FAFD0 (0021C190's stream test): its two scratchpad bytes, the
+    D_008104E4 mode, the lane-0 cue around 0x18 / 0x1D, D_00810D38 and the
+    area, with lane 0 idle or playing."""
+    grid = [(b90, b8d, e4, cue0, d38, area, active0)
+            for b90 in (0, 2) for b8d in (0, 1) for e4 in (0, 1, 2)
+            for cue0 in (0, 0x18, 0x1C, 0x1D, 29, -1) for d38 in (0, 0xB, 0xC, 0x17, 0x18)
+            for area in (0x0B, 0x15) for active0 in (0, 1)]
+    chosen = select(grid, 160, 0x1FAFD0, axes=tuple((lambda k: (lambda c: c[k]))(k) for k in range(7)))
+    for b90, b8d, e4, cue0, d38, area, active0 in chosen:
+        pokes = [(0x70003B90, b90, 1), (0x70003B8D, b8d, 1), (0x8104E4, e4, 1), (0x282178, cue0, 4),
+                 (0x810D38, d38, 4), (0x810700, area, 1), (0x282154, active0, 1),
+                 (0x8106C8, 0x20081910, 4), (0x8106F4, 1, 1)]
+        Case(elf, capture, native, pokes, results=(rng.getrandbits(31), 2, 1, 0)).call(0x1FAFD0, (b90, b8d))
+    return len(chosen)
 
 
 def stop_cases(elf, capture, native, rng):
@@ -1035,7 +1054,8 @@ def run(elf, captures, out, work, music, voice, start):
     assert struct.unpack_from('<i', base, 0x282178)[0] == 29, 'roger-encounter capture: lane 0 cue 29'
     counts, timing = {}, {}
     for key, family in (('leaves', leaves), ('fade', fade_cases), ('volume', volume_cases),
-                        ('start', start_cases), ('select', select_cases), ('stop', stop_cases),
+                        ('start', start_cases), ('select', select_cases), ('gate', gate_cases),
+                        ('stop', stop_cases),
                         ('read', read_cases), ('ring', ring_cases), ('service', service_cases),
                         ('init', init_cases)):
         t0 = time.time()

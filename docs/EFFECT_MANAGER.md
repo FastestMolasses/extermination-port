@@ -401,9 +401,11 @@ handlers em_effect_kinds does not translate split in two:
   | 001EF510 (0x09) and every other subtype | no first-level spawn site | — |
 
 **001EFE00** (em_player_misc_001EFE00; `w_attach` / `mw_spawn` in
-em_player_closure_live.c) faults as the stage's w001EFE00 already did
-(em_player_stage_live): its 001EF9D0 node view (+0x24, +0xB0, +0xC0) is not
-bound. Its callers are the hit and death paths (0021C120 0x80000040, 0021C200
+em_player_closure_live.c) runs since lane g1 (2026-10-28): `mw_spawn` is
+em_effects_live_001EF9D0 and the node view (+0x24, +0xB0, +0xC0) is
+em_effects_live_node_field over the spawned node, the +0x24 store certified
+with em_effects_live_node_written. The stage's w001EFE00
+(em_player_stage_live) still faults. Its callers are the hit and death paths (0021C120 0x80000040, 0021C200
 0x80000048, 0021CD9C 0x80000044 on +23B 0xA, major2's 0x80000051); the
 DAMAGE side runs (the flame's hits, the death, the landing hit, the pit)
 reach none of them. Since chain step DAMAGE the flame's contact

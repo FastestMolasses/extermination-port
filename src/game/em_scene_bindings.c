@@ -2785,6 +2785,13 @@ static void spawn_commit(const EmSpawnIo *io)
 static int c1f0_bind_model(void *ctx, EmPlayerLiveActor *actor, uint32_t handle)
 {
     (void)ctx;
+    return em_scene_bindings_player_001CA6E0(actor, handle);
+}
+
+int em_scene_bindings_player_001CA6E0(struct EmPlayerLiveActor *actor, uint32_t handle)
+{
+    if (!actor)
+        return -1;
     EmRogerActor ra;
     EmRogerActorRecord record;
     memset(&ra, 0, sizeof ra);
@@ -5033,7 +5040,8 @@ static int loader_bank(void *ctx, uint32_t address, const uint8_t *bytes, uint32
  *    where the drive delivered it: AREA11's one A entry is the area's
  *    texture upload (docs/DISC_TEXTURES.md section 1: GS blocks
  *    0x2A00..0x377F);
- *  - 00200890's player texture packet (state 7): one of the slot words
+ *  - 00200890's player texture packet (state 7, and 0015C1F0's call during
+ *    play through em_scene_bindings_00200890): one of the slot words
  *    D_0028A4B0..D_0028A4C0 that module 3's load relocated (GS blocks
  *    0x1B80..0x1BFF for slot 8).
  *  - 001FF590(0xAC, 1)'s A entries (state 8, the nested block of an area
@@ -5052,6 +5060,16 @@ static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, ui
     EmModuleLoader *ml = ctx;
     const EmTask *rec = em_module_loader_record(ml);
     const EmStatusSceneLoader *ld = em_module_loader_state(ml);
+    if (ld && bytes && size && em_module_loader_player_packet(ml)) {
+        /* 00200890 during play (em_scene_bindings_00200890): only the
+         * player's texture packet words. */
+        for (uint32_t k = 0; k < 5; ++k)
+            if (chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0 + k]) {
+                s_area_uploads[1]++;
+                return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
+            }
+        return -1;
+    }
     if (!rec || !ld || !bytes || !size || rec->user[0] != 1)
         return -1;
     if (rec->user[1] == 4 && rec->user[2] == 2 && chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C]) {
@@ -5205,6 +5223,15 @@ void em_scene_bindings_module_loader_shutdown(void)
     free(s_loader_replay);
     s_loader_replay = NULL;
     s_loader_replay_n = 0;
+}
+
+int em_scene_bindings_00200890(void)
+{
+    if (!s_loader) {
+        fprintf(stderr, "em_scene: 00200890 without the screen-module loader\n");
+        return -1;
+    }
+    return em_module_loader_00200890(s_loader);
 }
 
 void em_scene_bindings_module_loader_field(void)

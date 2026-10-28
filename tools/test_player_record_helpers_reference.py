@@ -9,7 +9,7 @@ on the measured float model (FallEE, tools/ee_float_model.py):
   001775E0  ledge lip sweep         001776E0  high-ledge side sweeps
   00177CF0  high-ledge hand sweeps  0019A180  column entry attribute
   0017F320  hang clearance sweeps   00188550  hang row clip
-  00174FD0  stick quadrant
+  00174FD0  stick quadrant          00188570 / 00188590 / 001885B0  row clips
 
 together with the leaves they call, which run as original code too:
 001B1470 (wrap), 0011DF78 (fabsf), 001029C0 / 00102BB0 / 00102918 (the SDK
@@ -23,7 +23,7 @@ Every case compares all 0x320 record bytes, the scratch words 0x700038A0..AC
 and 0x70003A20, the ledge frame 00177510 leaves (0x70003050 point,
 0x70003060 normal, 0x700031E4 heading, 0x70003070 matrix), the return value
 and the worker calls with their arguments. The default run asserts that
-every conditional branch of the nine routines goes both ways.
+every conditional branch of the twelve routines goes both ways.
 
 Captures: over the end snapshot of every route beat 00..14 (the PCSX2
 captures, ../Extermination/build/s87/route/), each routine runs as original
@@ -57,10 +57,12 @@ OUT = ROOT / 'build' / 'player_record_helpers_reference'
 
 H55B0, H7510, H75E0, H76E0, H7CF0 = 0x1755B0, 0x177510, 0x1775E0, 0x1776E0, 0x177CF0
 HA180, HF320, H8550, H4FD0 = 0x19A180, 0x17F320, 0x188550, 0x174FD0
+H8570, H8590, H85B0 = 0x188570, 0x188590, 0x1885B0
 SIZES = {H55B0: 132, H7510: 196, H75E0: 256, H76E0: 1172, H7CF0: 592, HA180: 396,
-         HF320: 708, H8550: 28, H4FD0: 456}
+         HF320: 708, H8550: 28, H4FD0: 456, H8570: 28, H8590: 28, H85B0: 28}
 NAMES = {H55B0: '001755B0', H7510: '00177510', H75E0: '001775E0', H76E0: '001776E0',
          H7CF0: '00177CF0', HA180: '0019A180', HF320: '0017F320', H8550: '00188550',
+         H8570: '00188570', H8590: '00188590', H85B0: '001885B0',
          H4FD0: '00174FD0'}
 SWEEP, ATAN2, COSINE = 0x19AFE0, 0x11E620, 0x11DE90
 HOOKED = {SWEEP: 'sweep', ATAN2: 'atan2', COSINE: 'cosine'}
@@ -198,6 +200,8 @@ def build_native():
     n.em_player_record_001755B0.argtypes = [H, A, P(I)]
     n.em_player_record_0017F320.argtypes = [H, A, P(I)]
     n.em_player_record_00188550.argtypes = [H, A, P(I)]
+    for name in ('00188570', '00188590', '001885B0'):
+        getattr(n, 'em_player_record_' + name).argtypes = [H, A, P(I)]
     n.em_player_record_00174FD0.argtypes = [H, A]
     n.em_player_record_00177510.argtypes = [H, P(ProbeHit), P(Ledge)]
     n.em_player_record_001775E0.argtypes = [H, A, P(Ledge), I, FLT, P(I)]
@@ -243,7 +247,7 @@ class Script:
 # ======================================================================
 
 ENTRIES = ('001755B0', '00177510', '001775E0', '001776E0', '00177CF0', '0019A180', '0017F320',
-           '00188550', '00174FD0')
+           '00188550', '00174FD0', '00188570', '00188590', '001885B0')
 
 
 def put(buf, offset, size, value):
@@ -474,8 +478,8 @@ class NativeRun:
             status = n.em_player_record_001755B0(H, A, C.byref(result)); v0 = result.value
         elif entry == '0017F320':
             status = n.em_player_record_0017F320(H, A, C.byref(result)); v0 = result.value
-        elif entry == '00188550':
-            status = n.em_player_record_00188550(H, A, C.byref(result)); v0 = result.value
+        elif entry in ('00188550', '00188570', '00188590', '001885B0'):
+            status = getattr(n, 'em_player_record_' + entry)(H, A, C.byref(result)); v0 = result.value
         elif entry == '00174FD0':
             status = n.em_player_record_00174FD0(H, A)
         elif entry == '00177510':
@@ -597,7 +601,8 @@ def capture_jobs():
     """The entry points run on one capture: each as captured, plus variants
     the capture makes meaningful (the stick angle and bytes, the ledge
     heights over the ledge frame the capture's last probe left)."""
-    jobs = [('00188550', {}), ('0017F320', {}), ('00174FD0', {}), ('001755B0', {})]
+    jobs = [('00188550', {}), ('00188570', {}), ('00188590', {}), ('001885B0', {}), ('0017F320', {}),
+            ('00174FD0', {}), ('001755B0', {})]
     for angle in (0.5, -2.9, 2.2):
         jobs.append(('001755B0', {'stick': F(angle)}))
     for gait, x, y in ((3, 0x00, 0x80), (2, 0xFF, 0x40), (1, 0x80, 0xFF)):
@@ -691,7 +696,8 @@ def capture_run(job):
         H, A, out = C.byref(helpers), C.byref(rw.live), C.c_int(-99)
         n = NATIVE
         if entry == '001755B0': status = n.em_player_record_001755B0(H, A, C.byref(out))
-        elif entry == '00188550': status = n.em_player_record_00188550(H, A, C.byref(out))
+        elif entry in ('00188550', '00188570', '00188590', '001885B0'):
+            status = getattr(n, 'em_player_record_' + entry)(H, A, C.byref(out))
         elif entry == '0017F320': status = n.em_player_record_0017F320(H, A, C.byref(out))
         elif entry == '00174FD0': status = n.em_player_record_00174FD0(H, A)
         elif entry == '001775E0':

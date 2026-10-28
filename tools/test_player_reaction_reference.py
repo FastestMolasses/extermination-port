@@ -12,7 +12,7 @@ Executed unmodified (the native translates them in em_player_reaction.c):
   0021D800 0021E240 0021E490 00223C70 0021F330 0021F850 002202C0 0021DBB0
   0021E9C0 0021EAD0 0021EF30 (the state routines) and the helpers they call:
   0017C540 0021D530 0021D250 0021D2E0 00179880 00182870 0021D490 0021C120
-  0021C190 0021D1A0 0021D600 001754E0 001B1470 0011DF78.
+  0021C190 0021C200 0021D1A0 0021D600 001754E0 001B1470 0011DF78.
 0021D250, 0021D2E0 and 00179880 are translated once, in em_player_fall.c;
 the native reaction routines reach them through em_player_reaction.c's
 bridge, so this oracle checks that bridge and the owner together.
@@ -74,6 +74,7 @@ HELPERS = {
     '0017C540': (0x17C540, 0x40), '0021D530': (0x21D530, 0xC4), '0021D250': (0x21D250, 0x8C),
     '0021D2E0': (0x21D2E0, 0x1A4), '00179880': (0x179880, 0x50), '00182870': (0x182870, 0x1F4),
     '0021D490': (0x21D490, 0x50), '0021C120': (0x21C120, 0x70), '0021C190': (0x21C190, 0x6C),
+    '0021C200': (0x21C200, 0x68),
     '0021D1A0': (0x21D1A0, 0xAC), '0021D600': (0x21D600, 0x38), '001754E0': (0x1754E0, 0xD0),
     '001B1470': (0x1B1470, 0x9C), '0011DF78': (0x11DF78, 0x1C),
 }
@@ -348,6 +349,7 @@ def build_native():
     native.em_player_fall_drop.argtypes = [A]          # 00179880's one translation
     native.em_player_fall_drop.restype = None
     native.em_player_reaction_0021D250.argtypes = [A, C.c_int, W]
+    native.em_player_reaction_0021C200.argtypes = [A, S, W]
     native.em_player_reaction_0021D2E0.argtypes = [A, C.c_int16, C.c_int, W]
     native.em_player_reaction_00182870.argtypes = [A, C.c_int, W]
     native.em_player_reaction_001754E0.argtypes = [A, S, C.POINTER(Scratch), C.c_int,
@@ -839,6 +841,9 @@ def run_helper(case):
     raw = random_actor(rng, '0021D800')
     scene, flag = random_scene(rng)
     raw[0x23A] = rng.choice([0, 1, 2, 3, 4, 5, 6, 7, 8, 0xD, 0xE, 0x5A, 0x5B, 0x5C, 0x5D, 0x44])
+    if name == '0021C200':     # health +220 at and around the c.le boundary
+        raw[0x220:0x224] = struct.pack('<I', rng.choice([0, 0x80000000, 1, 0x80000001, fbits(-12.5),
+                                                         fbits(35.0), fbits(0.001)]))
     script = Script(rng)
     load_case(EE_, raw, scene, flag)
     original = Original(EE_, script.copy())
@@ -856,6 +861,8 @@ def run_helper(case):
     elif name == '0021D2E0':
         EE_.call(entry, (ACTOR, 0x78, arg))
         assert NATIVE.em_player_reaction_0021D2E0(ref, 0x78, arg, w) == 0
+    elif name == '0021C200':
+        EE_.call(entry, (ACTOR,)); assert NATIVE.em_player_reaction_0021C200(ref, sc, w) == 0
     elif name == '0017C540':
         EE_.call(entry, (ACTOR,)); NATIVE.em_player_reaction_0017C540(ref)
     elif name == '0021D530':
@@ -963,7 +970,7 @@ def main():
         seen.setdefault(case[0], set()).add(run_state(case))
     helper_total = reference_mode.pick(6000, 400)
     helper_names = ('00182870', '0021D250', '0021D2E0', '0017C540', '0021D530', '00179880',
-                    '001754E0')
+                    '001754E0', '0021C200')
     for i in range(helper_total):
         run_helper((helper_names[i % len(helper_names)], 0xA11CE + i))
     for surface in (0, 1, 2, 3, 4, 5, 6, 7, 8, 0xD, 0xE, 0x5A, 0x5B, 0x5C, 0x44):

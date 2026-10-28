@@ -453,6 +453,36 @@ static int music_select(EmStreamLanes *L, int32_t a0)
 
 int em_stream_lanes_001FAE70(EmStreamLanes *L, int32_t a0) { return latched(L) ? -1 : music_select(L, a0); }
 
+/* 001FAFD0 (byte-matched C): only while 0x70003B90 is set and 0x70003B8D
+ * is clear. With D_008104E4 == 1: when the lane-0 cue D_00282178 is below
+ * 0x1D, D_00810D38 is none of 0xB / 0xC / 0x17 and D_00810700 is not 0x15,
+ * and the cue is not already 0x18, 001FAAC0(0) then 001FABF0(0, 0x18, 0xB4,
+ * 1). Otherwise, when the cue is 0x18, 001FAE70(1). */
+int em_stream_lanes_001FAFD0(EmStreamLanes *L, uint8_t spad3B90, uint8_t spad3B8D)
+{
+    EmStreamLanesGlobals *g;
+    if (latched(L))
+        return -1;
+    if (spad3B90 == 0 || spad3B8D != 0)
+        return 0;
+    if (!(g = globals(L, 0x001FAFD0u)))
+        return -1;
+    const int32_t cue = L->state.cue[0];
+    if (g->d8104E4 == 1) {
+        if (!(cue < 0x1D && g->d810D38 != 0xB && g->d810D38 != 0xC && g->d810D38 != 0x17 &&
+              g->d810700 != 0x15))
+            return 0;
+        if (cue == 0x18)
+            return 0;
+        if (lane_release(L, 0))
+            return -1;
+        return fade_in(L, 0, 0x18, 0xB4, 1);
+    }
+    if (cue == 0x18)
+        return music_select(L, 1);
+    return 0;
+}
+
 /* 001FB0B0(cue): D_00810D38 = cue; 001FAE70(1). */
 int em_stream_lanes_001FB0B0(EmStreamLanes *L, int32_t cue)
 {

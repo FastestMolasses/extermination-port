@@ -860,9 +860,15 @@ contain the load, with these names:
   with the loads' rules (`disc_seeds`, DISC_TEXTURES.md 9.1), equal to the
   values every first-level capture shows. They hold for AREA11 only.
 - **00200970** is translated and verified but has no consumer (001CCB10 is
-  untranslated). 00200890 runs live in the area load (state 7); the page
-  core's `EM_STATUS_PAGE_PLAYER_TEXTURE` and the player step 0015C1F0 keep
-  their current boundaries.
+  untranslated). 00200890 runs live in the area load (state 7) and, since
+  lane g1 (2026-10-28), during play for the player closure's 0015C1F0
+  (0021C190, major2): `em_module_loader_00200890` sends the packet the live
+  views select to the area chain hook with `em_module_loader_player_packet`
+  set, and the scene bindings' consumer accepts only the five slot words
+  D_0028A4B0..C0 then (test_module_loader_reference: the same bytes as the
+  original's send for all nine selections). The page core's
+  `EM_STATUS_PAGE_PLAYER_TEXTURE` and the spawn's 0015C1F0 keep their
+  current boundaries.
 - **The area consumer applies nothing** (section 1.9): the port's textures
   are its disc export (DISC_TEXTURES test B); the loaded resident region
   and overlay are the drive's bytes, which the port's native code does not

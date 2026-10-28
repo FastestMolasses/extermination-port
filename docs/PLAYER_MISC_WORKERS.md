@@ -231,6 +231,18 @@ boundary (the DMA of the player's texture packet); the scene gives
 D_00810C60 as 001B07C0 left it and the Roger export's D_0028A490 table. The
 spawn's inline copy of the kind choice is gone (OWNER_DRAW.md section 10).
 
+**Live during play (lane g1, 2026-10-28):** the player closure's
+`x_0015C1F0` (0021C190's `model_refresh`, major2's `w0015C1F0`) runs the
+same translation over its misc host: `bind_model` =
+em_scene_bindings_player_001CA6E0 (the spawn's em_roger_actor_001CA6E0
+binding), `bone_count` = em_player_draw_live_001C6150, `w00200890` = the
+module loader's send of the player's texture packet
+(em_scene_bindings_00200890, MODULE_LOADER.md), with D_00810C60 from the
+canonical progress byte and D_0028A490 the Roger export's table. Its
+001EFE00 (`attach`) runs too: `spawn` = em_effects_live_001EF9D0 with the
+spawned node's +0x24 / +0xB0 / +0xC0 as the binder's own fields
+(EFFECT_MANAGER.md 8.2).
+
 ### 001EFE00(id, p): an effect at the actor
 
 1. Copies +B0 to the stack. For id 0x80000027, it adds 10 to y.
