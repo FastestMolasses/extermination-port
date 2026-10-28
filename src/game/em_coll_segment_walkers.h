@@ -105,6 +105,17 @@ int em_coll_segment_0019A570(const EmCollSegment *seg, const float from[3], cons
 /* 0019A910(from, to, mask). */
 int em_coll_segment_0019A910(const EmCollSegment *seg, const float from[3], const float to[3],
                              unsigned mask);
+/* 0019AA80(from, to, mask) (byte-matched decomp C): from / to into
+ * 0x70003190 / 0x700031A0 (w = 1.0), 0x700031D4 = 0, then 001A7280(mask &
+ * 0xFFFF), em_coll_grid_hull's lock against `player` (the world's player
+ * record and its hull chain); 1 when it locks, else 0 with 0x700031D0 = 0;
+ * 0x700031D8 = the result. A lock stores `hit_entity` as 0x700031D4 (the
+ * caller's identity of D_008102B0), or the lock's own entity when
+ * `hit_entity` is NULL. One translation for every composition. Returns the
+ * result, or -1. */
+int em_coll_segment_0019AA80(EmCollProbeState *state, EmCollSegmentFaceScratch *face,
+                             const EmCollHullWorld *player, const float from[3], const float to[3],
+                             uint32_t mask, const void *hit_entity);
 
 /* ---- The walkers and prim tests, over the state as the queries stage it.
  * The cell walkers and grid walkers return 1 on a hit, 0, or -1. */

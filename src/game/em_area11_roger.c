@@ -38,7 +38,7 @@
 
 enum {
     TABLE_WORDS = EM_AREA11_ROGER_TABLE_WORDS,   /* the words 001AB430 clears (EMRS v2) */
-    MAX_REGIONS = 17,   /* includes AREA01 pickup models, the retained door bank and player hull */
+    MAX_REGIONS = 16,   /* includes AREA01 pickup models and retained door bank */
     ROGER_NODES = 21,
     RECORD = EM_ACTOR_RECORD_SIZE
 };
@@ -236,17 +236,6 @@ const uint8_t *em_area11_roger_door_bank_rest(uint32_t address,uint32_t *size)
     *size=0;
     const Region *r=region_at(R.table[0x39],1);
     if (!r || r->address!=R.table[0x39] || address<r->address ||
-        address-r->address>=r->size) return NULL;
-    *size=r->size-(address-r->address);
-    return r->bytes+address-r->address;
-}
-
-const uint8_t *em_area11_roger_player_hull_rest(uint32_t address,uint32_t *size)
-{
-    if (!size || load_resources()<0) return NULL;
-    *size=0;
-    const Region *r=region_at(R.table[0x3A],1);
-    if (!r || r->address!=R.table[0x3A] || address<r->address ||
         address-r->address>=r->size) return NULL;
     *size=r->size-(address-r->address);
     return r->bytes+address-r->address;

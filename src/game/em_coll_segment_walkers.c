@@ -700,3 +700,28 @@ int em_coll_segment_hit(const EmCollSegment *seg, EmCollSegmentHit *out)
     }
     return 0;
 }
+
+int em_coll_segment_0019AA80(EmCollProbeState *q, EmCollSegmentFaceScratch *face,
+                             const EmCollHullWorld *player, const float from[3], const float to[3],
+                             uint32_t mask, const void *hit_entity)
+{
+    if (!q || !face || !player || !from || !to) return -1;
+    for (int k = 0; k < 3; ++k) { q->start[k] = from[k]; q->end[k] = to[k]; }
+    q->end[3] = 1.0f; q->start[3] = 1.0f; q->entity = NULL;
+    EmCollHullScratch h;
+    memset(&h, 0, sizeof h);
+    memcpy(h.start, q->start, 12); memcpy(h.end, q->end, 12);
+    memcpy(h.point, q->point, 12); memcpy(h.cell_normal, q->cell_normal, 12);
+    h.cell_class = q->cell_class; h.word_1c = face->hull_word_1c; h.word_20 = face->hull_word_20;
+    const int locked = em_coll_grid_hull_001A7280(player, &h, mask & 0xFFFFu);
+    if (locked < 0) return -1;
+    if (hit_entity && h.entity && h.entity != player->player) return -1;
+    memcpy(q->point, h.point, 12); memcpy(q->cell_normal, h.cell_normal, 12);
+    q->cell_class = h.cell_class; face->hull_word_1c = h.word_1c; face->hull_word_20 = h.word_20;
+    q->entity = h.entity && hit_entity ? (const EmActor *)hit_entity : h.entity;
+    if (h.record_cell) { q->record = EM_COLL_PROBE_RECORD_CELL; q->node = -1; }
+    const int result = locked != 0;
+    if (!result) { q->record = EM_COLL_PROBE_RECORD_NONE; q->node = -1; }
+    q->kind = result;
+    return result;
+}

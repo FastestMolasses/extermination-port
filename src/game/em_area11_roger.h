@@ -102,11 +102,6 @@ const uint8_t *em_area11_roger_library_rest(uint32_t address, uint32_t *size);
  * bytes are exported separately from AREA11's replaceable animation banks. */
 const uint32_t *em_area11_roger_door_bank_word(void);
 const uint8_t *em_area11_roger_door_bank_rest(uint32_t address, uint32_t *size);
-/* The player's +0x58 hull chain, D_0028A490[0x3A] (D_0028A578[0]), the
- * retained bootstrap bank chunk27/f03_id3a.bin: the bytes from `address` to
- * the bank's end, or NULL. 001A7280 (0019AA80, the AREA01 revisit's 0x8282F0
- * probe) walks it. */
-const uint8_t *em_area11_roger_player_hull_rest(uint32_t address, uint32_t *size);
 /* The exported bank region bytes at an EE address (the camera track header
  * the script host's r_track_head reads, 001C6120 over bank 0x96), or NULL. */
 const uint8_t *em_area11_roger_resource(uint32_t address, uint32_t size);

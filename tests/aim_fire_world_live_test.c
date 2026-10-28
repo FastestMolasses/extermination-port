@@ -12,10 +12,13 @@ uint32_t em_effects_live_fault(void);
 int em_effects_live_001D04B0_elf(const float m[16], int32_t kind, uint32_t source, uint32_t f12, uint32_t f13)
 { (void)m; (void)kind; (void)source; (void)f12; (void)f13; return -1; }
 uint32_t em_effects_live_fault(void) { return 0x001D04B0u; }
-/* The player's hull lock (0019AA80's 001A7280, em_coll_grid_hull) is
- * outside this fixture too. */
-int em_coll_grid_hull_001A7280(const EmCollHullWorld *hulls, EmCollHullScratch *s, uint32_t arg)
-{ (void)hulls; (void)s; (void)arg; return -1; }
+/* The player's hull lock (0019AA80, em_coll_segment_0019AA80 over
+ * em_coll_grid_hull's 001A7280) is outside this fixture too; it is
+ * compared with the original by test_area01_collision_view_reference.py. */
+int em_coll_segment_0019AA80(EmCollProbeState *state, EmCollSegmentFaceScratch *face,
+                             const EmCollHullWorld *player, const float from[3], const float to[3],
+                             uint32_t mask, const void *hit_entity)
+{ (void)state; (void)face; (void)player; (void)from; (void)to; (void)mask; (void)hit_entity; return -1; }
 
 static EmAimFireWorldLive world;
 static EmCollProbeState probe;

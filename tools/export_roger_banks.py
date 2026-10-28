@@ -44,9 +44,6 @@ addresses, from the user's own extracted disc:
     subtype 0: D_0025A350 row 0, table 0x37, models 0x1C and 0x1E, drawn by
     001F3E30); AREA01's pickup models 0x4D and 0x58 (0015AC00's library
     branch; 0x6C and 0x72 already lie in the equipment span);
-  * extract/chunk27/f03_id3a.bin whole at D_0028A490[0x3A] (= D_0028A578[0],
-    the player's +0x58 hull chain, which 001A7280 walks for the AREA01
-    revisit's 0x8282F0 probe 0019AA80);
   * the library's model 0x16 (the gun lamp's third cone shell, 001D9530) as
     the disc holds it, a WRITABLE region: the New Game's 001AD1A0 calls
     001D19D0 -> 001D9070, which rewrites its vertex weights in place
@@ -93,10 +90,6 @@ VERSION = 2                                # version 1 carried 0xC0 words taken 
 BANK_4A_AT, BANK_96_AT, MODEL_AT, FACE_AT = 0x10E000, 0x41000, 0x35000, 0x86000
 GLOBAL_TABLE_INDEX = 0x37
 DOOR_BANK_INDEX = 0x39  # retained bootstrap bank read by 001B0F60
-# D_0028A578[0] = D_0028A490[0x3A]: the player's +0x58 hull chain
-# (0015C420), retained bootstrap bank chunk27/f03_id3a.bin; 001A7280 walks
-# it when the AREA01 revisit's 0x8282F0 probes the player (0019AA80).
-PLAYER_HULL_INDEX = 0x3A
 DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # Roger's equipment 001C5C90 (0x6B) and the ids 0018A8D0 maps (flavour, variant)
 # to: 0x2F; 0x30 / 0x40 / 0x6D; 0x32, 0x33, 0x34, 0x35, 0x36, 0x31, 0x37, 0x38 and
@@ -188,7 +181,6 @@ def main(argv=None) -> int:
     f37 = (args.extract / 'chunk27/f01_id37.bin').read_bytes()
     f16 = (args.extract / 'chunk03/f16_id18.bin').read_bytes()
     door_bank = (args.extract / 'chunk27/f02_id39.bin').read_bytes()
-    player_hull = (args.extract / 'chunk27/f03_id3a.bin').read_bytes()
     base12 = table[0x4A] - BANK_4A_AT
     if table[0x96] != base12 + BANK_96_AT:
         raise SystemExit('D_0028A490[0x96] is not bank 0x96 of the file that holds bank 0x4A')
@@ -208,13 +200,11 @@ def main(argv=None) -> int:
         (global_table, f37[:4 + 4 * count]),
         (table[DENNIS_FACE_INDEX], f16),
         (table[DOOR_BANK_INDEX], door_bank),
-        (table[PLAYER_HULL_INDEX], player_hull),
     ]
-    # The door bank and the player hull are borrowed explicitly. Do not add
-    # them to AREA11 pose hosts that automatically map the non-library
-    # resource regions.
-    library_spans = {table[DOOR_BANK_INDEX], table[PLAYER_HULL_INDEX]}
-    global_regions = {global_table, table[DOOR_BANK_INDEX], table[PLAYER_HULL_INDEX]}
+    # The door bank is borrowed explicitly. Do not add it to AREA11 pose
+    # hosts that automatically map the non-library resource regions.
+    library_spans = {table[DOOR_BANK_INDEX]}
+    global_regions = {global_table, table[DOOR_BANK_INDEX]}
     for first, last in spans:
         offsets = [struct.unpack_from('<i', f37, 4 + 4 * kind)[0] >> 2 << 2 for kind in range(first, last + 1)]
         if offsets != sorted(offsets):
@@ -286,7 +276,6 @@ def main(argv=None) -> int:
             ram=cap.ram
             assert u32(ram,TABLE+4*GLOBAL_TABLE_INDEX)==global_table,(cap.name,'retained library word')
             assert u32(ram,TABLE+4*DOOR_BANK_INDEX)==table[DOOR_BANK_INDEX],(cap.name,'retained door bank word')
-            assert u32(ram,TABLE+4*PLAYER_HULL_INDEX)==table[PLAYER_HULL_INDEX],(cap.name,'retained player hull word')
             for address,data in regions:
                 if address not in global_regions:continue
                 if address==fade_address:

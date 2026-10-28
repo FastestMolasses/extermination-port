@@ -70,4 +70,8 @@ int em_aim_fire_world_live_call(void *, EmAimFireLive *, EmAimFireTargetCall *);
  * freed class-4 headers read only); NULL outside a call. Used by the
  * composition's effect owners and by tests. */
 void *em_aim_fire_world_live_owner_view(uint32_t a, size_t n, int write);
+/* The player's hull chain, resource 0x3A at D_0028A578[0] = 0xD1B9C0
+ * (assets/player_hull.emom, tools/export_player_hull.py; its one home): the
+ * bytes from `address` to the chain's end, or NULL. */
+const uint8_t *em_aim_fire_world_live_player_hull(uint32_t address, uint32_t *size);
 #endif

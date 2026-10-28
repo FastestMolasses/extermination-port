@@ -520,11 +520,17 @@ static int player_chain(void *context,const EmActor *body,EmCollHullChain *out)
     *out=(EmCollHullChain){player_hull.bytes,PLAYER_HULL_SIZE,player_hull.slots,r[9]};
     return 0;
 }
-/* 0019AA80(from, to, mask) (byte-matched decomp C) over the one probe
- * state: 0x70003190[i] = from[i] and 0x700031A0[i] = to[i] for i = 0..2,
- * 0x700031AC = 0x7000319C = 1.0, 0x700031D4 = 0, then r = 001A7280(mask &
- * 0xFFFF) (em_coll_grid_hull, against the player record); result 1 when r
- * is nonzero, else 0 and 0x700031D0 = 0; 0x700031D8 = the result. */
+const uint8_t *em_aim_fire_world_live_player_hull(uint32_t address,uint32_t *size)
+{
+    if(!size || player_hull_load()<0 || address<PLAYER_HULL_ADDRESS ||
+       address-PLAYER_HULL_ADDRESS>=PLAYER_HULL_SIZE)return NULL;
+    *size=PLAYER_HULL_SIZE-(address-PLAYER_HULL_ADDRESS);
+    return player_hull.bytes+(address-PLAYER_HULL_ADDRESS);
+}
+/* 0019AA80(from, to, mask) over the one probe state:
+ * em_coll_segment_0019AA80 (its one translation; the AREA01 collision view
+ * runs the same), against the player record and this composition's view
+ * of his hull chain. */
 static int probe_0019AA80(EmAimFireWorldLive *w,EmAimFireLive *h,EmAimFireTargetCall *c)
 {
     w->move_last=0;
@@ -537,28 +543,14 @@ static int probe_0019AA80(EmAimFireWorldLive *w,EmAimFireLive *h,EmAimFireTarget
         return fault(h,c->function,a);
     const void *pa=em_aim_fire_live_map(h,a,12,0);if(!pa)return fault(h,c->function,a);
     const void *pd=em_aim_fire_live_map(h,d,12,0);if(!pd)return fault(h,c->function,d);
-    EmCollProbeState *q=s->state;
-    memcpy(q->start,pa,12);memcpy(q->end,pd,12);
-    q->end[3]=1.0f;q->start[3]=1.0f;q->entity=NULL;
     const uint8_t *r=h->player->bytes;
     memset(&player_body,0,sizeof player_body);
     player_body.status=r[0];player_body.bones=r[9];
     player_body.w58=rd32le(r+0x58);player_body.w5C=rd32le(r+0x5C);
     const EmCollHullWorld hw={h,player_chain,&player_body};
-    EmCollHullScratch hs;memset(&hs,0,sizeof hs);
-    memcpy(hs.start,q->start,12);memcpy(hs.end,q->end,12);
-    memcpy(hs.point,q->point,12);memcpy(hs.cell_normal,q->cell_normal,12);
-    hs.cell_class=q->cell_class;hs.word_1c=s->face->hull_word_1c;hs.word_20=s->face->hull_word_20;
-    hs.entity=q->entity;
-    const int locked=em_coll_grid_hull_001A7280(&hw,&hs,(uint32_t)c->a[2]&0xFFFFu);
-    if(locked<0)return fault(h,0x001A7280u,0);
-    memcpy(q->point,hs.point,12);memcpy(q->cell_normal,hs.cell_normal,12);
-    q->cell_class=hs.cell_class;s->face->hull_word_1c=hs.word_1c;s->face->hull_word_20=hs.word_20;
-    q->entity=hs.entity;
-    if(hs.record_cell) { q->record=EM_COLL_PROBE_RECORD_CELL;q->node=-1; }
-    const int result=locked!=0;
-    if(!result) { q->record=EM_COLL_PROBE_RECORD_NONE;q->node=-1; }
-    q->kind=result;
+    float from[3],to[3];memcpy(from,pa,12);memcpy(to,pd,12);
+    const int result=em_coll_segment_0019AA80(s->state,s->face,&hw,from,to,(uint32_t)c->a[2],NULL);
+    if(result<0)return fault(h,0x001A7280u,0);
     c->v0=(uint64_t)result;
     return 0;
 }

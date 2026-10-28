@@ -24,6 +24,7 @@
 #include "game/em_area11_roger.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_aim_fire_binding.h"
+#include "game/em_aim_fire_world_live.h"
 #include "game/em_aim_fire_runtime.h"
 #include "game/em_aim_fire_sdk_memory.h"
 #include "game/em_camera_live.h"
@@ -361,7 +362,7 @@ static int player_hull_record(void *ctx,const EmActor *body,uint8_t out[EM_ACTOR
 static const uint8_t *player_hull_slot(void *ctx,uint32_t address,uint32_t size)
 { return bytes(ctx,address,size,0); }
 static const uint8_t *player_hull_rest(void *ctx,uint32_t address,uint32_t *size)
-{ (void)ctx;return em_area11_roger_player_hull_rest(address,size); }
+{ (void)ctx;return em_aim_fire_world_live_player_hull(address,size); }
 static EmArea01HullView s_player_hull;
 static int player_chain(void *ctx,EmActor *player,EmCollHullChain *out)
 {
