@@ -181,7 +181,12 @@ int em_area01_actor_view_commit(EmArea01ActorView *v)
                 return fail(v, base + s->offset, 4);
         }
         uint32_t callback = rd32(r->image + 0x10);
-        if (callback != a->callback) {
+        /* A reused record keeps its +0x10 (001AFA90 and 001AFC10 leave it),
+         * so a spawner's store of the same callback commits no change: a
+         * record whose callback has no behaviour is bound here too, as the
+         * original would run that word at its next tick (with a binder;
+         * a view without one only refuses a changed callback). */
+        if (callback != a->callback || (callback && !a->behavior && v->rebind)) {
             if (!v->rebind || v->rebind(v->ctx, a, callback) < 0 || !a->behavior ||
                 a->callback != callback || a->generation != r->generation || !a->allocated)
                 return fail(v, base + 0x10, 5);
