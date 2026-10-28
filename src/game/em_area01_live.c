@@ -1088,6 +1088,24 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_live_resume(l)<0)return -1;
         c->v0=0;return rc;
     }
+    case 0x00119828u: {
+        /* 00119828(ch, l, r), the stream lanes' IOP command 0x16 (the
+         * revisit's 001B6AE0; the scene bindings' em_stream_live binding,
+         * as the AREA11 script host uses it). */
+        if(c->na<3 || em_area01_live_suspend(l)<0)return -1;
+        int rc=em_scene_bindings_00119828(NULL,(int32_t)c->a[0],(int32_t)c->a[1],(int32_t)c->a[2]);
+        if(em_area01_live_resume(l)<0)return -1;
+        c->v0=0;return rc<0 ? -1 : 0;
+    }
+    case 0x001FD4C0u: {
+        /* 001FD4C0(line), the message service's stream request (the AREA01
+         * revisit's 001B6AE0 in script 0x82AD90; em_message_live, as the
+         * AREA11 script host binds it). v0: 1 when the area has the line. */
+        if(c->na<1 || em_area01_live_suspend(l)<0)return -1;
+        int rc=em_message_live_stream_request((int32_t)c->a[0]);
+        if(em_area01_live_resume(l)<0 || rc<0)return -1;
+        c->v0=(uint64_t)(int64_t)rc;return 0;
+    }
     case 0x001C47A0u: {
         /* AREA01 revisit (0x825F00 gives item 0x20): 001C47A0(type)
          * (byte-matched decomp C; a1 reaches 001C40B0 untouched) runs
