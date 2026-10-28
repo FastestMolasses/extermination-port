@@ -502,6 +502,13 @@ recording-derived and stay in the ignored `build/`.
   smoke's two-frame rule, then a neutral pad: a discovery aid for the
   workers a loaded area needs. The loaded state is the save's, not a route
   recording's (RNG, timers), so such a run is never compared row by row.
+  `EM_START_AT_PATH=<file>` (with it: the recording's player x, z per
+  frame, "f x z" lines) steers the stick toward the recorded position eight
+  frames ahead at the recorded stick's magnitude and holds the script's
+  clock while the player lags more than 2.5 units (up to 300 frames at a
+  time), so the presses land where the recording made them; a progress
+  line every 300 script frames prints the position and the revisit's story
+  bytes.
 - **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):
   `EM_START_AT=area01 EM_START_AT_TEST=1` checked as `make
   test-title-load-game` checks its copy (the screen's result 2, the handoff
