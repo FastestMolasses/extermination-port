@@ -39,6 +39,7 @@ the census rows), and since the one-owner step (2026-09-27, census 1.28)
 | 001A9000 | BM | stand-in (em_enemy.c legacy contact pass) | verified-unbound | Class-0xD type-5 entries (+0xD != 0xB, status 1) against the class-4 list (0x70003B88): types 0xA/0xC/0x18/0x2A -> 001A8F40; 6/0x1E -> 001A8E80; 0x1C/0x50/0x1F -> 001A8E80 unless D_00810700 == 0 and D_00810702 == 5. |
 | 001A97B0 | BM | missing | verified-unbound | Class-0xD entries (status 1; type 3 with +0xD 0 and +0x56 != 0, type 5, or type 6 with +0xD 2) against the class-2 list (status 1, class byte not 0xA): inner types 0, 2..7, 9..11, 16..19, and 1 unless (+0xD 3 and (+5 == 9 or D_00810354 < 50.0)); handler by the outer type: 5 -> 001A9360, 3 -> 001A96F0, else 001A9480. |
 | 001A9B10 | BM | missing | verified-unbound | Class-2 type-0 entries whose +0x2D4 word >> 8 is 1..3 against the class-4 list: type 7 with a nonzero +0x38 float -> 001A99E0(outer, inner). |
+| 001A99E0 | BM (matching wave 2026-10-28) | missing | live (2026-10-28) | 001A9B10's pair callee: when the outer (class-2) record is within 67 + the first float of its +0x30 record of the inner (class-4 type-7) record in x/z (0011E748 over dx dx + dz dz, the sum in the accumulator) and within 8 in y (0011DF78), its x/z are rotated about the inner point by the inner +0x38 angle a (x = f.x + (dx cos a + dz sin a), z = f.z + (dx -sin a + dz cos a), cosf 0011DE90 / sinf 0011E2A8 called once per term), its +0xC4 heading = 001B1470(heading + a), and 0x70003B88 = 0 (the inner walk ends). Not reached on the census route. Executed on its own by the oracle. |
 | 001A9D20 | BM | missing | verified-unbound | Class-1 x class-2 (counts in registers, re-read from the globals per outer entry): active inner types 0, 1, 4..7 -> 001A9C40(outer, inner). |
 | 001A9C40 | C, no NEARMISS marker (FUNCTIONS.csv: undecompiled); translated from the .s | missing | live (2026-10-02) | 001A9D20's pair callee: unless the inner record's +0 has bit 1, the distance of the two +0xB0 points (0011E748 over dx dx + dy dy + dz dz, the sum in the accumulator) against the inner record's radius by its +3 type (D_0026DB30: types 0 / 4 15.0, 1 / 5 / 6 / 7 20.0, any other none); inside it the inner +0x0A gets bit 0. First reached by the AIM capture aim_04 (an impact marker 0018ABA0, class 1, against Roger, class 2). Executed on its own by the oracle (section 3). |
 | 001A9F60 | BM | missing | verified-unbound | Unless 0x70003B8D or D_0028A9A0: class-2 entries with class byte 2, active, type 0 -> 001A9E00(player, entry). |
@@ -531,10 +532,11 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
      (for AREA11's 0x00823580, an overlay routine with no translation yet,
      so `em_coll_list_passes_unported_behaviour` until it has one);
      `em_coll_list_passes_unported` for the pair workers 001A8840,
-     001A8970, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480,
-     001A99E0 and 001A9E00 (001A9C40 is bound to its translation
+     001A8970, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480
+     and 001A9E00 (001A9C40 is bound to its translation
      `em_coll_list_passes_001A9C40` since 2026-10-02, 001A8CE0 to
-     `em_coll_list_passes_001A8CE0` since 2026-10-08); `em_coll_list_passes_unported_001AA000`
+     `em_coll_list_passes_001A8CE0` since 2026-10-08, 001A99E0 to
+     `em_coll_list_passes_001A99E0` since 2026-10-28); `em_coll_list_passes_unported_001AA000`
      and `em_coll_list_passes_unported_0021BD10` for those two. Keep each
      binding until its callee is translated. None of these callees ran on
      the census route, so the route never reaches the fault. A reached one
@@ -560,8 +562,9 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
 - The hooks are live over empty class-1/2/0xD lists: records (item 4's
   original-layout images), D_0024A740 and the behaviour 0x00823580 are
   fail-stop. Item 2 needs the grid record bytes and its caller (L09).
-- Thirteen callees of the passes and the +0x34 behaviour are not translated.
-  They are hooked in the oracle and bound as fail-stop workers; the census
+- The callees still bound as `em_coll_list_passes_unported*` (section 4
+  item 4; 001A9C40, 001A8CE0 and 001A99E0 are translated) and the +0x34
+  behaviour are not translated. They are hooked in the oracle and bound as fail-stop workers; the census
   shows none of them on the route.
 - The route evidence for the passes is the snapshot lists, not the
   frame-by-frame lists. The census shows every pass running every frame from
@@ -653,3 +656,34 @@ the crate stack. Now:
 - The AREA01 probes that faulted (`bugs`, `stackshots`, LEVEL2_CRASHES.md
   "Level-2 check") now complete: 16 and 20 shots, no fault.
 
+## 2026-10-28: 001A99E0 bound (port-stub translation)
+
+001A9B10's pair callee was `em_coll_list_passes_unported`. The decomp now
+byte-matches it (src/func_001A99E0.c, matching wave 2026-10-28), so:
+
+- `em_coll_list_001A99E0` translates the byte-matched C in the EE float
+  model: the x/z distance (accumulator sum, 0011E748) against 67 + the
+  outer +0x30 record's first float, |dy| (0011DF78) against 8, then the
+  rotation about the inner point with cosf / sinf evaluated once per term
+  in the original's order and the inner +0x38 angle re-read for each call,
+  the +0xC4 heading through 001B1470 (`em_effect_original_001B1470`; a
+  wrap that cannot end faults at its call site 0x1A9AD4), and
+  0x70003B88 = 0. The second argument is the inner record (001A9B10 leaves
+  it in the second argument register; section 1 "Hidden second
+  arguments"). Bound in em_collision_world, so 001A9B10's live path no
+  longer faults when a class-2 type-0 entry meets a spinning class-4
+  type-7 entry. None of AREA11's census beats reach it.
+- tools/test_coll_list_passes_reference.py runs it on its own in every
+  world (`P99E0`, native case 13), executing the original 001A99E0 with the
+  SDK cosf / sinf / fabsf / sqrtf and 001B1470 from the captured RAM: the
+  x/z test at 67 + r exactly ((36, 77) with r 18) and one ulp beyond, the
+  |dy| test at 8 exactly and one ulp beyond on both sides, spins of both
+  signs (including pi and 1e-7), headings at +-pi and +-3.1 so 001B1470
+  wraps, and the 0x70003B88 counter preset 0 / 5: 1,470 staged runs in the
+  default sample compared byte for byte (RAM, scratchpad and the counters;
+  EM_TEST_FULL=1 runs every geometry x spin x heading), and a separate
+  pass asserts both outcomes on the original (75 carried, 60 not). Mutants
+  checked: 67.0 -> 67.5, the |dy| test made strict and the heading
+  written unwrapped all fail; computing dx (-sin a) as -(sin a dx)
+  survives (equivalent in the float model). Inside the passes it stays a
+  hooked boundary.

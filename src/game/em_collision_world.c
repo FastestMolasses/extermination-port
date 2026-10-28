@@ -339,7 +339,10 @@ static void bind_passes(void)
     k->w_001A9360 = em_coll_list_passes_unported;
     k->w_001A96F0 = em_coll_list_passes_unported;
     k->w_001A9480 = em_coll_list_passes_unported;
-    k->w_001A99E0 = em_coll_list_passes_unported;
+    /* 001A9B10's pair callee, translated from the byte-matched C (a class-2
+     * entry carried round a spinning class-4 type-7 entry;
+     * COLL_LIST_PASSES.md). */
+    k->w_001A99E0 = em_coll_list_passes_001A99E0;
     k->w_001A9E00 = area_001A9E00;
     k->w_001AA000 = area_001AA000;
     /* 001A9D20's pair callee, translated (first reached by the AIM capture

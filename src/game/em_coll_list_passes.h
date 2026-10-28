@@ -179,6 +179,13 @@ int em_coll_list_001A9C40(EmCollListPasses *p, uint32_t self, uint32_t other);
  * (0x70003B86 = 0; tools/test_coll_list_passes_reference.py executes the
  * original). */
 int em_coll_list_001A8CE0(EmCollListPasses *p, uint32_t self, uint32_t other);
+/* 001A9B10's pair callee 001A99E0(outer, inner): a class-2 entry within
+ * 67 + its +0x30 radius (x/z) and 8 (y) of a spinning class-4 type-7 entry
+ * is carried round it by the inner +0x38 angle (x/z rotated about the
+ * inner point, +0xC4 heading advanced and wrapped by 001B1470) and the
+ * inner walk ends (0x70003B88 = 0; tools/test_coll_list_passes_reference.py
+ * executes the original). */
+int em_coll_list_001A99E0(EmCollListPasses *p, uint32_t outer, uint32_t inner);
 
 /* 001AAD00's nine hooks in the original order: 001A9D20, 001A8DA0,
  * 001A9F60(player), 001AA140, 001A7870, 001A8BE0(player), 001A9000,
@@ -208,6 +215,8 @@ int em_coll_list_passes_unported_behaviour(void *context, EmCollListPasses *pass
 int em_coll_list_passes_001A9C40(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
 /* EmCollListWorkers.w_001A8CE0 over em_coll_list_001A8CE0. */
 int em_coll_list_passes_001A8CE0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
+/* EmCollListWorkers.w_001A99E0 over em_coll_list_001A99E0. */
+int em_coll_list_passes_001A99E0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
 /* EmCollListWorkers.normalize over em_effect_original_00102760 (the
  * verified translation of the SDK routine); `context` is unused. */
 int em_coll_list_passes_normalize(void *context, float out[4], const float in[4]);
