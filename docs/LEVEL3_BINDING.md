@@ -14,6 +14,41 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 16: the C side plays a00_00..a00_08 and 429 rows of
+a00_09, and stops at a00_09 frame 12980** (the creatures' glow node
+`001F6FB0`, now bound but faulting on its parent's +0x2E4; next unit).
+Ignoring `lock_r54`, a00_05..a00_08 are exact row for row (a00_04's eight
+camera rows as in iteration 15). The first differing row is now a00_09 row
+152: the original sets taken bit 0x71 there (creature 0x71, 00128C10 state
+3, 001B1190 then 001AFC10), the port 57 rows later; and bit 0x1B (crate)
+at row 193, the port at 200.
+
+- **The spat hazard's hit test reads the cell record's class.** 001E2E80
+  tests the byte +0x1A of the record a 0019A570 hit names (D_700030B0 +
+  0x1A = 0x700030CA); the composition's region views now carry that
+  halfword (read only) beside +0x1C / +0x20. This was the a00_06 frame 9758
+  stop.
+- **`001F6FB0` (NEARMISS decomp C, em_area00_fx_glow.c, now in the
+  build),** the glow node 00129FC0's 001EFE00(0x8000000F, creature) makes,
+  ticks through em_aim_fire_runtime's other-tick hook and
+  em_aim_fire_world_live (binding row in em_area11_bindings). Its parent's
+  header, +0x60, +0x80 and +0xB0 are the pool's fields and its +0xD0 a
+  read-only copy from the AREA01 actor view
+  (`em_scene_bindings_actor_snapshot`).
+- **Why the creatures diverge (open).** Fork pool dumps (hidden, owned
+  sessions, the iteration-14 probe replaying each beat from its recorded
+  source state; 0 row differences) show the AREA00 bugs 0x6A / 0x6E already
+  differ from the native ones at a00_04 row 0, and the native rand() stream
+  is 266 draws ahead of the original's at a00_05 row 0 and 615 at a00_09
+  row 0 (the creatures' headings, 00128C10 sub-state 1's
+  001B1470(2 pi (rand & 0xF0) / 256), come from it). Over a00_05 the
+  per-caller totals agree except 001F4BF0 (the creature glow 001288D0 ->
+  001F4A00 -> 001F4BF0, one draw per call): original 327, native 218,
+  because a glowing creature is not drawn (+1 = 0) on frames where the
+  original's is. Receipts: ignored `build/frontier/fork/a00_00..a00_04`
+  (pool.jsonl, rand_calls.bin), `build/frontier/i16c2` (native class-2
+  dumps, a temporary EM_DIAG_CLASS2 build).
+
 **2026-10-28, iteration 15 (branch `drawbridge`): the C side plays
 a00_00..a00_05 and 181 rows of a00_06, and stops at a00_06 frame 9758**
 (001E2E80 reads the hit record's +0x1A at 0x700030CA, which the composition's

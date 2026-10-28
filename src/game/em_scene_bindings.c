@@ -3206,6 +3206,11 @@ const uint8_t *em_scene_bindings_target_model_bytes(uint32_t address,uint32_t si
 {
     return arrival_scene() ? em_area01_live_target_model_bytes(&s_area01_live,address,size) : NULL;
 }
+int em_scene_bindings_actor_snapshot(uint32_t address, uint32_t size, void *out)
+{
+    return arrival_scene() && s_area01_live.bound ?
+        em_area01_actor_view_snapshot(&s_area01_live.actors, address, size, out) : -1;
+}
 int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
                                           int32_t *value)
 {

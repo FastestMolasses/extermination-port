@@ -84,7 +84,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_render_live.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_runtime.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
            src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c \
-           src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area02_misc.c src/game/em_level8_port_fx.c \
+           src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area00_fx_glow.c src/game/em_area02_misc.c src/game/em_level8_port_fx.c \
            src/game/em_area01_side.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
@@ -1896,7 +1896,7 @@ test-aim-fire-live:
 .PHONY: test-aim-fire-world-live
 test-aim-fire-world-live:
 	mkdir -p build/aim-fire
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area02_misc.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c src/game/em_area00_hud.c -lm -o build/aim-fire/world-live-test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area02_misc.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area00_fx_glow.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c src/game/em_area00_hud.c -lm -o build/aim-fire/world-live-test
 	./build/aim-fire/world-live-test
 
 .PHONY: test-aim-fire-sdk-memory-reference

@@ -11,7 +11,6 @@
 #include "game/em_effects_live.h"
 #include "game/em_coll_grid_hull.h"
 #include <stdio.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -202,6 +201,11 @@ typedef struct Bridge {
     uint32_t side_node, target_node;
     int hit_jitter;
     EmPoseRegion parent_view;
+    /* The glow node 001F6FB0's parent record (its +0x24): header, +0x60,
+     * +0x80 and +0xB0 as the pool's fields, +0xD0 a read-only copy. */
+    EmPoseRegion glow_view[5];
+    unsigned glow_views;
+    uint8_t glow_matrix[64];
     uint32_t point[4];
     /* The published class-4 list (D_00275B7C / D_00275B84, base D_0028AE30)
      * as views: 001AA840 walks it (the knife's reach). */
@@ -245,6 +249,8 @@ static int refresh(Bridge *b)
         if(count>EM_AIM_FIRE_WORLD_VIEWS-b->count)return -1;
         b->count+=count;
     }
+    for(unsigned i=0;i<b->glow_views;++i)
+        TRY(append(b,b->glow_view[i].address,b->glow_view[i].size,b->glow_view[i].bytes,b->glow_view[i].writable));
     if(b->parent_view.bytes) {
         int found=0;
         for(unsigned i=0;i<b->count;++i) {
@@ -319,15 +325,17 @@ static int refresh(Bridge *b)
             const uint32_t node=(uint32_t)word[0]|(uint32_t)word[1]<<8|(uint32_t)word[2]<<16|(uint32_t)word[3]<<24;
             const uint8_t *bytes=node && w->grid_bytes ? w->grid_bytes(w->context,node,64) : NULL;
             if(bytes)APPEND_OPTIONAL(append(b,node,64,(void *)(uintptr_t)bytes,0));
-            /* The cell record D_700030B0 (an entity or cell hit): its words
-             * +0x1C / +0x20 (0x700030CC / 0x700030D0, the hull walkers'),
-             * read only; 00189FE0 (byte-matched decomp C) passes the word
-             * at record +0x1C to 001B41F0. */
+            /* The cell record D_700030B0 (an entity or cell hit): its
+             * halfword +0x1A (0x700030CA, the class) and words +0x1C / +0x20
+             * (0x700030CC / 0x700030D0, the hull walkers'), read only;
+             * 00189FE0 (byte-matched decomp C) passes the word at record
+             * +0x1C to 001B41F0, the spat hazard 001E2E80 tests the byte
+             * +0x1A of the record a 0019A570 hit names. */
             if(node==0x700030B0u) {
-                static const uint32_t record_words[]={0x700030CCu,0x700030D0u};
-                for(unsigned k=0;k<2;++k) {
-                    void *q=collision_map(w,record_words[k],4,0);
-                    if(q)APPEND_OPTIONAL(append(b,record_words[k],4,q,0));
+                static const uint32_t record_words[][2]={{0x700030CAu,2},{0x700030CCu,4},{0x700030D0u,4}};
+                for(unsigned k=0;k<3;++k) {
+                    void *q=collision_map(w,record_words[k][0],record_words[k][1],0);
+                    if(q)APPEND_OPTIONAL(append(b,record_words[k][0],record_words[k][1],q,0));
                 }
             }
         }
@@ -622,12 +630,28 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
        c->function!=0x00189FE0u && c->function!=0x0018A180u && c->function!=0x001EFF10u &&
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
        c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u &&
-       c->function!=0x001E2E80u && c->function!=0x001F02C0u)return -1;
+       c->function!=0x001E2E80u && c->function!=0x001F02C0u && c->function!=0x001F6FB0u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
     b.views=v->views;b.math=v->math;b.hit=v->hit;b.side=v->side;b.fx=v->fx;b.misc=v->misc;b.hud=v->hud;
     v->bridge=&b;
     b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
+    if(c->function==0x001F6FB0u) {
+        /* The glow's parent (node +0x24): the pool fields it reads and
+         * writes and its +0xD0 matrix as it stands. */
+        const uint8_t *pp=em_aim_fire_live_map(h,a+0x24u,4,0);
+        if(!pp)return fault(h,c->function,a+0x24u);
+        const uint32_t parent=(uint32_t)pp[0]|(uint32_t)pp[1]<<8|(uint32_t)pp[2]<<16|(uint32_t)pp[3]<<24;
+        static const uint32_t spans[][3]={{0,0x14,1},{0x60,0x20,1},{0x80,0x10,1},{0xB0,0x10,0}};
+        for(unsigned k=0;k<4;++k) {
+            void *q=em_aim_fire_live_map(h,parent+spans[k][0],spans[k][1],(int)spans[k][2]);
+            if(!q)return fault(h,c->function,parent+spans[k][0]);
+            b.glow_view[b.glow_views++]=(EmPoseRegion){parent+spans[k][0],spans[k][1],q,(int)spans[k][2]};
+        }
+        if(!w->actor_snapshot || w->actor_snapshot(w->context,parent+0xD0u,64,b.glow_matrix)<0)
+            return fault(h,c->function,parent+0xD0u);
+        b.glow_view[b.glow_views++]=(EmPoseRegion){parent+0xD0u,64,b.glow_matrix,0};
+    }
     if(refresh(&b)<0) {
         fprintf(stderr,"aim/fire world: %08X refresh failed (%u views)\n",
             (unsigned)c->function,b.count);
@@ -766,6 +790,9 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
             status=em_area00_fx_001EFF10(&s,c->a[0],c->a[1],c->a[2],c->a[3],c->a[4],c->a[5],c->f[0],&c->v0);
         else if(c->function==0x001F2F90u)
             status=em_area00_fx_001F2F90(&s,c->a[0],c->a[1],c->a[2],c->a[3]);
+        else if(c->function==0x001F6FB0u)
+            /* The creatures' glow node (0x8000000F; its parent is +0x24). */
+            status=em_area00_fx_001F6FB0(&s,c->a[0]);
         else if(c->function==0x001F02C0u)
             /* The spat hazard's hit sound (001F02C0(p, id; f12)). */
             status=em_area00_fx_001F02C0(&s,c->a[0],c->a[1],c->f[0]);

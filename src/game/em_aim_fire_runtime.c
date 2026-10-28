@@ -339,6 +339,8 @@ static int target_regions(void *context,uint32_t node,EmPoseRegion *out,
     TRY(append(out,capacity,count,EM_SLG_BONE_RECORDS,size,(void *)slots,0));
     return 0;
 }
+static int actor_snapshot(void *context,uint32_t address,uint32_t size,void *out)
+{ (void)context;return em_scene_bindings_actor_snapshot(address,size,out); }
 static int written(void *context,uint32_t address,size_t size)
 { (void)context;return em_effects_live_node_written(address,size); }
 typedef struct {
@@ -655,6 +657,7 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
     memset(&R,0,sizeof R);R.pool=pool;
     R.world.enumerate=enumerate;
     R.world.target_regions=target_regions;
+    R.world.actor_snapshot=actor_snapshot;
     R.world.grid_address=grid_address;
     R.world.grid_bytes=grid_bytes;
     R.world.written=written;
@@ -741,10 +744,11 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (rc<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
-    if (callback==0x001E2E80u) {
-        /* The spat hazard node 001E2E80 (em_area00_hud through the
-         * composition), with D_00275B40 = its +0x110 (the walk's 001CB590);
-         * 1 while its record stays allocated, 0 once it freed itself. */
+    if (callback==0x001E2E80u || callback==0x001F6FB0u) {
+        /* The spat hazard node 001E2E80 (em_area00_hud) and the creatures'
+         * glow node 001F6FB0 (em_area00_fx), through the composition, with
+         * D_00275B40 = its +0x110 (the walk's 001CB590); 1 while its record
+         * stays allocated, 0 once it freed itself. */
         EmActor *a=pool_actor(node);
         if (!a) return -1;
         const uint32_t generation=a->generation;
