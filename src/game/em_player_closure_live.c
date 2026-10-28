@@ -2867,13 +2867,6 @@ static int lw_motor(void *c, EmPlayerLiveActor *a)
     (void)c;
     return em_player_motor_0017BC40(a->bytes, lw_word, NULL, &L.land.s3A20);
 }
-/* 00184BA0(p, 1): the interaction host's scan (the original reads only its
- * first argument). */
-static int lw_use_scan(void *c, EmPlayerLiveActor *a, int arg, int *result)
-{
-    (void)arg;
-    return use_scan(c, a, result);
-}
 static int lw_use_accepted(void *c, EmPlayerLiveActor *a)
 {
     (void)c;
@@ -2943,7 +2936,7 @@ static void bind_loco(void)
     w->row_request = lw_row_request; w->request = lw_request; w->arbiter = lw_arbiter;
     w->clip_frames = lw_clip_frames; w->probes = lw_probes; w->floor = w_floor;
     w->clearance = lw_clearance; w->fall_check = w_fall_check; w->motor = lw_motor;
-    w->translate = w_translate; w->use_scan = lw_use_scan; w->use_accepted = lw_use_accepted;
+    w->translate = w_translate; w->use_scan = use_scan; w->use_accepted = lw_use_accepted;
     w->handoff = w_handoff; w->reentry = w_reentry; w->foot_stop = lw_foot_stop;
     w->sound = lw_sound; w->effect = lw_effect; w->wrap = w_wrap_bits; w->mode = loco_mode;
     L.loco.scene = (EmLocoScene){ &L.loco_28A9A0, &L.loco_810E74, &PAD_CONFIG[1], &L.loco_s1 };
