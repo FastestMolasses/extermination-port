@@ -450,6 +450,17 @@ static const Phase k_phases[] = {
     {"a00_10", "a00_10_progression_exit", 0,
      "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    /* The AREA01 revisit (FOURTH_LEVEL_ROUTE.md section 4; AREA01_REVISIT.md):
+     * pads from tools/test_level_smoke_area01r.py --prepare (EM_LEVEL4_PAD_DIR). */
+    {"a01r_00", "a01r_00_to_train_room", 0,
+     "AREA01 revisit recorded pad route", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01r_01", "a01r_01_event", 0,
+     "AREA01 revisit recorded pad route", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01r_02", "a01r_02_bridge", 0,
+     "AREA01 revisit recorded pad route", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -5137,12 +5148,14 @@ static void a01_route_begin(void)
     if (a01_explore_begin()) return;
 #endif
     const int area00=!strncmp(k_phases[t.current].name,"a00_",4);
-    const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
+    const int revisit=!strncmp(k_phases[t.current].name,"a01r_",5);
+    const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : revisit ? "EM_LEVEL4_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
     s_a00_return_frame=-1;
     char path[1024];
     int n=dir ? snprintf(path,sizeof path,"%s/%s.pad",dir,k_phases[t.current].name) : -1;
     FILE *f=n>0 && (size_t)n<sizeof path ? fopen(path,"r") : NULL;
     if(!f) { fail(area00 ? "AREA00 pad script missing (tools/test_level_smoke_area00.py --prepare)" :
+                  revisit ? "AREA01 revisit pad script missing (tools/test_level_smoke_area01r.py --prepare)" :
                            "AREA01 route pad script missing (tools/test_level_smoke_area01.py --prepare)");return; }
     unsigned version, gap;
     s_a01_pad_count=0;

@@ -221,6 +221,11 @@ typedef enum {
  *                              0x829BE0 / 0x82A0E0 write 2 / 0 through
  *                              001BA080 op06 sub 3, slot 4. Cleared by
  *                              001AF2C0; survives area reloads.
+ *   D_008107DF           A01R  counter 7: the AREA01 revisit event's stage;
+ *                              0x825950 reads it, 0x825BE0 / 0x825D30 /
+ *                              0x825EA0 / 0x825F00 write 1, 2, 0x40, 0x80,
+ *                              0xFF; 0x824770 writes 0x10, 0x823CD0 reads 2.
+ *                              Cleared by 001AF2C0; no port mirror existed.
  *   D_008107E0           A01   counter 8: 826200 reads it while idle with
  *                              event 8 != 0xFF; 826440 writes 1 / 0xFF and
  *                              reads 2 / 0xE0 in its conditional sequence.
@@ -363,6 +368,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
         {0x008107D8u, 0x008107DAu}, /* counter 0 Roger (L22), 1 AREA01 door/NPC (A01) */
         {0x008107DAu, 0x008107DDu}, /* counters 2/3/4: AREA00 arrival / door / ferry (A00) */
+        {0x008107DFu, 0x008107E0u}, /* counter 7: AREA01 revisit event stage (A01R) */
         {0x008107E0u, 0x008107E1u}, /* counter 8: AREA01 bridge idle read (A01) */
         {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
         {0x00810808u, 0x00810809u}, /* counter 0x30: 00823CE0's script-end 0xFF (A11FIX) */

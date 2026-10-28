@@ -839,7 +839,18 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         log_hex(f, bytes, windows[i][1]);
     }
     fputc(']', f);
-    if (!strcmp(key, "a00")) {
+    if (!strcmp(key, "a01r")) {
+        /* D_00810760..63 (the bridge's event 8 and its neighbours), the
+         * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
+        uint8_t bytes[4];
+        for (uint32_t k = 0; k < 4; ++k) {
+            const uint8_t *p = em_scene_progress_at(&s_state, 0x00810760u + k, 1);
+            bytes[k] = p ? *p : 0;
+        }
+        fputs(", \"s760\": ", f);
+        log_hex(f, bytes, 4);
+    }
+    if (!strcmp(key, "a00") || !strcmp(key, "a01r")) {
         static const uint32_t starts[] = {0x00810840u, 0x00810C60u};
         static const char *const names[] = {"locks", "wpn"};
         for (unsigned i = 0; i < 2; ++i) {
@@ -877,6 +888,21 @@ static void log_area00(FILE *f)
     static const uint32_t nodes[] = {0x7B7C00, 0x7B87C0, 0x7B7910, 0x7B81E0, 0x7B84D0,
                                      0x7B58C0, 0x7B6D50, 0x7B7040, 0x7B6190, 0x7B9380};
     log_area_owners(f, "a00", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* The AREA01 revisit's recorded owners (FOURTH_LEVEL_ROUTE.md section 1.1:
+ * doors [12]..[16], [13], the bridge halves [41] / [42], [45], 0x828A00[5],
+ * [7], [6] and [0..4]), logged only in AREA01 once D_0081075E is 0xFF (the
+ * AREA00 return), so the first visit's tick logs are unchanged. */
+static void log_area01r(FILE *f)
+{
+    const uint8_t *returned = em_scene_progress_at(&s_state, 0x0081075Eu, 1);
+    if (s_state.d810700 != 1 || !returned || *returned != 0xFF)
+        return;
+    static const uint32_t nodes[] = {0x7ADD60, 0x7AE050, 0x7AE340, 0x7AE630, 0x7AE920, 0x7B3290,
+                                     0x7B3580, 0x7B3E50, 0x7A64F0, 0x7A6AD0, 0x7A67E0, 0x7A5640,
+                                     0x7A5930, 0x7A5C20, 0x7A5F10, 0x7A6200};
+    log_area_owners(f, "a01r", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
 /* Chain step AUDIO: the EE sound state at this tick's main-loop top (the
@@ -1361,6 +1387,7 @@ static void log_tick_end(int rc)
         log_sound(f);
         log_area01(f);
         log_area00(f);
+        log_area01r(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */

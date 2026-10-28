@@ -108,6 +108,7 @@ import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
 import level_smoke_options  # the OPTIONS side run (audit 1b item 15; docs/OPTIONS.md)
 import level_smoke_area00
+import level_smoke_area01r  # the AREA01 revisit after AREA00's a00_10 return (opt-in)
 import level_smoke_area01  # the AREA01 arrival idle (route 15 f749..f809 on the fork) and the opt-in AREA01 routes
 import reference_root as refs  # EM_REFERENCE: the fork's recordings by default (LEVEL_SMOKE.md "References: fork")
 import rand_order as R
@@ -3160,6 +3161,9 @@ PHASES = [
     *[(phase, lambda ticks, run, state, phase=phase:
        level_smoke_area00.check_route(sys.modules[__name__], ticks, run, state, phase))
       for phase in ('a00_arrival', *level_smoke_area00.ROUTE_PHASES)],
+    *[(phase, lambda ticks, run, state, phase=phase:
+       level_smoke_area01r.check_route(sys.modules[__name__], ticks, run, state, phase))
+      for phase in level_smoke_area01r.ROUTE_PHASES],
 ]
 
 
@@ -3999,6 +4003,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('AREA00 arrival (opt-in)', ('a00_arrival',)),
          ('AREA00 main route (opt-in)', tuple(level_smoke_area00.MAIN_BEATS)),
          ('AREA00 side return (opt-in)', tuple(level_smoke_area00.SIDE_BEATS)),
+         ('AREA01 revisit (opt-in)', tuple(level_smoke_area01r.MAIN_BEATS)),
          ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_fan')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),

@@ -1949,6 +1949,9 @@ test-area01-indicator-live-reference:
 	python3 tools/test_area01_indicator_live_reference.py
 test-area01-smoke-harness:
 	python3 tools/test_level_smoke_area01.py --verify-harness
+.PHONY: test-area01r-smoke-harness
+test-area01r-smoke-harness:
+	python3 tools/test_level_smoke_area01r.py --verify-harness
 
 .PHONY: test-area01-prop-live-reference
 test-area01-prop-live-reference:
