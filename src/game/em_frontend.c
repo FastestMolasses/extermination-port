@@ -172,7 +172,7 @@ static void draw_texture(unsigned w, unsigned h)
  * docs/FIRST_LEVEL_EXIT.md), selector 2 \MOVIE\E006S1.PSS (AREA00's switch
  * movie: the area script host's op 0x0F for the owner 00825920 at route_a00
  * a00_08; docs/LEVEL3_BINDING.md). The port decodes the remux of each file
- * (tools/export_movie.py); the other six selectors are not on the route
+ * (tools/export_movie.py) and selector 4 E008S4 (below); the other five are not on the route
  * played so far and are not exported (a request for one fails).
  * Each movie's field-clock facts (em_movie_field.h; GS_EXACT.md 10.4): its
  * pictures (the fork's sends: 4,761 pairs in the New Game movie, 2,305 in
@@ -181,7 +181,12 @@ static void draw_texture(unsigned w, unsigned h)
  * the feed loop's end after the gate (fork New Game run d0: gate 289, end
  * 9907; E001 canon: 458 / 5189, d4: 457 / 5188; E006S1, decomp
  * build/fork_refs/probes_1020_e006s1/a00_08: 741 pairs, the last 2 sent
- * after the feed loop's end and a 127-vblank stall, gate 372, end 1976). */
+ * after the feed loop's end and a 127-vblank stall, gate 372, end 1976;
+ * E008S4, selector 4, the AREA01 revisit's event movie (script 0x82AD10 at
+ * a01r_01 rows 1069 -> 1070), decomp build/fork_refs/probes_1028_e008s4/
+ * a01r_01: 315 pairs, the last 2 after the feed loop's end, a 129-vblank
+ * stall, gate 1084, end 1839; the replay of the recorded beat equalled the
+ * recording on all 1,077 rows). */
 static const struct {
     const char *path;
     const char *name;
@@ -190,13 +195,15 @@ static const struct {
     {"assets/startup/intro.mov", "E900.PSS", {4761, 2, 9618}},   /* 0: \MOVIE\E900.PSS */
     {"assets/movies/e001.mov", "E001.PSS", {2305, 2, 4731}},     /* 1: \MOVIE\E001.PSS */
     {"assets/movies/e006s1.mov", "E006S1.PSS", {741, 2, 1604}},  /* 2: \MOVIE\E006S1.PSS */
+    {NULL, "E007.PSS", {0, 0, 0}},                               /* 3: not on the route so far */
+    {"assets/movies/e008s4.mov", "E008S4.PSS", {315, 2, 755}},   /* 4: \MOVIE\E008S4.PSS */
 };
 
 static void begin_movie(uint32_t serial, int new_game, unsigned selector)
 {
     em_startup_audio_stop();
     em_sfx_stop_all();
-    if (selector >= sizeof k_movies / sizeof k_movies[0]) {
+    if (selector >= sizeof k_movies / sizeof k_movies[0] || !k_movies[selector].path) {
         fail("movie selector without an exported movie");
         return;
     }
@@ -303,8 +310,11 @@ static int movie_pump(void *unused)
         if (f.movie_pts >= 2.0 && f.playing_selector == 0) capture(8, "intro");
     }
     uint16_t held = em_frame_input()->held;
-    if (!f.reinstalled && (f.start_at || (f.test && (strcmp(f.test, "skip") == 0 || new_game_test(f.test) ||
-                                                    f.load_test))) &&
+    /* EM_START_AT presses START on the boot's title movie only: a game
+     * task's movie in the loaded game (the AREA01 revisit's E008S4) is the
+     * player's to watch or skip. */
+    if (!f.reinstalled && ((f.start_at && !f.new_game_movie) ||
+                           (f.test && (strcmp(f.test, "skip") == 0 || new_game_test(f.test) || f.load_test))) &&
         f.movie_pts >= 2.0)
         held |= EM_PAD_START;
     /* EM_NEW_GAME=1: START is held from the movie's first picture, so the
@@ -1187,7 +1197,8 @@ int em_frontend_movie_request(uint8_t value)
         return -1;
     }
     if (value != 1 || f.movie_selector < 0 ||
-        (size_t)f.movie_selector >= sizeof k_movies / sizeof k_movies[0] || f.movie) {
+        (size_t)f.movie_selector >= sizeof k_movies / sizeof k_movies[0] ||
+        !k_movies[f.movie_selector].path || f.movie) {
         char error[128];
         snprintf(error, sizeof error, "movie request D_00821058=%u with selector %d is not exported",
                  (unsigned)value, f.movie_selector);
