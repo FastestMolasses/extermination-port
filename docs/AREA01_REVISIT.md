@@ -27,6 +27,69 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### 2026-10-28, evening (branch `revisit`, drawbridge c1ad749 merged)
+
+**`EM_START_AT=area01-revisit` with the a01r pad and path now plays a01r_00,
+the event's first stages and the E008S4 movie, and runs script 0x82AD90
+through its op14 placement to the op0D camera wait (a01r_01 f1139 on).
+It stops there on a renderer gap, not on a revisit worker.** Discovery
+runs only (the start-point save is not the route's RNG or timers):
+`EM_START_AT=area01-revisit EM_START_AT_PAD=<a01r pad> EM_START_AT_PATH=<a01r
+path> EM_HEADLESS=1 EM_UNCAPPED=1 build/extermination`. The effect tables
+need `export_effect_tables.py`, `export_area01_water_effects.py` and
+`export_area00_runtime_tables.py` in that order; the library export needs
+`export_roger_banks.py` and then `export_area00_library.py`.
+
+Done since the entry below (commits on `revisit`):
+- **Beam stall** (2af0c59): the chain page could not map D_00253720's REF;
+  `em_chain_page_live_read` falls back to the aim/fire tables. 0x8282F0's
+  beam no longer slows the frames.
+- **S7, 001B0CD0 / 001F4F40** (4c42691, 8763955):
+  `em_area00_world_view_001B0CD0` plus 001F4F40 in the live; the muzzle
+  nodes are adopted by em_aim_fire_runtime (also the ones 0x8287C0 and
+  0x8237D0 spawn: adopted at rebind, +0xD0 seeded from the image).
+- **"refresh failed (30 views)"** at 0022BBC0 / 001F5040: the enumerate cap
+  was 32 while the render context had more views (EM_RCL_VIEWS_MAX 40).
+- **test-start-at** (b918f04): EM_STATUS_GS_DUMP listed as compatible.
+- **Movie selector 4, E008S4** (32a8603): exported from the user's disc
+  with its fork-probe facts (315 pairs, end 755); EM_START_AT presses START
+  on the title movie only, so the event movie plays to its end.
+- **001FD4C0 / 00119828** (1847d49, f8acc0a): bound for 001B6AE0 (op1A),
+  without a live suspend: 001B6AE0 holds its view of the owner's +0x1F0
+  block across them, and the suspend re-imaged the record and dropped the
+  phase byte (op1A never advanced). Any worker that suspends the live while
+  a caller holds a byte view of a pool record has the same hazard.
+- **op14 group 0x82A900** (9d54ac6, 13fb576, bea6ce8): 001BAC00
+  (em_sdf_001BAC00), 001C8140 / 001C7EB0 (em_area01_revisit_spawn, from the
+  byte-matched C), 001BB0E0 with 001BAD40 (em_slg_001BB0E0 /
+  em_sdf_001BAD40), 001F9660 and 001F4010 (em_area02_misc) bound in the
+  runtime; 001F2F90 / 001F3340 (em_area00_fx_debris) and the particle
+  records (em_effects_live's) in the live. 49 designed cases added to
+  `test_area01_revisit_runtime_reference.py`, all equal to the original.
+- **Library model 0x67** (52cd4ca): the group's command-5 node binds it;
+  `export_roger_banks.py`'s last span starts at 0x67 (still 16 regions).
+
+Where it stops now (a01r_01, op0D of 0x82AD90 at 0x82AF50):
+1. **Two slot-0xFFF CALLs in one page.** The ramp record's 001DF110
+   (em_render_context's ramp, flags 2 / 9) puts its channel-3 list
+   (001DF020: 001D1FF0, 001D7510, 001D1F80, 001D7000's TEXA, 001D6DD0,
+   001D7A80, 001D1F20) into slot 0xFFF, and 001DDE10's depth-of-field pass
+   puts its own there after it. em_chain_page follows one pass CALL (the
+   last 001CB760, `four`); the ramp's CALL is walked as page packets and
+   faults at its TEXA ("GIF packet fault ... (0000003B)"), and the frames
+   slow to a crawl. Fix in the renderer lane: walk and draw every slot-0xFFF
+   CALL of the page in pass mode (em_chain_page `pass_call`,
+   em_chain_page_live, em_gfx_gs_page_pass), with rcl_001DF110's 001CB760
+   recorded as f_001CB760 records 001DDE10's. Measuring it needs a fork
+   capture of an a01r_01 frame with the ramp on.
+2. Not reached yet: 001EDAF0 (decomp census: a01r_01 f1682;
+   em_area02_misc has the translation; its caller is an effect node, the
+   effects lane's), the rest of 0x82AD90 (op18, op01 sub 9, op0D sub 2,
+   op07), the two messages, D_0081075F, item 0x20 and the status page, and
+   a01r_02.
+
+No creature drift was seen in these runs (F1 owns the RNG phase).
+
 ### 2026-10-28, later (branch `revisit` with port main b4a4147 and drawbridge 5486de5 merged)
 
 **`EM_START_AT=area01-revisit` now reaches control and runs the revisit's
