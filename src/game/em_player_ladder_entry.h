@@ -17,6 +17,7 @@
  *             (0x32, 0x3B or 0x33): 0 expected, 1 other, 2 no hit
  *   00199DB0  the centre of the hit record (grid node or cell hull)
  *   00199FA0  the two corners of the hit record
+ *   00178390  the surface-0x3D ledge placement from those corners
  *   00165B60  +4 = 1, +5 = 0xB: the ladder entry (0015B130 state[0xB])
  *   00176DC0  the five radial wall probes 00165B60 runs in area 2
  *   0017FC80  the clip request by +2F1 (001885D0 or 001885F0)
@@ -213,6 +214,12 @@ int em_player_ladder_00199DB0(const EmPlayerLadderWorld *world, EmPlayerLadderSc
                               uint32_t out[3], int *result);
 int em_player_ladder_00199FA0(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *scratch,
                               uint32_t a[3], uint32_t b[3], int *result);
+/* 00178390(p): the surface-0x3D ledge placement from 00199FA0's corners and
+ * the hit point. *result is 1 (placed: +2E0/+2E4/+2E8 and +218 written) or
+ * 0 (nothing written). Callers: 00178620 (00178758) and 00180BA0 through
+ * the closure lane's grab_check / ledge_3D workers. */
+int em_player_ladder_00178390(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *scratch,
+                              EmPlayerLiveActor *actor, int *result);
 /* 00165B60(p): the state-0xB routine. */
 int em_player_ladder_00165B60(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor);
 /* 00176DC0(p). */

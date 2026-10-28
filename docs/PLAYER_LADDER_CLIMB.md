@@ -297,7 +297,8 @@ instruction it translates.
   | transform | 001026A0 | `em_player_sdk_apply`, with an adapter |
   | ledge_ahead | 0017E250(p, v) | `em_player_misc_w_ledge_ahead` (em_player_misc_workers.h, *lane*; direct) over `em_player_misc_0017E250` |
   | dash | 00177030(p, arg) | `em_player_ladder_00177030` (em_player_ladder_entry.h, *lane*; adapter that drops its result, which 001662D0 does not read) |
-  | grab_check / grab / hit_react | 00178390 / 001782A0 / 00178080 | untranslated |
+  | grab_check | 00178390 | `em_player_ladder_00178390` (em_player_ladder_entry.h) over the last sweep's probe state |
+  | grab / hit_react | 001782A0 / 00178080 | untranslated |
   | sqrt / sine / cosine | 0011E748 / 0011E2A8 / 0011DE90 | `em_sdk_math_original_float_*` |
   | wrap | 001B1470 | `em_player_sdk_wrap` or `em_player_001B1470` |
   | approach | 001B12B0 | `em_player_slide_approach` |

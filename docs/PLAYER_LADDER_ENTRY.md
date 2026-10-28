@@ -9,6 +9,8 @@ player onto a ladder:
 
 - 0015D4C0, the surface-attribute actions of the Use chain;
 - its helpers 00176F90, 00177030, 00180300, 00199DB0 and 00199FA0;
+- 00178390, the surface-0x3D ledge placement built on 00199FA0 (the
+  closure lanes' `ledge_3D` / `grab_check` worker);
 - 00165B60, state 0xB (the ladder entry), with 00176DC0, 0017FC80 and
   00182A70;
 - 001B61C0, the pad vibration request.
@@ -155,6 +157,26 @@ brackets are the instructions translated there.
   - 00199DB0 writes each lane as the mean of that lane of the pair;
   - 00199FA0 writes the first vertex's lane to a and the second's to b.
 - The result is 1 when written.
+
+### 00178390(p): the surface-0x3D ledge placement
+
+Byte-matched decomp C (`src/func_00178390.c`), translated as
+`em_player_ladder_00178390(world, scratch, actor, &r)`.
+
+- It calls 00199FA0 into two stack vectors. If that returns 0, it returns 0
+  and writes nothing.
+- Otherwise +2E0 = hit point x (0x700031B0) + 1.5 * record +0x24, +2E8 = hit
+  point z (0x700031B8) + 1.5 * record +0x2C (a multiply, then an add), +2E4
+  = the second vector's y - 20.5, +218 = +C4; it returns 1.
+- Callers: 00178620 (at 00178758, after its sweep hits surface 0x3D) and the
+  ladder climb's 00180BA0. `em_player_closure_live.c` binds it as those
+  lanes' `ledge_3D` / `grab_check` worker over the probe state the last
+  sweep left (the same fill as the 00199FA0 `hit_probe` worker). A cell
+  record, or a grid node from an EMCL without the axis section, with
+  attribute 0x3D still faults in that fill (it is one of 0015D4C0's action
+  attributes), although 00178390 itself reads only +0x24 / +0x2C.
+- Oracle: the unit cases' `ledge` entry executes the original 00178390 (and
+  the 00199FA0 it calls) and compares every actor byte and the return.
 
 ### 00165B60: state 0xB, the ladder entry (0015B130 state[0xB])
 

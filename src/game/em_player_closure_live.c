@@ -990,7 +990,6 @@ static int w_floor_query(void *c, EmPlayerLiveActor *a, const uint32_t point[3],
     static int name(void *c, EmPlayerLiveActor *a, int *r) { (void)c; (void)a; if (r) *r = 0; return unbound(addr); }
 
 STUB_ACTOR_R(x_001782A0, "001782A0 (ledge top grab)")
-STUB_ACTOR_R(x_00178390, "00178390 (ledge grab check, surface 0x3D)")
 STUB_ACTOR_R(x_00178080, "00178080 (ladder hit reaction)")
 STUB_ACTOR_R(x_00188570, "00188570 (row clip)")
 STUB_ACTOR_R(x_00188590, "00188590 (row clip)")
@@ -1699,6 +1698,17 @@ static int lc_hit_probe(void *c, float a[4], float b[4], int *result)
     memcpy(a, aw, sizeof aw);
     memcpy(b, bw, sizeof bw);
     return 0;
+}
+/* 00178390(p): the 0x3D ledge placement (em_player_ladder_00178390) over the
+ * probe state the last sweep left (00178620's 0019AFE0 at 0017872C, the
+ * climb's at 00180B74), as lc_hit_probe reads it. */
+static int x_00178390(void *c, EmPlayerLiveActor *a, int *r)
+{
+    (void)c;
+    if (r) *r = 0;
+    if (!r) return -1;
+    FAULT(le_fill_last());
+    return em_player_ladder_00178390(&L.le_world, &L.le_scratch, a, r);
 }
 static int lc_hit_point(void *c, float out[4])
 {

@@ -9,6 +9,7 @@ embedded here. Routines executed unmodified:
   0015D4C0  the surface-attribute actions   00176F90  the attribute refresh
   00177030  the facing gate / placement     00180300  the attribute probe
   00199DB0  record centre                   00199FA0  record corners
+  00178390  the 0x3D ledge placement (through 00199FA0)
   00165B60  state 0xB, the ladder entry     00176DC0  the radial wall probes
   0017FC80  clip by +2F1                    00182A70  climb step sound
   001B61C0  pad vibration request           00102948 / 001031E0 (copies)
@@ -95,9 +96,10 @@ class LadderEE(FallEE):
 USE, REFRESH, FACING, CLASSIFY = 0x15D4C0, 0x176F90, 0x177030, 0x180300
 CENTER, CORNERS, STATE_B, WALLS = 0x199DB0, 0x199FA0, 0x165B60, 0x176DC0
 CLIPS, STEP, RUMBLE, QCOPY, COPY3 = 0x17FC80, 0x182A70, 0x1B61C0, 0x102948, 0x1031E0
+LEDGE = 0x178390
 SIZES = {USE: 0x9F8, REFRESH: 0x9C, FACING: 0x430, CLASSIFY: 0x120, CENTER: 0x1EC,
          CORNERS: 0x1DC, STATE_B: 0x770, WALLS: 0x1CC, CLIPS: 0x74, STEP: 0x3C, RUMBLE: 0x84,
-         QCOPY: 0xC, COPY3: 0x1C, 0x1885D0: 0x1C, 0x1885F0: 0x1C}
+         QCOPY: 0xC, COPY3: 0x1C, 0x1885D0: 0x1C, 0x1885F0: 0x1C, LEDGE: 0xA4}
 TRANSLATED = set(SIZES)
 
 
@@ -257,6 +259,7 @@ def build_native():
     native.em_player_ladder_probe_00180300.argtypes = [W, LA, PU, I, P(I)]
     native.em_player_ladder_00199DB0.argtypes = [P(World), P(Scratch), PU, P(I)]
     native.em_player_ladder_00199FA0.argtypes = [P(World), P(Scratch), PU, PU, P(I)]
+    native.em_player_ladder_00178390.argtypes = [P(World), P(Scratch), LA, P(I)]
     for name in ('em_player_ladder_00165B60', 'em_player_ladder_00176DC0',
                  'em_player_ladder_00182A70', 'em_player_ladder_state_b'):
         getattr(native, name).argtypes = [W, LA]
@@ -365,7 +368,7 @@ class Script:
 
 
 ENTRIES = ('use',) * 14 + ('refresh', 'facing', 'facing', 'facing', 'classify', 'center', 'corners') + \
-    ('state_b',) * 10 + ('walls', 'clips', 'step', 'rumble')
+    ('state_b',) * 10 + ('walls', 'clips', 'step', 'rumble', 'ledge')
 
 
 def elf_d2754D0():
@@ -577,6 +580,8 @@ class UnitOracle:
             ee.call(CENTER, (0x700038A0,)); v0 = s32(ee.r[2])
         elif entry == 'corners':
             ee.call(CORNERS, (OUTA, OUTB)); v0 = s32(ee.r[2])
+        elif entry == 'ledge':
+            ee.call(LEDGE, (ACTOR,)); v0 = s32(ee.r[2])
         elif entry == 'state_b':
             ee.call(STATE_B, (ACTOR,))
         elif entry == 'walls':
@@ -772,6 +777,9 @@ class NativeRun:
                                                  self.scratch.s38A0, C.byref(out)); v0 = out.value
         elif entry == 'corners':
             result = n.em_player_ladder_00199FA0(C.byref(self.world), C.byref(self.scratch), outa, outb,
+                                                 C.byref(out)); v0 = out.value
+        elif entry == 'ledge':
+            result = n.em_player_ladder_00178390(C.byref(self.world), C.byref(self.scratch), A,
                                                  C.byref(out)); v0 = out.value
         elif entry == 'state_b':
             result = n.em_player_ladder_state_b(W, A)

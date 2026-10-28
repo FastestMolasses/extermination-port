@@ -4,7 +4,7 @@
  * Read from the original instructions (build/asm of the decomp), not from the
  * readable decompilation alone: 0015D4C0, 00177030, 00199DB0 and 00199FA0
  * are NEARMISS C, 0017FC80 and 00182A70 unmarked readable C; 00165B60,
- * 00176DC0, 00176F90, 00180300 and 001B61C0 are byte-matched. Where the
+ * 00176DC0, 00176F90, 00178390, 00180300 and 001B61C0 are byte-matched. Where the
  * NEARMISS C differs from its instructions:
  *   - 00177030 mode 4 stores the dot product at 0x70003A24 (00177408)
  *     whether or not the gate passes; the C keeps it in a local;
@@ -237,6 +237,31 @@ int em_player_ladder_00199FA0(const EmPlayerLadderWorld *world, EmPlayerLadderSc
     }
     copy3(a, lo);
     copy3(b, hi);
+    *result = 1;
+    return 0;
+}
+
+/* ---- 00178390 ------------------------------------------------------------ */
+
+/* 00178390(p): the 0x3D ledge placement (byte-matched src/func_00178390.c).
+ * 00199FA0 fills two stack vectors; when it returns 0 so does this, with no
+ * write. Otherwise +2E0 / +2E8 = the hit point 0x700031B0 / B8 pushed 1.5
+ * along the record's +24 / +2C (1.5 * the record word, then added to the
+ * point), +2E4 = the second vector's y - 20.5, +218 = +C4; returns 1. */
+int em_player_ladder_00178390(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *s,
+                              EmPlayerLiveActor *a, int *result)
+{
+    if (!world || !s || !a || !result) return -1;
+    *result = 0;
+    uint32_t lo[3], hi[3];
+    int hit = 0;
+    FAULT(em_player_ladder_00199FA0(world, s, lo, hi, &hit));         /* 001783A4 */
+    if (hit == 0) return 0;                                            /* 001783AC */
+    FAULT(record_ok(s, 0x001783CC));
+    put32(a, 0x2E0, em_ee_add_bits(s->s31B0[0], em_ee_mul_bits(F_1_5, rec32(s, 0x24))));
+    put32(a, 0x2E8, em_ee_add_bits(s->s31B0[2], em_ee_mul_bits(F_1_5, rec32(s, 0x2C))));
+    put32(a, 0x2E4, em_ee_sub_bits(hi[1], F_20_5));                    /* 0017840C */
+    put32(a, 0x218, w32(a, 0xC4));                                     /* 0017841C */
     *result = 1;
     return 0;
 }

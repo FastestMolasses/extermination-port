@@ -563,7 +563,7 @@ mechanism still lacks; in AREA11 it lacks nothing):
   last query state.
 - **Fail-stop workers.** Each names its original and is reached only by
   states or data no route beat enters:
-  - 001782A0, 00178390, 00178080, 00178440, 001784E0, 0017E6E0, 0017F130,
+  - 001782A0, 00178080, 00178440, 001784E0, 0017E6E0, 0017F130,
     0017F1C0 (hang, ledge and crawl helpers);
   - 00188570 / 590 / 5B0 / 610;
   - 0021C200, 00182AF0, 0015C1F0 (with 001CA6E0 / 001C6150 / 00200890 on
