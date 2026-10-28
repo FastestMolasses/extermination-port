@@ -98,7 +98,7 @@ static uint32_t e001BECC0(L15F *o, uint32_t self)
         if (!L15F_EQ(R(self+0x64),0)) (void)l15f_method(o,self);
         break;
     case 3:
-        C(001AF890,R(self+0x90),3); C(001B1190,(int32_t)B(self+0x9A)); C(001AFC10,self); break;
+        C(001AF890,R(self+0x90)); C(001B1190,(int32_t)B(self+0x9A)); C(001AFC10,self); break;
     default: break;
     }
     return 0;

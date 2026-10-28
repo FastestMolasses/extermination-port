@@ -17,7 +17,7 @@ typedef struct {
     uint8_t *(*bytes)(void *ctx, uint32_t address, uint32_t size);
 /* BEGIN GENERATED HOOKS */
     int (*w_00187EC0)(void *ctx, int32_t a0, int32_t a1);
-    int (*w_001AF890)(void *ctx, uint32_t a0, int32_t a1);
+    int (*w_001AF890)(void *ctx, uint32_t a0);
     int (*w_001AFC10)(void *ctx, uint32_t a0);
     int (*w_001B1020)(void *ctx, uint32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t *result);
     int (*w_001B1190)(void *ctx, int32_t a0);

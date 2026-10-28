@@ -19,7 +19,7 @@ OVERLAY_OF={}
 OVERLAY_FILES={4:ROOT.parent/'Extermination/extract/OVERLAY/AREA03.BIN'}
 HOOKS=[
     ('w_00187EC0',0x00187EC0,[('i', 4), ('i', 5)],None),
-    ('w_001AF890',0x001AF890,[('u', 4), ('i', 5)],None),
+    ('w_001AF890',0x001AF890,[('u', 4)],None),
     ('w_001AFC10',0x001AFC10,[('u', 4)],None),
     ('w_001B1020',0x001B1020,[('u', 4), ('i', 5), ('i', 6), ('i', 7)],'i'),
     ('w_001B1190',0x001B1190,[('i', 4)],None),
