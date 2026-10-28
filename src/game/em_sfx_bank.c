@@ -755,8 +755,12 @@ static void voice_update(EmSfxDriver *driver, int index, EmSfxCommandSink sink,
         int32_t center = voice->center, note = voice->note, fine = voice->fine;
         if (voice->porta == 1) {
             center = (0x78 + voice->center - voice->note) & 0xFFFF;
-            if (voice->remaining & 0x7FFF) {
-                voice->remaining = (uint16_t)((voice->remaining & 0x7FFF) - 1);
+            /* 00116598 masks the count in place (+0x62 &= 0x7FFF) before
+             * testing it, so a set top bit is cleared even when the rest
+             * is zero. */
+            voice->remaining &= 0x7FFF;
+            if (voice->remaining) {
+                voice->remaining--;
                 const int32_t n = voice->length - voice->remaining;
                 int32_t v;
                 if (voice->depth & 0x80) {
