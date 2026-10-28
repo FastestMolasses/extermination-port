@@ -72,6 +72,7 @@
 
 #include <stdint.h>
 
+#include "game/em_chain_page.h"
 #include "game/em_load_veil_particles.h"
 #include "game/em_point_light.h"
 
@@ -301,10 +302,11 @@ EmPointLightPool *em_rcl_point_lights(void);
 int em_rcl_001D80B0(int32_t id);
 
 /* The chain page 001CB800 spliced at the last frame close (001D1EA0's
- * kick): its start tag, and the CALL target 001DDE10 appended to slot 0xFFF
- * in that frame (0: none). Taken once: a second call before the next kick
- * returns -1, as it does before any kick. 0, or -1. */
-int em_rcl_page(uint32_t *start, uint32_t *four_sprite);
+ * kick): its start tag, and the CALL targets appended to slot 0xFFF in that
+ * frame, in their order (*pass_count of them, 0: none; 001DDE10's
+ * depth-of-field pass, the ramp lists). Taken once: a second call before
+ * the next kick returns -1, as it does before any kick. 0, or -1. */
+int em_rcl_page(uint32_t *start, uint32_t passes[EM_CHAIN_PAGE_PASSES_MAX], uint32_t *pass_count);
 /* The CALL target 001E0D70 appended (id 0xFFC000: the weather's channel-3
  * list, context +0x2520) in the frame of the page em_rcl_page last handed
  * out; 0 when it appended none. */

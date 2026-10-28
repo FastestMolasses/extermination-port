@@ -802,6 +802,44 @@ static EmGfxGsPrim sprite(int ox, int oy, int x0, int y0, int x1, int y1, uint32
     return p;
 }
 
+/* The head's Z buffer is drawn memory (em_gs_world.c head_z): a texture
+ * whose reach covers it (001DF110's sprite: the other field FBP 0x38 as a
+ * 512 x 256 texture with REPEAT, whose rows 224..255 are the Z buffer at
+ * ZBP 0x70) reads drawn memory once a kicked head wrote that Z buffer
+ * (ZMSK 0), and faults before (nothing wrote it); a head with ZMSK 1 does
+ * not make it drawn. */
+static void z_reach(void)
+{
+    setenv("EM_GS_THREADS", "2", 1);
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    for (int k = 0; k < 3; ++k) {
+        EmGsWorld *w = em_gs_world_create();
+        CHECK(w && em_gs_world_memory_load(w, image_one) == 0);
+        if (k > 0) {
+            /* frame 1: field 0x38 (and with k == 1 the Z buffer) drawn */
+            em_gs_world_begin(w);
+            em_gs_world_field_declare(w, FRAME_FIELD(0x38), 224);
+            head(env, &env_n, clr, &clr_n, 0x38, 0);
+            if (k == 2) env[16 + 16 * 1 + 4] |= 1u;            /* ZBUF_1's ZMSK */
+            CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0 && em_gs_world_wait(w) == 0);
+        }
+        /* frame 2: field 0, a sprite reading 0x38 as 512 x 256 with REPEAT */
+        em_gs_world_begin(w);
+        em_gs_world_field_declare(w, FRAME_FIELD(0), 224);
+        const EmGfxGsPrim p = sprite(1792, 1936, 0, 0, 64, 64, 0x80808080u, buf_tex(0x38, 8, 9, 8), 0, 0, 0,
+                                     0x30000);
+        em_gs_world_prims(w, &p, NULL, 1);
+        const char *f = em_gs_world_fault(w);
+        CHECK((f != NULL) == (k != 1));
+        if (k == 1) {
+            head(env, &env_n, clr, &clr_n, 0, 0);
+            CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0 && em_gs_world_wait(w) == 0);
+        }
+        em_gs_world_destroy(w);
+    }
+}
+
 /* The environment of a draw into a CT32 buffer (FRAME_1 with SCISSOR_1: the
  * recorder marks it drawn; Z masked). */
 static EmGfxGsEnv buf_env(uint64_t frame, uint32_t width, uint32_t height, uint64_t xyoffset)
@@ -1481,6 +1519,7 @@ int main(void)
     list_stamps();
     refusals();
     field_refusals();
+    z_reach();
     head_probe();
     gif_frames();
     printf("gs_world_test: PASS (GIF frames: a transfer and its texture in the stream, the field of one EmGs "

@@ -1220,6 +1220,15 @@ test-gs-memory-reference:
 test-dof-pass-reference:
 	python3 tools/test_dof_pass_reference.py
 
+# The slot-0xFFF ramp passes (001DF180's via 001DF5A0, 001DF110's) against
+# the original (decomp build/ramp_capture, the PCSX2 fork's software
+# renderer; CHAIN_PAGE.md section 6.3): the captured GIF bytes through the
+# model and the Original profile's path (pass walk + GS world workers),
+# every word of GS memory equal to the original's after the pass.
+.PHONY: test-ramp-pass-reference
+test-ramp-pass-reference:
+	python3 tools/test_ramp_pass_reference.py
+
 # The status pages' GS lists against the original (decomp
 # build/status_field_capture, the PCSX2 fork's software renderer;
 # STATUS_FIELD.md, GS_EXACT.md sections 3.4, 7 and 8.8): the original's

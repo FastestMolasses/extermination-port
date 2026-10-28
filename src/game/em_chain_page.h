@@ -60,8 +60,11 @@
  * (docs/CHAIN_PAGE.md section 6). The reference test also passes the
  * captured pages' CALLs of producers the port does not run.
  *
- * Pass mode (`pass_call`; docs/CHAIN_PAGE.md section 6.2): the top-level
- * CALL to that target is followed instead, and inside it the walk takes the
+ * Pass mode (`pass_calls`; docs/CHAIN_PAGE.md section 6.2): the frame's
+ * slot-0xFFF CALLs (001CB760 with id 0xFFF000: 001DDE10's depth-of-field
+ * pass, the ramp lists of 001DF110 and 001DF180, 001DDB70's; each is a
+ * channel list that sets its own environment and ends with 001D1F20's REF
+ * and its RET) are followed instead, each in turn, and inside one the walk takes the
  * GS registers list mode takes (below: the context-1 environment and the
  * A+D vertex registers), so each of its primitives also gets the
  * environment the pass set before it (prim_env), and a DIRECT may hold
@@ -76,7 +79,8 @@
  * there on they are the frame's). Any other REF into bank A inside the
  * pass, and the context-2 and FOGCOL writes list mode accepts, fault. The
  * pass's environment starts empty at its CALL. The Original profile draws
- * 001DDE10's pass so (em_chain_page_live).
+ * every slot-0xFFF pass so, each in its place in the page
+ * (em_chain_page_live).
  *
  * The VU1 registers, data memory, the VIF cycle and the GS drawing state
  * start unset at every page: the page programs read only what the page
@@ -143,6 +147,7 @@ enum {
 #define EM_CHAIN_PAGE_SKIP_MAX 64u
 #define EM_CHAIN_PAGE_UNITS_MAX 32u
 #define EM_CHAIN_PAGE_AGAIN_MAX 16u      /* environment-again marks of a pass */
+#define EM_CHAIN_PAGE_PASSES_MAX 4u      /* slot-0xFFF CALLs of one page       */
 #define EM_CHAIN_PAGE_DRAW_ENV 0x190u    /* one draw environment of bank A    */
 #define EM_CHAIN_PAGE_DRAW_ENV_QWC 0x19u /* 001D1F20's REF of it              */
 
@@ -183,10 +188,10 @@ typedef struct {
     uint32_t mscal_ripple;    /* ripple-surface batches (D_00234B00; MSCAL + MSCNT) */
     uint32_t mscal_kind6;     /* MSCALs of the kind-6 program (D_0023D930)   */
     uint32_t kind6_prims;     /* of the primitives, the kind-6 program's     */
-    uint32_t passes;          /* pass CALLs followed (pass mode: 0 or 1)     */
-    uint32_t pass_prims;      /* of the primitives, the pass's               */
-    uint32_t pass_direct;     /* of the DIRECT packets, the pass's           */
-    uint32_t again;           /* the pass's REFs of the frame's draw environment */
+    uint32_t passes;          /* pass CALLs followed (pass mode: 0 .. pass_count) */
+    uint32_t pass_prims;      /* of the primitives, the passes'              */
+    uint32_t pass_direct;     /* of the DIRECT packets, the passes'          */
+    uint32_t again;           /* the passes' REFs of the frame's draw environment */
     uint32_t mscal_surface;   /* AREA00 surface batches (D_00234FE0; MSCAL + MSCNT) */
 } EmChainPageCounts;
 
@@ -205,11 +210,14 @@ typedef struct {
     uint32_t skip_count;
     EmChainPageUnit unit;     /* may be NULL: no unit CALLs                 */
     void *unit_ctx;
-    /* pass mode: the top-level CALL target followed as a pass (0: none),
-     * the GS blocks' bank A (D_00275674 + 0x20: the two draw environments,
+    /* pass mode: the top-level CALL targets followed as passes (the
+     * frame's slot-0xFFF CALLs; pass_count 0: none, at most
+     * EM_CHAIN_PAGE_PASSES_MAX, each followed at most once), the GS blocks'
+     * bank A (D_00275674 + 0x20: the two draw environments,
      * EM_CHAIN_PAGE_DRAW_ENV bytes each) and the slot (context +0x9C) whose
      * environment the kick REFs; a pass needs draw_envs */
-    uint32_t pass_call;
+    const uint32_t *pass_calls;
+    uint32_t pass_count;
     uint32_t draw_envs, draw_env_slot;
     /* output (caller-owned arrays of prim_capacity) */
     EmGfxGsPrim *prims;
@@ -226,12 +234,14 @@ typedef struct {
     uint32_t unit_prims[EM_CHAIN_PAGE_UNITS_MAX];
     uint64_t unit_tex0[EM_CHAIN_PAGE_UNITS_MAX];   /* the TEX0 / PRIM a unit leaves */
     uint32_t unit_prim[EM_CHAIN_PAGE_UNITS_MAX];
-    /* the pass (pass mode): its primitives [pass_first, pass_first +
-     * counts.pass_prims), and the environment-again marks: again[k] is the
-     * index of the primitive the k-th precedes (pass_first +
-     * counts.pass_prims when none follows it in the pass) */
-    uint32_t pass_first;
-    uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX];
+    /* the passes (pass mode), in page order (counts.passes of them): the
+     * k-th is the CALL to pass_target[k], its primitives [pass_first[k],
+     * pass_first[k] + pass_prims[k]); the environment-again marks: again[m]
+     * is the index of the primitive the m-th precedes (its pass's end when
+     * none follows it there), again_pass[m] the pass it is in */
+    uint32_t pass_target[EM_CHAIN_PAGE_PASSES_MAX];
+    uint32_t pass_first[EM_CHAIN_PAGE_PASSES_MAX], pass_prims[EM_CHAIN_PAGE_PASSES_MAX];
+    uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX], again_pass[EM_CHAIN_PAGE_AGAIN_MAX];
     uint32_t again_count;
     uint32_t fault;           /* EM_CHAIN_PAGE_FAULT_*                    */
     uint32_t fault_address;   /* the tag, VIF code or GIF tag address     */

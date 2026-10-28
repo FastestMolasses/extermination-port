@@ -25,7 +25,7 @@ static struct {
     EmGfxGsPrim prims[EM_CHAIN_PAGE_LIVE_PRIMS];
     EmChainPageQ q[EM_CHAIN_PAGE_LIVE_PRIMS];
     EmGfxGsEnv env[EM_CHAIN_PAGE_LIVE_PRIMS];
-    uint32_t skip[1];
+    uint32_t skip[EM_CHAIN_PAGE_PASSES_MAX];
     uint32_t fault;
     EmChainPageLiveLog log;
     struct { uint32_t address, size; } reads[READS_MAX];
@@ -203,17 +203,19 @@ static int page_unit(void *ctx, uint32_t address, EmGfxGsPrim *out, uint32_t cap
 int em_chain_page_live_draw(EmGfx *gfx)
 {
     if (S.fault) return -1;
-    uint32_t start, four;
-    if (em_rcl_page(&start, &four) < 0) return 0;              /* no kick since the last draw */
+    uint32_t start, targets[EM_CHAIN_PAGE_PASSES_MAX], npass;
+    if (em_rcl_page(&start, targets, &npass) < 0) return 0;     /* no kick since the last draw */
     if (!gfx) return fail(0x001CB800u, "no frame to draw the page in");
     if (em_chain_page_live_textures(gfx) < 0) return fail(0x001CB800u, "no page textures");
-    /* 001DDE10's depth-of-field pass (slot 0xFFF, CHAIN_PAGE.md section
-     * 6.2): the GS model draws it in the Original profile's recorded world
-     * frame (pass mode); the GPU renderer walks over it. With the GS frame
-     * on, a pass outside a recorded world frame cannot be drawn: a fault. */
-    const int pass = four && em_gfx_gs_world_recording(gfx);
-    if (four && !pass && em_gfx_gs_world_enabled(gfx))
-        return fail(0x001DDE10u, "001DDE10's pass outside a recorded GS world frame");
+    /* The frame's slot-0xFFF CALLs (CHAIN_PAGE.md section 6.2: 001DDE10's
+     * depth-of-field pass, the ramp lists of 001DF110 / 001DF180): the GS
+     * model draws each in the Original profile's recorded world frame (pass
+     * mode); the GPU renderer walks over them. With the GS frame on, a pass
+     * outside a recorded world frame cannot be drawn: a fault. */
+    const uint32_t four = npass ? targets[npass - 1u] : 0u;
+    const int pass = npass && em_gfx_gs_world_recording(gfx);
+    if (npass && !pass && em_gfx_gs_world_enabled(gfx))
+        return fail(four, "a slot-0xFFF pass outside a recorded GS world frame");
     uint32_t bank = 0, slot = 0;
     uint64_t field_frame = 0, field_scissor = 0;
     if (pass && em_rcl_draw_env(&bank, &slot, &field_frame, &field_scissor) < 0)
@@ -225,10 +227,11 @@ int em_chain_page_live_draw(EmGfx *gfx)
     p->prim_q = S.q;
     p->prim_env = S.env;
     p->prim_capacity = EM_CHAIN_PAGE_LIVE_PRIMS;
-    S.skip[0] = four;
+    memcpy(S.skip, targets, sizeof S.skip);
     p->skip_calls = S.skip;
-    p->skip_count = four && !pass ? 1u : 0u;
-    p->pass_call = pass ? four : 0u;
+    p->skip_count = pass ? 0u : npass;
+    p->pass_calls = S.skip;
+    p->pass_count = pass ? npass : 0u;
     p->draw_envs = bank;
     p->draw_env_slot = slot;
     p->unit = page_unit;
@@ -239,16 +242,23 @@ int em_chain_page_live_draw(EmGfx *gfx)
                 (unsigned)p->fault_address, (unsigned)p->fault_detail);
         return fail(0x001CB800u, "the page cannot be walked as the original's");
     }
-    if (four && (pass ? p->counts.passes != 1u || p->counts.skipped : p->counts.skipped != 1u))
-        return fail(0x001DDE10u, "001DDE10's slot-0xFFF CALL is not in the page");
-    const uint32_t pass_first = p->pass_first, pass_prims = p->counts.pass_prims;
-    uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX];
-    for (uint32_t k = 0; k < p->again_count; ++k) {
-        if (p->again[k] < pass_first || p->again[k] > pass_first + pass_prims)
-            return fail(0x001D1F20u, "a draw-environment REF outside the pass's primitives");
-        again[k] = p->again[k] - pass_first;
+    if (npass && (pass ? p->counts.passes != npass || p->counts.skipped : p->counts.skipped != npass))
+        return fail(four, "a slot-0xFFF CALL of the frame is not in the page");
+    /* Each pass's primitives and marks (their own: relative to the pass). */
+    const uint32_t passes = pass ? p->counts.passes : 0u;
+    uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX], from = 0;
+    for (uint32_t k = 0; k < passes; ++k) {
+        if (p->pass_first[k] < from || p->pass_first[k] + p->pass_prims[k] > p->prim_count)
+            return fail(p->pass_target[k], "a pass's primitives are not in the page");
+        from = p->pass_first[k] + p->pass_prims[k];
     }
-    if (pass_first + pass_prims > p->prim_count) return fail(0x001DDE10u, "the pass's primitives are not in the page");
+    for (uint32_t m = 0; m < p->again_count; ++m) {
+        const uint32_t k = p->again_pass[m];
+        if (k >= passes || p->again[m] < p->pass_first[k] || p->again[m] > p->pass_first[k] + p->pass_prims[k])
+            return fail(0x001D1F20u, "a draw-environment REF outside its pass's primitives");
+        again[m] = p->again[m] - p->pass_first[k];
+    }
+    const uint32_t pass_first = passes ? p->pass_first[0] : 0u, pass_prims = p->counts.pass_prims;
     uint32_t decal = 0, flare = 0;
     for (uint32_t i = 0; i < p->prim_count; ++i) {
         if ((p->prims[i].prim & 7u) == 5u && ((p->prims[i].tex0 ^ EM_SHADOW_DECAL_TEX0) & CLD_MASK) == 0)
@@ -262,16 +272,29 @@ int em_chain_page_live_draw(EmGfx *gfx)
     S.log.pages++;
     S.log.start = start;
     S.log.four_sprite = four;
-    S.log.pass = (uint32_t)pass;
+    S.log.pass = passes;
     S.log.pass_first = pass_first;
     S.log.pass_prims = pass_prims;
     S.log.again_count = p->again_count;
-    for (uint32_t k = 0; k < p->again_count; ++k) S.log.again[k] = again[k];
+    /* the marks relative to the first pass (one pass: to the pass) */
+    for (uint32_t m = 0; m < p->again_count; ++m) S.log.again[m] = p->again[m] - pass_first;
     S.log.draw_envs = bank;
     S.log.draw_env_slot = slot;
     /* The digests are the tick log's only (em_diag.h): 0 without it. */
     const int digests = em_diag_digests();
-    S.log.pass_digest = pass && digests ? pass_digest(S.env + pass_first, pass_prims, again, p->again_count) : 0u;
+    /* one pass: its digest; several: each pass's (its own marks), folded */
+    S.log.pass_digest = 0;
+    if (passes == 1u && digests)
+        S.log.pass_digest = pass_digest(S.env + pass_first, pass_prims, again, p->again_count);
+    else if (passes && digests) {
+        uint32_t h = 2166136261u;
+        for (uint32_t k = 0, m = 0; k < passes; ++k) {
+            const uint32_t m0 = m;
+            while (m < p->again_count && p->again_pass[m] == k) ++m;
+            h = fnv(h, pass_digest(S.env + p->pass_first[k], p->pass_prims[k], again + m0, m - m0));
+        }
+        S.log.pass_digest = h;
+    }
     S.log.counts = p->counts;
     S.log.decal_triangles = decal;
     S.log.flare_sprites = flare;
@@ -307,18 +330,25 @@ int em_chain_page_live_draw(EmGfx *gfx)
     /* Every vertex's Q is its GIF tag's (em_chain_page_live.h). */
     if (p->counts.stale_q)
         return fail(0x001CB800u, "a page vertex has no Q");
-    if (!pass) {
+    if (!passes) {
         if (em_gfx_gs_prims(gfx, p->prims, p->prim_count) < 0)
             return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
         return 0;
     }
-    /* the page up to the pass, the pass with its environment, the rest */
-    if (em_gfx_gs_prims(gfx, p->prims, pass_first) < 0)
-        return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
-    if (em_gfx_gs_page_pass(gfx, p->prims + pass_first, S.env + pass_first, pass_prims, again, p->again_count,
-                            field_frame, field_scissor) < 0)
-        return fail(0x001DDE10u, "001DDE10's depth-of-field pass cannot be drawn exactly");
-    if (em_gfx_gs_prims(gfx, p->prims + pass_first + pass_prims, p->prim_count - pass_first - pass_prims) < 0)
+    /* the page up to each pass, the pass with its environment, the rest */
+    uint32_t at = 0, m = 0;
+    for (uint32_t k = 0; k < passes; ++k) {
+        if (em_gfx_gs_prims(gfx, p->prims + at, p->pass_first[k] - at) < 0)
+            return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
+        const uint32_t m0 = m;
+        while (m < p->again_count && p->again_pass[m] == k) ++m;
+        if (em_gfx_gs_page_pass(gfx, p->prims + p->pass_first[k], S.env + p->pass_first[k], p->pass_prims[k],
+                                again + m0, m - m0, field_frame, field_scissor) < 0)
+            return fail(p->pass_target[k], "a slot-0xFFF pass cannot be drawn exactly");
+        at = p->pass_first[k] + p->pass_prims[k];
+    }
+    if (m != p->again_count) return fail(0x001D1F20u, "a draw-environment REF out of its pass's order");
+    if (em_gfx_gs_prims(gfx, p->prims + at, p->prim_count - at) < 0)
         return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
     return 0;
 }

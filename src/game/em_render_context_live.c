@@ -158,7 +158,9 @@ static struct {
     EmActorLight light;
     /* the page 001CB800 spliced at the last kick (em_rcl_page), and the
      * weather's list 001E0D70 CALLed into it (em_rcl_page_weather) */
-    u32 page_start, page_four_sprite, frame_four_sprite;
+    u32 page_start;
+    u32 page_pass[EM_CHAIN_PAGE_PASSES_MAX], frame_pass[EM_CHAIN_PAGE_PASSES_MAX];
+    u32 page_passes, frame_passes;
     u32 page_weather, frame_weather;
     int page_ready;
     /* main-loop step V (001D2300): its kick's list, the kicks so far, and
@@ -425,23 +427,30 @@ static int f_001CB800(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
     if (r == 0 && R.ext[X_810E80]) {
         const int16_t index = (int16_t)(R.ext[X_810E80][0] | R.ext[X_810E80][1] << 8);
         R.page_start = em_chain_page_start(index, (int32_t)a1);
-        R.page_four_sprite = R.frame_four_sprite;
+        memcpy(R.page_pass, R.frame_pass, sizeof R.page_pass);
+        R.page_passes = R.frame_passes;
         R.page_weather = R.frame_weather;
         R.page_ready = 1;
     }
-    R.frame_four_sprite = 0;
+    memset(R.frame_pass, 0, sizeof R.frame_pass);
+    R.frame_passes = 0;
     R.frame_weather = 0;
     return r;
 }
-/* 001DDE10's and 001E0D70's 001CB760: the slot-0xFFF CALL target of this
- * frame (001DDE10's depth-of-field pass) is kept for the page's consumer,
- * which draws it with the GS model or walks over it with the GPU renderer
- * (docs/CHAIN_PAGE.md section 6.2); 001E0D70's (id 0xFFC000, the weather's
- * channel-3 list) is noted for the level smoke. */
+/* Every 001CB760 of this module: the slot-0xFFF CALL targets of this
+ * frame (001DDE10's depth-of-field pass; the ramp lists of 001DF110 and
+ * 001DF180's 001DF5A0; 001DDB70's), in the order they were appended, are
+ * kept for the page's consumer, which draws each as a pass with the GS
+ * model or walks over it with the GPU renderer (docs/CHAIN_PAGE.md section
+ * 6.2); 001E0D70's (id 0xFFC000, the weather's channel-3 list) is noted for
+ * the level smoke. More slot-0xFFF CALLs in one frame than the page
+ * consumer takes: a fault. */
 static int f_001CB760(void *ctx, uint32_t table, int32_t id, uint32_t address)
 {
+    if (id == 0xFFF000 && R.frame_passes >= EM_CHAIN_PAGE_PASSES_MAX)
+        return fail(0x001CB760u, "more slot-0xFFF CALLs in one frame than the page consumer takes");
     const int r = em_packet_chain_w_001CB760(ctx, table, id, address);
-    if (r == 0 && id == 0xFFF000) R.frame_four_sprite = address & 0x0FFFFFFFu;
+    if (r == 0 && id == 0xFFF000) R.frame_pass[R.frame_passes++] = address & 0x0FFFFFFFu;
     if (r == 0 && id == 0xFFC000) R.frame_weather = address & 0x0FFFFFFFu;
     return r;
 }
@@ -921,9 +930,8 @@ static int rcl_001DDB70(void *ctx)
     if (!t) return -1;
     dma_tag(t, 0x60, 0);
     put32(slot, end + 0x10u);
-    /* The packet chain's 001CB760 itself: f_001CB760 keeps only 001DDE10's
-     * slot-0xFFF CALL as the page's four-sprite pass. */
-    return em_packet_chain_w_001CB760(&R.pc, 0x007635C0u, 0xFFF000, base) < 0
+    /* The packet chain's 001CB760, its CALL kept as a pass of the page. */
+    return f_001CB760(&R.pc, 0x007635C0u, 0xFFF000, base) < 0
                ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
 }
 
@@ -1044,7 +1052,7 @@ static int rcl_001DF020(int32_t chan, u32 a1, u32 *result)
 
 /* 001DF110(a0): r = 001DF020(3, a0); the channel-3 list close (tag 0x60,
  * the cursor + 0x10); 001CB760(D_007635C0, 0xFFF000, r) (the packet
- * chain's own, as in 001DDB70). 001DEEE0 passes its record + 0x10 (the
+ * chain's own, as in 001DDB70; kept as a pass of the page). 001DEEE0 passes its record + 0x10 (the
  * ramp colour quadword). */
 static int rcl_001DF110(void *ctx, uint32_t a0)
 {
@@ -1059,7 +1067,7 @@ static int rcl_001DF110(void *ctx, uint32_t a0)
     if (!t) return -1;
     dma_tag(t, 0x60, 0);
     put32(slot, end + 0x10u);
-    return em_packet_chain_w_001CB760(&R.pc, 0x007635C0u, 0xFFF000, r) < 0
+    return f_001CB760(&R.pc, 0x007635C0u, 0xFFF000, r) < 0
                ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
 }
 
@@ -1508,11 +1516,12 @@ int em_rcl_bind(const EmRclExternal *views, unsigned count, const EmRclWorkers *
 
 #define READY(bind) do { if (!R.loaded || R.fault || ((bind) && !R.bound)) return -1; } while (0)
 
-int em_rcl_page(uint32_t *start, uint32_t *four_sprite)
+int em_rcl_page(uint32_t *start, uint32_t passes[EM_CHAIN_PAGE_PASSES_MAX], uint32_t *pass_count)
 {
-    if (!R.loaded || R.fault || !R.page_ready || !start || !four_sprite) return -1;
+    if (!R.loaded || R.fault || !R.page_ready || !start || !passes || !pass_count) return -1;
     *start = R.page_start;
-    *four_sprite = R.page_four_sprite;
+    memcpy(passes, R.page_pass, sizeof R.page_pass);
+    *pass_count = R.page_passes;
     R.page_ready = 0;
     return 0;
 }

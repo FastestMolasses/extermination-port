@@ -63,6 +63,7 @@ typedef struct {
     /* pass mode: the VIF code being run was transferred inside the pass
      * CALL (its GIF data take list mode's registers) */
     int pass_regs;
+    uint32_t pass_index;     /* the pass being walked (vif order)         */
 } Walk;
 
 static Walk W;   /* one page at a time (the frame close is single-threaded) */
@@ -88,6 +89,13 @@ static uint64_t rd64(const uint8_t *b)
 }
 
 /* ------------------------------------------------------------------ DMA */
+
+static int pass_target(const EmChainPage *p, uint32_t addr)
+{
+    for (uint32_t k = 0; k < p->pass_count && k < EM_CHAIN_PAGE_PASSES_MAX; ++k)
+        if (p->pass_calls[k] == addr) return 1;
+    return 0;
+}
 
 static int skipped(const EmChainPage *p, uint32_t addr)
 {
@@ -160,11 +168,15 @@ static int dma(Walk *w, uint32_t start)
                 next = cur + 16u + 16u * qwc;
                 break;
             }
-            if (depth == 0 && p->pass_call && addr == p->pass_call) {
-                /* the pass: followed, its data in pass mode */
-                if (p->counts.passes) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, addr);
+            if (depth == 0 && pass_target(p, addr)) {
+                /* a pass: followed, its data in pass mode; each target
+                 * once */
+                for (uint32_t k = 0; k < p->counts.passes; ++k)
+                    if (p->pass_target[k] == addr) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, addr);
+                if (p->counts.passes >= EM_CHAIN_PAGE_PASSES_MAX)
+                    return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, cur, EM_CHAIN_PAGE_PASSES_MAX);
                 if (mark_seg(w, cur, addr, MARK_PASS) < 0) return -1;
-                p->counts.passes = 1;
+                p->pass_target[p->counts.passes++] = addr;
                 in_pass = 1;
                 seg_pass = 1;
                 stack[depth++] = cur + 16u + 16u * qwc;
@@ -287,7 +299,10 @@ static int emit(Walk *w, uint32_t count)
     p->prim_count++;
     p->counts.prims++;
     p->counts.prim_type[w->prim & 7u]++;
-    if (w->pass_regs) p->counts.pass_prims++;
+    if (w->pass_regs) {
+        p->counts.pass_prims++;
+        p->pass_prims[w->pass_index]++;
+    }
     return 0;
 }
 
@@ -627,11 +642,13 @@ static int unit(Walk *w, int index, uint32_t at)
     return 0;
 }
 
-/* Pass mode: the pass starts (its CALL): its environment is its own. */
-static void pass_start(Walk *w)
+/* Pass mode: a pass starts (its CALL): its environment is its own. The
+ * marks come in the DMA walk's order, so the n-th is pass_target[n]'s. */
+static void pass_start(Walk *w, uint32_t n)
 {
     memset(&w->env, 0, sizeof w->env);
-    w->p->pass_first = w->p->prim_count;
+    w->pass_index = n;
+    w->p->pass_first[n] = w->p->prim_count;
 }
 
 /* Pass mode: the REF of the frame's draw environment (an environment-again
@@ -643,6 +660,7 @@ static int pass_again(Walk *w, uint32_t at)
     EmChainPage *p = w->p;
     if (p->again_count >= EM_CHAIN_PAGE_AGAIN_MAX)
         return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, at, EM_CHAIN_PAGE_AGAIN_MAX);
+    p->again_pass[p->again_count] = w->pass_index;
     p->again[p->again_count++] = p->prim_count;
     p->counts.again++;
     memset(&w->env, 0, sizeof w->env);
@@ -657,6 +675,7 @@ static int vif(Walk *w)
     static uint8_t direct[DIRECT_MAX * 16u];
     uint32_t v, at;
     int got;
+    uint32_t passes = 0;
     while ((got = word(w, &v, &at)) != 0) {
         if (got == 2) {
             if (unit(w, w->seg[w->si].unit, at) < 0) return -1;
@@ -667,7 +686,9 @@ static int vif(Walk *w)
             continue;
         }
         if (got == 4) {
-            pass_start(w);
+            if (passes >= p->counts.passes || p->pass_target[passes] != at)
+                return fault(w, EM_CHAIN_PAGE_FAULT_DMA, at, passes);
+            pass_start(w, passes++);
             continue;
         }
         w->pass_regs = w->seg[w->si].pass;
@@ -871,12 +892,20 @@ static int run(EmChainPage *p, uint32_t start, int list, int call)
 {
     if (!p) return -1;
     if (!p->read || !p->prims || (p->skip_count && !p->skip_calls) || p->skip_count > EM_CHAIN_PAGE_SKIP_MAX ||
-        (p->pass_call && (list || !p->draw_envs || p->draw_env_slot > 1u || skipped(p, p->pass_call)))) {
+        p->pass_count > EM_CHAIN_PAGE_PASSES_MAX || (p->pass_count && !p->pass_calls) ||
+        (p->pass_count && (list || !p->draw_envs || p->draw_env_slot > 1u))) {
         p->fault = EM_CHAIN_PAGE_FAULT_ARGS;
         return -1;
     }
+    for (uint32_t k = 0; k < p->pass_count; ++k)
+        if (!p->pass_calls[k] || skipped(p, p->pass_calls[k])) {
+            p->fault = EM_CHAIN_PAGE_FAULT_ARGS;
+            return -1;
+        }
     p->prim_count = 0;
-    p->pass_first = 0;
+    memset(p->pass_target, 0, sizeof p->pass_target);
+    memset(p->pass_first, 0, sizeof p->pass_first);
+    memset(p->pass_prims, 0, sizeof p->pass_prims);
     p->again_count = 0;
     memset(&p->counts, 0, sizeof p->counts);
     p->fault = p->fault_address = p->fault_detail = 0;

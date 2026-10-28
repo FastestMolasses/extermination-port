@@ -8,8 +8,8 @@
  * blocks and .data: em_rcl_bytes; the ELF windows the effect-table export
  * places: em_effects_live_window, which hold the two program packets and
  * 001CFBE0's source blocks), and em_gfx_gs_prims draws every primitive in
- * GS order. This frame's 001DDE10 CALL (slot 0xFFF, em_rcl_page: its
- * depth-of-field pass, CHAIN_PAGE.md section 6.2) is followed in the
+ * GS order. This frame's slot-0xFFF CALLs (em_rcl_page: 001DDE10's
+ * depth-of-field pass and the ramp lists, CHAIN_PAGE.md section 6.2) are followed in the
  * Original profile's recorded world frame (em_chain_page's pass mode, the
  * draw environment it REFs from em_rcl_draw_env) and drawn by the GS model
  * (em_gfx_gs_page_pass), and walked over with the GPU renderer, which
@@ -63,12 +63,15 @@ typedef struct {
     uint32_t frame;            /* em_frame_counter() of the last draw        */
     uint32_t pages;            /* cumulative pages drawn                      */
     uint32_t start;            /* the last page's start tag                   */
-    uint32_t four_sprite;      /* its 001DDE10 CALL target (0: none)          */
-    /* 001DDE10's depth-of-field pass: 1 when the last page drew it (the GS
-     * frame), 0 when it walked over it (the GPU renderer) or had none; its
-     * first primitive and count, its environment-again marks (relative to
-     * the pass), the draw environments (bank A) and the slot whose block
-     * the marks stand for, and the FNV-1a of its environments and marks */
+    uint32_t four_sprite;      /* its last slot-0xFFF CALL target (0: none)  */
+    /* the slot-0xFFF passes (001DDE10's depth-of-field pass; the ramp
+     * lists): how many the last page drew (the GS frame; 0 when it walked
+     * over them, the GPU renderer, or had none); the first one's first
+     * primitive, all their primitives, the environment-again marks
+     * (relative to the first pass's first primitive), the draw environments
+     * (bank A) and the slot whose block the marks stand for, and the FNV-1a
+     * of the environments and marks (one pass: its own; several: each
+     * pass's, folded) */
     uint32_t pass, pass_first, pass_prims, again_count, again[EM_CHAIN_PAGE_AGAIN_MAX];
     uint32_t draw_envs, draw_env_slot, pass_digest;
     EmChainPageCounts counts;  /* the last page's                             */

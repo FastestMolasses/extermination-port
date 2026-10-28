@@ -237,6 +237,16 @@ struct EmGsWorld {
      * the declared field against the head's FRAME_1 and SCISSOR_1). */
     uint64_t tgt_frame, tgt_scissor;
     uint8_t tgt_frame_known, tgt_scissor_known;
+    /* The Z buffer the last kicked head writes (its ZBUF_1 with ZMSK 0: its
+     * ZBP, the field's FBW and SCISSOR_1 rows): its blocks hold what the
+     * frames' draws wrote (drawn), and in a frame being recorded they are
+     * drawn from the frame's start, as the field is (fdrawn with it). A
+     * texture whose reach covers them (001DF110's sprite over the other
+     * field with REPEAT: its 256-row texture covers the Z buffer's first
+     * rows, ZBP 0x70 after FBP 0x38's 224) is ordered after the bands that
+     * write them. Unknown before the first kick. */
+    uint32_t head_zbp, head_zbw, head_zh;
+    int head_z_known;
     int prim_known;
     uint8_t drawn[BLOCKS];           /* blocks of buffers the model has drawn into */
     /* The field declared in the frame being recorded (em_gs_world_field_declare). */
@@ -1531,6 +1541,16 @@ static void mark_buffer(uint8_t *map, uint32_t fbp, uint32_t fbw, uint32_t heigh
         }
 }
 
+/* The blocks of a w x height Z buffer (PSMZ32 / Z24 layout) at zbp. */
+static void mark_z(uint8_t *map, uint32_t zbp, uint32_t zbw, uint32_t height)
+{
+    for (uint32_t y = 0; y < height; y += 8u)
+        for (uint32_t x = 0; x < 64u * zbw; x += 8u) {
+            const uint32_t b = em_gs_addr32(zbp * 32u, zbw, x, y, 1) * 4u / 256u;
+            if (b < BLOCKS) map[b] = 1;
+        }
+}
+
 static void barrier_op(EmGsWorld *w)
 {
     push(w, OP_BARRIER, 0, 0);
@@ -1592,6 +1612,8 @@ static void drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height, int head
             }
     }
     mark_buffer(w->fdrawn, fbp, fbw, height);
+    /* the head's Z buffer is drawn from the frame's start with its field */
+    if (head && w->head_z_known) mark_z(w->fdrawn, w->head_zbp, w->head_zbw, w->head_zh);
     w->fdrawn_any = 1;
     if (w->marked_count < MARKED_MAX) {
         w->marked[w->marked_count].fbp = fbp;
@@ -2260,6 +2282,7 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
     j->xyoffset = probe.ctx[0].xyoffset;
     j->xyoffset_known = 1;
     j->height = (uint32_t)(probe.ctx[0].scissor >> 48 & 0x7FFu) + 1u;
+    const uint64_t zbuf = probe.ctx[0].zbuf;
     em_gs_release(&probe);
     if (field_check(w, j->frame, j->height) < 0) return -1;
     /* the field the body declared (its reads were ordered and checked
@@ -2268,6 +2291,23 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
         ((j->frame & UINT64_C(0x3F3F01FF)) != w->field_decl || j->height != w->field_decl_height))
         return fail(w, "the field the frame declared is not the kicked head's FRAME_1 / SCISSOR_1", j->frame);
     (void)mark_drawn(w, (uint32_t)j->frame & 0x1FFu, (uint32_t)(j->frame >> 16) & 0x3Fu, j->height);
+    /* the head's Z buffer, when it writes one (ZMSK 0): drawn from here on */
+    if (!((zbuf >> 32) & 1u)) {
+        w->head_zbp = (uint32_t)zbuf & 0x1FFu;
+        w->head_zbw = (uint32_t)(j->frame >> 16) & 0x3Fu;
+        w->head_zh = j->height;
+        w->head_z_known = 1;
+        static uint8_t z[BLOCKS];
+        memset(z, 0, sizeof z);
+        mark_z(z, w->head_zbp, w->head_zbw, w->head_zh);
+        int over_upload = 0;
+        for (uint32_t b = 0; b < BLOCKS; ++b)
+            if (z[b] && !w->drawn[b]) {
+                w->drawn[b] = 1;
+                over_upload |= w->resident[b];
+            }
+        if (over_upload) checked_reset(w);
+    }
     start(w);
     return 0;
 }
