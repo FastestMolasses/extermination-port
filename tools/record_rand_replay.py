@@ -20,7 +20,8 @@ sample. The area entry is the beat's draw from 0x1AE040 state 0's
 state before the call is recorded as "entry<area>".
 
 Output (one NEW folder; data derived from the user's disc, never committed):
-  <out>/table.txt      lines "entry01 <state hex>"
+  <out>/table.txt      lines "<key> <state hex>" (entry01: the first entry
+                       into AREA01; entry01.2: the revisit's)
   <out>/receipt.json   per beat: rows, draws, the entry's draw index and the
                        replay's row differences
 The AREA00 harness passes the table as EM_RAND_REPLAY (comparison only;
@@ -43,10 +44,15 @@ A, C, M = 1103515245, 12345, 0xFFFFFFFF
 RAND_RETURN = 0x122BE0       # 00122BB8's return (the result is in v0 there)
 ENTRY_RA = 0x1FAF28          # 001FAE70's draw from 0x1AE040 state 0 (the area entry)
 STATE_BLOCK = 0x24295C       # D_0024295C; the state word is at +0x58
-BEATS = {'15_level_exit': ('route/15_level_exit', 1)}   # beat -> (route set path, the entered area)
+# beat -> (route set path, the entered area, the table key). The key counts
+# the run's entries into that area: the AREA00 return (a00_10) enters AREA01
+# a second time ("entry01.2", the revisit), after an area read the port does
+# at host speed (its load veil draws rand() per tick for fewer ticks).
+BEATS = {'15_level_exit': ('route/15_level_exit', 1, 'entry01'),
+         'a00_10_progression_exit': ('route_a00/a00_10_progression_exit', 1, 'entry01.2')}
 
 
-def record(beat, path, area, out):
+def record(beat, path, area, key, out):
     import pcsx2_session
     import route_capture as rc
     t = json.loads((DECOMP / 'build/fork_refs/s87' / path / 'trace.json').read_text())
@@ -64,7 +70,7 @@ def record(beat, path, area, out):
         r.pad_fix = rc.v263_pad_corrections(t['beat'])
         r.begin()
         rc.next_long_frames(r)
-        rc.use_a01_sampler(r)
+        rc.use_a00_sampler(r) if beat.startswith('a00') else rc.use_a01_sampler(r)
         block = s.u32(STATE_BLOCK)
         s._client.call('probe_add', pc=RAND_RETURN, action='log', path='rand_calls.bin', label='rand_ret')
 
@@ -93,7 +99,7 @@ def record(beat, path, area, out):
         state = after
     assert entry is not None, (beat, 'no area-entry 001FAE70 draw in the beat')
     return {'beat': beat, 'rows': t['frames'], 'draws': len(records), 'entry_draw': entry[0],
-            'key': f'entry{area:02d}', 'state': f'{entry[1]:08x}', 'row_differences': len(diffs),
+            'key': key, 'area': area, 'state': f'{entry[1]:08x}', 'row_differences': len(diffs),
             'first_differences': diffs[:5]}
 
 
@@ -108,8 +114,8 @@ def main():
     out.mkdir(parents=True)
     started, receipt = time.monotonic(), []
     for beat in args.beats:
-        path, area = BEATS[beat]
-        receipt.append(record(beat, path, area, out))
+        path, area, key = BEATS[beat]
+        receipt.append(record(beat, path, area, key, out))
         print(json.dumps(receipt[-1]), flush=True)
     (out / 'table.txt').write_text(''.join(f"{r['key']} {r['state']}\n" for r in receipt))
     (out / 'receipt.json').write_text(json.dumps({'beats': receipt, 'seconds': round(time.monotonic() - started, 1)},

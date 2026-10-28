@@ -5321,8 +5321,13 @@ static void a01_route_begin(void)
 static void rand_replay_anchor(const char *phase);
 void em_level_smoke_test_area_entry(unsigned area)
 {
-    char key[16];
-    snprintf(key, sizeof key, "entry%02u", area & 0xFFu);
+    /* The run's n-th entry into an area: "entry<area>" for the first,
+     * "entry<area>.<n>" after it (the AREA01 revisit is entry01.2). */
+    static unsigned entries[256];
+    const unsigned n = ++entries[area & 0xFFu];
+    char key[24];
+    if (n == 1) snprintf(key, sizeof key, "entry%02u", area & 0xFFu);
+    else snprintf(key, sizeof key, "entry%02u.%u", area & 0xFFu, n);
     rand_replay_anchor(key);
 }
 static void rand_replay_anchor(const char *phase)

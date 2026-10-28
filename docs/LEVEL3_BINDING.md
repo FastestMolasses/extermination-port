@@ -14,6 +14,27 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
+the revisit harness (`tools/test_level_smoke_area01r.py --run`) runs the
+whole AREA00 path, the return and a01r_00 exact on all 1,382 rows, and
+a01r_01 exact for 1,631 rows, where it stops on the unbound 001C9E40 that
+`revisit` binds (f814c9b; merged next).**
+
+- **The rand() anchor is per entry.** em_level_smoke_test_area_entry keyed
+  every AREA01 entry "entry01", so the revisit's entry re-seeded the first
+  entry's state. Keys now count the run's entries into an area
+  ("entry01", then "entry01.2"); tools/record_rand_replay.py also records
+  a00_10's AREA01 entry (the fork: state 0x3944f333 before draw 23,903 of
+  the beat, its rows equal to the recording; table
+  `build/rand_replay/route15_a00_10_20261028`). The anchor is needed at the
+  revisit because the port's a00_10 area read runs at host speed (iteration
+  24): its load veil draws rand() for fewer ticks.
+- **The revisit harness takes the AREA00 harness's comparison-only
+  anchors:** the arrival's drive-replay anchor (`extra_anchors`) and
+  EM_RAND_REPLAY (`--rand-replay`, `--no-rand-replay`); without them it
+  diverged in a00_09 (the creatures) and faulted at 001E2E80.
+- Receipts: `build/frontier/r02`.
+
 **2026-10-28, iteration 24: AREA00 plays through a00_10 to its return to
 AREA01 (the harness: "PASS 40 live phases through a00_10"). The arrival and
 a00_00..a00_09 are exact on every row, and a00_10 on rows 0..714; rows
