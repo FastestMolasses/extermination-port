@@ -14,6 +14,145 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 18: `001EF510` bound; the AREA00 creatures'
+divergence is an rand() phase lag, not a translation fault.** The run still
+stops at a00_09 frame 13225 inside the diverged a00_09 (iteration 17).
+
+- **`001EF510` (effect subtype 6, the box-break spray; stop S3)** runs as an
+  em_effects_live handler over em_area00_fx's translation: its 001EFD90
+  spawn through em_effect_original, 001CFB50 / 001CFBE0 through the
+  module's workers, the direct 001EEEB0 through the hazard handler; views
+  D_00275C30 / D_00275C34 and the work block's +0x04 / +0x54.
+- **What makes the creatures differ.** Fork replays of a00_00..a00_04 and
+  a01_07 (hidden, owned sessions; every row equal to the recording) logged
+  every rand() call (return address) and the pool every frame; the native
+  run logged its draws (EM_RAND_TRACE) and, in temporary builds, its
+  class-2 records. Findings:
+  - The two bugs 0x6A / 0x6E (records 43 / 46) are byte-identical to the
+    original's through the arrival until arrival row 4496 (a01_07 row
+    4496), where each enters 0012AFC0 state 0. 0012AFC0 draws rand() & 1,
+    then 00128600(0) (one draw, D_00242ED0 + (rand & 15)), then a heading
+    draw when 00128600 returned 0. The native creatures make these calls in
+    the same order and frame as the original's (point light 4 draws, the
+    bugs 5, 001E7D20 4, ...), but with other values: the original's first
+    bug draw has state 0xBD4DA24D before it, which the native consumes two
+    frames later (another caller); the native bug draws come 104 / 105
+    draws earlier in the stream. So 00128600 answers differently and the
+    two bugs take each other's branches (0x6A +6 = 3 instead of 1).
+  - Within each replayed beat the number of draws per frame is equal
+    (a01_00, a01_02, a01_07 including the AREA00 load, a00_00..a00_04, and
+    AREA11 beats 12..14): the lag is gained outside the sampled rows (the
+    frames between beats, the AREA11 -> AREA01 change, or beats not yet
+    replayed: a01_01, a01_03..a01_06, 15_level_exit, whose fork replay
+    stopped with an error). Locating it is the next unit; everything the
+    creatures do in AREA00 (and the bugs of the a01r event) depends on it.
+  - Tools (ignored, `build/frontier/`): `fork/fork_pool_probe.py` (the
+    iteration-14 probe; `pool` / `nopool`, `calls`), `tools/syncdraws.py`
+    (draws per row, fork vs native), `tools/frameorder.py` (consumer order
+    within a frame), `tools/rareoff.py` (offset on named consumers),
+    `tools/c2diff.py` (class-2 records by +0x9A), the temporary diagnostic
+    patches `diag_scene_bindings.patch` / `diag_class7.patch`, fork data
+    `fork/a00_00..a00_04`, `fork/a01_07`, `fork/l1_10..l1_15`.
+
+**2026-10-28, iteration 17 (port main b4a4147 and `pretrans-a00` merged):
+the C side runs a00_09 to frame 13225** (674 rows; a00_00..a00_08 unchanged),
+where a bug's sub-state machine `0012C490` faults (node 0x7BDFE0). Not the
+first unit: from row 152 the a00_09 rows differ (creature 0x71 dies late),
+and from about row 462 the player is hit and the rows diverge (`hp`, `pos`,
+`req`), so the stop sits inside a diverged run. The creature drift
+(iteration 16) is the next unit.
+
+- **`001F6FB0`, the glow node, plays through:** its source block
+  D_0025D800 (exported, `CREATURE_EFFECT_WINDOWS`; mapped writable in the
+  aim/fire composition when present, the glow rewrites +0x10..+0x18), its
+  parent's work block (read-only copy, the halfword +0xF4) and the spark
+  matrix 0x700036E0..0x7000371F (write-first storage in
+  em_aim_fire_runtime) are views. docs/AREA00_PRETRANS.md stop S2.
+- **`001ECFB0` (byte-matched decomp C), effect subtype 3, is bound** as an
+  em_effects_live handler beside 001EEBA0 / 001EEEB0 (its sources
+  D_002571B0 + 0x90 k exported). Stop S1.
+- The 0x257870 window grows to 0x2D0 bytes (001EF510's tables D_00257990 /
+  D_00257A20 / D_00257AB0, stop S3, adjacent); em_effects_live takes up to
+  96 windows (65 exported). A private `effect_tables.emet` is rebuilt from
+  scratch (`rm assets/effect_tables.emet` first) because a window changed
+  size.
+
+**2026-10-28, iteration 16: the C side plays a00_00..a00_08 and 429 rows of
+a00_09, and stops at a00_09 frame 12980** (the creatures' glow node
+`001F6FB0`, now bound but faulting on its parent's +0x2E4; next unit).
+Ignoring `lock_r54`, a00_05..a00_08 are exact row for row (a00_04's eight
+camera rows as in iteration 15). The first differing row is now a00_09 row
+152: the original sets taken bit 0x71 there (creature 0x71, 00128C10 state
+3, 001B1190 then 001AFC10), the port 57 rows later; and bit 0x1B (crate)
+at row 193, the port at 200.
+
+- **The spat hazard's hit test reads the cell record's class.** 001E2E80
+  tests the byte +0x1A of the record a 0019A570 hit names (D_700030B0 +
+  0x1A = 0x700030CA); the composition's region views now carry that
+  halfword (read only) beside +0x1C / +0x20. This was the a00_06 frame 9758
+  stop.
+- **`001F6FB0` (NEARMISS decomp C, em_area00_fx_glow.c, now in the
+  build),** the glow node 00129FC0's 001EFE00(0x8000000F, creature) makes,
+  ticks through em_aim_fire_runtime's other-tick hook and
+  em_aim_fire_world_live (binding row in em_area11_bindings). Its parent's
+  header, +0x60, +0x80 and +0xB0 are the pool's fields and its +0xD0 a
+  read-only copy from the AREA01 actor view
+  (`em_scene_bindings_actor_snapshot`).
+- **Why the creatures diverge (open).** Fork pool dumps (hidden, owned
+  sessions, the iteration-14 probe replaying each beat from its recorded
+  source state; 0 row differences) show the AREA00 bugs 0x6A / 0x6E already
+  differ from the native ones at a00_04 row 0, and the native rand() stream
+  is 266 draws ahead of the original's at a00_05 row 0 and 615 at a00_09
+  row 0 (the creatures' headings, 00128C10 sub-state 1's
+  001B1470(2 pi (rand & 0xF0) / 256), come from it). Over a00_05 the
+  per-caller totals agree except 001F4BF0 (the creature glow 001288D0 ->
+  001F4A00 -> 001F4BF0, one draw per call): original 327, native 218,
+  because a glowing creature is not drawn (+1 = 0) on frames where the
+  original's is. Receipts: ignored `build/frontier/fork/a00_00..a00_04`
+  (pool.jsonl, rand_calls.bin), `build/frontier/i16c2` (native class-2
+  dumps, a temporary EM_DIAG_CLASS2 build).
+
+**2026-10-28, iteration 15 (branch `drawbridge`): the C side plays
+a00_00..a00_05 and 181 rows of a00_06, and stops at a00_06 frame 9758**
+(001E2E80 reads the hit record's +0x1A at 0x700030CA, which the composition's
+views do not carry; iteration 16). Not a capture pass. Ignoring `lock_r54`,
+every compared row of a00_00..a00_05 is exact except a00_04 rows 1546..1553
+(8 rows: camera `eye` / `tgt` about 0.4 off, then equal again; open
+fidelity unit). The a00_04 frame 6540 stop is gone:
+
+- **`001EFFD0` (byte-matched decomp C), the creatures' spray spawn,** is
+  bound in `em_area01_light_live.c` over em_area00_fx's translation:
+  001EF9D0 through the host (em_effects_live), then node +0xB0 / +0xC0
+  copies, +0x20 = f12 and the halfword +0x94 = the tag. The +0x20 word now
+  has a home: `EmActor.w20` (no pool function writes it; only the 001AF8E0
+  memset clears it), serialized by `em_actor_pool_record_image`, owned by
+  the AREA01 actor view (+0x00..+0x23) and mapped by the aim/fire pool view
+  and `em_effects_live_node_field`. `test_area01_light_live_reference.py`
+  runs the original 001EFFD0 with 001EF9D0 scripted (a free record or 0,
+  tags 0xA / 0xB) and compares RAM, scratchpad and v0.
+- **`001E2E80` (byte-matched decomp C), the spat hazard (entity
+  0x80000008, subtype 3),** ticks through em_aim_fire_runtime's other-tick
+  hook and em_aim_fire_world_live (em_area00_hud's translation over the
+  composition's views; binding row in em_area11_bindings). Its callees:
+  `001D04B0` with an ELF source block (`em_effects_live_001D04B0_elf`;
+  D_00253740..D_00253A10 exported by `export_area00_runtime_tables.py`
+  HAZARD_WINDOWS), `001F02C0` (em_area00_fx), and `0019AA80` (byte-matched
+  decomp C) over the one probe state with `001A7280` against the player
+  record (em_coll_grid_hull; the player's hull chain, resource 0x3A at
+  D_0028A578[0] = 0xD1B9C0, exported by the new `tools/export_player_hull.py`
+  from the user's extract and checked against 12 captures; 0x700031D4 names
+  the player as 0x008102B0).
+- **The hazard's two effects, `001EEBA0` / `001EEEB0` (byte-matched decomp
+  C; entities 0x80000029 launch / 0x8000002A hit),** run as em_effects_live
+  subtype handlers over em_area00_hud's translations; their descriptor
+  windows D_00257510 (0x1B0) and D_00257870 (0x120) are exported
+  (HAZARD_EFFECT_WINDOWS; the captures' rows D_00257530 / D_00257650 hold
+  either the ELF words or 001EEEB0's stores, which the exporter checks).
+- Assets: this worktree's `assets/` is a private directory (symlinks to the
+  primary checkout's entries, private regular files `effect_tables.emet`,
+  63 windows, and `player_hull.emom`).
+- Receipts: ignored `build/frontier/i15e/` (run log, ticks, rand trace).
+
 **2026-10-21, iteration 14 (port main 74e6c04 plus the creatures' ground
 probe): the C side plays a00_00..a00_03 and 143 rows of a00_04, and stops
 at a00_04 frame 6540 on the unbound effect spawn `001EFFD0`.** Not a

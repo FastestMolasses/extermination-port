@@ -40,7 +40,7 @@ def build():
     OUT.mkdir(parents=True,exist_ok=True)
     target=OUT/'light.dylib'
     sources=['tests/area01_light_live_bridge.c','src/game/em_area01_light_live.c',
-             'src/game/em_area00_fx_exit.c','src/game/em_area00_world.c',
+             'src/game/em_area00_fx_exit.c','src/game/em_area00_fx_spawn.c','src/game/em_area00_world.c',
              'src/game/em_owner_draw_live.c','src/game/em_object_unit.c',
              'src/game/em_point_light.c','src/game/em_packet_chain_original.c',
              'src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c','src/game/em_effect_original.c',
@@ -262,6 +262,54 @@ def run_21bd60(lib,elf,path,edits):
     assert c.v0==o.r[2]&MASK,('21BD60 v0',edits,hex(c.v0),hex(o.r[2]&MASK))
     return c.v0
 
+# 001EFFD0 (byte-matched decomp C), the creatures' spray spawn (00128C10 /
+# 0012A5D0 sub-states through em_area00_low), bound in the live composition
+# through this adapter (2026-10-28): the original runs over a capture with
+# 001EF9D0 scripted (its v0: a pool record, or 0 for a failed spawn); the
+# adapter must make the same call (callee, stack pointer, arguments, f12)
+# with the same scratchpad bytes, then leave the same RAM (node +0xB0, +0xC0
+# copies, +0x20 = f12, +0x94 = the tag) and return the same v0.
+def run_effd0(lib,elf,path,node,tag,f12,vectors):
+    ram=bytearray((path/'eeMemory.bin').read_bytes());spr=bytearray((path/'scratchpad.bin').read_bytes())
+    struct.pack_into('<4f',spr,0x38A0,*vectors[0]);struct.pack_into('<4f',spr,0x38B0,*vectors[1])
+    native=(C.c_uint8*len(ram)).from_buffer_copy(ram)
+    scratch=(C.c_uint8*len(spr)).from_buffer_copy(spr)
+    stack=(C.c_uint8*0x100000)()
+    lib.al_seed(native,scratch)
+    o=EE(elf,ram=ram,spad=bytes(spr));expected=[]
+    def spawn(ee):
+        expected.append(((0x1EF9D0,ee.r[29],tuple(ee.r[4+i]&MASK for i in range(2)),ee.f[12]),ee.read(0x700038A0,0x20)))
+        ee.r[2]=node
+    o.hooks={0x1EF9D0:spawn}
+    o.r[4]=0xFFFFFFFF80000008;o.r[5]=0x700038A0;o.r[6]=0x700038B0;o.r[7]=tag;o.f[12]=f12
+    o.r[29]=STACK_TOP;o.r[31]=RETURN;o.run(0x1EFFD0)
+    seen=[];errors=[]
+    @View
+    def view(_ctx,a,n,write):
+        for base,buf in ((0,native),(0x70000000,scratch),(0x7F000000,stack)):
+            if n and base<=a and n<=len(buf) and a-base<=len(buf)-n:return C.addressof(buf)+a-base
+        return None
+    @Worker
+    def worker(_ctx,cp):
+        try:
+            c=cp.contents;sig=(c.function,c.sp,tuple(c.a[:c.na]),c.f[0] if c.nf==1 else None)
+            want,state=expected[len(seen)]
+            assert sig==want,(sig,want)
+            assert C.string_at(C.addressof(scratch)+0x38A0,0x20)==state,'worker-entry scratch'
+            seen.append(sig);c.v0=node;return 0
+        except BaseException as error:errors.append(repr(error));return -1
+    host=Host(None,view,worker)
+    c=Call(function=0x1EFFD0,sp=STACK_TOP,na=4,nf=1)
+    for i,a in enumerate((0xFFFFFFFF80000008,0x700038A0,0x700038B0,tag)):c.a[i]=a
+    c.f[0]=f12
+    fault=C.c_uint32()
+    rc=lib.al_call(C.byref(host),C.byref(c),C.byref(fault))
+    assert rc==0 and not errors and len(seen)==len(expected)==1,(path.name,hex(node),errors,hex(fault.value),len(seen))
+    assert bytes(native)==bytes(o.mem),(path.name,'1EFFD0 RAM')
+    assert bytes(scratch)==bytes(o.spad),(path.name,'1EFFD0 scratch')
+    assert c.v0==o.r[2]&MASK==node,('1EFFD0 v0',hex(c.v0),hex(o.r[2]&MASK))
+    return 1
+
 def creatures(path):
     ram=(path/'eeMemory.bin').read_bytes()
     out=[]
@@ -328,6 +376,16 @@ def main():
                 vector=tuple(rng.uniform(-6,6) for _ in range(3))
                 probe_calls+=run_24d0(lib,elf,path,node,v0,vector);probes+=1
     assert probes,'no 001C24D0 case'
+    spawns=0
+    for path in probe_paths[:None if mode.FULL else 1]:
+        ram=(path/'eeMemory.bin').read_bytes()
+        free=[a for a in (0x7A5640+0x2F0*i for i in range(0x100)) if not ram[a]]
+        for node in (free[0],free[-1],0)[:None if mode.FULL else 2]:
+            for tag in (0xA,0xB):
+                f12=struct.unpack('<I',struct.pack('<f',rng.uniform(0.1,1.5)))[0]
+                vectors=[tuple(rng.uniform(-60,60) for _ in range(4)) for _ in range(2)]
+                spawns+=run_effd0(lib,elf,path,node,tag,f12,vectors)
+    assert spawns,'no 001EFFD0 case'
     grab=set();grab_cases=0
     for path in probe_paths[:None if mode.FULL else 1]:
         for b236 in (0,1):
@@ -340,7 +398,7 @@ def main():
                                 grab_cases+=1
     assert grab=={0,1},('0021BD60 outcomes',grab)
     refusals=contracts(lib)
-    result=dict(status='PASS',mode=mode.MODE,captures=len(paths),cases=cases,probe_1c24d0_cases=probes,probe_1c24d0_calls=probe_calls,grab_21bd60_cases=grab_cases,
+    result=dict(status='PASS',mode=mode.MODE,captures=len(paths),cases=cases,probe_1c24d0_cases=probes,probe_1c24d0_calls=probe_calls,grab_21bd60_cases=grab_cases,spawn_1effd0_cases=spawns,
                 worker_boundaries=boundaries,packet_bytes=packets,vu_triangles=triangles,
                 refusal_contracts=refusals,parser_refusals=len(paths)*4*9,
                 seconds=round(time.monotonic()-started,2))

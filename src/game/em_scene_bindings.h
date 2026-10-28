@@ -171,6 +171,9 @@ uint32_t em_scene_bindings_grid_node_address(uint32_t node);
 const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size);
 /* AREA01 target anchors: read-only held slot words and the shared slot arena. */
 const uint8_t *em_scene_bindings_target_model_bytes(uint32_t address, uint32_t size);
+/* A read-only copy of `size` bytes of a pool record as the AREA01 / AREA00
+ * actor view composes them (outside its transactions). 0, or -1. */
+int em_scene_bindings_actor_snapshot(uint32_t address, uint32_t size, void *out);
 /* Frame captures keyed on the scene tick log (EM_AREA_CHANGE_LOG), for the
  * fb2 pixel harness (tools/test_fb2_pixels.py, docs/GS_EXACT.md section 10).
  * `tick` is the "tick" number of a log line; em_scene_bindings_log_tick_next

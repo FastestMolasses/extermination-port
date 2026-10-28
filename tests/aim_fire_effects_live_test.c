@@ -99,9 +99,12 @@ static void spawn_and_fields(void)
     assert(em_effects_live_node_written(address+0x24,4)==0);
     assert(parent==em_effects_live_node_field(address+0x24,4,0) && *parent==0x8102B0);
     assert(em_effects_live_node_regions(address,spans,40)==count+1);
-    assert(spans[1].address==address+0x24 && spans[1].bytes==parent && spans[1].size==4);
+    /* +0x20 (EmActor.w20, 001EFFD0's f12) precedes the parent word. */
+    assert(spans[1].address==address+0x20 && spans[1].bytes==(uint8_t *)&pool.records[0].w20 && spans[1].size==4);
+    assert(spans[2].address==address+0x24 && spans[2].bytes==parent && spans[2].size==4);
     assert(em_effects_live_node_regions(address+1,spans,40)==0);
-    assert(em_effects_live_node_field(address+0x20,4,0)==NULL);
+    assert(em_effects_live_node_field(address+0x20,4,0)==&pool.records[0].w20);
+    assert(em_effects_live_node_field(address+0x20,8,0)==NULL);
     assert(em_effects_live_node_field(address+0xB0,16,1)==pool.records[0].pos);
     assert(em_effects_live_node_field(address+0xC0,16,1)==pool.records[0].rot);
     assert(em_effects_live_node_field(address+0xD0,64,1)==S.slot[0].e.matrix);

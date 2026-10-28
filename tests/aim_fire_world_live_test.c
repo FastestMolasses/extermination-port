@@ -1,8 +1,21 @@
 /* Binding checks, not a replacement for each reused owner's instruction oracle. */
 #include "game/em_aim_fire_world_live.h"
+#include "game/em_coll_grid_hull.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
+/* em_effects_live's ELF-source 001D04B0 (the spat hazard's draw) is outside
+ * this fixture: reaching it is a refusal. */
+int em_effects_live_001D04B0_elf(const float m[16], int32_t kind, uint32_t source, uint32_t f12, uint32_t f13);
+uint32_t em_effects_live_fault(void);
+int em_effects_live_001D04B0_elf(const float m[16], int32_t kind, uint32_t source, uint32_t f12, uint32_t f13)
+{ (void)m; (void)kind; (void)source; (void)f12; (void)f13; return -1; }
+uint32_t em_effects_live_fault(void) { return 0x001D04B0u; }
+/* The player's hull lock (0019AA80's 001A7280, em_coll_grid_hull) is
+ * outside this fixture too. */
+int em_coll_grid_hull_001A7280(const EmCollHullWorld *hulls, EmCollHullScratch *s, uint32_t arg)
+{ (void)hulls; (void)s; (void)arg; return -1; }
 
 static EmAimFireWorldLive world;
 static EmCollProbeState probe;

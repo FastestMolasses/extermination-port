@@ -39,6 +39,9 @@ typedef struct {
     /* EFE00 certifies its completed node+24 store before its next callee.
      * Acquiring a writable view alone must not initialize owner metadata. */
     int (*written)(void *, uint32_t address, size_t size);
+    /* A read-only copy of a pool record's bytes owned by another
+     * composition (the AREA00 / AREA01 actor view): 0, or -1. */
+    int (*actor_snapshot)(void *, uint32_t address, uint32_t size, void *out);
     const EmCollSegment *segment; /* NULL uses em_collision_world_segment() */
     const EmActorClassLists *lists; /* NULL uses the world's published lists */
     const EmCollisionWorldOwners *owners; /* NULL uses the world's owner hooks */

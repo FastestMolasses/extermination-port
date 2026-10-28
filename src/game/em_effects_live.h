@@ -210,6 +210,8 @@ int em_effects_live_001F0120(uint32_t owner14, int32_t key);
  * f12 / f13 are bit patterns. 0, or -1 (latched). */
 int em_effects_live_001D04B0(const float m[16], int32_t kind, uint32_t source, const uint8_t source_bytes[0x90],
                              uint32_t f12, uint32_t f13);
+/* The same with an exported immutable ELF source block (em_effects_live_window). */
+int em_effects_live_001D04B0_elf(const float m[16], int32_t kind, uint32_t source, uint32_t f12, uint32_t f13);
 
 /* The pool behaviour of a node this module allocated: 001EA240 or
  * 001E2560 by its +0x10. 1 while allocated, 0 after its 001AFC10 free, -1

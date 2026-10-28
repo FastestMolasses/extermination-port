@@ -56,6 +56,10 @@ static uint32_t shot_flag;                 /* 0x700031E8 */
 static uint32_t scratch_3600[16];          /* 0x70003600..0x7000363F */
 static uint32_t *shared_3600;
 static uint32_t d275C3C;                   /* D_00275C3C (001F0190 / 001F0290) */
+/* 0x700036E0..0x7000371F: the glow node 001F6FB0's spark matrix (each
+ * spark's 001029C0 writes all four rows, row 3 first, before 00102918 /
+ * 00102900 / 001C7900 read it); write-first within one call. */
+static uint32_t scratch_36E0[16];
 
 /* The records the composition allocates itself (001861C0's 001AFA90(1),
  * the impact marker): the bytes beyond the pool header the marker
@@ -81,7 +85,7 @@ static struct {
     EmArea00HudVu vu;
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
-    EmPoseRegion bss[14];
+    EmPoseRegion bss[16];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
 } R;
 
@@ -124,7 +128,7 @@ static void *pool_field(uint32_t address,size_t size,int write)
         R.self_word[index]=em_actor_pool_address(R.pool,a->self);return p;
     }
 #define FIELD(field,offset) do { if ((p=span(address,size,base+(offset),sizeof a->field,&a->field))) return p; } while (0)
-    FIELD(flags2,0x2E); FIELD(w30,0x30);
+    FIELD(w20,0x20); FIELD(flags2,0x2E); FIELD(w30,0x30);
     /* 00185A10/00185E30 read the class-2 target's +34 halfword. The
      * original word overlaps +36, whose canonical owner is h36. */
     if ((p=span(address,size,base+0x34,2,&a->w34))) return p;
@@ -339,6 +343,8 @@ static int target_regions(void *context,uint32_t node,EmPoseRegion *out,
     TRY(append(out,capacity,count,EM_SLG_BONE_RECORDS,size,(void *)slots,0));
     return 0;
 }
+static int actor_snapshot(void *context,uint32_t address,uint32_t size,void *out)
+{ (void)context;return em_scene_bindings_actor_snapshot(address,size,out); }
 static int written(void *context,uint32_t address,size_t size)
 { (void)context;return em_effects_live_node_written(address,size); }
 typedef struct {
@@ -655,6 +661,7 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
     memset(&R,0,sizeof R);R.pool=pool;
     R.world.enumerate=enumerate;
     R.world.target_regions=target_regions;
+    R.world.actor_snapshot=actor_snapshot;
     R.world.grid_address=grid_address;
     R.world.grid_bytes=grid_bytes;
     R.world.written=written;
@@ -741,6 +748,17 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (rc<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
+    if (callback==0x001E2E80u || callback==0x001F6FB0u) {
+        /* The spat hazard node 001E2E80 (em_area00_hud) and the creatures'
+         * glow node 001F6FB0 (em_area00_fx), through the composition, with
+         * D_00275B40 = its +0x110 (the walk's 001CB590); 1 while its record
+         * stays allocated, 0 once it freed itself. */
+        EmActor *a=pool_actor(node);
+        if (!a) return -1;
+        const uint32_t generation=a->generation;
+        if (em_aim_fire_binding_run_bones(callback,node,node+0x110u)<0) return -1;
+        return a->allocated && a->generation==generation ? 1 : 0;
+    }
     if (callback==EM_BONE_BURST_CALLBACK) {
         /* The bone-burst node 0022BBC0 (em_area01_ui through the
          * composition), with D_00275B40 = its +0x110 (the walk's
@@ -787,6 +805,13 @@ static int add_windows(void)
     const EmRogerActorWorld *slots=em_area11_boxes_slot_world();
     if (!slots || !slots->d00275BCC) return -1;
     R.bss[n++]=(EmPoseRegion){0x275BCC,2,(uint8_t *)slots->d00275BCC,0};
+    /* D_0025D800, the creatures' glow node 001F6FB0's 001CFBE0 source
+     * block (it rewrites +0x10..+0x18 first; export_area00_runtime_tables.py
+     * CREATURE_EFFECT_WINDOWS). Optional: an export without it leaves the
+     * glow's access unmapped (its fail-stop). */
+    uint8_t *glow=(uint8_t *)(uintptr_t)em_effects_live_window(0x25D800u,0x90u);
+    if (glow) R.bss[n++]=(EmPoseRegion){0x25D800,0x90,glow,1};
+    R.bss[n++]=(EmPoseRegion){0x700036E0,sizeof scratch_36E0,(uint8_t *)scratch_36E0,1};
     R.world.region_count=n;
     return 0;
 }
