@@ -3383,7 +3383,10 @@ static int area01_bind_child(void *ctx, EmActor *actor)
 {
     return actor ? area00_bind_deferred(ctx, actor, NULL) : -1;
 }
-static int area00_spawn_deferred(EmArea01Call *call)
+/* 001B6660(records) from the resident overlay's code: AREA00 (module id 1,
+ * its data 0x826F80..0x82D480) or, on the AREA01 revisit (0x825F00's groups
+ * 0x829220 and 0x8291C0), AREA01 (module id 2, data 0x828A00..0x82CD00). */
+static int area_spawn_deferred(EmArea01Call *call, uint32_t want_id, uint32_t data_lo, uint32_t data_hi)
 {
     if (call->na != 1 || call->nf || call->a[0] > UINT32_MAX)
         return -1;
@@ -3394,21 +3397,21 @@ static int area00_spawn_deferred(EmArea01Call *call)
         return -1;
     memcpy(&module_id, header + 4, 4);
     memcpy(&module_base, header + 8, 4);
-    if (module_id != 1 || module_base != 0x00823500u)
+    if (module_id != want_id || module_base != 0x00823500u)
         return -1;
     const uint32_t first = (uint32_t)call->a[0];
     uint32_t count = 0, at = first;
-    /* Read the delivered AREA00 data, including its real terminator. No
+    /* Read the delivered overlay data, including its real terminator. No
      * exported roster copy may replace words mutated by the current owner. */
     for (;;) {
-        if (at < 0x00826F80u || at > 0x0082D480u - 2u)
+        if (at < data_lo || at > data_hi - 2u)
             return -1;
         const uint8_t *record = em_module_loader_memory(loader, at, 2);
         if (!record)
             return -1;
         if (record[0] == 0xFF && record[1] == 0xFF)
             break;
-        if (at > 0x0082D480u - EM_ROSTER_DEFERRED_RECORD_SIZE)
+        if (at > data_hi - EM_ROSTER_DEFERRED_RECORD_SIZE)
             return -1;
         record = em_module_loader_memory(loader, at, EM_ROSTER_DEFERRED_RECORD_SIZE);
         uint32_t missing = 0;
@@ -3441,7 +3444,9 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
 {
     (void)ctx;
     if (s_state.d810700 == 0 && call->function == 0x001B6660u)
-        return area00_spawn_deferred(call);
+        return area_spawn_deferred(call, 1u, 0x00826F80u, 0x0082D480u);
+    if (s_state.d810700 == 1 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 2u, 0x00828A00u, 0x0082CD00u);
     fprintf(stderr, "em_area01: unbound worker %08X from live composition\n", call->function);
     return -1;
 }
