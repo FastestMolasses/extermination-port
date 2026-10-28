@@ -19,6 +19,7 @@
  *   00199FA0  the two corners of the hit record
  *   00178390  the surface-0x3D ledge placement from those corners
  *   001782A0  the ledge-top grab from those corners (surfaces 0x32 / 0x3B)
+ *   00178440  the surface-0x33 grab from the record centre
  *   00178080  the column lock-on scan (the climb's last probe, any other
  *             surface)
  *   00165B60  +4 = 1, +5 = 0xB: the ladder entry (0015B130 state[0xB])
@@ -242,6 +243,13 @@ int em_player_ladder_00178390(const EmPlayerLadderWorld *world, EmPlayerLadderSc
  * Callers: 001809B0 (00180F90 / 00180FB8), 00178620 (0017877C), 0017E7C0,
  * 001787B0 and 00181A70, through the closure lanes' grab / ledge workers. */
 int em_player_ladder_001782A0(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *scratch,
+                              EmPlayerLiveActor *actor, int *result);
+/* 00178440(p): the surface-0x33 grab (byte-matched src/func_00178440.c).
+ * 00199DB0 into 0x700038A0, then +2E0 / +2E8 = 0x700038A0 / 0x700038A8 +
+ * 2.5 * record +24 (the +24 lane both times, as the original), +2E4 = 3 +
+ * +B4, +218 = +C4; *result = 1. No probe record faults (the original reads
+ * low memory). Caller: 0017E7C0 through the misc lane's grab_33 worker. */
+int em_player_ladder_00178440(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *scratch,
                               EmPlayerLiveActor *actor, int *result);
 /* 00178080(p): the column lock-on scan (byte-matched src/func_00178080.c).
  * 0x700038B0 = (hit x - record +24, 15 + +B4, hit z - record +2C, 1.0);

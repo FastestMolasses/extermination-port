@@ -339,8 +339,10 @@ store. The test checks:
   - `sound`, `rumble`, `effect` and `attach` come from the audio / effect
     owners (001EFD90 is being written by another lane);
   - `fade = em_transition_fade_out` (001AEDE0, AREA_SCRIPT.md);
-  - `model_refresh` (0015C1F0) and `stream_check` (001FAFD0) have no
-    translation yet;
+  - `model_refresh` (0015C1F0: em_player_misc_0015C1F0) and
+    `stream_check` (001FAFD0: em_stream_lanes_001FAFD0 through
+    em_stream_live) are bound by the player closure since lane g1
+    (2026-10-28);
   - `atan2` is the SDK host model, as for the floor.
 - **The scratch.** `workers.scratch` is the same `EmPlayerLandScratch`
   the fall lane's `EmPlayerLandWorkers.scratch` names.
@@ -352,7 +354,7 @@ store. The test checks:
   - Copy D_008106F0, D_008106BC and D_00275B08 back to their owners after
     each call.
 - **Lane player-major2-states.** Its `w0021D2E0` / `w0021D250` /
-  `w0021D490` / `w0021C120` / `w0021C190` workers can bind
+  `w0021D490` / `w0021C120` / `w0021C190` / `w0021C200` workers can bind
   `em_player_reaction_w*` with the same `EmPlayerReaction`.
 - **The port's idle / walk.** The live layer does not run 0015B130 on the
   port's own idle/walk stages (`live_stage_dispatch` returns early for
@@ -386,8 +388,10 @@ store. The test checks:
   - +5 3, 4, 5, 6, 7, 0x16 and 0x19 (0021E830, 00221FC0, 00222580,
     00222AD0, 002230A0, 00225570, 002255C0);
   - the stage workers and 0021C270 / 0021C350.
-- **Untranslated workers:** 0015C1F0, 001FAFD0 and the display / effect
-  workers listed above.
+- **0021C200** (major2's health-out cue: sound 0x14D and
+  001EFE00(0x80000048) when +220 <= 0 with D_008106F1 set) is translated
+  here since lane g1 (`em_player_reaction_0021C200`, adapter
+  `em_player_reaction_w0021C200`) and checked as a helper by the oracle.
 - **Scratchpad words outside the shared scratch.** 0x70003A24 (0021D1A0)
   and 0x700038B0..BC (0021EAD0 / 0021EF30's rotation, compared through the
   effect calls) are not mirrored.

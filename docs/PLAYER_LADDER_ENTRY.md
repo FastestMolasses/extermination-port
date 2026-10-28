@@ -14,6 +14,8 @@ player onto a ladder:
 - 001782A0, the ledge-top grab built on 00199FA0 / 00199DB0 (the closure
   lanes' `grab` / `ledge_3B` / `ledge_top` worker), and 00178080, the column
   lock-on scan (the ladder climb's `hit_react` worker);
+- 00178440, the surface-0x33 grab built on 00199DB0 (the misc lane's
+  `grab_33` worker, 0017E7C0's call);
 - 00165B60, state 0xB (the ladder entry), with 00176DC0, 0017FC80 and
   00182A70;
 - 001B61C0, the pad vibration request.
@@ -223,6 +225,26 @@ record "camera state"), translated as
   0x32 / 0x3B / 0x3D. Bound as the ladder climb's `hit_react` worker (the
   old port label "ladder hit reaction" was wrong). The column worker now
   also writes D_00282250 (`s82250`).
+
+### 00178440(p): the surface-0x33 grab
+
+Byte-matched decomp C (`src/func_00178440.c`), read against its
+instructions, translated as `em_player_ladder_00178440(world, scratch,
+actor, &r)` (lane g1, 2026-10-28).
+
+- 00199DB0 writes the probe record's centre into 0x700038A0 (when it has a
+  record).
+- +2E0 = 0x700038A0 + 2.5 * record +24 and +2E8 = 0x700038A8 + 2.5 *
+  record +24: the original reads the +24 lane for both (re-reading
+  0x700031D0 between), not +2C for z.
+- +2E4 = 3 + +B4, +218 = +C4; it returns 1.
+- With no probe record the original reads low memory: the native faults at
+  0x00178474 (a NULL_RECORD_SITE of the oracle).
+- Caller: 0017E7C0 for surface 0x33. `em_player_closure_live.c` binds it
+  as the misc lane's `grab_33` over the last query's probe state, with
+  0x700038A0..A8 through `land` around the call (as 001782A0).
+- Oracle: test_player_ladder_entry_reference.py runs it on its own seeds
+  (400 quick, 4,000 full), so the main seeds keep their draws.
 
 ### 00165B60: state 0xB, the ladder entry (0015B130 state[0xB])
 

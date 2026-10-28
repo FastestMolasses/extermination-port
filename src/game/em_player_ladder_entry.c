@@ -37,6 +37,7 @@
 #define F_1_5     UINT32_C(0x3FC00000)
 #define F_2       UINT32_C(0x40000000)
 #define F_3       UINT32_C(0x40400000)
+#define F_2_5     UINT32_C(0x40200000)
 #define F_0_6     UINT32_C(0x3F19999A)
 #define F_6       UINT32_C(0x40C00000)
 #define F_15      UINT32_C(0x41700000)
@@ -315,6 +316,33 @@ int em_player_ladder_001782A0(const EmPlayerLadderWorld *world, EmPlayerLadderSc
     put32(a, 0x2E0, s->s38A0[0]);                                      /* 0017835C */
     put32(a, 0x2E8, s->s38A0[2]);                                      /* 00178368 */
     put32(a, 0x218, w32(a, 0xC4));                                     /* 00178374 */
+    *result = 1;
+    return 0;
+}
+
+/* ---- 00178440 ------------------------------------------------------------ */
+
+/* 00178440(p): the surface-0x33 grab (byte-matched src/func_00178440.c,
+ * read against its instructions). 00199DB0 writes the probe record's centre
+ * into 0x700038A0 (when it has one); then +2E0 = 0x700038A0 + 2.5 * record
+ * +24 and +2E8 = 0x700038A8 + 2.5 * record +24 (the same +24 lane for both:
+ * the original loads +24 twice, re-reading 0x700031D0 between), +2E4 = 3 +
+ * +B4, +218 = +C4; the result is always 1. */
+int em_player_ladder_00178440(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *s,
+                              EmPlayerLiveActor *a, int *result)
+{
+    if (!world || !s || !a || !result) return -1;
+    *result = 0;
+    uint32_t centre[3];
+    int written = 0;
+    FAULT(em_player_ladder_00199DB0(world, s, centre, &written));     /* 00178454 */
+    if (written) copy3(s->s38A0, centre);
+    FAULT(record_ok(s, 0x00178474));
+    const uint32_t lane = rec32(s, 0x24);                              /* 00178474 */
+    put32(a, 0x2E0, em_ee_add_bits(s->s38A0[0], em_ee_mul_bits(F_2_5, lane)));   /* 00178490 */
+    put32(a, 0x2E8, em_ee_add_bits(s->s38A0[2], em_ee_mul_bits(F_2_5, lane)));   /* 001784AC */
+    put32(a, 0x2E4, em_ee_add_bits(F_3, w32(a, 0xB4)));               /* 001784B8 */
+    put32(a, 0x218, w32(a, 0xC4));                                     /* 001784C0 */
     *result = 1;
     return 0;
 }

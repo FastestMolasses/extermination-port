@@ -72,6 +72,9 @@ int em_stream_live_001FAB50(void);
 int em_stream_live_001FABB0(void);
 int em_stream_live_001FAD70(int32_t lane, int32_t fade, int32_t release);
 int em_stream_live_001FAE70(int32_t a0);
+/* 001FAFD0() (0021C190's stream test): the caller passes the scene's
+ * 0x70003B90 / 0x70003B8D bytes. */
+int em_stream_live_001FAFD0(uint8_t spad3B90, uint8_t spad3B8D);
 int em_stream_live_001FD470(int32_t mask);
 int em_stream_live_00119828(int32_t a0, int32_t a1, int32_t a2);
 /* 001FA5A0(cue): the voice ring push the message service's 001FD580 /

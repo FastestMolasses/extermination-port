@@ -725,6 +725,35 @@ int em_coll_move_player_sweep(void *player, const float from[3], const float to[
     return fill_probe_hit(p->scratch, kind, hit) < 0 ? -1 : kind;
 }
 
+/* The same with mask bit 31 allowed: `position` is the record's +0xB0..B8
+ * (in), and on a hit with bit 31 its x / z gain the hit delta (out), as
+ * 0019AD00 / 0019AFE0 store them into the record. */
+int em_coll_move_player_move_xz(void *player, float position[3], const float target[3], unsigned mask,
+                                EmPlayerProbeHit *hit)
+{
+    EmCollMovePlayer *p = player;
+    if (!player_ready(p) || !position || !target || !hit) return -1;
+    EmCollMoveActor a = player_actor(p, position);
+    int kind = em_coll_move_0019AD00(p->world, p->scratch, &a, target, mask);
+    if (kind < 0) return -1;
+    position[0] = a.position[0];
+    position[2] = a.position[2];
+    return fill_probe_hit(p->scratch, kind, hit) < 0 ? -1 : kind;
+}
+
+int em_coll_move_player_sweep_xz(void *player, float position[3], const float from[3], const float to[3],
+                                 unsigned mask, EmPlayerProbeHit *hit)
+{
+    EmCollMovePlayer *p = player;
+    if (!player_ready(p) || !position || !from || !to || !hit) return -1;
+    EmCollMoveActor a = player_actor(p, position);
+    int kind = em_coll_move_sweep_0019AFE0(p->world, p->scratch, &a, from, to, mask);
+    if (kind < 0) return -1;
+    position[0] = a.position[0];
+    position[2] = a.position[2];
+    return fill_probe_hit(p->scratch, kind, hit) < 0 ? -1 : kind;
+}
+
 static int climb_hit(const EmCollMoveScratch *s, int kind, EmPlayerClimbHit *hit)
 {
     if (fill_probe_hit(s, kind, &hit->probe) < 0) return -1;

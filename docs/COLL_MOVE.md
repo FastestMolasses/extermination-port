@@ -210,7 +210,7 @@ on 8 workers. The 06 route slice is the longest item.
 | walk | 360 | 1,572 | 0019FE50 near every owner hull, with query classes 0, 2, 4 and −1 and self ∈ {player, owner, 0}. Long segments across several crates. Every owner re-kinded 0x50..0x53, 0x59, 0x5A against every query class. Injected drum owners (0x4000 cells). An unknown prim type inside owner hulls. A static-directory variant (uids 0..2 with bit 31, kinds from `D_0024D7C0` in RAM). |
 | move/sweep | 220 | 480 | 0019AD00 / 0019AFE0 with flags 0..7 and bit 31. Actors: the player (class 0, lock 001A6440), real owners (self skip, 001A7280) and synthetic status/class/+0x52 combinations. Also segments at small coordinates, where the 1% step shows in the end bits. |
 | scripted-lock | 60 | 120 | The lock handling with a scripted 001A6440 / 001A7280, applied identically on both sides. AREA11's own lists never make them succeed: 0 of 68 / 26 real calls in the quick run. Results 0/1/2, the entity's and the actor's +0x52 bits, bit 31. |
-| adapter | 21 | 36 | All seven adapters against the original, including the `EmPlayerProbeHit` / `EmPlayerClimbHit` view from the original's final state. |
+| adapter | 21 | 48 | All nine adapters (the player's bit-31 move / sweep on their own draws) against the original, including the `EmPlayerProbeHit` / `EmPlayerClimbHit` view from the original's final state. |
 | fail-stop | 30 | 30 | Native only: each missing worker faults before any write. So do bit 31 on the const-position adapters and a bit-31 owner word. |
 
 - **The named `.sqrt` worker.** Every 0011E748 argument the cases produce
@@ -298,6 +298,7 @@ on 8 workers. The 06 route slice is the longest item.
    | `EmPlayerClimbWorkers.sweep` | `em_coll_move_climb_sweep` (`pickup_box` = entity +0x10 == 00219550) |
    | `EmPlayerSlideWorkers.move` | `em_coll_move_slide_move` (bit 31 moves `position` x/z) |
    | `EmPlayerSlideWorkers.sweep` | `em_coll_move_slide_sweep` |
+   | the player closure's bit-31 move / sweep with a hit reader | `em_coll_move_player_move_xz` / `em_coll_move_player_sweep_xz` (`position` in / out: x / z gain the hit delta, the record's +B0 / +B8 stores of 0019AD00 / 0019AFE0; lane g1, 2026-10-28) |
 
    `EmPlayerProbeWorkers` serves 001764E0, 00176C80 and 001756E0.
 

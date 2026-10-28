@@ -16,6 +16,9 @@
  *   0019A180  the column-table entry attribute
  *   0017F320  the hang clearance sweeps (1 when all four are clear)
  *   00188550  the hang row clip D_002754C0[+235 & 1]
+ *   00188570  the row clip D_002754C4[+235 & 1]
+ *   00188590  the row clip D_002754C8[+235 & 1]
+ *   001885B0  the row clip D_002754CC[+235 & 1]
  *   00174FD0  the stick quadrant +24C (and +23F, +244, +248, 0x70003A20)
  * em_player_climb.c and em_player_slide.c call these bodies; nothing else
  * translates them.
@@ -122,6 +125,11 @@ int em_player_helper_0017F320(const EmPlayerHelperCalls *c, const uint32_t matri
                               uint32_t s38A0[4], int *result);
 /* 00188550: D_002754C0[row & 1] (the row byte +235). */
 int em_player_helper_00188550(uint8_t row);
+/* 00188570 / 00188590 / 001885B0: D_002754C4 / D_002754C8 / D_002754CC
+ * [row & 1], the same shape over the next three clip pairs. */
+int em_player_helper_00188570(uint8_t row);
+int em_player_helper_00188590(uint8_t row);
+int em_player_helper_001885B0(uint8_t row);
 
 /* ---- The record entries ---------------------------------------------------
  * What the entries read outside the record, in the binder's canonical
@@ -158,6 +166,12 @@ int em_player_record_0017F320(void *helpers, EmPlayerLiveActor *actor, int *resu
  * clip_row, EmPlayerMajor2Workers.w00188550. No worker; helpers may be
  * NULL. */
 int em_player_record_00188550(void *helpers, EmPlayerLiveActor *actor, int *clip);
+/* 00188570(p) / 00188590(p) / 001885B0(p): the closure's row clips
+ * (EmPlayerMajor2Workers.w001885B0 and clip_0 / clip_1 of the misc lane,
+ * EmPlayerClosure1019Workers.clip_885B0). No worker; helpers may be NULL. */
+int em_player_record_00188570(void *helpers, EmPlayerLiveActor *actor, int *clip);
+int em_player_record_00188590(void *helpers, EmPlayerLiveActor *actor, int *clip);
+int em_player_record_001885B0(void *helpers, EmPlayerLiveActor *actor, int *clip);
 /* 00174FD0(p): EmPlayerHangWorkers / EmPlayerLadderClimbWorkers
  * steer_input, EmPlayerClosure0E18 steer. Writes +23F, +24C, +244, +248
  * and 0x70003A20. */
