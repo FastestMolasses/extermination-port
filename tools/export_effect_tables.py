@@ -191,7 +191,14 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x002531D0, 0x40),
           # 001E9280's AREA00 surface program packet D_00234FE0 (CALLed by
           # 001CB760 for 0015AB00's surface) and its RET tag.
-          (0x00234FE0, 0x4B0))
+          (0x00234FE0, 0x4B0),
+          # D_002758C8: the AREA01 revisit creatures' (0x823CD0) start
+          # delays, a byte per spot index 0..4 (index 4 reads 0x2758CC).
+          (0x002758C8, 5),
+          # 0019C6F0's per-area room-list table D_0024D7C0 (a word per area
+          # byte D_00810700) and AREA01's three room-list words D_002758D0
+          # (the revisit's 0x825950 calls 0019C6F0(0x29, 0 / 1)).
+          (0x0024D7C0, 0x68), (0x002758D0, 0xC))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:
