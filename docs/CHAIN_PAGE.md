@@ -119,7 +119,7 @@ flame's REF of D_00828340 and the pass's CALL, its last. By producer:
 | 001F0A60 (the pickup glint) | DIRECT 13: two line strips of three vertices (PRIM 0x6A: Gouraud, fogged, blended, untextured); 001CB900 appends the blend REF after the packet, so the DMA sends the REF first (slot lists run newest first) |
 | 001CE300 (the decal) | the blend REF, the TEX0 packet 001CB950 writes, the fans (PRIM 0x7D) |
 | 001E0D70 (slot 0xFFB: its id 0xFFC000 is capped) | a CALL of the weather's channel-3 list (context +0x2520): per snow tile 001CFFE0's REF of the mode-2 preset, CALL D_00233800, the UNPACKs of the projection rows (15 to 0x6E), the descriptor (9 to 0x50) and the parameters with the tile matrix (5 to 0x59), MSCAL; then 001E55F0's RET. 108 tiles per list on the route (section 6.1) |
-| page CALLs into the packet arena | the object units 001CAAC0 depth-sorts (section 6); 001DDE10's depth-of-field pass (slot 0xFFF, the page's last CALL): section 6.2 |
+| page CALLs into the packet arena | the object units 001CAAC0 depth-sorts (section 6); the slot-0xFFF passes, the page's last CALLs: 001DDE10's depth-of-field pass (section 6.2) and the ramp lists of 001DF110 / 001DF180 (section 6.3) |
 
 ## 3. The VU1 programs (em_vu1_page_programs.h)
 
@@ -491,7 +491,7 @@ XYOFFSET into it, after the walk at the frame close, so the walk records an
 environment-again mark (again[]: the primitive it precedes) and forgets
 the registers that block writes (the environment, CLAMP_1, TEX1_1, TEST_1,
 COLCLAMP: the frame's from there on). Any other REF into bank A in the pass,
-a context-2 or FOGCOL write in it, a second pass CALL or more than 16 marks
+a context-2 or FOGCOL write in it, a second CALL of the same pass or more than 16 marks
 fault. Counts: `passes`, `pass_prims`, `pass_direct`, `again`. On every
 captured page the pass draws 8 sprites (copy, blend, four times) with marks
 before primitives 1, 3, 5, 7 and after 8 (relative to the pass), from 32
@@ -550,12 +550,81 @@ half-line one. Not captured: a blend that passes its Z test in a
 whole-line field (GS_EXACT.md 8.8). The fb2 points (GS_EXACT.md 10.1)
 include the original's pass.
 
+### 6.3 The ramp lists: every slot-0xFFF CALL is a pass (2026-10-28)
+
+**What the original does** (fork capture `build/ramp_capture` of the
+decomp, a00_09 rows 793 and 800: the route beat replayed open loop from
+its recorded state, every row equal to the recording; count probes on the
+builders). Slot 0xFFF is not 001DDE10's alone. 001CB760 at id 0xFFF000
+appends a block per call (CALL tag, NEXT tag); the slot's word holds the
+newest, each block's NEXT the one appended before it, and 001CB800 links
+the newest in, so the DMA sends a slot's CALLs newest first. In AREA00's
+a00_09 the flash node 001E7310 builds two more lists there besides the
+depth-of-field pass, which 001DDE10 appends last (the frame close) and the
+DMA so sends first:
+
+- **001DF180's grid** (001DF5A0 hands it 001CB760; from row 793, 41000 on
+  the frame counter): the field copied to the 256 x 256 buffer (001D6B60,
+  the copy 001DDE10 also makes), then 15 rows of 16-column STQ triangle
+  strips (PRIM 0x14, Q 1.0, one Z) textured from the copy with bilinear
+  TEX1 0x60 and REGION_CLAMP 0..255, each vertex's S / T jittered by two
+  rand() draws, and 001D1F20's REF of the draw
+  environment at its end: 451 primitives, 24 DIRECT packets, the marks
+  after the copy and at the end.
+- **001DF110's sprite** (001DF020's list on channel 3, from row 794): the
+  REF of bank D 2 (PRIM 0, the field's REGION_CLAMP) and then 001D1F80's
+  (CLAMP_1 = 0: REPEAT), TEX0 = the other slot's field (TBP 0x700 when
+  context +0x9C is 1, else 0: the frame drawn before), TEXA 0, XYOFFSET
+  (0x7000, 0x7900), one blended sprite (PRIM 0x156) over the field with its
+  record's colour (alpha 0x37 in the capture), and 001D1F20's REF.
+
+Each is a pass in the sense of section 6.2: a channel list that sets its
+own environment (FRAME_1 / ZBUF_1 / XYOFFSET_1 / SCISSOR_1 / TEXA),
+REFs the GS blocks, and ends with the kicked slot's draw environment. Walked
+as page packets it faults at once (001DF180's at its FRAME_1, A+D 0x4C;
+001DF110's at its TEXA).
+
+**The walk.** `pass_calls` / `pass_count` replace `pass_call`: every
+slot-0xFFF CALL of the frame (em_render_context_live records each
+001CB760 at id 0xFFF000 its module makes, `f_001CB760`, up to
+EM_CHAIN_PAGE_PASSES_MAX = 4; more faults) is followed in pass mode in the
+order the DMA meets it; each starts with an empty environment and keeps its
+own primitives (`pass_first[k]`, `pass_prims[k]`, `pass_target[k]`) and
+marks (`again_pass[m]`). The GS drawing state goes on from one pass to the
+next, as on the GS (only the registers the draw environment's REF
+writes are forgotten at a mark). A target CALLed twice faults.
+
+**The draw.** em_chain_page_live hands the page up to each pass to
+em_gfx_gs_prims and each pass, with its own marks, to em_gfx_gs_page_pass
+(the GS model, the Original profile); the GPU renderer walks over all of
+them. 001DF110's sprite reads the other field with REPEAT, so its 512 x 256
+texture reaches 32 rows past that field's 224: the first rows of the Z
+buffer (ZBP 0x70 follows FBP 0x38). em_gs_world keeps the Z buffer of the
+last kicked head (ZBUF_1 with ZMSK 0) as drawn memory, and in a recorded
+frame as drawn from the frame's start with the field, so such a read is
+ordered after the bands that write Z (GS_EXACT.md section 9;
+`make test-gs-world` z_reach).
+
+**Measured.** `make test-ramp-pass-reference`
+(tools/test_ramp_pass_reference.py) over the three captures (the grid at
+rows 793 and 800, the sprite at row 800; the DMA cut at the ramp CALL's two
+boundaries as section 6.2's capture does; before / after prefixes of the
+full stream, the repeat equal): the captured GIF bytes through the model
+(1 and 3 bands) and the Original profile's path (the pass walk over the
+captured EE image, em_gs_world with 1 and 3 workers and with every block an
+upload) leave the same memory. The sprite is bit-exact. The grid leaves 188
+and 75 field words one bilinear-weight step off (colour only): the model's
+open perspective-STQ residue on a one-Z span (GS_EXACT.md 8.2, the p5_s
+class: Q 1, S / T planes); every other word of the 4 MiB is the original's.
+The test fails on anything else.
+
 ## 7. Binding (live)
 
 - **001D1EA0's kick.** em_render_context_live wraps the frame close's 001CB800
-  (the start = 001CB800's base, D_00810E80 read as it does) and 001DDE10's
-  001CB760 (the slot-0xFFF target: the depth-of-field pass, section 6.2);
-  `em_rcl_page` hands both out once per kick.
+  (the start = 001CB800's base, D_00810E80 read as it does) and every
+  001CB760 at slot 0xFFF of the frame (the passes: 001DDE10's depth-of-field
+  pass, section 6.2; the ramp lists, section 6.3);
+  `em_rcl_page` hands them out once per kick.
   001E0D70's 001CB760 (id 0xFFC000, the weather's list) is noted for the
   smoke (`em_rcl_page_weather`); the consumer walks it like any CALL.
 - **The producers bound for this page since FLAMESNOW** (section 6.1): the

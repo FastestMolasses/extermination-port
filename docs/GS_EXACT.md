@@ -1537,7 +1537,13 @@ time, after a texture read since the last barrier, gets a barrier (since
 2026-10-16, found by the P17 differential: such a read and the draw over
 it in one stretch raced; the first level draws over no upload, so its
 frames keep their segments). The declared field is exempt: it is the
-head's target, drawn from the frame's start.
+head's target, drawn from the frame's start. The Z buffer of the last kicked head (its ZBUF_1 with ZMSK 0, the
+field's width and rows) is drawn memory too, and in a recorded frame drawn
+from the frame's start with the field (since 2026-10-28: 001DF110's sprite
+in AREA00 samples the other field as a 512 x 256 texture with REPEAT,
+whose last 32 rows are the Z buffer's first; CHAIN_PAGE.md 6.3,
+`make test-gs-world` z_reach). Before the first kick it is unknown, and
+such a read faults.
 
 **Pipelining.** As the GS draws a kicked list while the EE builds the next
 one, the kick hands the frame to the workers and returns; the next kick

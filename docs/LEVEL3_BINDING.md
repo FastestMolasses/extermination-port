@@ -14,6 +14,45 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 22 (`revisit` merged, a fast-forward: R1's single
+`em_coll_segment_0019AA80` and the one hull home `assets/player_hull.emom`
+kept): a00_09 is exact on all 2,028 rows and a00_10 through row 672; the
+run stops at a00_10 frame 15251, where the shaft door's script asks for
+movie selector 3 (`E007.PSS`, not exported yet: next unit).** The arrival
+and a00_00..a00_08 are as in iteration 21 (the arrival's row-0 clock
+still differs).
+
+- **The chain page draws every slot-0xFFF CALL (CHAIN_PAGE.md 6.3).** The
+  a00_09 stop (iteration 21) and the AREA01 revisit's stall after the beam
+  (R1: a01r_01's op0D camera wait) were the same gap: 001CB760 at slot
+  0xFFF appends a block per call, and the flash node's ramp records add
+  001DF180's grid (through 001DF5A0, from a00_09 row 793) and 001DF110's
+  sprite (from row 794) beside 001DDE10's depth-of-field pass; the page
+  followed only the last one recorded and walked the others as page
+  packets. em_render_context_live now records every slot-0xFFF CALL of the
+  frame (`f_001CB760`, used by 001DDB70 and 001DF110 too; at most 4, more
+  faults), em_chain_page follows each in pass mode (`pass_calls`,
+  `pass_count`; per pass its primitives, target and marks) and
+  em_chain_page_live draws each with em_gfx_gs_page_pass in page order.
+  The shape is the original's: fork capture `build/ramp_capture` in the
+  decomp (`capture_ramp.py`, `analyze_ramp.py`: the beat replayed open
+  loop, every row of 700..810 equal to the recording; the DMA cut at the
+  ramp CALL's two boundaries as the depth-of-field capture does) and
+  `make test-ramp-pass-reference`: the sprite bit-exact, the grid exact
+  but for 188 / 75 field words of the model's open STQ residue
+  (GS_EXACT.md 8.2), through the model and the Original profile's path.
+- **The GS world keeps the head's Z buffer as drawn memory** (GS_EXACT.md
+  section 9): 001DF110's sprite samples the other field with REPEAT, and
+  its 256-row texture reaches the Z buffer's first rows; the world faulted
+  on that read ("a texture that reads GS memory no upload wrote"). Unit
+  case `z_reach` in `make test-gs-world`.
+- **The revisit's stall (R1):** the same fix covers it (001DF110's list on
+  channel 3 beside 001DDE10's: both are followed and drawn as passes).
+- Checks: `test-chain-page` (two passes in one page, a target CALLed twice),
+  `test-gs-world`, `test-dof-pass-reference`, `test-ramp-pass-reference`,
+  New Game control 9.599849; not run: the first-level smokes and
+  EM_TEST_FULL. Receipts: `build/frontier/i23` (run log, ticks).
+
 **2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's
 attack on the player included); the run stops at a00_09 frame 13345, where
 the flash node `001E7310` (stop S4) draws its ramp and the chain page then

@@ -116,6 +116,7 @@ static uint32_t build_list(void)
  * draw environments (bank A, two blocks of 0x190) lie at ENVS, unmapped by
  * pass_reader; the state blocks (bank-E- and bank-D-shaped) at BLOCKS. */
 #define PASS_AT 0x2000u
+#define PASS2_AT 0x2800u    /* a second pass (the pass is under 0x800 bytes) */
 #define BLOCKS 0x3000u
 #define ENVS 0x4000u
 
@@ -219,7 +220,9 @@ static int run_pass(EmChainPage *p, EmGfxGsPrim *prims, EmGfxGsEnv *envs, uint32
     p->prims = prims;
     p->prim_env = envs;
     p->prim_capacity = capacity;
-    p->pass_call = PASS_AT;
+    static const uint32_t target = PASS_AT;
+    p->pass_calls = &target;
+    p->pass_count = 1;
     p->draw_envs = ENVS;
     p->draw_env_slot = slot;
     return em_chain_page_run(p, START);
@@ -313,7 +316,9 @@ int main(void)
         assert(run_pass(&page, prims, envs, 8, slot) == 0);
         assert(page.prim_count == 2 && page.counts.passes == 1 && page.counts.pass_prims == 2 &&
                page.counts.again == 2 && page.counts.pass_direct == 8 && page.counts.skipped == 0);
-        assert(page.pass_first == 0 && page.again_count == 2 && page.again[0] == 1 && page.again[1] == 2);
+        assert(page.pass_first[0] == 0 && page.pass_prims[0] == 2 && page.pass_target[0] == PASS_AT &&
+               page.again_count == 2 && page.again[0] == 1 && page.again[1] == 2 && page.again_pass[0] == 0 &&
+               page.again_pass[1] == 0);
         /* the copy: PRIM 0x116, the field's TEX0 with the region clamp, bank E's TEST, 001D6E60's COLCLAMP
          * (001006D8 keeps the packet memory's other bits of it: any) */
         assert(prims[0].prim == 0x116 && prims[0].count == 2);
@@ -347,7 +352,7 @@ int main(void)
            page.counts.passes == 0);
     memset(&page, 0, sizeof page);
     page.read = pass_reader; page.prims = prims; page.prim_env = envs; page.prim_capacity = 8;
-    page.pass_call = PASS_AT; page.draw_envs = ENVS;
+    page.pass_calls = &pass_skip; page.pass_count = 1; page.draw_envs = ENVS;
     assert(em_chain_page_run_list(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_ARGS);
     page.draw_envs = 0;
     assert(em_chain_page_run(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_ARGS);
@@ -355,6 +360,48 @@ int main(void)
     assert(em_chain_page_run(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_ARGS);
     page.draw_env_slot = 0; page.skip_calls = &pass_skip; page.skip_count = 1;
     assert(em_chain_page_run(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_ARGS);
+    page.skip_calls = NULL; page.skip_count = 0; page.pass_count = EM_CHAIN_PAGE_PASSES_MAX + 1u;
+    assert(em_chain_page_run(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_ARGS);
+    /* two slot-0xFFF passes in one page (the ramp list's and the
+     * depth-of-field pass's CALLs): each followed in pass mode in page
+     * order, each with its own environment, primitives and marks; the
+     * same target CALLed twice faults */
+    {
+        build_pass(0, EM_CHAIN_PAGE_DRAW_ENV_QWC, 0);
+        memcpy(mem + PASS2_AT, mem + PASS_AT, PASS2_AT - PASS_AT);
+        put_tag(START + 16u, 2, 0, START + 0x40u);         /* NEXT: the second CALL */
+        put_tag(START + 0x40u, 5, 0, PASS2_AT);
+        put_tag(START + 0x50u, 2, 0, START + 0x20u);       /* NEXT: the end */
+        const uint32_t two[2] = { PASS2_AT, PASS_AT };
+        memset(&page, 0, sizeof page);
+        memset(envs, 0xA5, sizeof envs);
+        page.read = pass_reader; page.prims = prims; page.prim_env = envs; page.prim_capacity = 8;
+        page.pass_calls = two; page.pass_count = 2; page.draw_envs = ENVS;
+        assert(em_chain_page_run(&page, START) == 0);
+        assert(page.prim_count == 4 && page.counts.passes == 2 && page.counts.pass_prims == 4 &&
+               page.counts.again == 4 && page.counts.pass_direct == 16 && page.counts.skipped == 0);
+        assert(page.pass_target[0] == PASS_AT && page.pass_target[1] == PASS2_AT);
+        assert(page.pass_first[0] == 0 && page.pass_prims[0] == 2 && page.pass_first[1] == 2 && page.pass_prims[1] == 2);
+        assert(page.again_count == 4 && page.again[0] == 1 && page.again[1] == 2 && page.again[2] == 3 &&
+               page.again[3] == 4 && page.again_pass[0] == 0 && page.again_pass[1] == 0 &&
+               page.again_pass[2] == 1 && page.again_pass[3] == 1);
+        /* the second pass's environment starts empty: its copy has the
+         * environment its own packet sets, as the first's; the GS drawing
+         * state goes on (the first pass's blend left ALPHA) */
+        assert(memcmp(&envs[2], &envs[0], sizeof envs[0]) == 0);
+        assert(prims[2].set == (prims[0].set | EM_GFX_GS_ALPHA) && prims[2].alpha == 0x44 &&
+               prims[2].tex0 == prims[0].tex0 && prims[2].clamp == prims[0].clamp &&
+               prims[2].test == prims[0].test && prims[2].colclamp == prims[0].colclamp &&
+               memcmp(prims[2].v, prims[0].v, sizeof prims[0].v) == 0);
+        /* one target given: the other CALL is walked as page packets, whose
+         * REF of the draw environment would be read (here: unmapped) */
+        page.pass_count = 1;
+        assert(em_chain_page_run(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_READ);
+        /* the same pass CALLed twice */
+        put_tag(START + 0x40u, 5, 0, PASS_AT);
+        page.pass_calls = &two[1];
+        assert(em_chain_page_run(&page, START) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_DMA);
+    }
     /* REFs into bank A other than the slot's whole block fault (the other
      * slot's, a part of it); a context-2 write in the pass faults; the
      * page's REF of the block in page mode would read it (here: unmapped) */

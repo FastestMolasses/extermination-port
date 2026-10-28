@@ -279,7 +279,7 @@ static const uint8_t *reader(void *ctx, uint32_t address, uint32_t size)
     return NULL;
 }
 
-#define LIVE_PRIMS 64u
+#define LIVE_PRIMS 8192u
 
 /* `mem` / `resident`: the GS memory before the pass and which of its 256-byte
  * blocks count as uploads (em_gs_world_memory_restore: the others as drawn
@@ -314,7 +314,8 @@ int dof_live(const uint8_t *ram, uint32_t target, uint32_t bank, uint32_t slot, 
     page.prims = prims;
     page.prim_env = envs;
     page.prim_capacity = LIVE_PRIMS;
-    page.pass_call = target;
+    page.pass_calls = &target;
+    page.pass_count = 1;
     page.draw_envs = bank;
     page.draw_env_slot = slot;
     const int rc = em_chain_page_run(&page, SLOT_BLOCK);
@@ -327,7 +328,7 @@ int dof_live(const uint8_t *ram, uint32_t target, uint32_t bank, uint32_t slot, 
     out[6] = page.counts.pass_direct;
     out[7] = page.again_count;
     for (uint32_t k = 0; k < page.again_count && k < 5u; ++k) out[8 + k] = page.again[k];
-    if (rc < 0 || page.counts.passes != 1u || page.pass_first != 0u || page.prim_count != page.counts.pass_prims)
+    if (rc < 0 || page.counts.passes != 1u || page.pass_first[0] != 0u || page.prim_count != page.counts.pass_prims)
         return -1;
     /* the kick's draw environment: bank A's block of the slot (001D1F20's
      * REF, 0x19 qwords: its VIF codes and DIRECT data) */
@@ -352,8 +353,8 @@ int dof_live(const uint8_t *ram, uint32_t target, uint32_t bank, uint32_t slot, 
         em_gs_world_begin(w);
         for (uint32_t i = 0; i < n; ++i) em_gs_world_write(w, reg[i], val[i]);
         uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX];
-        for (uint32_t k = 0; k < page.again_count; ++k) again[k] = page.again[k] - page.pass_first;
-        r = em_gs_world_page_pass(w, prims + page.pass_first, envs + page.pass_first, page.counts.pass_prims, again,
+        for (uint32_t k = 0; k < page.again_count; ++k) again[k] = page.again[k] - page.pass_first[0];
+        r = em_gs_world_page_pass(w, prims + page.pass_first[0], envs + page.pass_first[0], page.counts.pass_prims, again,
                                   page.again_count, field_frame, field_scissor);
         if (r == 0) r = em_gs_world_kick(w, env, env_bytes, NULL, 0);
         if (r == 0) r = em_gs_world_wait(w);
