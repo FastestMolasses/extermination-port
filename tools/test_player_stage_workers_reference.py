@@ -99,6 +99,7 @@ EXECUTED = {
     0x174A50: 'func_00174A50', 0x1C64F0: 'anim_advance_time', 0x1281C0: 'float_to_int',
     0x1278C0: 'func_001278C0', 0x15B530: 'func_0015B530',
     0x182DF0: 'func_00182DF0', 0x182D40: 'func_00182D40', 0x1C6150: 'func_001C6150',
+    0x15C9D0: 'func_0015C9D0',
 }
 
 LIBC = C.CDLL(None)
@@ -392,7 +393,10 @@ CALLEE_ORDER = ('w001D0C70', 'bone_init', 'clip_init', 'clip_resolve', 'skeleton
 
 
 class Callees(C.Structure):
-    _fields_ = [('context', C.c_void_p)] + [(name, FN[name]) for name in CALLEE_ORDER]
+    # record_written is the port's optional storage hook (NULL here: the
+    # scripted 001F00A0 record is the fixture's own storage).
+    _fields_ = [('context', C.c_void_p)] + [(name, FN[name]) for name in CALLEE_ORDER] + \
+               [('record_written', C.c_void_p)]
 
 
 class Host(C.Structure):
@@ -401,6 +405,8 @@ class Host(C.Structure):
 
 
 STATE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, PA)
+TABLE16 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.POINTER(C.c_int16))
+REQUEST_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, PA, C.c_int, C.c_int, C.c_float)
 
 
 class Major4(C.Structure):
@@ -432,6 +438,7 @@ def build_native(source=ROOT / 'src/game/em_player_stage_workers.c', name='stage
     native.em_player_stage_clip_rate.argtypes = [C.c_void_p, C.c_int, C.POINTER(C.c_float)]
     native.em_player_stage_0015B530.argtypes = [C.c_void_p, PA]
     native.em_player_stage_00182DF0.argtypes = [C.c_void_p, PA]
+    native.em_player_0015C9D0.argtypes = [PA, TABLE16, C.c_void_p, REQUEST_FN, C.c_void_p]
     native.em_player_clip_rates_load.argtypes = [C.POINTER(ClipRates), C.c_char_p]
     native.em_player_clip_rates_parse.argtypes = [C.POINTER(ClipRates), C.c_char_p, C.c_size_t]
     native.em_player_float_to_int.argtypes = [C.c_uint32]
@@ -1355,6 +1362,56 @@ def check_release(elf, lib, rng, coverage):
     return cases
 
 
+# 0015C9D0's halfwords: D_00248A00..08 and D_002754C0..DA.
+C9D0_HALVES = tuple(0x248A00 + 2 * i for i in range(5)) + tuple(0x2754C0 + 2 * i for i in range(14))
+
+
+def check_0015C9D0(elf, lib, rng, coverage):
+    """0015C9D0 (0015D100's low-health re-trigger) against the original:
+    the live clip +0x20C at every halfword of its tables (each tested clip
+    and each paired one), the extremes and random clips; the halfword reads
+    and the 001749A0 request are compared, the record must stay as it was,
+    and a failing reader or request is a fault."""
+    values = sorted({elf_s16(elf, a) for a in C9D0_HALVES})
+    values += [-1, -0x8000, 0x7FFF, 0]
+    values += [rng.randrange(-0x8000, 0x8000) for _ in range(reference_mode.pick(96, 12))]
+    cases = 0
+    for clip in values:
+        raw = random_raw(rng)
+        put(raw, 0x20C, clip & 0xFFFF, 2)
+        o = EE(elf)
+        o.write(ACTOR, bytes(raw))
+        o.calls[REQUEST] = lambda o: (o.log.append(('request', o.r[4] & 0xFFFFFFFF, s32(o.r[5]),
+                                                    s32(o.r[6]), o.f[12])), o.r.__setitem__(2, 0))
+        o.run(C9D0, (ACTOR,))
+        coverage |= o.pcs
+        log, reads = [], []
+
+        def t16(_, address, out):
+            reads.append(address)
+            out[0] = elf_s16(elf, address)
+            return 0
+
+        def req(_, actor, c, flags, blend):
+            log.append(('request', ACTOR, c, flags, fbits(blend)))
+            return 0
+        actor = LiveActor()
+        C.memmove(actor.bytes, bytes(raw), 0x320)
+        reader, request = TABLE16(t16), REQUEST_FN(req)
+        assert lib.em_player_0015C9D0(C.byref(actor), reader, None, request, None) == 0, ('0015C9D0', clip)
+        assert log == o.log, ('0015C9D0', clip, log, o.log)
+        assert bytes(actor.bytes) == bytes(raw), ('0015C9D0 wrote the record', clip)
+        assert set(reads) <= set(C9D0_HALVES), ('0015C9D0 read outside its tables', reads)
+        if o.log:                         # a failing reader or request faults
+            assert lib.em_player_0015C9D0(C.byref(actor), TABLE16(lambda _, a, out: -1), None,
+                                          request, None) == -1
+            assert lib.em_player_0015C9D0(C.byref(actor), reader, None,
+                                          REQUEST_FN(lambda *_: -1), None) == -1
+        cases += 1
+    assert lib.em_player_0015C9D0(None, TABLE16(lambda *_: 0), None, REQUEST_FN(lambda *_: 0), None) == -1
+    return cases
+
+
 def check_stop_sound(elf, lib):
     """0011A070's argument decode: the original frees track (arg & 0x7FFF)
     (00121A28 over D_0027E0C0 + track * 0x78) and, with arg & 0x8000, sends
@@ -1493,6 +1550,7 @@ def main():
     helpers = check_float_helpers(elf, lib, rng, coverage)
     major4 = check_major4(elf, lib, coverage)
     release = check_release(elf, lib, rng, coverage)
+    c9d0 = check_0015C9D0(elf, lib, rng, coverage)
     stops = check_stop_sound(elf, lib)
     fail_stop = check_fail_stop(lib, rng)
 
@@ -1513,7 +1571,7 @@ def main():
     reference_mode.banner(*parts)
     print(f'player stage workers: {sum(counts.values())} synthetic + {captured} captured-RAM cases '
           f'({len(images)} images), {helpers} float_to_int/001B1470 values, {major4} 0015B530 '
-          f'cases, {release} 00182DF0 cases, {stops} 0011A070 decodes, 460 clip-rate rows -1..458 (captured +34 agrees on {agree}/{rows_total}), '
+          f'cases, {release} 00182DF0 cases, {c9d0} 0015C9D0 cases, {stops} 0011A070 decodes, 460 clip-rate rows -1..458 (captured +34 agrees on {agree}/{rows_total}), '
           f'{fail_stop} fail-stop checks, {len(REACTION_SCENARIOS)} 0021C440 scenarios, {predicates} '
           f'predicate cases; {instructions} reachable original instructions in {len(EXECUTED)} functions all '
           f'executed ({len(DEAD_BY_VALUE)} value-dead excluded); {time.time() - start:.1f} s')

@@ -17,7 +17,6 @@
  *   00177B80  ledge depth probe (two 0019AB20 ground probes)
  *   0021E650  the +7 countdown of +3C (rumble, sounds)
  *   0015C1F0  player model kind (+2FF), 001CA6E0 bind, +C, +96, 00200890
- *   001EFE00  effect spawned at the actor (001EF9D0), linked to it
  * Inline: 001031E0 (three-word copy), 0011DF78 (sign-bit clear); 00102948
  * (quadword copy) is em_sdk_vu0.h's. Reused directly: 001281C0 float_to_int
  * (em_player_float_to_int, em_player_stage_workers.c).
@@ -25,7 +24,8 @@
  * Not translated here because another lane already did: 0021C120, 0021C190
  * and 0021D490 are em_player_reaction.c's (em_player_reaction_w0021C120 /
  * _w0021C190 / _w0021D490); this module supplies their untranslated callees
- * 001FBD50, 001EFE00 and 0015C1F0.
+ * 001FBD50 and 0015C1F0. 001EFE00 (the effect at the actor) is
+ * em_effect_original_001EFE00, bound live as em_effects_live_001EFE00.
  *
  * Every routine works on the raw 0x320-byte player record
  * (EmPlayerLiveActor) by original offsets. Every original callee that is not
@@ -88,14 +88,6 @@ typedef struct EmPlayerMiscScene {
     const uint32_t *d28A490;
     uint32_t d28A490_count;
 } EmPlayerMiscScene;
-
-/* The bytes of an effect record 001EFE00 writes after 001EF9D0 returned it
- * (the spawn worker points these at the record's own storage). */
-typedef struct EmPlayerMiscEffectView {
-    uint32_t *w24;          /* +0x24: the actor's +0x14 word */
-    float *pos;             /* +0xB0..+0xBF: the actor's +0xB0 quadword */
-    float *rot;             /* +0xC0..+0xCF: the actor's +0xC0 quadword */
-} EmPlayerMiscEffectView;
 
 /* The original callees that are not translated here. Each returns 0, or a
  * negative value on a fault; *result is the original's return value. */
@@ -178,12 +170,6 @@ typedef struct EmPlayerMiscWorkers {
     /* 001C6150(model): the byte at model + 8. `model` is the +44 word. */
     int (*bone_count)(void *context, uint32_t model, uint8_t *count);
     int (*w00200890)(void *context);                                                /* 00200890() */
-
-    /* ---- 001EFE00 ---- */
-    /* 001EF9D0(id, pos, f12): *node is its v0 (0: nothing spawned); when it
-     * is nonzero, *view must point at the record's +24/+B0/+C0 storage. */
-    int (*spawn)(void *context, uint32_t id, const float pos[4], float f12, uint32_t *node,
-                 EmPlayerMiscEffectView *view);
 } EmPlayerMiscWorkers;
 
 /* The context of every routine and adapter below. */
@@ -239,9 +225,6 @@ int em_player_misc_00177B80(EmPlayerMiscHost *h, EmPlayerLiveActor *actor,
                             const EmPlayerRecoveryLedge *ledge, float y, int32_t *result);
 int em_player_misc_0021E650(EmPlayerMiscHost *h, EmPlayerLiveActor *actor);
 int em_player_misc_0015C1F0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor);
-/* 001EFE00(id, p): *node = the spawned record (0 when none). */
-int em_player_misc_001EFE00(EmPlayerMiscHost *h, uint32_t id, EmPlayerLiveActor *actor,
-                            uint32_t *node);
 
 /* ---- 00122BB8 over the one shared state (em_random_next) ---- */
 int em_player_misc_random(void *context, uint32_t *value);   /* context unused */
@@ -290,10 +273,5 @@ int em_player_misc_w_0021E650(void *context, EmPlayerLiveActor *actor);
 /* 0015C1F0(p): EmPlayerMajor2Workers.w0015C1F0 and
  * EmPlayerReactionWorkers.model_refresh. */
 int em_player_misc_w_0015C1F0(void *context, EmPlayerLiveActor *actor);
-/* 001EFE00(id, p): EmPlayerStageCallees.w001EFE00 / EmPlayerMajor2Workers
- * shape (result not returned) and EmPlayerReactionWorkers.attach (the
- * record handle in *handle). */
-int em_player_misc_w_001EFE00(void *context, uint32_t id, EmPlayerLiveActor *actor);
-int em_player_misc_w_attach(void *context, EmPlayerLiveActor *actor, uint32_t id, uint32_t *handle);
 
 #endif

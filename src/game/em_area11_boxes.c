@@ -606,12 +606,12 @@ static int h_random(void *ctx, uint32_t *r)
     return 0;
 }
 
-/* 001FBD50(self, id, 0, radius) as the items' take cue plays it. */
+/* 001FBD50(self, id, flat, radius) at the owner's current +0xB0 (a nonzero
+ * flat byte measures the distance in x/z, em_sfx). */
 static int h_sound3d(void *ctx, uint16_t id, int32_t mode, float radius)
 {
     Box *b = ctx;
-    if (mode != 0) return unbound("001FBD50 with a nonzero a2 (the flat cue)");
-    em_sfx_play_at(id, b->actor->pos, radius);
+    (void)em_sfx_play_at_mode_track(id, b->drum ? b->drum_state.position : b->crate.position, mode, radius);
     return 0;
 }
 
@@ -814,8 +814,17 @@ static int h_set_taken(void *c, uint8_t puid)
     (void)c;
     return em_area11_bindings_001B1190(puid) < 0 ? report("001B1190 faulted (the taken bit)") : 0;
 }
+/* 0019A570(0x700038A0, 0x700038B0, mask, id): the segment query over the
+ * area's collision world and its one scratchpad state
+ * (em_coll_segment_walkers, em_collision_world_segment). */
 static int h_segment(void *c, const float f[3], const float t[3], int32_t mask, int32_t ex)
-{ (void)c; (void)f; (void)t; (void)mask; (void)ex; return unbound("0019A570 (the drum's break test)"); }
+{
+    (void)c;
+    const EmCollSegment *seg = em_collision_world_segment();
+    if (!seg) return unbound("0019A570 (the drum's break test) without the area's collision world");
+    const int r = em_coll_segment_0019A570(seg, f, t, (unsigned)mask, ex);
+    return r < 0 ? report("0019A570 faulted (em_coll_segment_walkers)") : r;
+}
 /* 001F0460(preset, M) and 001EFD20(id, pos) over the effect binder. */
 static int h_effect_matrix(void *c, int32_t preset, const float m[16])
 {
@@ -827,8 +836,22 @@ static int h_effect_point(void *c, uint32_t id, const float p[4])
     (void)c;
     return em_effects_live_001EFD20(id, p) < 0 ? report("001EFD20 faulted (em_effects_live)") : 0;
 }
+/* 0019AD00(self, point, mode) over the area's move world and scratch
+ * (em_coll_move_original): the query actor is the drum (+0x00, +0x02, +0x52,
+ * +0x14) at its current +0xB0; with mode bit 31 the response moves that
+ * +0xB0's x / z (em_coll_move_owner_move). */
 static int h_sweep(void *c, const float p[3], uint32_t mode)
-{ (void)c; (void)p; (void)mode; return unbound("0019AD00 (the drum's flight sweep)"); }
+{
+    Box *b = c;
+    if (!b || !b->drum || !b->actor) return report("0019AD00 outside a drum");
+    if (b->actor->status != b->drum_state.status)
+        return report("0019AD00: the drum's +0x00 changed before the query (the record view is stale)");
+    EmCollMoveOwner o = {em_collision_world_move(), em_collision_world_move_scratch(), b->actor,
+                         b->drum_state.position};
+    if (!o.world || !o.scratch) return unbound("0019AD00 (the drum's flight sweep) without the area's collision world");
+    const int r = em_coll_move_owner_move(&o, p, mode);
+    return r < 0 ? report("0019AD00 faulted (em_coll_move_original)") : r;
+}
 
 /* --------------------------------------------------------------- public */
 

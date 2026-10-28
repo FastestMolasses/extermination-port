@@ -26,7 +26,6 @@ and bound live in AREA11** (em_player_closure_live.c). Section 4 lists what the 
 | 00177B80 | ledge depth probe | NEARMISS: the `.s` |
 | 0021E650 | the +7 countdown over the clip clock +3C | byte-matched C |
 | 0015C1F0 | player model kind (+2FF) and rebind | NEARMISS: the `.s` |
-| 001EFE00 | effect spawned at the actor and linked to it | asm body: the instruction words |
 
 Three routines on the task list are **not translated again**:
 - 0021C120, 0021C190 and 0021D490 are already translated and
@@ -34,8 +33,12 @@ Three routines on the task list are **not translated again**:
   `em_player_reaction_w0021C120`, `_w0021C190` and `_w0021D490`
   (docs/PLAYER_REACTION.md).
 - This module supplies the callees those three did not have:
-  001FBD50 (the `sound` slot), 001EFE00 (the `attach` slot) and 0015C1F0
-  (the `model_refresh` slot).
+  001FBD50 (the `sound` slot) and 0015C1F0 (the `model_refresh` slot).
+  Their `attach` slot, 001EFE00, is not here: its one translation is
+  `em_effect_original_001EFE00` (byte-matched C, EFFECT_ORIGINAL.md),
+  bound live as `em_effects_live_001EFE00` by both the player stage and
+  the closure's `w_attach` (since the g-lane integration, 2026-10-28; this
+  module's earlier instruction-word translation was removed then).
 
 ## 1. What the original does
 
@@ -238,20 +241,9 @@ em_scene_bindings_player_001CA6E0 (the spawn's em_roger_actor_001CA6E0
 binding), `bone_count` = em_player_draw_live_001C6150, `w00200890` = the
 module loader's send of the player's texture packet
 (em_scene_bindings_00200890, MODULE_LOADER.md), with D_00810C60 from the
-canonical progress byte and D_0028A490 the Roger export's table. Its
-001EFE00 (`attach`) runs too: `spawn` = em_effects_live_001EF9D0 with the
-spawned node's +0x24 / +0xB0 / +0xC0 as the binder's own fields
+canonical progress byte and D_0028A490 the Roger export's table. The
+closure's 001EFE00 (`attach`) runs too, as em_effects_live_001EFE00
 (EFFECT_MANAGER.md 8.2).
-
-### 001EFE00(id, p): an effect at the actor
-
-1. Copies +B0 to the stack. For id 0x80000027, it adds 10 to y.
-2. Calls `001EF9D0(id, &copy, 1.0)`.
-3. On a nonzero record r:
-   - `r+24 = p+14`
-   - `r+B0..BF = p+B0..BF`
-   - `r+C0..CF = p+C0..CF`
-4. Returns r.
 
 ## 2. The translation (`src/game/em_player_misc_workers.c/.h`)
 
@@ -321,8 +313,7 @@ and VU0 macro op through `tools/ee_float_model.py`.
   - all 0x320 record bytes;
   - every scratchpad word;
   - the return values;
-  - 001FBF50's two gains;
-  - 001EFE00's record bytes.
+  - 001FBF50's two gains.
 - **Adapters.** Every second case runs again through the adapter a consumer
   binds, and is compared the same way.
 - **Fault-stop and refusal.** Every third case cuts one worker call with a
@@ -437,8 +428,6 @@ The context of every adapter is one `EmPlayerMiscHost`. The binder:
 | `EmPlayerRecoveryWorkers.depth` | `em_player_misc_w_depth` |
 | `EmPlayerMajor2Workers.w0021E650` | `em_player_misc_w_0021E650` |
 | `EmPlayerMajor2Workers.w0015C1F0`, `EmPlayerReactionWorkers.model_refresh` | `em_player_misc_w_0015C1F0` |
-| `EmPlayerStageCallees.w001EFE00`, `EmPlayerMajor2Workers.w001EFE00` | `em_player_misc_w_001EFE00` |
-| `EmPlayerReactionWorkers.attach` | `em_player_misc_w_attach` |
 | `random` of `EmPlayerStepWorkers`, `EmPlayerMajor2Workers`, `EmPlayerReactionWorkers`, `EmPlayerRecoveryWorkers`, `EmCrateOriginalHooks`, `EmDrumOriginalHooks` (u32 out) | `em_player_misc_random` |
 | `w_00122BB8` of `EmEffectOriginalWorkers`, `EmHeadSpriteOriginalWorkers`, `EmStreamLanesWorkers`, `EmStatusSceneWorkers` (i32 out) | `em_player_misc_random_i32` |
 
@@ -500,8 +489,8 @@ shares one scratch image must pass the same storage.
 ## 5. Limits and open items
 
 - **No route evidence** for the ledge, hang and model routines: 00182250,
-  0017E250, 0017E510, 0017E7C0, 00177B80, 0015C1F0, 0021E650, 001EFE00 and
-  the side clips. No route beat reaches them. Their evidence is the unit
+  0017E250, 0017E510, 0017E7C0, 00177B80, 0015C1F0, 0021E650 and the side
+  clips. No route beat reaches them. Their evidence is the unit
   oracle over randomized records with scripted callees: the original
   instructions, both ways of every branch.
 - **World mode runs the player stage only.** No camera stage, owners or

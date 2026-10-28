@@ -1310,6 +1310,132 @@ int em_player_00183910(void *context, EmPlayerLiveActor *a)
     return 0;
 }
 
+/* 001833F0 / 00183440 (em_player_floor.h). 00183440's constants are the
+ * routine's own words 1.0 and 4.0. */
+int em_player_001833F0(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerMajor5ClimbWorkers *w = context;
+    if (!w || !a || !w->climb || !w->spad3B8D) return -1;
+    em_live_set_u8(a, 0x23F, 2);
+    em_live_set_u32(a, 0x24C, 0);
+    STAGE_CALL(w->climb(w->context, a));
+    if (em_live_u8(a, 4) == 1) *w->spad3B8D = 0;
+    return 0;
+}
+
+int em_player_00183440(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerMajor5ClimbWorkers *w = context;
+    if (!w || !a || !w->climb || !w->spad3B8D) return -1;
+    em_live_set_u8(a, 0x23F, 2);
+    em_live_set_u32(a, 0x24C, 1);
+    STAGE_CALL(w->climb(w->context, a));
+    if (!(em_live_u32(a, 0x200) & 0x1000u)) return 0;
+    const uint32_t t = em_ee_add_bits(em_live_u32(a, 0x268), UINT32_C(0x3F800000));
+    em_live_set_u32(a, 0x268, t);
+    if (em_ee_c_lt_bits(t, UINT32_C(0x40800000))) return 0;
+    *w->spad3B8D = 0;
+    em_live_set_u8(a, 4, 1);
+    em_live_set_u8(a, 5, 0xC);
+    em_live_set_u8(a, 6, 0);
+    em_live_set_u8(a, 0x1F0, 0x17);
+    return 0;
+}
+
+/* 001834E0's per-frame step: (target - +0xB0..+0xB8) / frames into
+ * +0x2E0..+0x2E8, lane by lane. */
+static int glide_step(const EmPlayerMajor5GlideWorkers *w, EmPlayerLiveActor *a, uint32_t target,
+                      uint32_t frames)
+{
+    for (unsigned k = 0; k < 3; ++k) {
+        uint32_t t;
+        STAGE_CALL(w->table32(w->context, target + 4u * k, &t));
+        em_live_set_u32(a, 0x2E0 + 4u * k,
+                        em_ee_div_bits(em_ee_sub_bits(t, em_live_u32(a, 0xB0 + 4u * k)), frames));
+    }
+    return 0;
+}
+
+static int glide_snap(const EmPlayerMajor5GlideWorkers *w, EmPlayerLiveActor *a, uint32_t target)
+{
+    for (unsigned k = 0; k < 3; ++k) {
+        uint32_t t;
+        STAGE_CALL(w->table32(w->context, target + 4u * k, &t));
+        em_live_set_u32(a, 0xB0 + 4u * k, t);
+    }
+    return 0;
+}
+
+static void glide_move(EmPlayerLiveActor *a)
+{
+    for (unsigned k = 0; k < 3; ++k)
+        em_live_set_u32(a, 0xB0 + 4u * k,
+                        em_ee_add_bits(em_live_u32(a, 0xB0 + 4u * k), em_live_u32(a, 0x2E0 + 4u * k)));
+}
+
+/* 001834E0 (em_player_floor.h). The constants are the routine's own words:
+ * 8.0, 4.0, 120.0 (0x42F00000), 30.0 (0x41F00000) and -0.2 (0xBE4CCCCD). */
+int em_player_001834E0(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerMajor5GlideWorkers *w = context;
+    if (!w || !a || !w->request || !w->crawl || !w->drop || !w->floor || !w->table32 || !w->spad3B8D)
+        return -1;
+    int16_t timer;
+    switch (em_live_u8(a, 6)) {
+    case 0:
+        em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+        em_live_set_u8(a, 7, 0);
+        STAGE_CALL(w->request(w->context, a, 0x180, 0, 8.0f));
+        STAGE_CALL(w->crawl(w->context, a, 1));
+        em_live_set_u16(a, 0x28, 0x78);
+        return glide_step(w, a, UINT32_C(0x002487B0), UINT32_C(0x42F00000));
+    case 1:
+        timer = (int16_t)em_live_u16(a, 0x28);
+        em_live_set_u16(a, 0x28, (uint16_t)(timer - 1));
+        if (timer != 0) {
+            glide_move(a);
+            return 0;
+        }
+        em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+        STAGE_CALL(glide_snap(w, a, UINT32_C(0x002487B0)));
+        em_live_set_u16(a, 0x28, 0x1E);
+        return glide_step(w, a, UINT32_C(0x002487C0), UINT32_C(0x41F00000));
+    case 2:
+        timer = (int16_t)em_live_u16(a, 0x28);
+        em_live_set_u16(a, 0x28, (uint16_t)(timer - 1));
+        if (timer != 0) {
+            glide_move(a);
+            return 0;
+        }
+        em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+        return glide_snap(w, a, UINT32_C(0x002487C0));
+    case 3:
+        em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+        return w->request(w->context, a, 0x181, 0, 4.0f) < 0 ? -1 : 0;
+    case 4:
+        if (em_live_u32(a, 0x200) & 0x1000u) {
+            em_live_set_u8(a, 6, (uint8_t)(em_live_u8(a, 6) + 1));
+            em_live_set_u32(a, 0x2EC, UINT32_C(0xBE4CCCCD));
+        }
+        return 0;
+    case 5: {
+        STAGE_CALL(w->drop(w->context, a, 0x2EC));
+        int done = 0;
+        STAGE_CALL(w->floor(w->context, a, 0, &done));
+        if (done != 0) {
+            *w->spad3B8D = 0;
+            em_live_set_u8(a, 4, 1);
+            em_live_set_u8(a, 5, 0);
+            em_live_set_u8(a, 6, 0);
+            em_live_set_u8(a, 0x1F0, 0);
+        }
+        return 0;
+    }
+    default:
+        return 0;
+    }
+}
+
 int em_player_stage_0015D460(void *context, EmPlayerLiveActor *a)
 {
     const EmPlayerStageFade *f = context;

@@ -340,10 +340,13 @@ mistake was found in the instruction-tested cores. Findings:
 5. **Superseded: the capture plan.** The branch's four requested captures
    were recorded by the C10 AIM lane (decomp CAPTURES_C10.md, twelve beats
    under build/aimfire/capture/); no PCSX2 run belongs to this module.
-6. **Duplicate translation noted.** 001EFE00 has two verified translations:
-   em_player_misc_001EFE00 (the player's hit / death paths, unbound) and
-   em_area01_side_001EFE00 (bound here). Whichever binds the damage paths
-   (audit item 13) must use the same owner.
+6. **Two forms of 001EFE00.** em_effect_original_001EFE00 (byte-matched C;
+   the player stage's and the closure's hit / death paths through
+   em_effects_live_001EFE00, since the g-lane integration 2026-10-28, which
+   removed the third, em_player_misc_001EFE00) and em_area01_side_001EFE00
+   (the instruction-level form bound here). Both store the node's +0x24 in
+   the same owner: the effect slot's one +0x24 word (the node's `w24`, which
+   em_effects_live_node_field exposes).
 7. **Header placement.** em_effect_original.h's new declaration moved inside
    its `extern "C"` block.
 8. **Kept, with the reason recorded:** the private pose bank, the two

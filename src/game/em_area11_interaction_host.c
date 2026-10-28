@@ -887,6 +887,21 @@ int em_area11_interaction_host_face_tick_001D0C70(void)
     return em_face_slot_001D0C70(&slot) < 0 ? fail("001D0C70 (the face slot at the player's +0x90)") : 0;
 }
 
+int em_area11_interaction_host_data16(uint32_t address, int16_t *value)
+{
+    if (!value || !world.loaded || !world.status) return -1;
+    EmStatusPagesLive *pages = em_status_runtime_pages(world.status);
+    const EmGsDataWindow *w;
+    const unsigned n = pages ? em_gs_texture_windows(em_status_pages_live_gs(pages), &w) : 0;
+    for (unsigned i = 0; i < n; ++i)
+        if (w[i].size >= 2u && address >= w[i].address && address - w[i].address <= w[i].size - 2u) {
+            const uint8_t *p = w[i].bytes + (address - w[i].address);
+            *value = (int16_t)(uint16_t)(p[0] | p[1] << 8);
+            return 0;
+        }
+    return -1;
+}
+
 /* The player stage's 00182DF0 released the owner's player (the panel's,
  * the terminal's, an item's or a script owner's): its token ends
  * (em_interaction_runtime_release). */

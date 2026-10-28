@@ -602,8 +602,9 @@ mechanism still lacks; in AREA11 it lacks nothing):
   Effects the closure spawns (001EFD90) run the live effect binder
   (em_effects_live, census L26; EFFECT_MANAGER.md section 8). The attach
   001EFE00 (the reaction's and major2's `attach` / `w001EFE00`) runs
-  em_player_misc_001EFE00 since lane g1: its 001EF9D0 is the binder's
-  spawn and its node view (+0x24, +0xB0, +0xC0) the binder's own fields.
+  em_effects_live_001EFE00 (em_effect_original_001EFE00, the one
+  translation, as the player stage also binds it) since the g-lane
+  integration; the node's +0x24 is the binder's own slot word.
   Only the hit and death paths call it; the records they spawn whose
   callback has no binding fault in the binder (EFFECT_MANAGER.md 8.2).
 - **Stand-ins that remain.**

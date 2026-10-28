@@ -6,7 +6,7 @@
  * 0017E0D0, 0017E150, 0017E1D0, 0017FF80, 00182AF0, 0021E650 and 00122BB8,
  * checked against their .s for the float operand order; the .s of the
  * NEARMISS 0017E250, 00177B80 and 0015C1F0; the instruction words of the
- * asm-body 0017DFB0 and 001EFE00. Comment addresses are the original
+ * asm-body 0017DFB0. Comment addresses are the original
  * instructions a line translates. Float arithmetic is em_ee_float.h on raw
  * binary32 bits. */
 #include "game/em_player_misc_workers.h"
@@ -124,7 +124,6 @@ static float *field(EmPlayerLiveActor *a, unsigned at) { return (float *)(void *
 #define N_LAND_SOUND  (UINT32_C(1) << 28)
 #define N_0021D490    (UINT32_C(1) << 29)
 #define N_MODEL       (UINT32_C(1) << 30)
-#define N_SPAWN       (UINT32_C(1) << 31)
 
 /* 001FBF50 and 001B15D0; 001FBD50 adds the submit. */
 #define N_GAIN (N_IDENTITY | N_EULER | N_TRANSFORM | N_VSUB | N_NORMALIZE | N_DOT | N_SINE | \
@@ -156,7 +155,6 @@ static int bound(const EmPlayerMiscHost *h, uint32_t need, int scene, int scratc
         { N_CUE, w->cue != NULL }, { N_LAND_SOUND, w->land_sound != NULL },
         { N_0021D490, w->w0021D490 != NULL },
         { N_MODEL, w->bind_model != NULL && w->bone_count != NULL && w->w00200890 != NULL },
-        { N_SPAWN, w->spawn != NULL },
     };
     for (size_t i = 0; i < sizeof table / sizeof table[0]; ++i)
         if ((need & table[i].bit) && !table[i].ok) return 0;
@@ -828,28 +826,6 @@ int em_player_misc_0015C1F0(EmPlayerMiscHost *h, EmPlayerLiveActor *a)
     return w->w00200890(c);                                        /* 0015C2F0 */
 }
 
-/* ---- 001EFE00 ------------------------------------------------------------ */
-
-int em_player_misc_001EFE00(EmPlayerMiscHost *h, uint32_t id, EmPlayerLiveActor *a, uint32_t *node)
-{
-    if (!a || !node || !bound(h, N_SPAWN, 0, 0)) return -1;
-    const EmPlayerMiscWorkers *w = h->workers;
-    float pos[4];
-    em_sdk_vu0_00102948(pos, a->bytes + 0xB0);                     /* 001EFE20: 00102948(sp+30, p+B0) */
-    if (id == UINT32_C(0x80000027))                                /* 001EFE2C */
-        set_word(pos, 1, em_ee_add_bits(word(pos, 1), K_10));      /* 001EFE3C..001EFE4C */
-    EmPlayerMiscEffectView view = { NULL, NULL, NULL };
-    uint32_t spawned = 0;
-    FAULT(w->spawn(w->context, id, pos, bfloat(K_1), &spawned, &view)); /* 001EFE60 */
-    *node = spawned;
-    if (spawned == 0) return 0;                                    /* 001EFE6C */
-    if (!view.w24 || !view.pos || !view.rot) return -1;
-    *view.w24 = w32(a, 0x14);                                      /* 001EFE70 / 001EFE80 */
-    em_sdk_vu0_00102948(view.pos, a->bytes + 0xB0);                /* 001EFE7C: 00102948 */
-    em_sdk_vu0_00102948(view.rot, a->bytes + 0xC0);                /* 001EFE88: 00102948 */
-    return 0;
-}
-
 /* ---- 00122BB8 ------------------------------------------------------------ */
 
 /* 00122BB8: the state word at (*D_0024295C) + 0x58 becomes state *
@@ -996,16 +972,4 @@ int em_player_misc_w_0021E650(void *context, EmPlayerLiveActor *actor)
 int em_player_misc_w_0015C1F0(void *context, EmPlayerLiveActor *actor)
 {
     return em_player_misc_0015C1F0(context, actor);
-}
-
-int em_player_misc_w_001EFE00(void *context, uint32_t id, EmPlayerLiveActor *actor)
-{
-    uint32_t node = 0;
-    return em_player_misc_001EFE00(context, id, actor, &node);
-}
-
-int em_player_misc_w_attach(void *context, EmPlayerLiveActor *actor, uint32_t id, uint32_t *handle)
-{
-    if (!handle) return -1;
-    return em_player_misc_001EFE00(context, id, actor, handle);
 }

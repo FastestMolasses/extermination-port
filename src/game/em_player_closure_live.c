@@ -613,11 +613,11 @@ static int w_effect_bits(void *c, uint32_t id, const uint32_t point[4], const ui
     memcpy(r, at, sizeof r);
     return spawn_001EFD90(id, p, r);
 }
-/* 001EFE00(id, actor): em_player_misc_001EFE00, its one translation, over
- * the misc host, whose spawn worker (mw_spawn below) is 001EF9D0 on the
- * effect binder (em_effects_live, census L26) with the spawned node's +0x24,
- * +0xB0 and +0xC0 as the binder's own fields. The +0x24 store (the actor's
- * +0x14 word) is then certified to the binder (node_written). Its callers
+/* 001EFE00(id, actor): em_effect_original_001EFE00, its one translation, on
+ * the effect binder (em_effects_live_001EFE00, census L26, as the player
+ * stage binds it): the actor's +0xB0 / +0xC0 quadwords and +0x14 word go in;
+ * the node's +0x24 (the +0x14 word) is the node's w24, which the binder
+ * keeps as that slot's one +0x24 word (em_effects_live_node_field). Its callers
  * are the hit and death paths: 0021C120 (0x80000040), 0021C190 and 0021C200
  * (0x80000048), 0021CD9C (0x80000044, surface mode +23B 0xA, which the
  * AREA11 grid census does not hold) and major2's 0x80000051. A record whose
@@ -628,10 +628,13 @@ static int w_attach(void *c, EmPlayerLiveActor *a, uint32_t id, uint32_t *handle
     (void)c;
     if (!handle) return -1;
     *handle = 0;
+    if (!a) return unbound("001EFE00 without the record");
+    float b0[4], c0[4];
+    memcpy(b0, a->bytes + 0xB0, sizeof b0);
+    memcpy(c0, a->bytes + 0xC0, sizeof c0);
     uint32_t node = 0;
-    if (em_player_misc_001EFE00(&L.misc, id, a, &node) < 0) return -1;
-    if (node && em_effects_live_node_written(node + 0x24u, 4) < 0)
-        return unbound("001EFE00's +0x24 store on the spawned node (em_effects_live refused it)");
+    if (em_effects_live_001EFE00(id, b0, c0, em_live_u32(a, 0x14), &node) < 0)
+        return unbound("001EFE00 (the effect binder faulted; em_effects_live)");
     *handle = node;
     return 0;
 }
@@ -2195,30 +2198,6 @@ static int mw_00200890(void *c)
         return unbound("00200890 (0015C1F0: the module loader refused the player's texture packet)");
     return 0;
 }
-/* 001EF9D0(id, pos, f12) from 001EFE00 (em_player_misc_001EFE00): the
- * effect binder's spawn (em_effects_live_001EF9D0, the one translation),
- * returning the node address (0: nothing allocated) and, for a node, the
- * view 001EFE00 stores through: the binder's own +0x24 word and +0xB0 /
- * +0xC0 quadwords of that node (em_effects_live_node_field). */
-static int mw_spawn(void *c, uint32_t id, const float pos[4], float f12, uint32_t *node,
-                    EmPlayerMiscEffectView *view)
-{
-    (void)c;
-    if (!node || !view) return -1;
-    *node = 0;
-    uint32_t spawned = 0;
-    if (em_effects_live_001EF9D0(id, pos, fbits(f12), &spawned) < 0)
-        return unbound("001EF9D0 from 001EFE00 (the effect binder faulted; em_effects_live)");
-    *node = spawned;
-    if (!spawned) return 0;
-    view->w24 = em_effects_live_node_field(spawned + 0x24u, 4, 1);
-    view->pos = em_effects_live_node_field(spawned + 0xB0u, 16, 1);
-    view->rot = em_effects_live_node_field(spawned + 0xC0u, 16, 1);
-    if (!view->w24 || !view->pos || !view->rot)
-        return unbound("001EFE00's node view (+0x24 / +0xB0 / +0xC0) of the node 001EF9D0 spawned");
-    return 0;
-}
-
 static int misc_scene_refresh(void)
 {
     EmPlayerMiscScene *s = &L.misc_scene;
@@ -2461,7 +2440,6 @@ static void bind_misc(void)
     w->ledge_top = mw_ledge_top; w->blocked = mw_blocked;
     w->cue = w_rumble; w->land_sound = mw_land_sound; w->w0021D490 = w_0021D490;
     w->bind_model = mw_bind_model; w->bone_count = mw_bone_count; w->w00200890 = mw_00200890;
-    w->spawn = mw_spawn;
     L.misc = (EmPlayerMiscHost){ &L.misc_w, &L.misc_scene, &L.misc_scratch };
 }
 

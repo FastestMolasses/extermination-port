@@ -548,6 +548,7 @@ static int reaction_body(EmPlayerStageHost *hs, EmPlayerLiveActor *a, int *s)
         if (record) {                                        /* 0021CBB0: copy_qw4 + the +104 word */
             memcpy(record + 0xD0, a->bytes + 0xD0, 0x40);
             memcpy(record + 0x104, a->bytes + 0x250, 4);
+            if (c->record_written) CALL(c->record_written(c->context, record));
         }
         CALL(hit_exit(hs, a, 2));
         *s = 0x81;
@@ -912,6 +913,35 @@ int em_player_0015C700(EmPlayerLiveActor *a, uint32_t health_bits, uint32_t d810
         const uint32_t address = i == 0 && (d8106C8 & 4) ? 0x00248A08u : pairs[i][1];
         if (table16(table_context, address, &normal) < 0) return -1;
         return request(request_context, a, normal, 0, 1.0f) < 0 ? -1 : 0;
+    }
+    return 0;
+}
+
+/* ---- 0015C9D0 ------------------------------------------------------------------- */
+
+int em_player_0015C9D0(EmPlayerLiveActor *a, EmPlayerTable16 table16, void *table_context,
+                       EmPlayerClipRequest request, void *request_context)
+{
+    if (!a || !table16 || !request) return -1;
+    const int16_t clip = (int16_t)h(a, 0x20C);
+    /* {tested halfword(s), the halfword requested}: the first row tests
+     * D_00248A00, then D_00248A08 (the || of the decomp C). */
+    static const uint32_t rows[9][3] = {
+        {0x00248A00u, 0x00248A08u, 0x00248A02u}, {0x00248A04u, 0, 0x00248A06u},
+        {0x002754C0u, 0, 0x002754C2u}, {0x002754C4u, 0, 0x002754C6u}, {0x002754C8u, 0, 0x002754CAu},
+        {0x002754CCu, 0, 0x002754CEu}, {0x002754D0u, 0, 0x002754D2u}, {0x002754D4u, 0, 0x002754D6u},
+        {0x002754D8u, 0, 0x002754DAu}};
+    for (unsigned i = 0; i < 9; ++i) {
+        int matched = 0;
+        for (unsigned k = 0; k < 2 && rows[i][k] && !matched; ++k) {
+            int16_t value;
+            if (table16(table_context, rows[i][k], &value) < 0) return -1;
+            matched = clip == value;
+        }
+        if (!matched) continue;
+        int16_t pair;
+        if (table16(table_context, rows[i][2], &pair) < 0) return -1;
+        return request(request_context, a, pair, 0, 1.0f) < 0 ? -1 : 0;
     }
     return 0;
 }

@@ -92,7 +92,7 @@ static void refusals(void)
         if(test==8) { assert(em_area01_actor_view_commit(&av)==0);
                      uint32_t out;assert(em_area01_actor_view_snapshot(&av,node+0x24,4,&out)<0);
                      assert(!em_effects_live_node_field(node+0x24,4,0)); continue; }
-        assert(av.fault && !S.slot[0].parent24_valid);
+        assert(av.fault && !S.slot[0].e.w24_written);
     }
     reset_effects(0x21AAC0);EmArea01RuntimeHost h={.bytes=operand};
     EmArea01Call c={.function=0x1EFD90,.na=3,.a={0x80000000,0x1E00001,0x1E00010}};

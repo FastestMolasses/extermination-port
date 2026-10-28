@@ -400,12 +400,14 @@ handlers em_effect_kinds does not translate split in two:
   | 001EBBB0 (0x8000000E) | 001F0460's preset 0 | on the route 001F0460 (the footstep decal) faults before it (below); the shots' ring decals (the impact marker's 001F0460, through the aim / fire composition) reach it in the AIM side runs, where it is translated (EFFECT_KINDS.md 4.1, 2026-10-02) |
   | 001EF510 (0x09) and every other subtype | no first-level spawn site | — |
 
-**001EFE00** (em_player_misc_001EFE00; `w_attach` / `mw_spawn` in
-em_player_closure_live.c) runs since lane g1 (2026-10-28): `mw_spawn` is
-em_effects_live_001EF9D0 and the node view (+0x24, +0xB0, +0xC0) is
-em_effects_live_node_field over the spawned node, the +0x24 store certified
-with em_effects_live_node_written. The stage's w001EFE00
-(em_player_stage_live) still faults. Its callers are the hit and death paths (0021C120 0x80000040, 0021C200
+**001EFE00** has one translation, em_effect_original_001EFE00 (byte-matched
+C), live as em_effects_live_001EFE00 for both its player callers since the
+g-lane integration (2026-10-28): the closure's `w_attach`
+(em_player_closure_live.c) and the stage's w001EFE00
+(em_player_stage_live.c). The node's +0x24 (the owner's +0x14) is the
+node's `w24` / `w24_written`, which is the slot's one +0x24 word: an owner
+that stores +0x24 through em_effects_live_node_field (and certifies it with
+em_effects_live_node_written) writes the same word. Its closure callers are the hit and death paths (0021C120 0x80000040, 0021C200
 0x80000048, 0021CD9C 0x80000044 on +23B 0xA, major2's 0x80000051); the
 DAMAGE side runs (the flame's hits, the death, the landing hit, the pit)
 reach none of them. Since chain step DAMAGE the flame's contact
