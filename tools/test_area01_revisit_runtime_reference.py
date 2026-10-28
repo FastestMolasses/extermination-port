@@ -192,6 +192,12 @@ def main():
         for node in RV.owners(ram, 0x825950):
             cases.append((beat, 0x825910, (node, node + 0x1F0, 0x82ACD0), ()))
             cases.append((beat, 0x826010, (node,), ()))
+        # The first-visit light owner 001C50B0 takes its state-1 path on the
+        # revisit (D_0081075D is 0xFF after AREA00): its colour local at
+        # sp - 0x10 is the composition's stack (em_area01_math_core).
+        for node in RV.owners(ram, 0x1C50B0):
+            for state in (0, 1):
+                cases.append((beat, 0x1C50B0, (node,), ((node + 4, bytes((state,))),)))
     capture_count = len(cases)
 
     beat = 'a01r_00_to_train_room'

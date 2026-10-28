@@ -30,7 +30,13 @@ static uint8_t *where_rw(EmA01Math *m, uint32_t a, uint32_t size, int write)
             canonical -= EM_A01M_ACCEL;
         else if (a >= EM_A01M_UNCACHED && a < EM_A01M_UNCACHED + 0x10000000u)
             canonical -= EM_A01M_UNCACHED;
-        else if (a >= EM_A01M_UNCACHED && !scratch) {
+        /* Not EE memory faults, except the composition's call stack
+         * 0x7F000000..0x80000000 (em_area01_live's private locals, the
+         * reference harnesses' stack): the original's stack locals (001C50B0
+         * state 1's colour at sp - 0x10) live there and go to the view like
+         * any other byte. */
+        else if (a >= EM_A01M_UNCACHED && !scratch &&
+                 !(a >= 0x7F000000u && a - 0x7F000000u <= 0x01000000u - size)) {
             fault(m, a, EM_A01M_FAULT_ADDRESS);
             return NULL;
         }
