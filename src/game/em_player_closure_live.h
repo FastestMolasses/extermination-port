@@ -28,7 +28,8 @@
 #include "game/em_pose_host_workers.h"
 
 /* Fill b->stage.state[] / state2[] with the closure's and the Use roots'
- * callbacks, the 0015B530 routines 00162DB0 / 00163B40 / 001837B0 in *major4, the
+ * callbacks, the 0015B530 routines 00162DB0 / 00163B40 / 001837B0 / 001838B0 /
+ * 00183910 in *major4, the
  * 0015B610 routine 00183250 (the arrival walk-out) in *major5, the
  * pose host's 00178910 callees, and the Use chain's workers. `stage_host`
  * is the stage workers' host (0021C270 / 0021C350 / 00174A50 run on it),

@@ -11,6 +11,9 @@ player onto a ladder:
 - its helpers 00176F90, 00177030, 00180300, 00199DB0 and 00199FA0;
 - 00178390, the surface-0x3D ledge placement built on 00199FA0 (the
   closure lanes' `ledge_3D` / `grab_check` worker);
+- 001782A0, the ledge-top grab built on 00199FA0 / 00199DB0 (the closure
+  lanes' `grab` / `ledge_3B` / `ledge_top` worker), and 00178080, the column
+  lock-on scan (the ladder climb's `hit_react` worker);
 - 00165B60, state 0xB (the ladder entry), with 00176DC0, 0017FC80 and
   00182A70;
 - 001B61C0, the pad vibration request.
@@ -172,11 +175,54 @@ Byte-matched decomp C (`src/func_00178390.c`), translated as
   ladder climb's 00180BA0. `em_player_closure_live.c` binds it as those
   lanes' `ledge_3D` / `grab_check` worker over the probe state the last
   sweep left (the same fill as the 00199FA0 `hit_probe` worker). A cell
-  record, or a grid node from an EMCL without the axis section, with
-  attribute 0x3D still faults in that fill (it is one of 0015D4C0's action
-  attributes), although 00178390 itself reads only +0x24 / +0x2C.
+  record (or a grid node from an EMCL without the axis section) with
+  attribute 0x3D runs it: since 2026-10-28 the fill marks the record's
+  +0x34..+0x3F missing instead of faulting (section 4, "Scratch and
+  world"), and 00178390 reads only +0x24 / +0x2C.
 - Oracle: the unit cases' `ledge` entry executes the original 00178390 (and
   the 00199FA0 it calls) and compares every actor byte and the return.
+
+### 001782A0(p): the ledge-top grab
+
+Byte-matched decomp C (`src/func_001782A0.c`), translated as
+`em_player_ladder_001782A0(world, scratch, actor, &r)`.
+
+- It calls 00199FA0 into two stack vectors. If that returns 0, it returns 0
+  and writes nothing.
+- Otherwise t = (3 + +B4 - the first vector's y) / 3 is stored at
+  0x70003A20 whatever its sign (the store is in the branch's delay slot).
+  When t is below 0 it returns 0.
+- Else 0x70003A20 = t + 0.6, +2E4 = y + 3 * (float)float_to_int(t + 0.6)
+  (001281C0, em_player_float_to_int), then 00199DB0 writes 0x700038A0 (only
+  when it hits), +2E0 / +2E8 = 0x700038A0 / 0x700038A8 as they then are,
+  +218 = +C4; it returns 1.
+- Callers: 001809B0 (00180F90 / 00180FB8, surfaces 0x32 / 0x3B), 00178620
+  (0017877C), 0017E7C0, 001787B0 and 00181A70. `em_player_closure_live.c`
+  binds it as the ladder climb's `grab`, the 0E/18 closure's `ledge_3B`,
+  the 10/12/19 closure's `ledge_top` and the misc lane's `grab` worker, over
+  the last query's probe state. 0x70003A20 and 0x700038A0..A8 go through
+  their one storage (`land`) around the call.
+
+### 00178080(p): the column lock-on scan
+
+Byte-matched decomp C (`src/func_00178080.c`; its header calls the probe
+record "camera state"), translated as
+`em_player_ladder_00178080(workers, actor, &r)`.
+
+- 0x700038B0 = (hit x - record +24, 15 + +B4, hit z - record +2C, 1.0);
+  0019BC40 over it (its second argument is the record pointer).
+- Then, for each column entry i below 0x700031E0: skip unless the flag's
+  bit 0 is set and the D_00282250 aux is below 0.62831855 (pi / 5). The
+  window is 6.0 below when +D is 2, else 3.0, and always 6.0 above: the
+  entry locks on when height - below < 0x700038B4 < 6 + height (a c.le
+  then a c.lt, as the instructions test them).
+- Lock-on: +2E0 / +2E8 = the hit point + 1.5 * record +24 / +2C, +2E4 =
+  height - 20.5, 0x70003A24 = atan2(-record +2C, record +24), +218 =
+  001B1470(4.712389 + that); it returns 1. No entry: 0.
+- Caller: 001809B0 (00180FE0) when the last sweep hit a surface other than
+  0x32 / 0x3B / 0x3D. Bound as the ladder climb's `hit_react` worker (the
+  old port label "ladder hit reaction" was wrong). The column worker now
+  also writes D_00282250 (`s82250`).
 
 ### 00165B60: state 0xB, the ladder entry (0015B130 state[0xB])
 
@@ -310,15 +356,16 @@ AREA11's ladders take the 0x15 path: 0 → 1 → 2, then the hand-off
 
 ### Unit oracle (`tools/test_player_ladder_entry_reference.py`, default ~2 s)
 
-The test executes the original instructions of all 13 routines from the
+The test executes the original instructions of all 15 routines from the
 user's ELF on the fall oracle's `FallEE`, which routes COP1 and VU0 through
 `tools/ee_float_model.py`. `LadderEE` adds branch recording and low-memory
 read detection.
 
 **What the setup guarantees.**
 
-- Every one of the 36 jal targets is hooked (24) or executed as original
-  code (12, including 001885D0 / 001885F0 inside 0017FC80). The test asserts
+- Every one of the 37 jal targets is hooked (24) or executed as original
+  code (13, including 001885D0 / 001885F0 inside 0017FC80 and the SDK's
+  float_to_int inside 001782A0, whose native side is em_player_float_to_int). The test asserts
   this, and asserts that no hooked address goes uncalled.
 - 0017FC80's native side is em_player_ladder_climb.c's translation reached
   through this lane's bridge, and odd-seeded 00180300 cases run through the
@@ -350,11 +397,15 @@ read detection.
 - When the native side reports a data fault, the test proves the original
   made that read:
   - a low-memory load for a null record;
-  - the untouched poisoned stack word for 0015DE68.
+  - the untouched poisoned stack word for 0015DE68;
+  - for `axis_missing` (half of the scripted cell records), a load of
+    0x700030E4..0x700030EF. A case where the original makes that load and
+    the native side does not fault fails.
   The calls up to the fault must also be identical.
 - Missing-worker refusals: each of the 24 workers, the scratch and the
   world, times 8 entry points, the narrow 00180300 entry on its three
-  workers, plus the rumble's pad and actuator. Every
+  workers, 00178080 on the five things it reaches, plus the rumble's pad
+  and actuator. Every
   entry point must return −1 with no call and no write.
 - Data-fault checks: a vertex index past the pool, and a directory offset
   past the image.
@@ -363,6 +414,15 @@ read detection.
 translated routines is taken both ways in compared (non-fault) cases,
 except one outcome no input can produce: 0015DA94 taken. That branch tests
 00177030(p, 2), which returns 1 on every path.
+
+**Results (2026-10-28, with 001782A0 / 00178080 and `axis_missing`).**
+
+- **Default:** 5,000 of 40,000 cases, PASS in 1.6 s: 133 conditional
+  branches both ways; 242 `grab` and 350 `lockon` cases; 20,271 worker
+  calls identical; 698 fault-stop cuts and 217 refusals; 103 axis-missing,
+  246 null-record and 3 stale-stack faults proven against the original.
+  Mutations of the +D window, the +2E4 rounding and an axis check each fail
+  it.
 
 **Results (2026-09-23).**
 
@@ -485,9 +545,21 @@ length.
   +0x1B class, +0x24..+0x33 plane, +0x34..+0x3F axis) come from the EMCL:
   the axis from its axis section (flags bit 3, "EMAX", written by
   `../Extermination/tools/export_collision.py --node-class` and verified
-  against captured RAM; STARTUP.md step 13). An EMCL without the section
-  faults on an action node, and a cell record with an action byte faults
-  (the probe state does not carry the cell record's +0x34..).
+  against captured RAM; STARTUP.md step 13).
+- The cell record D_700030B0's +0x34..+0x3F are the scratchpad words
+  0x700030E4..0x700030EF. None of the collision walkers writes them (they
+  write only +0x1A and +0x24..+0x2C; checked over every function that names
+  D_700030B0), so the original reads whatever was left there. The fill
+  therefore sets `axis_missing` for a cell record (and for a grid node when
+  the EMCL has no axis section) instead of inventing a value. The routines
+  that read those words fault at the read, with `fault` = the load's
+  address (00177030 at 00177054 / 001772E8 / 00177370, 0015D4C0 at
+  0015DA78 / 0015DBB8); 00178390, 001782A0 and 00178080 read only +0x1A /
+  +0x24 / +0x2C and run. Until 2026-10-28 the fill itself faulted on every
+  such record whose attribute was one of 0015D4C0's action cases (0x20,
+  0x32, 0x33, 0x37, 0x38, 0x3A, 0x3B, 0x3D), and read zeros for the others
+  (0x34, 0x3C), which was a stand-in. The closure reports a ladder-lane
+  data fault like an unbound worker (`le_fault_report`).
 - `EmPlayerLadderWorld`:
   - `directory` / `directory_size` = the `EmActorCellTable` bytes;
   - `verts` / `vert_count` = `EmCollProbeGrid` verts;

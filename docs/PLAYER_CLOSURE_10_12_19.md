@@ -430,7 +430,7 @@ bind it through a small adapter:
 | floor_query | 00179450 | the fall module's `floor_query` binding (em_player_floor_query) |
 | w00179150 | 00179150 | `em_player_closure_00179150` (lane player-closure-0e-18) |
 | midpoint | 00199DB0 | `em_player_ladder_00199DB0` (lane ladder-entry) |
-| ledge_top | 001782A0 | untranslated |
+| ledge_top | 001782A0 | `em_player_ladder_001782A0` (lane ladder-entry, 2026-10-28) over the last query's probe state |
 | area_point | the D_0024D650 record words | a read of the area table (area 2 only) |
 | skeleton | anim_eval_skeleton 001C6DA0 | the pose host |
 | script_1B0460 | 001B0460 | `EmAreaScriptWorkers.w_001B0460` (same signature) |
@@ -522,7 +522,7 @@ added, with zero warnings.
   (areas 0, 3, 8, 0x13) and 00179910 (area 2) are not AREA11 (area 0xB).
   They are translated because the routines contain them.
 - **Untranslated workers** that the live path needs: 001749A0 / the clip
-  choosers 001885B0 / 00188610 / 00188550, 00174FD0, 001782A0,
+  choosers 001885B0 / 00188610 / 00188550, 00174FD0,
   anim_eval_skeleton and 00184BA0's use chain. Until each is bound, the
   entry points refuse (-1), which the stage reports as a fault.
 - **The node reads** (root_node, bone, area_point) are bound reads of

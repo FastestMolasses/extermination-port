@@ -18,6 +18,9 @@
  *   00199DB0  the centre of the hit record (grid node or cell hull)
  *   00199FA0  the two corners of the hit record
  *   00178390  the surface-0x3D ledge placement from those corners
+ *   001782A0  the ledge-top grab from those corners (surfaces 0x32 / 0x3B)
+ *   00178080  the column lock-on scan (the climb's last probe, any other
+ *             surface)
  *   00165B60  +4 = 1, +5 = 0xB: the ladder entry (0015B130 state[0xB])
  *   00176DC0  the five radial wall probes 00165B60 runs in area 2
  *   0017FC80  the clip request by +2F1 (001885D0 or 001885F0)
@@ -33,8 +36,9 @@
  * the writes made before the call, as the original order leaves them.
  * Reads the native world cannot give (a record field when 0x700031D0 is 0,
  * a vertex or directory entry outside the bound data, the stale stack word
- * 0015D4C0 reads after an unsuccessful 00199FA0) are faults as well; the
- * scratch's `fault` then names the original instruction.
+ * 0015D4C0 reads after an unsuccessful 00199FA0, a record's +0x34..+0x3F
+ * the probe state does not carry) are faults as well; the scratch's `fault`
+ * then names the original instruction.
  *
  * Arithmetic: every COP1 operation goes through em_ee_float.h (the measured
  * EE model, docs/EE_FLOAT_MODEL.md), on raw bit patterns.
@@ -94,9 +98,19 @@ typedef struct EmPlayerLadderScratch {
     int32_t s31E0;       /* 0x700031E0: the column entry count (0019BC40) */
     uint32_t s30F0[EM_PLAYER_LADDER_COLUMN_MAX];  /* 0x700030F0: column heights */
     uint16_t s3170[EM_PLAYER_LADDER_COLUMN_MAX];  /* 0x70003170: column flags */
+    uint32_t s82250[EM_PLAYER_LADDER_COLUMN_MAX]; /* D_00282250: column aux (0019BC40 writes it) */
     /* Port-side diagnostic, not an original word: 0, or the original
      * instruction address of the first read the native world cannot give. */
     uint32_t fault;
+    /* Port-side, not an original word: 1 when record_bytes +0x34..+0x3F are
+     * not known (the probe state does not carry them). For the cell record
+     * D_700030B0 they are 0x700030E4..0x700030EF, which none of the
+     * collision walkers writes (they write +0x1A and +0x24..+0x2C only); for
+     * a grid node they are its axis, absent when the EMCL has no axis
+     * section. A routine that reads them faults at that read (`fault` is
+     * the load's address); routines that read only +0x1A / +0x24 / +0x2C
+     * (00178390, 001782A0 through 00199FA0 / 00199DB0, 00178080) proceed. */
+    uint8_t axis_missing;
 } EmPlayerLadderScratch;
 
 /* Data the routines read outside the actor and the scratch. The binder
@@ -139,7 +153,7 @@ typedef struct EmPlayerLadderWorkers {
                           const uint32_t to[4], int mask, int *result);
     /* 0019BC40(at, record): the column table at `at` for the record
      * 0x700031D0 names (the scratch's record); writes 0x700031E0, the
-     * heights and the flags. */
+     * heights, the flags and the D_00282250 aux. */
     int (*column_0019BC40)(void *context, const uint32_t at[4]);
     /* ---- SDK VU0 routines (raw words). An output may be the same array as
      * an input where the original passes one address for both (each VU0
@@ -220,6 +234,26 @@ int em_player_ladder_00199FA0(const EmPlayerLadderWorld *world, EmPlayerLadderSc
  * the closure lane's grab_check / ledge_3D workers. */
 int em_player_ladder_00178390(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *scratch,
                               EmPlayerLiveActor *actor, int *result);
+/* 001782A0(p): the ledge-top grab (byte-matched src/func_001782A0.c). When
+ * 00199FA0 hits: 0x70003A20 = (3 + +B4 - corner a.y) / 3; when that is not
+ * below 0 it gains 0.6 and +2E4 = a.y + 3 * float_to_int(it), 00199DB0
+ * writes 0x700038A0, +2E0 / +2E8 = its x / z, +218 = +C4 and *result = 1.
+ * Otherwise *result = 0. float_to_int (001281C0) is em_player_float_to_int.
+ * Callers: 001809B0 (00180F90 / 00180FB8), 00178620 (0017877C), 0017E7C0,
+ * 001787B0 and 00181A70, through the closure lanes' grab / ledge workers. */
+int em_player_ladder_001782A0(const EmPlayerLadderWorld *world, EmPlayerLadderScratch *scratch,
+                              EmPlayerLiveActor *actor, int *result);
+/* 00178080(p): the column lock-on scan (byte-matched src/func_00178080.c).
+ * 0x700038B0 = (hit x - record +24, 15 + +B4, hit z - record +2C, 1.0);
+ * 0019BC40 over it; then the first column entry i (of 0x700031E0) whose
+ * flag bit 0 is set, whose D_00282250 aux is below 0.62831855 and whose
+ * height h has h - (6 when +D is 2, else 3) < 0x700038B4 < h + 6 locks on:
+ * +2E0 / +2E8 = the hit point + 1.5 * record +24 / +2C, +2E4 = h - 20.5,
+ * 0x70003A24 = atan2(-record +2C, record +24), +218 = 001B1470(4.712389 +
+ * that); *result = 1. No entry: *result = 0. Workers: column_0019BC40,
+ * atan2_0011E620 and wrap_001B1470 (with the scratch and the world). */
+int em_player_ladder_00178080(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor,
+                              int *result);
 /* 00165B60(p): the state-0xB routine. */
 int em_player_ladder_00165B60(const EmPlayerLadderWorkers *workers, EmPlayerLiveActor *actor);
 /* 00176DC0(p). */

@@ -555,7 +555,7 @@ mechanism still lacks; in AREA11 it lacks nothing):
     (6, 0x24);
   - em_player_major2 (+4 = 2: 3..7, 0x16, 0x19) and em_player_reaction
     (+4 = 2: 0/0x17, 1, 2/0x18, 0xA, 0xB, 0xC, 0xF, 0x10..0x14);
-  - 00162DB0 / 00163B40 for 0015B530.
+  - 00162DB0 / 00163B40, 001837B0, 001838B0 and 00183910 for 0015B530.
 
   The shared scratchpad words are one storage each: 0x70003A20 is the
   binder's `EmPlayerLandScratch.s3A20`, and each by-value copy is loaded
@@ -563,8 +563,9 @@ mechanism still lacks; in AREA11 it lacks nothing):
   last query state.
 - **Fail-stop workers.** Each names its original and is reached only by
   states or data no route beat enters:
-  - 001782A0, 00178080, 00178440, 001784E0, 0017E6E0, 0017F130,
-    0017F1C0 (hang, ledge and crawl helpers);
+  - 00178440, 001784E0, 0017E6E0, 0017F130, 0017F1C0 (hang, ledge and
+    crawl helpers; 00178390, 001782A0 and 00178080 are translated and bound
+    since 2026-10-28, PLAYER_LADDER_ENTRY.md);
   - 00188570 / 590 / 5B0 / 610;
   - 0021C200, 00182AF0, 0015C1F0 (with 001CA6E0 / 001C6150 / 00200890 on
     the player), 001FAFD0, 001AFA90, 00187EE0, 001FB9F0,
