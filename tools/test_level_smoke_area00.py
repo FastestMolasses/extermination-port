@@ -349,7 +349,12 @@ def main():
         # The AREA00 phases' bank loads (a00_08's module 0x1D) take the
         # recording's loader polls too (drive_replay.loader_reads).
         traces = {p: a00.capture_path(p) for p in a00.phase_path(until) if p != 'a00_arrival'}
-        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt', traces)
+        # The arrival plays inside a01_07's recording (its reads are in that
+        # beat's table); the AREA00 load changes the run's counter relation,
+        # so the arrival's row 0 anchors again (its recorded counter).
+        arrival = a00.route_capture('a00_arrival')['rows'][a00.ARRIVAL_ROW]['counter']
+        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt', traces,
+                                               extra_anchors=[('a00_arrival', arrival)])
         env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
         print(f"AREA00: drive replay of {replay_info['entries']} fork-recorded reads and "
               f"{replay_info['loader_entries']} loader reads over {len(phases)} phases (comparison only)",
