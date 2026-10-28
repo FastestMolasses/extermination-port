@@ -60,6 +60,10 @@ static uint32_t d275C3C;                   /* D_00275C3C (001F0190 / 001F0290) *
  * spark's 001029C0 writes all four rows, row 3 first, before 00102918 /
  * 00102900 / 001C7900 read it); write-first within one call. */
 static uint32_t scratch_36E0[16];
+/* 0x7E000000..0x7E0013FF: the stack 001DF5A0's 001DF180 runs on (its
+ * 0x10F0-byte frame holds the 16 x 16 grid it builds before reading it;
+ * em_aim_fire_world_live passes sp 0x7E001400). Not game RAM. */
+static uint8_t ramp_stack[0x1400];
 
 /* The records the composition allocates itself (001861C0's 001AFA90(1),
  * the impact marker): the bytes beyond the pool header the marker
@@ -85,7 +89,7 @@ static struct {
     EmArea00HudVu vu;
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
-    EmPoseRegion bss[16];
+    EmPoseRegion bss[20];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
 } R;
 
@@ -385,6 +389,19 @@ static int target_sound(EmAimFireLive *live,EmAimFireTargetCall *c)
                        .ctx=&call,.sp=c->sp};
     return em_area00_low_001FC580(&owner,(uint32_t)c->a[0],(int32_t)c->a[1]);
 }
+/* The flash node 001E7310's host: memory through the composition's map,
+ * callees through the composition (nested). */
+static uint8_t *flash_view(void *ctx,uint32_t a,uint32_t n,int write)
+{ return em_aim_fire_live_map(ctx,a,n,write); }
+static int flash_call(void *ctx,EmArea00LowCall *in)
+{
+    EmAimFireTargetCall c={0};
+    if (in->na>sizeof c.a/sizeof c.a[0] || in->nf>sizeof c.f/sizeof c.f[0]) return -1;
+    c.function=in->fn;c.sp=in->sp;c.na=in->na;c.nf=in->nf;
+    memcpy(c.a,in->a,in->na*sizeof *c.a);memcpy(c.f,in->f,in->nf*sizeof *c.f);
+    TRY(em_aim_fire_live_call(ctx,&c));
+    in->v0=c.v0;in->f0=c.f0;return 0;
+}
 static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *f)
 {
     (void)context;
@@ -579,6 +596,35 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
                                                   block,(int32_t)f->a[4]);
         }
         return em_effects_live_001CFBE0((int32_t)f->a[0],(int32_t)f->a[1],(uint32_t)f->a[2],block,(int32_t)f->a[4]);
+    }
+    case 0x1D6B60: {
+        /* The flash node's 001DF180 packet callees (em_render_context_live). */
+        const uint8_t *src=em_aim_fire_live_map(live,(uint32_t)f->a[4]&~15u,16,0);
+        if (!src || f->na<5) return -1;
+        return em_rcl_001D6B60((int32_t)f->a[0],(int32_t)f->a[1],(int32_t)f->a[2],(int32_t)f->a[3],src);
+    }
+    case 0x1D6BA0:
+        return em_rcl_001D6BA0((int32_t)f->a[0],(int32_t)f->a[1],(int32_t)f->a[2],(int32_t)f->a[3],
+                               (int32_t)f->a[4],(int32_t)f->a[5]);
+    case 0x1D1FF0: return em_rcl_001D1FF0((int32_t)f->a[0],(int32_t)f->a[1]);
+    case 0x1D1F20: return em_rcl_001D1F20((int32_t)f->a[0]);
+    case 0x1D2040: return em_rcl_001D2040((int32_t)f->a[0],(int32_t)f->a[1]);
+    case 0x1D7080: return em_rcl_001D7080((int32_t)f->a[0],(uint32_t)f->a[1],f->f[0]);
+    case 0x1CB760: return em_rcl_001CB760((uint32_t)f->a[0],(int32_t)f->a[1],(uint32_t)f->a[2]);
+    case 0x1D2830:
+        /* 001D2830(flag, value): the render context's flag (the flash node
+         * 001E7310's ramp 9; em_render_context_live, its one owner). */
+        return em_rcl_001D2830((int32_t)f->a[0],(int32_t)f->a[1]);
+    case 0x1E7310: {
+        /* The flash node 001E7310 (em_area00_low's translation; a00_09):
+         * its record's +4 / +0x60 / +0x64 through the composition's map,
+         * its callees back through the composition. */
+        EmArea00Low low;memset(&low,0,sizeof low);
+        low.call=flash_call;low.ctx=live;low.sp=f->sp;low.view=flash_view;low.view_ctx=live;
+        const int rc=em_area00_low_001E7310(&low,(uint32_t)f->a[0]);
+        if (rc<0)
+            fprintf(stderr,"aim/fire: 001E7310 fault code %d at %08X\n",(int)low.fault,(unsigned)low.fault_address);
+        return rc;
     }
     case 0x21B9A0:
         /* 0021B9A0(mode, f12, f13): the render context's parameter rows
@@ -775,7 +821,7 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (rc<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
-    if (callback==0x001E2E80u || callback==0x001F6FB0u) {
+    if (callback==0x001E2E80u || callback==0x001F6FB0u || callback==0x001E7310u) {
         /* The spat hazard node 001E2E80 (em_area00_hud) and the creatures'
          * glow node 001F6FB0 (em_area00_fx), through the composition, with
          * D_00275B40 = its +0x110 (the walk's 001CB590); 1 while its record
@@ -839,6 +885,15 @@ static int add_windows(void)
     uint8_t *glow=(uint8_t *)(uintptr_t)em_effects_live_window(0x25D800u,0x90u);
     if (glow) R.bss[n++]=(EmPoseRegion){0x25D800,0x90,glow,1};
     R.bss[n++]=(EmPoseRegion){0x700036E0,sizeof scratch_36E0,(uint8_t *)scratch_36E0,1};
+    R.bss[n++]=(EmPoseRegion){0x7E000000,sizeof ramp_stack,ramp_stack,1};
+    /* The flash node 001E7310's ramp data (CREATURE_EFFECT_WINDOWS):
+     * 001DEE80's D_0026E970 and 001DF180's colour D_0026E860, read only;
+     * optional as the glow's block. */
+    static const uint32_t ramp[2][2]={{0x26E860,0x10},{0x26E970,0x10}};
+    for (unsigned k=0;k<2;++k) {
+        const uint8_t *p=em_effects_live_window(ramp[k][0],ramp[k][1]);
+        if (p) R.bss[n++]=(EmPoseRegion){ramp[k][0],ramp[k][1],(uint8_t *)(uintptr_t)p,0};
+    }
     R.world.region_count=n;
     return 0;
 }

@@ -40,7 +40,11 @@ FIELD_WINDOWS = ((FIELD_ROWS[0] + FIELD_ROWS[1] * FIELD_ROWS[2][0], FIELD_ROWS[1
 # (indexed by 00128600(0)) and 00128600's byte table D_00242ED0, 16 bytes
 # per row (rows 0, 1 and 4 named by its callers; the AREA00 arrival's
 # 0012A5D0 -> 0012AFC0 reaches 00128600(0)). Both are byte-matched decomp C.
-CLASS2_WINDOWS = ((0x00242EB0, 0x70),)
+CLASS2_WINDOWS = ((0x00242EB0, 0x70),
+                  # 0012CAA0's grab table (the bug on the player, a00_09 row 462;
+                  # byte-matched decomp C): the bone indices D_00242DD0[8] and the
+                  # eight 0x18-byte rows D_00242DF0.. (offset xyz, rotation xyz).
+                  (0x00242DD0, 0xE0))
 
 # The footstep handler 001EB980 (effect subtype 0x27, byte-matched decomp C;
 # AREA00's a00_00 reaches it) passes the two 0x90-byte 001CFBE0 source
@@ -77,7 +81,10 @@ HAZARD_EFFECT_WINDOWS = ((0x00257510, 0x1B0), (0x00257870, 0x2D0))
 # passes the three descriptor blocks D_002571B0 + 0x90 k (k = 0..2), and the
 # creatures' glow node 001F6FB0 (em_area00_fx_glow.c) the block D_0025D800,
 # whose +0x10..+0x18 it rewrites before each 001CFBE0: one window each.
-CREATURE_EFFECT_WINDOWS = ((0x002571B0, 0x1B0), (0x0025D800, 0x90))
+CREATURE_EFFECT_WINDOWS = ((0x002571B0, 0x1B0), (0x0025D800, 0x90),
+                           # the flash node 001E7310's ramp (a00_09): 001DEE80's three
+                           # words D_0026E970 and 001DF180's 001D6B60 colour D_0026E860
+                           (0x0026E860, 0x10), (0x0026E970, 0x10))
 HAZARD_EFFECT_ROWS = {0x00257530: struct.pack('<8f', 8, 24, 8, 0, 0, 0, 0, 0),
                       0x00257650: struct.pack('<8f', 24, 112, 24, 128, 24, 112, 24, 0)}
 

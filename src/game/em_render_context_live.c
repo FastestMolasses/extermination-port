@@ -1808,6 +1808,41 @@ int em_rcl_001D2040(int32_t chan, int32_t a1)
     return done(em_load_veil_particles_001D2040(&R.veil, chan, a1), 0x001D2040u);
 }
 
+/* The ramp records' 001DF180 callees from outside the context's own
+ * frame (the flash node 001E7310's 001DF5A0, em_aim_fire_runtime): the
+ * veil module's packet builders over the context's channels, and the
+ * chain's 001CB760. Same faults as the in-module callers. */
+int em_rcl_001D6B60(int32_t chan, int32_t a1, int32_t a2, int32_t a3, const uint8_t src[16])
+{
+    READY(1);
+    return done(em_load_veil_particles_001D6B60(&R.veil, chan, a1, a2, a3, src, NULL), 0x001D6B60u);
+}
+int em_rcl_001D6BA0(int32_t chan, int32_t a1, int32_t a2, int32_t a3, int32_t t0, int32_t t1)
+{
+    READY(1);
+    return done(em_load_veil_particles_001D6BA0(&R.veil, chan, a1, a2, a3, t0, t1, NULL), 0x001D6BA0u);
+}
+int em_rcl_001D1FF0(int32_t chan, int32_t a1)
+{
+    READY(1);
+    return done(em_load_veil_particles_001D1FF0(&R.veil, chan, a1), 0x001D1FF0u);
+}
+int em_rcl_001D1F20(int32_t chan)
+{
+    READY(1);
+    return done(em_load_veil_particles_001D1F20(&R.veil, chan), 0x001D1F20u);
+}
+int em_rcl_001D7080(int32_t chan, uint32_t a1, uint32_t f12)
+{
+    READY(1);
+    return done(em_load_veil_particles_001D7080(&R.veil, chan, a1, f12), 0x001D7080u);
+}
+int em_rcl_001CB760(uint32_t table, int32_t id, uint32_t address)
+{
+    READY(1);
+    return done(f_001CB760(&R.pc, table, id, address), 0x001CB760u);
+}
+
 int em_rcl_001E0CC0(void)
 {
     READY(0);

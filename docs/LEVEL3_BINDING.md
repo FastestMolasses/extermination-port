@@ -14,6 +14,48 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's
+attack on the player included); the run stops at a00_09 frame 13345, where
+the flash node `001E7310` (stop S4) draws its ramp and the chain page then
+refuses the frame's packets** ("chain page: GIF packet fault at 0056401C",
+at 001CB800; next unit). a00_00..a00_08 and the arrival are as in
+iteration 20.
+
+- **The bug's grab (a00_09 row 462)** runs through em_area00_low over the
+  live composition: its hosts now hand the module the canonical grab-slot
+  byte D_0081083C (`grab_bits`; 0012E0B0 / 0012E070 faulted on the NULL
+  view), 0012CAA0's grab table D_00242DD0..D_00242EAF is exported
+  (`CLASS2_WINDOWS`), and the SDK dispatcher serves 00102A60 (the z turn,
+  em_owner_services' translation, beside 00102B08 / 00102BB0; a case in
+  `test_aim_fire_sdk_memory_reference.py`).
+- **D_008106B3 follows 0015BA50's tail.** The canonical byte took only the
+  legacy gates; it now also takes the translated stage's result
+  (`player_states_busy`: the player held by the bug, +4 = 2 with +5
+  0xB..0xF and +0x1F1 = 1), which the recording sets from row 462 (the 332
+  `req` rows that differed).
+- **The flash node 001E7310 (stop S4)** ticks through
+  em_aim_fire_runtime (em_area00_low's translation; binding row in
+  em_area11_bindings): its 001D2830 and the ramp records' 001DEE80 /
+  001DEEC0 / 001DF5A0 (em_area00_hud over the composition's views, the
+  render context's among them), 001DF180's packet callees through new
+  `em_rcl_001D6B60` / `001D6BA0` / `001D1FF0` / `001D1F20` / `001D7080` /
+  `001CB760` (the veil module's builders over the context's channels), the
+  ramp data D_0026E860 / D_0026E970 (exported) and a private stack view for
+  001DF180's 0x10F0-byte frame (0x7E000000..0x7E0013FF, not game RAM).
+  What the chain page refuses is the next unit: 001DF5A0 registers its
+  channel-9 list (the grid pass, 0x00564000 in the run) as a slot-0xFFF
+  CALL through 001CB760 (`em_rcl_001CB760` records it as the frame's
+  four-sprite call), and the page walks it as plain packets, faulting on
+  its FRAME_1 write (A+D register 0x4C at +0x1C): the page knows one
+  slot-0xFFF pass (001DDE10's depth-of-field) and has no drawing for this
+  one yet (drawing, not gameplay; receipts `build/frontier/r15`, `r16`).
+- **Clean-up of the measurement:** every run of this iteration used the
+  harness defaults (drive replay with the arrival anchor, the newest rand()
+  table). Not run: the first-level smokes and EM_TEST_FULL (as instructed);
+  New Game control 9.599849; quick tests: aim-fire-world-live,
+  aim-fire-effects-live, aim-fire-sdk-memory reference, area01 runtime
+  reference, area01 light live reference.
+
 **2026-10-28, iteration 20: the AREA00 arrival and a00_00..a00_08 are exact
 row for row, and a00_09 is exact through row 460; the run stops at a00_09
 frame 13012, where a bug's sub-state machine `0012C490` faults (next unit).**

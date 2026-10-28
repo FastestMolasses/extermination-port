@@ -70,7 +70,8 @@ int em_aim_fire_sdk_memory_call(void *context,
         if (em_owner_services_translate_00102918(out,in,v)!=0) return -1;
         for (unsigned i=0;i<4;++i) TRY(write_bytes(m,a+16*i,out+4*i,16));
         return 0;
-    case 0x102A60: case 0x102B08: case 0x102BB0:
+    case 0x102B08: case 0x102BB0: case 0x102A60:
+        /* 00102A60 (z; the bugs' grab 0012CAA0) as its two siblings. */
         a&=~15u;b&=~15u;
         for (unsigned i=0;i<4;++i) {
             /* The existing owner exposes four rows. Evaluate its first row
@@ -79,8 +80,8 @@ int em_aim_fire_sdk_memory_call(void *context,
              * other local rows are private and have no game-state effects. */
             memset(in,0,sizeof in);TRY(read_bytes(m,b+16*i,in,16));
             int r=f->function==0x102B08 ? em_owner_services_rotate_x_00102B08(out,in,f->f[0])
-                : f->function==0x102BB0 ? em_owner_services_rotate_y_00102BB0(out,in,f->f[0])
-                                        : em_owner_services_rotate_z_00102A60(out,in,f->f[0]);
+                  : f->function==0x102BB0 ? em_owner_services_rotate_y_00102BB0(out,in,f->f[0])
+                                          : em_owner_services_rotate_z_00102A60(out,in,f->f[0]);
             if (r!=0) return -1;
             TRY(write_bytes(m,a+16*i,out,16));
         }

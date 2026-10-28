@@ -214,6 +214,16 @@ int em_rcl_001D2880(void);
  * 0x825900). 0, or -1 (not loaded, a latched fault). */
 int em_rcl_001DFE40(void);
 int em_rcl_001DFE10(void);
+/* The ramp records' 001DF180 callees from outside the context's frame
+ * (the flash node 001E7310, em_aim_fire_runtime): 001D6B60 (src = the
+ * quadword its t0 names), 001D6BA0, 001D1FF0, 001D1F20, 001D7080 and the
+ * chain's 001CB760. 0, or -1. */
+int em_rcl_001D6B60(int32_t chan, int32_t a1, int32_t a2, int32_t a3, const uint8_t src[16]);
+int em_rcl_001D6BA0(int32_t chan, int32_t a1, int32_t a2, int32_t a3, int32_t t0, int32_t t1);
+int em_rcl_001D1FF0(int32_t chan, int32_t a1);
+int em_rcl_001D1F20(int32_t chan);
+int em_rcl_001D7080(int32_t chan, uint32_t a1, uint32_t f12);
+int em_rcl_001CB760(uint32_t table, int32_t id, uint32_t address);
 /* 001D2040(chan, a1): the GS state packet the channel's list gets (the aim
  * camera's 001999C0 (1, 0) on the sight switch). */
 int em_rcl_001D2040(int32_t chan, int32_t a1);
