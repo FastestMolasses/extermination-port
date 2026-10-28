@@ -617,6 +617,29 @@ static int rest_001C9D50(EmArea01Live *l,EmArea01Call *c)
     if(rc==0)memcpy(po,out,64);
     return worker_result(l,rc,rc<0 ? (r.fault.address ? r.fault.address : c->function) : 0);
 }
+/* 001C9E40(q, m), the rotation's quaternion: em_anim_rest's translation
+ * (the aim/fire binding's, live through 0017B660), its 0011E748 the SDK
+ * square root. The AREA01 revisit reaches it from 001F2F90 (0x8237D0's
+ * debris slot through 001F4010). */
+static int rest_001C9E40(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<2 || c->nf)return worker_result(l,-1,c->function);
+    const uint32_t qa=(uint32_t)c->a[0],ma=(uint32_t)c->a[1];
+    if(overlaps(qa,16,ma,64))return worker_result(l,-1,c->function);
+    uint32_t m[16],q[4];
+    const uint8_t *pm=bytes(l,ma,64,0);
+    if(!pm)return worker_result(l,-1,ma);
+    memcpy(m,pm,64);
+    EmAnimRest r;memset(&r,0,sizeof r);
+    r.workers.sqrt_ctx=em_collision_world_sdk();
+    r.workers.w_0011E748=em_anim_rest_sqrt_0011E748;
+    int rc=em_anim_rest_001C9E40(&r,q,m);
+    if(rc<0)return worker_result(l,rc,r.fault.address ? r.fault.address : c->function);
+    uint8_t *pq=bytes(l,qa,16,1);
+    if(!pq)return worker_result(l,-1,qa);
+    memcpy(pq,q,16);
+    return 0;
+}
 /* 001B1630(x, y, z): the first level's camera cone/range owner over the
  * published camera view (D_008105D0 eye, D_00810600 forward). */
 static int visible_001B1630(const float p[3])
@@ -931,6 +954,7 @@ static int worker(void *ctx,EmArea01Call *c)
     if(c->function==0x001027E0u)return sdk_001027E0(l,c);
     if(c->function==0x001F9100u)return owner_001F9100(l,c);
     if(c->function==0x001C9D50u)return rest_001C9D50(l,c);
+    if(c->function==0x001C9E40u)return rest_001C9E40(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);
     if(em_area01_pickup_handles(c->function))return em_area01_pickup_call(&l->pickups,c);
     if(c->function==0x001EFD90u || c->function==0x001EFD20u || c->function==0x001EF9D0u) {
