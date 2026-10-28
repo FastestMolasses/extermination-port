@@ -22,6 +22,7 @@
 #include "game/em_pickup_motion.h"
 #include "game/em_pickup_original.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_player_stage_live.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_props.h"
 #include "game/em_random.h"
@@ -698,6 +699,17 @@ static int page_player_0015C700(void *context, int (*table16)(void *, uint32_t, 
     const uint32_t word = (uint32_t)c8[0] | (uint32_t)c8[1] << 8 | (uint32_t)c8[2] << 16 |
                           (uint32_t)c8[3] << 24;
     return player_pose_0015C700(em_scene_state()->d810858, word, table16, table_context) ? 0 : -1;
+}
+
+/* 00182B30(D_008102B0): the live player record through the player stage's
+ * own translation (em_player_stage_live_00182B30). */
+static int page_player_00182B30(void *context, int32_t *result)
+{
+    (void)context;
+    int r = 0;
+    if (em_player_stage_live_00182B30(&r) < 0) return -1;
+    *result = r;
+    return 0;
 }
 
 /* The MAP page's 001B0000 models at their place in the page's draw
@@ -1393,7 +1405,7 @@ static int load_status(const char *directory,const EmItemMath *math,
     {
         static const EmStatusPagesHost pages_host = {NULL, page_sound, page_present,
                                                      page_find_device, page_player_0015C700,
-                                                     pages_models_draw};
+                                                     pages_models_draw, page_player_00182B30};
         EmStatusPagesLive *pages =
             em_status_pages_live_load("assets/status_pages/status_pages.emsp", &pages_host);
         if (!pages)

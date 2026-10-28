@@ -2224,7 +2224,8 @@ pool's free list (item 5): those are port work that needs no new recording
    side-save, not merged yet) a chosen slot and LOAD GAME run on the title,
    after a death and on the boot's title (SAVE_GAME.md sections 6.1, 6.3,
    6.4; no recording loads a game; the user's rule forbids writing a card
-   in PCSX2), while the options' load stops at 001D2610; quit Yes (001AD140)
+   in PCSX2), while the options' load is bound past 001D2610 since 2026-10-28
+   but not run end to end; quit Yes (001AD140)
    is bound and not recorded; the title's OPTIONS entry stays pending; the
    first level has no save path (00225AC0(1) unreached in AREA11).
 10. **Feel: what damage paths no run plays.** The fan's hit is closed

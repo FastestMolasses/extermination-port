@@ -114,7 +114,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_static_world.c src/game/em_static_world_compose.c src/game/em_static_world_draw.c \
            src/game/em_static_world_live.c \
            src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c \
-           src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
+           src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c src/game/em_player_equipment_variants.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
            src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c src/game/em_load_veil_live.c \
@@ -959,6 +959,10 @@ test-effect-kinds-reference:
 .PHONY: test-player-equipment-reference
 test-player-equipment-reference:
 	python3 tools/test_player_equipment_reference.py
+
+.PHONY: test-player-equipment-variants-reference
+test-player-equipment-variants-reference:
+	python3 tools/test_player_equipment_variants_reference.py
 
 .PHONY: test-frame-render-heads-reference
 test-frame-render-heads-reference:

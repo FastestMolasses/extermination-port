@@ -444,3 +444,12 @@ unsigned em_player_stage_live_faults(void)
 {
     return live.faults;
 }
+
+/* 00182B30 (byte-matched decomp C) over the live record: the same
+ * translation the 0015B130 prelude runs (the stage host's scripted_check),
+ * for a caller outside the stage (the EVENT status page's Cross). */
+int em_player_stage_live_00182B30(int *result)
+{
+    if (!result || !live.host.stage) return -1;
+    return em_player_stage_scripted_check(&live.host, player_states_actor_mut(), result);
+}

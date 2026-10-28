@@ -462,6 +462,17 @@ static int w_001D2880(void *ctx)
     (void)ctx;
     return em_rcl_001D2880() < 0 ? rcl_fault() : 0;
 }
+/* 001D2610(f12) (0x1AE040 state 2, 0022A650's r == 2: a game loaded from
+ * the options screen's LOAD GAME): the render context's projection zoom
+ * (em_rcl_001D2610, the same translation 001D2880 ends with), its float
+ * argument passed as its IEEE-754 bits. */
+static int w_001D2610(void *ctx, float a0)
+{
+    (void)ctx;
+    uint32_t bits;
+    memcpy(&bits, &a0, sizeof bits);
+    return em_rcl_001D2610(bits) < 0 ? rcl_fault() : 0;
+}
 static int w_001FA790(void *ctx, int a0, int a1) { (void)ctx; return em_stream_live_001FA790(a0, a1); }
 static int w_001FAB50(void *ctx) { (void)ctx; return em_stream_live_001FAB50(); }
 
@@ -4557,10 +4568,11 @@ static int w_001AEBA0(void *ctx, int16_t a0)
  * world is frozen; no 001D1EA0 runs), as the game-over screen's. r == 1
  * closes: 001AF1C0 (the settings into the progress block, 001AF470), the
  * cue 0xD and 001FAE70(0). r == 2 (a game loaded: LOAD GAME through
- * 00227300, its read of the slot into the progress block) runs 001AEBA0
- * and 001AF150, then faults at 001D2610 (not bound: loading a game is the
- * save lane's next step, docs/SAVE_GAME.md section 8); r == 3 (quit, Yes)
- * runs 001AD140 as the death does. */
+ * 00227300, its read of the slot into the progress block) runs 001AEBA0,
+ * 001AF150 and 001D2610(0.0) (w_001D2610), then D_00275BE0 = 1 and the game
+ * task's +8 = 3 / +9 = 5: the area read of the loaded block, as the title's
+ * load (docs/SAVE_GAME.md section 6.3); r == 3 (quit, Yes) runs 001AD140 as
+ * the death does. */
 static int options_frame(EmOptionsFrame *f)
 {
     if (!s_user) return -1;
@@ -4761,10 +4773,10 @@ static void bindings_init(void)
     w->w_001AEBA0 = w_001AEBA0;
     w->w_001AB790 = w_001AB790;
 
-    /* The options screen (0x1AE040 state 2, chain step OPTIONS). 001D2610,
-     * the r == 2 arm's, stays unbound: a load is reached only through
-     * 00227300, which faults first. */
+    /* The options screen (0x1AE040 state 2, chain step OPTIONS), with its
+     * r == 2 arm's 001D2610 (a LOAD GAME through 00227300). */
     w->w_0022A650 = w_0022A650;
+    w->w_001D2610 = w_001D2610;
     w->w_001AF1C0 = w_001AF1C0;
     w->w_001AF150 = w_001AF150;
     w->w_001FB9F0 = w_001FB9F0;

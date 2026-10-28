@@ -15,13 +15,18 @@
 #include "game/em_locomotion_display.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_pad_actuator.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_player.h"
 #include "game/em_player_equipment.h"
+#include "game/em_player_equipment_variants.h"
 #include "game/em_player_hang.h"
 #include "game/em_pose_host_workers.h"
+#include "game/em_random.h"
 #include "game/em_roger_actor_original.h"
 #include "game/em_sdk_vu0.h"
+#include "game/em_security_gun_rest.h"
+#include "game/em_sfx.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -44,6 +49,7 @@ typedef struct {
     unsigned held;
     uint32_t model_address;                /* +0x44 as the original holds it */
     uint8_t drew, at_node;
+    EmPlayerEquipmentVariantBytes x;       /* +0x06, +0x2A, +0x38, +0x70 (the variants') */
 } Slot;
 
 static struct {
@@ -74,6 +80,11 @@ static struct {
     EmPlayerEquipmentWorkers workers;
     EmPlayerEquipmentFault efault;
     EmPlayerEquipment e;
+    /* 00188C70 / 00189090 / 00189330 / 001899C0 / 00189A20 (the variants) */
+    int16_t d00248B98_row[8], d00248C78_row[8];
+    EmPlayerEquipmentVariantWorld vworld;
+    EmPlayerEquipmentVariantWorkers vworkers;
+    EmPlayerEquipmentVariants v;
     /* 001AF780 / 001AF800 / 001CA6E0 on the one slot stack */
     EmRogerActor stack;
     /* 001C62C0 / 001C9610 */
@@ -478,9 +489,49 @@ static int w_0015C310(void *ctx, int32_t arg1)
     return S.spawn ? S.spawn(arg1) : -1;
 }
 
-/* The callees no first-level route reaches (docs/PLAYER_EQUIPMENT.md 4.2):
- * reaching one is a fault. */
-static int x_node(void *ctx, EmPEN *node) { (void)ctx; (void)node; return -1; }
+/* The variant routines (em_player_equipment_variants, docs/PLAYER_EQUIPMENT.md
+ * 4.7) over the node's own bytes: 00188C70 (flavour 1, +0x0D 0x15) and
+ * 00189090 / 00189330 / 001899C0 / 00189A20 (flavour 2, +0x0D 1 / 2 / 3 /
+ * 0xC), with D_00275B40 the node's bone slots (as for the node's own
+ * routines). Their fault latches the equipment's. */
+static int variant(EmPEN *node, uint32_t fn)
+{
+    Slot *s = slot_of(node);
+    if (!s) return -1;
+    int r;
+    switch (fn) {
+    case 0x00188C70u: r = em_player_equipment_00188C70(&S.v, node); break;
+    case 0x00189090u: r = em_player_equipment_00189090(&S.v, node, &s->x); break;
+    case 0x00189330u: r = em_player_equipment_00189330(&S.v, node, &s->x); break;
+    case 0x001899C0u: r = em_player_equipment_001899C0(&S.v, node, &s->x); break;
+    case 0x00189A20u: r = em_player_equipment_00189A20(&S.v, node, &s->x); break;
+    default: return -1;
+    }
+    return r;
+}
+static int w_00188C70(void *ctx, EmPEN *node) { (void)ctx; return variant(node, 0x00188C70u); }
+static int w_00189090(void *ctx, EmPEN *node) { (void)ctx; return variant(node, 0x00189090u); }
+static int w_00189330(void *ctx, EmPEN *node) { (void)ctx; return variant(node, 0x00189330u); }
+static int w_001899C0(void *ctx, EmPEN *node) { (void)ctx; return variant(node, 0x001899C0u); }
+static int w_00189A20(void *ctx, EmPEN *node) { (void)ctx; return variant(node, 0x00189A20u); }
+/* 001FBD50(D_008102B0, id, a2, f12): the positional one-shot at the player
+ * record's +0xB0 (em_sfx_play_at, the player's other 001FBD50 bindings). */
+static int w_001FBD50(void *ctx, int32_t id, int32_t a2, u32 f12)
+{
+    (void)ctx;
+    if (id < 0 || a2 != 0 || !S.world.player) return -1;
+    float pos[3];
+    memcpy(pos, S.world.player + 0xB0, sizeof pos);
+    em_sfx_play_at((unsigned)id, pos, em_ee_float(f12));
+    return 0;
+}
+/* 00122BB8 (rand): the shared LCG (em_random), its low 31 bits. */
+static int w_00122BB8(void *ctx, int32_t *value)
+{
+    (void)ctx;
+    *value = (int32_t)em_random_next();
+    return 0;
+}
 static int aim_fire_node(EmPEN *node, uint32_t entry)
 {
     Slot *s=slot_of(node);
@@ -500,9 +551,61 @@ AIM_NODE(00186A60)
 AIM_NODE(001872C0)
 AIM_NODE(00187CC0)
 #undef AIM_NODE
-static int x_001B61C0(void *ctx, int32_t a, int32_t b, int32_t c, int32_t d)
-{ (void)ctx; (void)a; (void)b; (void)c; (void)d; return -1; }
-static int x_001EFEB0(void *ctx, u32 id, const u32 *m) { (void)ctx; (void)id; (void)m; return -1; }
+/* 001B61C0(big, small, duration, force), 00188630's rumbles after the mode
+ * 1..5 one-shots: the pad actuator block D_00810E40 (em_pad_actuator, the
+ * player states' same translation). */
+static int w_001B61C0(void *ctx, int32_t a, int32_t b, int32_t c, int32_t d)
+{
+    (void)ctx;
+    return em_pad_actuator_001B61C0((uint8_t)a, (uint8_t)b, c, d) < 0 ? -1 : 0;
+}
+/* 001EFEB0(id, 0x700036A0), 00188630 mode 4: the security gun lane's
+ * translation (em_gun_rest_001EFEB0, byte-matched decomp C) over the node's
+ * staged matrix: 001EF9D0(id, matrix + 0x30, 1.0) on the effect barrel
+ * (em_effects_live), then the matrix copied to the new record's +0xD0 (its
+ * canonical field). The record address it returns is not read by
+ * 00188630. */
+static const uint8_t *efeb0_load(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx; (void)address; (void)size;
+    return NULL; /* 001EFEB0 reads only the matrix it is handed */
+}
+static uint8_t *efeb0_store(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    return em_effects_live_node_field(address, size, 1);
+}
+static int efeb0_spawn(void *ctx, uint32_t id, const uint8_t *pos, uint32_t f12, uint32_t *node)
+{
+    (void)ctx;
+    float p[4];
+    memcpy(p, pos, sizeof p);
+    return em_effects_live_001EF9D0(id, p, f12, node);
+}
+static int efeb0_copy(void *ctx, uint8_t *dst, const uint8_t *src)
+{
+    (void)ctx;
+    em_owner_services_copy_qw4_00102958((float *)(void *)dst, (const float *)(const void *)src);
+    return 0;
+}
+static int w_001EFEB0(void *ctx, u32 id, const u32 *m)
+{
+    (void)ctx;
+    if (!m) return -1;
+    uint8_t matrix[64];
+    memcpy(matrix, m, sizeof matrix);
+    const EmGunRestMem mem = {NULL, efeb0_load, efeb0_store};
+    EmGunRestWorkers w;
+    memset(&w, 0, sizeof w);
+    w.w_001EF9D0 = efeb0_spawn;
+    w.w_00102958 = efeb0_copy;
+    EmGunFault fault;
+    memset(&fault, 0, sizeof fault);
+    uint32_t node = 0;
+    if (em_gun_rest_001EFEB0(id, matrix, &mem, &w, &node, &fault) < 0)
+        return fail(fault.address ? fault.address : 0x001EFEB0u, "001EFEB0 faulted");
+    return 0;
+}
 /* 001F4010(3, 0x700036A0): the shell casing's seed, through the installed
  * owner (em_aim_fire_runtime: em_area02_misc's 001F4010 over the particle
  * records); without one it faults, as before. */
@@ -712,15 +815,15 @@ static void wire(void)
     w->w_00186A60 = aim_00186A60;
     w->w_001872C0 = aim_001872C0;
     w->w_00187CC0 = aim_00187CC0;
-    w->w_001B61C0 = x_001B61C0;
-    w->w_001EFEB0 = x_001EFEB0;
+    w->w_001B61C0 = w_001B61C0;
+    w->w_001EFEB0 = w_001EFEB0;
     w->w_001F4010 = w_001F4010;
-    w->w_00188C70 = x_node;
+    w->w_00188C70 = w_00188C70;
     w->w_0015C310 = w_0015C310;
-    w->w_00189090 = x_node;
-    w->w_00189330 = x_node;
-    w->w_001899C0 = x_node;
-    w->w_00189A20 = x_node;
+    w->w_00189090 = w_00189090;
+    w->w_00189330 = w_00189330;
+    w->w_001899C0 = w_001899C0;
+    w->w_00189A20 = w_00189A20;
     w->w_001C9610 = w_001C9610;
     w->w_001B0070 = w_001B0070;
     w->w_00187780 = x_00187780;
@@ -734,6 +837,15 @@ static void wire(void)
     w->w_00189FE0 = w_00189FE0;
     w->w_001EFF10 = w_001EFF10;
     S.e = (EmPlayerEquipment){w, &S.world, &S.efault};
+    EmPlayerEquipmentVariantWorkers *vw = &S.vworkers;
+    memset(vw, 0, sizeof *vw);
+    vw->w_001026A0 = w_001026A0;
+    vw->w_001028B8 = w_001028B8;
+    vw->w_001C9610 = w_001C9610;
+    vw->w_001F4010 = w_001F4010;
+    vw->w_001FBD50 = w_001FBD50;
+    vw->w_00122BB8 = w_00122BB8;
+    S.v = (EmPlayerEquipmentVariants){vw, &S.vworld, &S.efault};
 }
 
 /* ------------------------------------------------------------ attach */
@@ -743,7 +855,7 @@ int em_equipment_live_attach(EmActorPool *pool, EmSceneState *scene)
     S.attached = 0;
     if (!pool || !scene) return -1;
     const uint8_t *t = em_effects_live_elf(0x0024A220u, 4 * TABLE_WORDS);
-    const uint8_t *b98 = em_effects_live_elf(0x00248B98u, 2), *c78 = em_effects_live_elf(0x00248C78u, 2);
+    const uint8_t *b98 = em_effects_live_elf(0x00248B98u, 16), *c78 = em_effects_live_elf(0x00248C78u, 16);
     u32 bank = 0;
     if (!t || !b98 || !c78 || em_area11_roger_table_word(0x0028A490u + 4u * 0x37u, &bank) < 0) {
         fprintf(stderr, "player equipment: the effect tables or the Roger export are not loaded\n");
@@ -759,6 +871,10 @@ int em_equipment_live_attach(EmActorPool *pool, EmSceneState *scene)
     memcpy(S.table, t, sizeof S.table);
     S.d00248B98 = (int16_t)(uint16_t)(b98[0] | b98[1] << 8);
     S.d00248C78 = (int16_t)(uint16_t)(c78[0] | c78[1] << 8);
+    for (unsigned k = 0; k < 8; ++k) {
+        S.d00248B98_row[k] = (int16_t)(uint16_t)(b98[2 * k] | b98[2 * k + 1] << 8);
+        S.d00248C78_row[k] = (int16_t)(uint16_t)(c78[2 * k] | c78[2 * k + 1] << 8);
+    }
     S.d0028A56C = bank;
     memset(&S.stack, 0, sizeof S.stack);
     S.stack.world = *slots;
@@ -785,6 +901,20 @@ int em_equipment_live_attach(EmActorPool *pool, EmSceneState *scene)
     d->spad38A0 = S.spad38A0;
     d->hit = &S.hit;
     if (!d->d00810CA4 || !d->d00810CA6) return -1;
+    EmPlayerEquipmentVariantWorld *v = &S.vworld;
+    memset(v, 0, sizeof *v);
+    v->player_bone4 = &S.player_bone[4];
+    v->player_bone19 = &S.player_bone[19];
+    v->d008106CC = d->d008106CC;
+    v->d00810CA8 = em_scene_progress_at(scene, 0x00810CA8u, 2);
+    v->d00248B98 = S.d00248B98_row;
+    v->d00248C78 = S.d00248C78_row;
+    v->table = S.table;
+    v->table_words = TABLE_WORDS;
+    v->spad3600 = S.spad3600;
+    v->spad38A0 = S.spad38A0;
+    v->spad3B68 = &scene->spad3B68;
+    if (!v->d00810CA8) return -1;
     wire();
     S.attached = 1;
     return 0;
@@ -827,6 +957,9 @@ int em_equipment_live_tick(EmActor *actor)
     /* D_00275B40: this node's own +0x110 slots (the walk's 001CB590). */
     S.world.d00275B40 = s->n.bone;
     S.world.d00275B40_count = EM_PLAYER_EQUIPMENT_MAX_BONES;
+    S.vworld.player = p->bytes;
+    S.vworld.bones = s->n.bone;
+    S.vworld.bones_count = EM_PLAYER_EQUIPMENT_MAX_BONES;
     s->drew = 0;
     s->at_node = 0;
     S.current = s;

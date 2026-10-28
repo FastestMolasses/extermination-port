@@ -1931,7 +1931,8 @@ layout.
   the block's area loaded and the player placed at the slot's load pose),
   on the boot's title too since save2 round 5 (`SAVE_GAME.md` section 6.4:
   the card screen on the title's own binding, the GS memory module 0x2A's
-  upload alone); from the options it stops at 001D2610.
+  upload alone); from the options the result 2 runs 001D2610 and the game
+  task's area read since 2026-10-28 (not run end to end).
 - Evidence: `make test-options-reference`: the original routines executed
   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
@@ -1959,8 +1960,8 @@ layout.
   against the original code only (no recording chooses one); a loaded game
   from the title (the side run dmg_load_game; on the boot's title `make
   test-title-load-game`) is checked against the original code's own steps
-  only (no recording loads a game), and from the
-  options loading stops at 001D2610;
+  only (no recording loads a game), and loading from the options
+  (bound since 2026-10-28) has not been run end to end;
   saving (the first level has no save point) and
   quitting with Yes are not recorded and stop the game or are untested; the
   host card's format word (1) follows the code's test, its free count is

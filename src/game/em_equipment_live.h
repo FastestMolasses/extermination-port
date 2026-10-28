@@ -38,11 +38,13 @@
  * method also records that the node drew and whether its bone 0 is the
  * player's node 4 (the knife: 14) for the tick log.
  *
- * Every callee the route never reaches (the aim drawers 001854E0 / 00185760,
- * the one-shots 001861C0 / 001869A0 / 00186A60 / 001872C0 / 00187CC0 and
- * their 001B61C0 / 001EFEB0 / 001F4010, 00188C70, 00189090 / 00189330 /
- * 001899C0 / 00189A20, the lamp 00187780, and the knife's probe and effect
- * workers) is bound to a fault (docs/PLAYER_EQUIPMENT.md 4.2).
+ * The aim drawers, the one-shots, the lamp and the knife's workers go
+ * through the installed compositions (the setters below; without one they
+ * fault). 00188630's 001B61C0 is em_pad_actuator's and its 001EFEB0 the
+ * security gun lane's em_gun_rest_001EFEB0 on the effect barrel; the
+ * variants 00188C70, 00189090 / 00189330 / 001899C0 / 00189A20 run
+ * em_player_equipment_variants over the node and its slot's variant bytes
+ * (docs/PLAYER_EQUIPMENT.md 4.2, 4.7).
  *
  * Fail-stop: the first fault is latched (em_equipment_live_fault()); every
  * later entry returns -1. */

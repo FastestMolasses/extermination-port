@@ -979,10 +979,21 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
         *v0 = (uint64_t)(int64_t)(int32_t)r;
         return rc;
     }
-    case 0x00182B30u:
+    case 0x00182B30u: {
+        /* 00215870's Cross on a found device: 00182B30(D_008102B0) over the
+         * live player record (the host's em_player_stage_scripted_check) */
+        int32_t result = 0;
+        if (U(0) != PLAYER || !l->host.player_00182B30 ||
+            l->host.player_00182B30(l->host.context, &result) < 0)
+            return report(l, target, "has no live player record");
+        *v0 = (uint64_t)(int64_t)result;
+        return 0;
+    }
     case 0x0015C750u:
+        /* HEALING kind 2's hand-off reaches 0015C1F0 (the player model
+         * rebind), which is not bound on the live player */
         return report(l, target, "which the first level cannot reach (docs/STATUS_PAGES.md "
-                                 "section 1), is not bound");
+                                 "section 1), is not bound (its 0015C1F0 is not live)");
     default:
         return report(l, target, "which is not bound");
     }

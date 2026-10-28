@@ -57,5 +57,9 @@
 int em_player_stage_live_bind(void);
 /* Faults the fail-stop workers reported (a reached untranslated worker). */
 unsigned em_player_stage_live_faults(void);
+/* 00182B30(D_008102B0) on the live player record through the bound stage
+ * host (em_player_stage_scripted_check): *result = its return value. 0, or
+ * -1 before the bind. */
+int em_player_stage_live_00182B30(int *result);
 
 #endif

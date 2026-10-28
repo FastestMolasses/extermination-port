@@ -93,6 +93,9 @@ typedef struct {
      * the SCISSOR_1 window `clip` (x0, y0, x1, y1 on the 512 x 448
      * canvas). 1 drawn. */
     int (*models_draw)(void *context, EmGfx *gfx, const float clip[4]);
+    /* 00182B30(D_008102B0), the EVENT page's Cross: *result = its return
+     * value (0 when the player may act) over the live player record */
+    int (*player_00182B30)(void *context, int32_t *result);
 } EmStatusPagesHost;
 
 /* Indices of the request bytes the page core keeps a view of. */
