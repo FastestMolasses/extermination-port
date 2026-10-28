@@ -6,7 +6,7 @@
 /* Exactly the fields serialized by em_actor_pool_record_image. +34 and
  * +36 alias: unlike the older Roger bridge, the low half is included. */
 static const struct { uint16_t at, end; } owned[] = {
-    {0x00, 0x20}, {0x2E, 0x38}, {0x52, 0x9B}, {0x9C, 0x9F},
+    {0x00, 0x24}, {0x2E, 0x38}, {0x52, 0x9B}, {0x9C, 0x9F},
     {0xB0, 0xD0}, {0x1F0, 0x2F0}
 };
 
@@ -136,6 +136,7 @@ static void commit_actor(EmActor *a, const uint8_t *p, const uint8_t *shared)
     memcpy(a->u0A, p + 0xA, sizeof a->u0A); a->param = p[0xD]; a->uid = rd16(p + 0xE);
     /* +10 is changed only by the registered behavior binder; +14..1F
      * remain exclusively the native pool's links. */
+    a->w20 = rd32(p + 0x20);
     a->flags2 = rd16(p + 0x2E); a->w30 = rd32(p + 0x30);
     a->w34 = rd32(p + 0x34); a->h36 = rd16(p + 0x36);
     a->h52 = rd16(p + 0x52); a->kind = rd16(p + 0x54); a->link = rd16(p + 0x56);

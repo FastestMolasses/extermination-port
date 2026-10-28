@@ -1,12 +1,16 @@
 #include "game/em_aim_fire_world_live.h"
 #include "game/em_aim_fire_leaves.h"
 #include "game/em_area00_fx.h"
+#include "game/em_area00_hud.h"
 #include "game/em_area00_world.h"
 #include "game/em_area01_side.h"
 #include "game/em_area01_ui.h"
 #include "game/em_area01_render_gs.h"
 #include "game/em_area02_math.h"
 #include "game/em_area02_misc.h"
+#include "game/em_effects_live.h"
+#include "game/em_coll_grid_hull.h"
+#include <stdio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,8 +27,14 @@ static const EmCollSegment *segment(EmAimFireWorldLive *w)
 { return w && w->segment ? w->segment : em_collision_world_segment(); }
 static const EmCollisionWorldOwners *owners(EmAimFireWorldLive *w)
 { return w && w->owners ? w->owners : em_collision_world_owners(); }
+/* D_008102B0 as 001A7280 reads it (em_coll_grid_hull's EmCollHullWorld
+ * player): its +0x00, +0x09, +0x58 and +0x5C..+0x5E, refreshed from the
+ * player record before each lock; 0x700031D4 names it as 0x008102B0. */
+static EmActor player_body;
+#define PLAYER_RECORD UINT32_C(0x008102B0)
 static uint32_t actor_address(EmAimFireWorldLive *w,const EmActor *a)
 {
+    if(a==&player_body)return PLAYER_RECORD;
     const EmCollisionWorldOwners *o=owners(w);
     return !a ? 0 : o && o->address_of ? o->address_of(o->context,a) : 0;
 }
@@ -167,6 +177,7 @@ typedef struct {
     EmArea01SideRegion side[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea01RenderView fx[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea02MiscRegion misc[EM_AIM_FIRE_WORLD_VIEWS];
+    EmArea00HudRegion hud[EM_AIM_FIRE_WORLD_VIEWS];
     struct Bridge *bridge; /* this depth's running call, NULL before it has one */
 } BridgeViews;
 /* One view set per nesting depth of em_aim_fire_world_live_call (a
@@ -182,6 +193,8 @@ typedef struct Bridge {
     EmArea01SideRegion *side;
     EmArea01RenderView *fx;
     EmArea02MiscRegion *misc;
+    EmArea00HudRegion *hud;
+    EmArea00Hud *hud_state;
     EmArea02Misc *misc_state;
     EmArea01Ui *ui_state;
     EmArea02Math *math_state; EmArea00World *hit_state;
@@ -341,7 +354,9 @@ static int refresh(Bridge *b)
         b->side[i]=(EmArea01SideRegion){r->address,r->size,r->bytes};
         b->fx[i]=(EmArea01RenderView){r->address,r->size,r->bytes};
         b->misc[i]=(EmArea02MiscRegion){r->address,r->size,r->bytes};
+        if(b->hud)b->hud[i]=(EmArea00HudRegion){r->address,r->size,r->bytes};
     }
+    if(b->hud_state)b->hud_state->region_count=b->count;
     if(b->misc_state)b->misc_state->region_count=b->count;
     if(b->math_state)b->math_state->region_count=b->count;
     if(b->hit_state)b->hit_state->region_count=b->count;
@@ -385,6 +400,8 @@ static int forward(Bridge *b,uint32_t fn,uint32_t sp,uint64_t *a,unsigned na,
 static int math_call(void *ctx,EmArea02MathCall *c)
 { return forward(ctx,c->fn,c->sp,c->a,c->na,c->f,c->nf,&c->v0,&c->f0); }
 static int hit_call(void *ctx,EmArea00WorldCall *c)
+{ return forward(ctx,c->fn,c->sp,c->a,c->na,c->f,c->nf,&c->v0,&c->f0); }
+static int hud_call(void *ctx,EmArea00HudCall *c)
 { return forward(ctx,c->fn,c->sp,c->a,c->na,c->f,c->nf,&c->v0,&c->f0); }
 static int side_call(void *ctx,EmArea01SideCall *c)
 {
@@ -454,11 +471,108 @@ static int fault(EmAimFireLive *h,uint32_t fn,uint32_t a)
     if(a&&!h->fault_address)h->fault_address=a;
     return -1;
 }
+/* The player's hull chain: resource 0x3A at D_0028A578[0] = 0xD1B9C0
+ * (tools/export_player_hull.py, verified against the captures), and the
+ * matrices *(+0x110 + 4m) + 0x90 of its +0x09 bone slots as they stand. */
+#define PLAYER_HULL_PATH "assets/player_hull.emom"
+#define PLAYER_HULL_ADDRESS UINT32_C(0x00D1B9C0)
+#define PLAYER_HULL_SIZE 0x800u
+static struct { int tried, loaded; uint8_t bytes[PLAYER_HULL_SIZE]; float slots[16*32]; } player_hull;
+static uint32_t rd32le(const uint8_t *p)
+{ return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24; }
+static int player_hull_load(void)
+{
+    if(player_hull.loaded)return 0;
+    if(player_hull.tried)return -1;
+    player_hull.tried=1;
+    FILE *f=fopen(PLAYER_HULL_PATH,"rb");
+    uint8_t head[0x20];
+    int ok=f && fread(head,1,sizeof head,f)==sizeof head && !memcmp(head,"EMOM",4) && rd32le(head+4)==1 &&
+           rd32le(head+8)==PLAYER_HULL_ADDRESS && rd32le(head+12)==PLAYER_HULL_SIZE &&
+           fread(player_hull.bytes,1,PLAYER_HULL_SIZE,f)==PLAYER_HULL_SIZE;
+    if(f)fclose(f);
+    if(!ok) {
+        fprintf(stderr,"aim/fire world: %s is missing or invalid (tools/export_player_hull.py)\n",PLAYER_HULL_PATH);
+        return -1;
+    }
+    player_hull.loaded=1;return 0;
+}
+static int player_chain(void *context,const EmActor *body,EmCollHullChain *out)
+{
+    EmAimFireLive *h=context;
+    if(body!=&player_body || !h || !h->player || player_hull_load()<0)return -1;
+    const uint8_t *r=h->player->bytes;
+    if(rd32le(r+0x58)!=PLAYER_HULL_ADDRESS || r[9]>32)return -1;
+    for(unsigned i=0;i<r[9];++i) {
+        const uint32_t slot=rd32le(r+0x110+4*i);
+        const void *m=slot<=UINT32_MAX-0x90u ? em_aim_fire_live_map(h,(slot+0x90u)&~15u,64,0) : NULL;
+        if(!m)return -1;
+        memcpy(player_hull.slots+16*i,m,64);
+    }
+    *out=(EmCollHullChain){player_hull.bytes,PLAYER_HULL_SIZE,player_hull.slots,r[9]};
+    return 0;
+}
+/* 0019AA80(from, to, mask) (byte-matched decomp C) over the one probe
+ * state: 0x70003190[i] = from[i] and 0x700031A0[i] = to[i] for i = 0..2,
+ * 0x700031AC = 0x7000319C = 1.0, 0x700031D4 = 0, then r = 001A7280(mask &
+ * 0xFFFF) (em_coll_grid_hull, against the player record); result 1 when r
+ * is nonzero, else 0 and 0x700031D0 = 0; 0x700031D8 = the result. */
+static int probe_0019AA80(EmAimFireWorldLive *w,EmAimFireLive *h,EmAimFireTargetCall *c)
+{
+    w->move_last=0;
+    const EmCollSegment *s=segment(w);
+    if(!s||!s->state||!s->face||!h->player||c->na!=3)return fault(h,c->function,0);
+    const uint32_t a=(uint32_t)c->a[0],d=(uint32_t)c->a[1];
+    /* Sources inside the destination words would make the interleaved
+     * copy order matter: refused. */
+    if((a<0x700031B0u && a+12u>0x70003190u) || (d<0x700031B0u && d+12u>0x70003190u))
+        return fault(h,c->function,a);
+    const void *pa=em_aim_fire_live_map(h,a,12,0);if(!pa)return fault(h,c->function,a);
+    const void *pd=em_aim_fire_live_map(h,d,12,0);if(!pd)return fault(h,c->function,d);
+    EmCollProbeState *q=s->state;
+    memcpy(q->start,pa,12);memcpy(q->end,pd,12);
+    q->end[3]=1.0f;q->start[3]=1.0f;q->entity=NULL;
+    const uint8_t *r=h->player->bytes;
+    memset(&player_body,0,sizeof player_body);
+    player_body.status=r[0];player_body.bones=r[9];
+    player_body.w58=rd32le(r+0x58);player_body.w5C=rd32le(r+0x5C);
+    const EmCollHullWorld hw={h,player_chain,&player_body};
+    EmCollHullScratch hs;memset(&hs,0,sizeof hs);
+    memcpy(hs.start,q->start,12);memcpy(hs.end,q->end,12);
+    memcpy(hs.point,q->point,12);memcpy(hs.cell_normal,q->cell_normal,12);
+    hs.cell_class=q->cell_class;hs.word_1c=s->face->hull_word_1c;hs.word_20=s->face->hull_word_20;
+    hs.entity=q->entity;
+    const int locked=em_coll_grid_hull_001A7280(&hw,&hs,(uint32_t)c->a[2]&0xFFFFu);
+    if(locked<0)return fault(h,0x001A7280u,0);
+    memcpy(q->point,hs.point,12);memcpy(q->cell_normal,hs.cell_normal,12);
+    q->cell_class=hs.cell_class;s->face->hull_word_1c=hs.word_1c;s->face->hull_word_20=hs.word_20;
+    q->entity=hs.entity;
+    if(hs.record_cell) { q->record=EM_COLL_PROBE_RECORD_CELL;q->node=-1; }
+    const int result=locked!=0;
+    if(!result) { q->record=EM_COLL_PROBE_RECORD_NONE;q->node=-1; }
+    q->kind=result;
+    c->v0=(uint64_t)result;
+    return 0;
+}
 static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,BridgeViews *v)
 {
     EmAimFireWorldLive *w=context;
     if(!w||!h||!c||h->fault_function||h->fault_address)return -1;
     const uint32_t a=(uint32_t)c->a[0],d=(uint32_t)c->a[1];
+    if(c->function==0x0019AA80u)return probe_0019AA80(w,h,c);
+    if(c->function==0x001D04B0u) {
+        /* 001D04B0(m, kind, source; f12, f13), the spat hazard's particle
+         * draw (001E2E80 with its +0xD0 and D_00253740 .. D_00253A10):
+         * em_effects_live's translation over the exported ELF source block
+         * and the matrix as it stands. */
+        float m[16];
+        const void *pm=em_aim_fire_live_map(h,a,64,0);
+        if(!pm || c->na!=3 || c->nf!=2)return fault(h,c->function,a);
+        memcpy(m,pm,64);
+        if(em_effects_live_001D04B0_elf(m,(int32_t)d,(uint32_t)c->a[2],c->f[0],c->f[1])<0)
+            return fault(h,c->function,em_effects_live_fault());
+        return 0;
+    }
     if(c->function==0x001839A0u) {
         const uint8_t *p=em_aim_fire_live_map(h,a+3u,1,0);
         if(!p)return -1;
@@ -507,9 +621,10 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
        c->function!=0x001AA840u && c->function!=0x00189EC0u && c->function!=0x001F18C0u &&
        c->function!=0x00189FE0u && c->function!=0x0018A180u && c->function!=0x001EFF10u &&
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
-       c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u)return -1;
+       c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u &&
+       c->function!=0x001E2E80u && c->function!=0x001F02C0u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
-    b.views=v->views;b.math=v->math;b.hit=v->hit;b.side=v->side;b.fx=v->fx;b.misc=v->misc;
+    b.views=v->views;b.math=v->math;b.hit=v->hit;b.side=v->side;b.fx=v->fx;b.misc=v->misc;b.hud=v->hud;
     v->bridge=&b;
     b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
@@ -606,6 +721,19 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
         status=c->function==0x001F0190u ? em_area01_side_001F0190(&s,c->f[0],c->f[1])
                                         : em_area01_side_001F0290(&s);
         if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
+    } else if(c->function==0x001E2E80u) {
+        /* The spat hazard node's behaviour (entity 0x80000008, subtype 3:
+         * the creatures' spray through 001EFFD0, which leaves +0x20 the
+         * scale and +0x94 the tag): em_area00_hud, its one translation
+         * (test_area00_hud_reference.py), over this depth's views; its
+         * callees come back through the composition. */
+        EmArea00Hud s;memset(&s,0,sizeof s);
+        s.regions=b.hud;s.region_count=b.count;s.call=hud_call;s.ctx=&b;s.sp=c->sp;b.hud_state=&s;
+        status=em_area00_hud_001E2E80(&s,a);
+        if(status<0||s.fault) {
+            fprintf(stderr,"aim/fire world: 001E2E80 hud fault %d at %08X\n",(int)s.fault,(unsigned)s.fault_address);
+            return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
+        }
     } else if(c->function==0x001EFE00u) {
         EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0,NULL};b.side_state=&s;
         status=em_area01_side_001EFE00(&s,(int32_t)a,d,&result);
@@ -638,6 +766,9 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
             status=em_area00_fx_001EFF10(&s,c->a[0],c->a[1],c->a[2],c->a[3],c->a[4],c->a[5],c->f[0],&c->v0);
         else if(c->function==0x001F2F90u)
             status=em_area00_fx_001F2F90(&s,c->a[0],c->a[1],c->a[2],c->a[3]);
+        else if(c->function==0x001F02C0u)
+            /* The spat hazard's hit sound (001F02C0(p, id; f12)). */
+            status=em_area00_fx_001F02C0(&s,c->a[0],c->a[1],c->f[0]);
         else if(c->function==0x001F3340u)
             status=em_area00_fx_001F3340(&s,c->a[0],c->a[1],c->a[2]);
         else if(c->function==0x001F3620u)

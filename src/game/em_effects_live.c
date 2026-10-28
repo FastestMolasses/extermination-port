@@ -434,7 +434,7 @@ void *em_effects_live_node_field(uint32_t address, size_t size, int write)
         }
         return s->parent24_valid ? field_span(&s->parent24,offset,size,0x24,4) : NULL;
     }
-    FIELD(a->flags2,0x2E); FIELD(a->w30,0x30); FIELD(a->h36,0x36);
+    FIELD(a->w20,0x20); FIELD(a->flags2,0x2E); FIELD(a->w30,0x30); FIELD(a->h36,0x36);
     FIELD(s->e.live38,0x38); FIELD(a->h52,0x52); FIELD(a->kind,0x54);
     FIELD(a->link,0x56); FIELD(a->w58,0x58); FIELD(a->w5C,0x5C);
     FIELD(a->f60,0x60); FIELD(a->f80,0x80); FIELD(a->w90,0x90);
@@ -470,7 +470,7 @@ size_t em_effects_live_node_regions(uint32_t address, EmEffectsLiveNodeRegion *r
         (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE ||
         !em_effects_live_node_field(address,0x14,0)) return 0;
     static const struct { uint16_t offset, size; } fields[]={
-        {0,0x14},{0x24,4},{0x2E,2},{0x30,4},{0x36,2},{0x38,4},
+        {0,0x14},{0x20,4},{0x24,4},{0x2E,2},{0x30,4},{0x36,2},{0x38,4},
         {0x52,2},{0x54,2},{0x56,2},{0x58,4},{0x5C,4},{0x60,0x20},
         {0x80,0x10},{0x90,4},{0x94,2},{0x96,2},{0x98,1},{0x99,1},
         {0x9A,1},{0x9C,1},{0x9D,1},{0x9E,1},{0xB0,16},{0xC0,16},{0xD0,64}
@@ -925,6 +925,37 @@ static int handler_001ED7A0(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* 001EEBA0 / 001EEEB0 (effect subtypes 0x19 / 0x1A, entities 0x80000029 /
+ * 0x8000002A; byte-matched decomp C), the spat hazard 001E2E80's launch and
+ * hit effects (AREA00 a00_04 on): the twins of 001ED7A0 over their own
+ * descriptor windows (export_area00_runtime_tables.py: D_00257360 for
+ * 001EEBA0's rows D_00257380 / D_002574A0, HAZARD_EFFECT_WINDOWS'
+ * D_00257510 for 001EEEB0's rows D_00257530 / D_00257650); their other
+ * 001CFBE0 tables D_00257870 / D_00257900 are read by w_001CFBE0. */
+static int handler_hazard(u32 handler, EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(handler,"hazard effect without its node");
+    const u32 window=handler==0x001EEBA0u ? 0x00257360u : 0x00257510u;
+    uint8_t *sources=(uint8_t *)em_effects_live_window(window,0x1B0u);
+    if(!sources)return fail(window,"hazard effect descriptors not delivered");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea00HudRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x1F4u,4,(uint8_t *)&work->seed_copy},
+        {at+0x1F8u,4,(uint8_t *)&work->step},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {window,0x1B0u,sources},
+    };
+    ImpactCall call={node,at};
+    EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
+                       .call=impact_worker,.ctx=&call,.sp=HANDLER_SP};
+    const int rc=handler==0x001EEBA0u ? em_area00_hud_001EEBA0(&owner,at+0xD0u,(u32)depth)
+                                      : em_area00_hud_001EEEB0(&owner,at+0xD0u,(u32)depth);
+    if(rc<0)return fail(owner.fault_address?owner.fault_address:handler,"hazard effect HUD handler fault");
+    return 0;
+}
+
 /* 001EB980 (effect subtype 0x27, the footstep variant of entity 0x80000068;
  * byte-matched decomp C), AREA00's first reached in a00_00: one 001CFB50 of
  * the node's matrix with work +0x54 / +0x5C (the accumulator and the
@@ -1014,6 +1045,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);
     if (handler == 0x001EBC30u) return handler_001EBC30(node, depth, work);
+    if (handler == 0x001EEBA0u || handler == 0x001EEEB0u) return handler_hazard(handler, node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -1086,6 +1118,8 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00256280u || source == 0x00256310u ||
                               source == 0x00256EE0u || source == 0x00256F70u ||
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
+                              source == 0x00257510u || source == 0x00257630u || source == 0x00257870u ||
+                              source == 0x00257900u ||
                               (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))
                                ? em_effects_live_window(source, 0x90)
                                : NULL;
@@ -1664,6 +1698,28 @@ static const uint8_t *map_overlay_source(uint32_t address, const uint8_t bytes[0
     S.overlay_source[S.overlay_sources].address = address;
     memcpy(S.overlay_source[S.overlay_sources].bytes, bytes, 0x90);
     return S.overlay_source[S.overlay_sources++].bytes;
+}
+
+/* 001D04B0 with an immutable ELF source block (the spat hazard 001E2E80's
+ * D_00253740 .. D_00253A10, export_area00_runtime_tables.py
+ * HAZARD_WINDOWS): the same three steps over the exported bytes; the
+ * AREA11 flame's overlay capture log is not touched. */
+int em_effects_live_001D04B0_elf(const float m[16], int32_t kind, uint32_t source, uint32_t f12, uint32_t f13)
+{
+    READY();
+    const uint8_t *src = em_effects_live_window(source, 0x90);
+    if (!m || !src || source < 0x00100000u || source >= 0x00275B00u)
+        return fail(source, "001D04B0: the ELF source block is not exported");
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    int32_t key = 0;
+    if (check(em_effect_original_001CCF70(&S.e, m + 12, &key), 0x001CCF70u) < 0) return -1;
+    EmHeadSpriteOriginalXf x;
+    memset(&x, 0, sizeof x);
+    if (check(em_head_sprite_original_001CFA60(&x, m, f12, f13, &S.hworkers, &S.hfault), 0x001CFA60u) < 0)
+        return -1;
+    const EmHeadSpriteOriginalSource st = {source, src};
+    return check(chain_001CFBE0(key, (u32)kind, &st, &x, 0), 0x001CFBE0u) < 0 ? -1 : 0;
 }
 
 int em_effects_live_001D04B0(const float m[16], int32_t kind, uint32_t source, const uint8_t source_bytes[0x90],

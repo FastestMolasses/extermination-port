@@ -14,6 +14,47 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 15 (branch `drawbridge`): the C side plays
+a00_00..a00_05 and 181 rows of a00_06, and stops at a00_06 frame 9758**
+(001E2E80 reads the hit record's +0x1A at 0x700030CA, which the composition's
+views do not carry; iteration 16). Not a capture pass. Ignoring `lock_r54`,
+every compared row of a00_00..a00_05 is exact except a00_04 rows 1546..1553
+(8 rows: camera `eye` / `tgt` about 0.4 off, then equal again; open
+fidelity unit). The a00_04 frame 6540 stop is gone:
+
+- **`001EFFD0` (byte-matched decomp C), the creatures' spray spawn,** is
+  bound in `em_area01_light_live.c` over em_area00_fx's translation:
+  001EF9D0 through the host (em_effects_live), then node +0xB0 / +0xC0
+  copies, +0x20 = f12 and the halfword +0x94 = the tag. The +0x20 word now
+  has a home: `EmActor.w20` (no pool function writes it; only the 001AF8E0
+  memset clears it), serialized by `em_actor_pool_record_image`, owned by
+  the AREA01 actor view (+0x00..+0x23) and mapped by the aim/fire pool view
+  and `em_effects_live_node_field`. `test_area01_light_live_reference.py`
+  runs the original 001EFFD0 with 001EF9D0 scripted (a free record or 0,
+  tags 0xA / 0xB) and compares RAM, scratchpad and v0.
+- **`001E2E80` (byte-matched decomp C), the spat hazard (entity
+  0x80000008, subtype 3),** ticks through em_aim_fire_runtime's other-tick
+  hook and em_aim_fire_world_live (em_area00_hud's translation over the
+  composition's views; binding row in em_area11_bindings). Its callees:
+  `001D04B0` with an ELF source block (`em_effects_live_001D04B0_elf`;
+  D_00253740..D_00253A10 exported by `export_area00_runtime_tables.py`
+  HAZARD_WINDOWS), `001F02C0` (em_area00_fx), and `0019AA80` (byte-matched
+  decomp C) over the one probe state with `001A7280` against the player
+  record (em_coll_grid_hull; the player's hull chain, resource 0x3A at
+  D_0028A578[0] = 0xD1B9C0, exported by the new `tools/export_player_hull.py`
+  from the user's extract and checked against 12 captures; 0x700031D4 names
+  the player as 0x008102B0).
+- **The hazard's two effects, `001EEBA0` / `001EEEB0` (byte-matched decomp
+  C; entities 0x80000029 launch / 0x8000002A hit),** run as em_effects_live
+  subtype handlers over em_area00_hud's translations; their descriptor
+  windows D_00257510 (0x1B0) and D_00257870 (0x120) are exported
+  (HAZARD_EFFECT_WINDOWS; the captures' rows D_00257530 / D_00257650 hold
+  either the ELF words or 001EEEB0's stores, which the exporter checks).
+- Assets: this worktree's `assets/` is a private directory (symlinks to the
+  primary checkout's entries, private regular files `effect_tables.emet`,
+  63 windows, and `player_hull.emom`).
+- Receipts: ignored `build/frontier/i15e/` (run log, ticks, rand trace).
+
 **2026-10-21, iteration 14 (port main 74e6c04 plus the creatures' ground
 probe): the C side plays a00_00..a00_03 and 143 rows of a00_04, and stops
 at a00_04 frame 6540 on the unbound effect spawn `001EFFD0`.** Not a

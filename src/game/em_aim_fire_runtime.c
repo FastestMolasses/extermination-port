@@ -124,7 +124,7 @@ static void *pool_field(uint32_t address,size_t size,int write)
         R.self_word[index]=em_actor_pool_address(R.pool,a->self);return p;
     }
 #define FIELD(field,offset) do { if ((p=span(address,size,base+(offset),sizeof a->field,&a->field))) return p; } while (0)
-    FIELD(flags2,0x2E); FIELD(w30,0x30);
+    FIELD(w20,0x20); FIELD(flags2,0x2E); FIELD(w30,0x30);
     /* 00185A10/00185E30 read the class-2 target's +34 halfword. The
      * original word overlaps +36, whose canonical owner is h36. */
     if ((p=span(address,size,base+0x34,2,&a->w34))) return p;
@@ -739,6 +739,16 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         const int rc=em_aim_fire_binding_run_bones(callback,node,node+0x110u);
         em_aim_fire_trail_set_current(NULL);
         if (rc<0) return -1;
+        return a->allocated && a->generation==generation ? 1 : 0;
+    }
+    if (callback==0x001E2E80u) {
+        /* The spat hazard node 001E2E80 (em_area00_hud through the
+         * composition), with D_00275B40 = its +0x110 (the walk's 001CB590);
+         * 1 while its record stays allocated, 0 once it freed itself. */
+        EmActor *a=pool_actor(node);
+        if (!a) return -1;
+        const uint32_t generation=a->generation;
+        if (em_aim_fire_binding_run_bones(callback,node,node+0x110u)<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
     if (callback==EM_BONE_BURST_CALLBACK) {
