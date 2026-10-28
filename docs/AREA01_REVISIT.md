@@ -27,6 +27,26 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### 2026-10-28, night (drawbridge 1e20998 merged: every slot-0xFFF pass)
+
+**The revisit now plays the whole camera cinematic of 0x82AD90 and stops
+on GS-model frame time at its op07 (0x82B050).** With 1e20998 the ramp's
+pass is drawn and the frames run at speed through op0D: scene 2, track at
+0x13623F0, head 3461, the cursor reaching it about pad frame 9050. Then
+op18, op01 sub 9 and op0D sub 2 pass, and op07 at 0x82B050 starts; from
+there each frame takes more than four seconds, all in the CPU GS model
+(em_gfx_gs_head -> em_gs_gif -> em_gs_write -> span_end -> draw_generic,
+a profile over three seconds), with no fault. Renderer lane: a primitive
+of that stretch (the bug attack) is drawn at a cost the model does not
+bear; not diagnosed further here.
+
+Bound since the evening entry (commits on `revisit`): 001C9E40 in the live
+(em_anim_rest, f814c9b); a reused pool record whose callback has no
+behaviour is bound at commit (09af35e: 0x8237D0's muzzle child,
+001F5040 code 1); effect handler 001EDAF0 (em_area02_misc over
+handler_hazard's views; 4d4a3e9, test_area01_effect_edaf0_reference.py,
+48 chains equal). Two broken reference tests repaired (f48b1d7).
+
 ### Survey: op0D of 0x82AD90 through a01r_02 (2026-10-28, night)
 
 **Method.** Two hidden, owned fork replays of route_capture's closed-loop
