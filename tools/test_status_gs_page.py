@@ -70,7 +70,25 @@ FRAMES) and the user's font export.
    the presented picture, the overlay pass included, at every field
    pixel's place.
 
-About 16 s (the game run; EM_TEST_FULL=1 about 5.5 min: three more runs); --dump FILE --run-log FILE reuse a run.
+7. The ITEM children EQUIPMENT and EVENT (STATUS_FIELD.md section 3f; the
+   same run as 6): every frame of a bound page (the dump's flag 8) is
+   presented as a GS field and is either the original's page after the
+   background (equal in every call after it to the fork capture
+   slot12_status_root_equipment f0060 or slot12_status_root_event f0062:
+   the same state, the stick to the region, Cross, the page open; capture.py
+   CAPTURE_INPUTS) or empty: the frame whose Circle leaves the page (its
+   code returns before any leaf), whose field must hash equal to the
+   displayed field of slot12_status_root_equipment_circle f0072 (the
+   original's Circle frame, which builds no slot-1 packet either; the
+   first one's picture is compared in the second run too). The
+   captures <page>_bg<N> are the open page with D_002655A0 set to the port's
+   of frame N at loop top T - 1 (CAPTURE_WRITE): frames N + 1 and N + 2
+   (chosen of the captures' field parity: FRAME_1 FBP 0x38, then 0) must
+   equal them in every call, their written bytes equal the builders' and
+   the capture's, and their presented fields and pictures (the second run)
+   equal the displayed fields.
+
+About 16 s (the game run; EM_TEST_FULL=1 about 2.5 to 5.5 min: three more runs; --item alone, sections 6 and 7, about 1.5 min); --dump FILE --run-log FILE reuse a run.
 """
 from __future__ import annotations
 
@@ -102,6 +120,12 @@ BATTERY_BEATS = ('01_battery', '03_panel_power')
 ROOT_REST = ('slot12_status_root_pad8080', 40)
 ROOT_INJECTED = [('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_pad8080_bg3467', 41)]
 LIT = 0x805FFF6E          # 0020F2A0's lit region colour
+# the ITEM children (section 7): the open pages, their written-background
+# pairs (D_002655A0 of port frame N; frames N + 1, N + 2) and the Circle frame
+PAGES_REST = {'EQUIPMENT': ('slot12_status_root_equipment', 60), 'EVENT': ('slot12_status_root_event', 62)}
+PAGES_INJECTED = {'EQUIPMENT': [('slot12_status_root_equipment_bg3421', 60), ('slot12_status_root_equipment_bg3421', 61)],
+                  'EVENT': [('slot12_status_root_event_bg3511', 62), ('slot12_status_root_event_bg3511', 63)]}
+PAGES_CIRCLE = ('slot12_status_root_equipment_circle', 72)
 
 FAILS = t.FAILS
 
@@ -233,8 +257,9 @@ def written_mask(lib, ram: bytes, context: int, start: int, port: bytes, calls) 
     return builds[0] == builds[1], builds[0]
 
 
-def item_root(lib, rlib, report: dict) -> None:
-    """Section 6 of the docstring."""
+def status_pages(lib, rlib, report: dict) -> None:
+    """Sections 6 and 7 of the docstring: one status_pages run, then one
+    more with frame captures at the frames whose pictures are compared."""
     dump = OUT / 'item_chains.bin'
     run_game(dump, 'status_pages', tag='run_item')
     bgs: dict[int, bytes] = {}
@@ -252,12 +277,88 @@ def item_root(lib, rlib, report: dict) -> None:
             continue
         shaped += sum(1 for _, w, a in calls if a is None)
         port.append((fc, st, en, fl, b, calls))
+    print(f'  6: status_pages run: {len(port)} of {len(recs)} frames decode completely ({shaped} calls by shape)')
+    plog = present_log(OUT / 'present.log')
+    shots = item_root(lib, port, bgs, plog, ref, context, report)
+    shots += item_pages(lib, port, bgs, plog, ref, context, report)
+    # the presented pictures, the overlay pass included
+    import test_fb2_pixels as F
+    lines = [json.loads(x) for x in (OUT / 'ticks.jsonl').open()]
+    tick_of = {x['counter']: x['tick'] for x in lines if 'tick' in x}
+    spec = []
+    for section, where, fc, c, slot in shots:
+        spec.append(f'{tick_of[fc]}:{OUT / f"present_item_{fc}.bmp"}')
+    if shots:
+        run_game(OUT / 'item_chains2.bin', 'status_pages', {'EM_FB_CAPTURE_TICKS': ';'.join(spec)}, 'run_item2')
+        (OUT / 'item_chains2.bin').unlink(missing_ok=True)
+    for section, where, fc, c, slot in shots:
+        shot = OUT / f'present_item_{fc}.bmp'
+        shown, _ = F.shown_field(F.read_bmp(shot), shot)
+        disp = np.frombuffer((c['d'] / 'displayed_field_T2.rgba').read_bytes(), np.uint8).reshape(224, 512, 4)
+        off = int((shown[..., :3] != disp[..., :3]).any(axis=2).sum())
+        print(f'  {section}: {where}: the presented picture at every field pixel\'s place: {off} of '
+              f'{512 * 224} pixels off the displayed field')
+        if off:
+            fail(f'{section}: {where}: the presented picture differs from the displayed field in {off} pixels')
+        slot[where]['pixels_off'] = off
+        for ext in ('', '.gsfield', '.present'):
+            Path(str(shot) + ext).unlink(missing_ok=True)
+    dump.unlink(missing_ok=True)
+
+
+def injected(lib, ref, context, plog, section: str, keys, frames, by_fc, res: dict):
+    """The captures `keys` (CAPTURE_WRITE of D_002655A0) against port frames
+    `frames`: every call, the written bytes, the presented field hash."""
+    caps = [capture(*k) for k in keys]
+    out = []
+    for (beat, T), c, fc in zip(keys, caps, frames):
+        where = f'{beat} f{T:04d}'
+        _, st, en, fl, b, calls = by_fc[fc]
+        if [(w2, a) for _, w2, a in calls] != c['calls']:
+            fail(f'{section}: {where}: port frame {fc} is not the captured chain call for call')
+            continue
+        mask, built = written_mask(lib, ref['ram'], context, st, b, calls)
+        got = np.frombuffer(b, np.uint8)
+        capb = np.frombuffer(c['ram'][c['first'] + 0x30:c['end'] - 0x30], np.uint8)
+        off_port, off_cap = int((mask & (built != got)).sum()), int((mask & (got != capb)).sum())
+        if off_port or off_cap:
+            fail(f'{section}: {where}: frame {fc}: {off_port} written bytes off the builders\', {off_cap} off the '
+                 f'capture')
+        disp = (c['d'] / 'displayed_field_T2.rgba').read_bytes()
+        got_f = plog.get(fc, ('none',))
+        field_ok = got_f[0] == 'field' and got_f[3] == fnv64(disp)
+        if not field_ok:
+            fail(f'{section}: {where}: port frame {fc}\'s presented field is not the displayed field')
+        print(f'  {section}: {where} = port frame {fc}: every call ({len(calls)}), the written bytes '
+              f'({int(mask.sum())}) equal the builders\' and the capture\'s; presented field equal to the displayed '
+              f'field: {field_ok}')
+        res[where] = {'frame': fc, 'written': int(mask.sum()), 'field_equal': field_ok}
+        out.append((section, where, fc, c, res))
+    return out
+
+
+def written_bg(section: str, caps0: dict, bgs: dict) -> int | None:
+    """The port frame N whose D_002655A0 (before its 0020A7A0) the capture
+    wrote at loop top T - 1 (exactly one)."""
+    w = caps0['info'].get('write') or {}
+    if int(w.get('addr', '0'), 16) != 0x2655A0:
+        fail(f'{section}: {caps0["d"]}: its capture wrote no D_002655A0')
+        return None
+    state = bytes.fromhex(w['bytes'])
+    hits = [fc for fc, b in bgs.items() if b == state]
+    if len(hits) != 1:
+        fail(f'{section}: the port frames holding the written D_002655A0 are {hits}, not one')
+        return None
+    return hits[0]
+
+
+def item_root(lib, port, bgs, plog, ref, context, report: dict) -> list:
+    """Section 6 of the docstring."""
     items = [p for p in port if p[3] & 2]
-    print(f'  6: status_pages run: {len(port)} of {len(recs)} frames decode completely ({shaped} calls by shape), '
-          f'{len(items)} ITEM root frames')
+    print(f'  6: {len(items)} ITEM root frames')
     if not items:
         fail('6: no ITEM root frame was dumped')
-        return
+        return []
     # the structure
     head = [t.B_7E40, t.B_7E40, t.B_7D00, t.B_7E40, t.B_7E40, t.B_7D00] + [t.B_1D66A0] * 16 + [t.B_7D00]
     glyphs = (t.B_CC8A0, t.B_CC3B0, t.B_CBC20)
@@ -281,87 +382,105 @@ def item_root(lib, rlib, report: dict) -> None:
                 fail(f'6: frame {fc}: at rest with hover 0, but not the captured ITEM root after the background')
     print(f'  6: every ITEM root frame is the background, 0020F170\'s and 0020F2A0\'s packets; {equal_rest} of '
           f'{at_rest} at rest with hover 0 equal {ROOT_REST[0]} f{ROOT_REST[1]:04d} after the background')
-    res = {'frames': len(items), 'at_rest_hover0': at_rest, 'equal_after_background': equal_rest}
+    res = {'frames': len(items), 'at_rest_hover0': at_rest, 'equal_after_background': equal_rest, 'injected': {}}
+    report['item_root'] = res
     # the captures with the port's D_002655A0
-    caps = [capture(*k) for k in ROOT_INJECTED]
-    w = caps[0]['info'].get('write') or {}
-    if int(w.get('addr', '0'), 16) != 0x2655A0 or w.get('at_loop_top') != ROOT_INJECTED[0][1] - 1:
+    first = capture(*ROOT_INJECTED[0])
+    if (first['info'].get('write') or {}).get('at_loop_top') != ROOT_INJECTED[0][1] - 1:
         fail(f'6: {ROOT_INJECTED[0][0]}: its capture wrote no D_002655A0 at loop top {ROOT_INJECTED[0][1] - 1}')
-        return
-    state = bytes.fromhex(w['bytes'])
-    hits = [fc for fc, b in bgs.items() if b == state]
+        return []
+    n0 = written_bg('6', first, bgs)
     by_fc = {p[0]: p for p in items}
-    if len(hits) != 1 or hits[0] + 1 not in by_fc or hits[0] + 2 not in by_fc:
-        fail(f'6: the port frames holding the written D_002655A0 are {hits}, not one ITEM root frame N with N + 1 '
+    if n0 is None or n0 + 1 not in by_fc or n0 + 2 not in by_fc:
+        fail(f'6: the port frame holding the written D_002655A0 is {n0}, not an ITEM root frame N with N + 1 '
              f'and N + 2 ITEM root frames')
-        return
-    n0 = hits[0]
-    plog = present_log(OUT / 'present.log')
+        return []
     kinds: dict[str, int] = {}
     for fc in by_fc:
         kinds[plog.get(fc, ('none',))[0]] = kinds.get(plog.get(fc, ('none',))[0], 0) + 1
     if kinds != {'field': len(by_fc)}:
         fail(f'6: the ITEM root frames are presented as {kinds}, not all as GS fields')
     res['presented'] = kinds
-    res['injected'] = {}
-    for (beat, T), c, fc in zip(ROOT_INJECTED, caps, (n0 + 1, n0 + 2)):
-        _, st, en, fl, b, calls = by_fc[fc]
-        where = f'{beat} f{T:04d}'
-        if [(w2, a) for _, w2, a in calls] != c['calls']:
-            fail(f'6: {where}: port frame {fc} is not the captured chain call for call')
+    print(f'  6: N = {n0} holds the written D_002655A0')
+    return injected(lib, ref, context, plog, '6', ROOT_INJECTED, (n0 + 1, n0 + 2), by_fc, res['injected'])
+
+
+def item_pages(lib, port, bgs, plog, ref, context, report: dict) -> list:
+    """Section 7 of the docstring."""
+    pages = [p for p in port if p[3] & 8]
+    res: dict = {'frames': len(pages), 'injected': {}}
+    report['item_pages'] = res
+    print(f'  7: {len(pages)} EQUIPMENT / EVENT frames')
+    if not pages:
+        fail('7: no EQUIPMENT / EVENT frame was dumped')
+        return []
+    rest = {name: capture(*key)['calls'] for name, key in PAGES_REST.items()}
+    circle = capture(*PAGES_CIRCLE)
+    if circle['calls']:
+        fail(f'7: {PAGES_CIRCLE[0]} f{PAGES_CIRCLE[1]:04d}: the original\'s Circle frame builds '
+             f'{len(circle["calls"])} slot-1 packets, not none')
+    counts = {name: 0 for name in rest}
+    empty = []
+    disp_circle = fnv64((circle['d'] / 'displayed_field_T2.rgba').read_bytes())
+    for fc, st, en, fl, b, calls in pages:
+        cs = [(w, a) for _, w, a in calls]
+        if not cs:
+            empty.append(fc)
+            got = plog.get(fc, ('none',))
+            if got[0] != 'field' or got[3] != disp_circle:
+                fail(f'7: frame {fc}: an empty page frame whose presented field is not the original\'s Circle frame')
             continue
-        mask, built = written_mask(lib, ref['ram'], context, st, b, calls)
-        got = np.frombuffer(b, np.uint8)
-        capb = np.frombuffer(c['ram'][c['first'] + 0x30:c['end'] - 0x30], np.uint8)
-        off_port, off_cap = int((mask & (built != got)).sum()), int((mask & (got != capb)).sum())
-        if off_port or off_cap:
-            fail(f'6: {where}: frame {fc}: {off_port} written bytes off the builders\', {off_cap} off the capture')
-        disp = (c['d'] / 'displayed_field_T2.rgba').read_bytes()
-        got_f = plog.get(fc, ('none',))
-        field_ok = got_f[0] == 'field' and got_f[3] == fnv64(disp)
-        if not field_ok:
-            fail(f'6: {where}: port frame {fc}\'s presented field is not the displayed field')
-        print(f'  6: {where} = port frame {fc} (N = {n0} holds the written D_002655A0): every call ({len(calls)}), '
-              f'the written bytes ({int(mask.sum())}) equal the builders\' and the capture\'s; presented field equal '
-              f'to the displayed field: {field_ok}')
-        res['injected'][where] = {'frame': fc, 'written': int(mask.sum()), 'field_equal': field_ok}
-    # the presented pictures, the overlay pass included
-    import test_fb2_pixels as F
-    lines = [json.loads(x) for x in (OUT / 'ticks.jsonl').open()]
-    tick_of = {x['counter']: x['tick'] for x in lines if 'tick' in x}
-    spec, shots = [], {}
-    for (beat, T), fc in zip(ROOT_INJECTED, (n0 + 1, n0 + 2)):
-        shot = OUT / f'present_item_{fc}.bmp'
-        spec.append(f'{tick_of[fc]}:{shot}')
-        shots[(beat, T)] = shot
-    run_game(OUT / 'item_chains2.bin', 'status_pages', {'EM_FB_CAPTURE_TICKS': ';'.join(spec)}, 'run_item2')
-    (OUT / 'item_chains2.bin').unlink(missing_ok=True)
-    for (key, shot), c in zip(shots.items(), caps):
-        shown, _ = F.shown_field(F.read_bmp(shot), shot)
-        disp = np.frombuffer((c['d'] / 'displayed_field_T2.rgba').read_bytes(), np.uint8).reshape(224, 512, 4)
-        off = int((shown[..., :3] != disp[..., :3]).any(axis=2).sum())
-        print(f'  6: {key[0]} f{key[1]:04d}: the presented picture at every field pixel\'s place: {off} of '
-              f'{512 * 224} pixels off the displayed field')
-        if off:
-            fail(f'6: {key[0]} f{key[1]:04d}: the presented picture differs from the displayed field in {off} pixels')
-        res['injected'][f'{key[0]} f{key[1]:04d}']['pixels_off'] = off
-        for ext in ('', '.gsfield', '.present'):
-            Path(str(shot) + ext).unlink(missing_ok=True)
-    report['item_root'] = res
-    dump.unlink(missing_ok=True)
+        if cs[:1] != [(t.B_7D00, (1, 0))] or [w for w, _ in cs[1:BACKGROUND]] != [t.B_7E40] * (BACKGROUND - 1):
+            fail(f'7: frame {fc}: does not open with 0020A7A0\'s 00207D00 and 513 sprites')
+            continue
+        name = next((n for n, want in rest.items() if cs[BACKGROUND:] == want[BACKGROUND:]), None)
+        if name is None:
+            fail(f'7: frame {fc}: not the captured EQUIPMENT or EVENT page after the background')
+            continue
+        counts[name] += 1
+    kinds: dict[str, int] = {}
+    for p in pages:
+        k = plog.get(p[0], ('none',))[0]
+        kinds[k] = kinds.get(k, 0) + 1
+    if kinds != {'field': len(pages)}:
+        fail(f'7: the EQUIPMENT / EVENT frames are presented as {kinds}, not all as GS fields')
+    if not all(counts.values()) or not empty:
+        fail(f'7: the run showed EQUIPMENT / EVENT / the Circle frame {counts} / {len(empty)} times')
+    print(f'  7: every one presented as a GS field; equal to the captured page after the background: {counts}; '
+          f'{len(empty)} empty (the Circle frames {empty}), each presenting the field of {PAGES_CIRCLE[0]} '
+          f'f{PAGES_CIRCLE[1]:04d}')
+    res.update({'presented': kinds, 'equal_after_background': counts, 'circle_frames': empty})
+    by_fc = {p[0]: p for p in pages}
+    where = f'{PAGES_CIRCLE[0]} f{PAGES_CIRCLE[1]:04d}'
+    res['injected'][where] = {'frame': empty[0] if empty else None}
+    shots = [('7', where, empty[0], circle, res['injected'])] if empty else []
+    for name, keys in PAGES_INJECTED.items():
+        first = capture(*keys[0])
+        if (first['info'].get('write') or {}).get('at_loop_top') != keys[0][1] - 1:
+            fail(f'7: {keys[0][0]}: its capture wrote no D_002655A0 at loop top {keys[0][1] - 1}')
+            continue
+        n0 = written_bg('7', first, bgs)
+        if n0 is None or n0 + 1 not in by_fc or n0 + 2 not in by_fc:
+            fail(f'7: {name}: the port frame holding the written D_002655A0 is {n0}, not a page frame N with '
+                 f'N + 1 and N + 2 page frames')
+            continue
+        print(f'  7: {name}: N = {n0} holds the written D_002655A0')
+        shots += injected(lib, ref, context, plog, '7', keys, (n0 + 1, n0 + 2), by_fc, res['injected'])
+    return shots
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--dump', type=Path, help='reuse an EM_STATUS_GS_DUMP file instead of running the game')
     ap.add_argument('--run-log', type=Path, help='the reused run\'s log (its hub_draws count)')
-    ap.add_argument('--item', action='store_true', help='section 6 (the ITEM root) only')
+    ap.add_argument('--item', action='store_true',
+                    help='sections 6 and 7 (the status_pages run: the ITEM root, EQUIPMENT and EVENT) only')
     args = ap.parse_args()
     if args.item:
         OUT.mkdir(parents=True, exist_ok=True)
         t0 = time.monotonic()
         report = {'mode': MODE}
-        item_root(t.build(), t.sf.build(), report)
+        status_pages(t.build(), t.sf.build(), report)
         for name in ('ticks.jsonl', 'present.log'):
             (OUT / name).unlink(missing_ok=True)
         (OUT / 'result_item.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -569,7 +688,7 @@ def main() -> int:
     (OUT / 'ticks.jsonl').unlink(missing_ok=True)
     plog_path.unlink(missing_ok=True)
     if FULL and args.dump is None:
-        item_root(lib, rlib, report)
+        status_pages(lib, rlib, report)
         (OUT / 'ticks.jsonl').unlink(missing_ok=True)
         plog_path.unlink(missing_ok=True)
 
@@ -582,7 +701,8 @@ def main() -> int:
         return 1
     print(f'test_status_gs_page: PASS ({len(recs)} live frames decode into the builders\' packets; route 01 '
           f'f300 / f400 built byte for byte by the live page and presented as the displayed field'
-          f'{"; the ITEM root (section 6)" if FULL and args.dump is None else ""}; {dt:.1f} s)')
+          f'{"; the ITEM root, EQUIPMENT and EVENT (sections 6, 7)" if FULL and args.dump is None else ""}; '
+          f'{dt:.1f} s)')
     return 0
 
 

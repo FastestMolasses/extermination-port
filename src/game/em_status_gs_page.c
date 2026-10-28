@@ -14,6 +14,7 @@
 #include "game/em_player_stage_workers.h"
 #include "game/em_render_context_live.h"
 #include "game/em_status_background.h"
+#include "game/em_status_pages_live.h"
 #include "game/em_status_runtime.h"
 #include "game/em_ui_font_raw.h"
 #include "game/em_ui_packet_original.h"
@@ -39,7 +40,8 @@ static struct {
     int reported;
     unsigned long packets;
     uint32_t frame_start;
-    int frame_page, frame_any, frame_item; /* a page's packets, any packets, the ITEM root's */
+    int frame_page, frame_any, frame_item, frame_pages; /* a page's packets, any packets, the ITEM
+                                                          * root's, a bound status page's */
     FILE *dump;
     unsigned dumped;
     /* the GS field of the bound pages (Original profile) */
@@ -314,6 +316,53 @@ static int i_sprite(void *ctx, int32_t slot, int32_t x, int32_t y, int32_t w, in
 
 static const EmStatusItemSink k_item_sink = {NULL, i_background, i_blend, i_sprite, s_fan};
 
+/* ---- the bound status pages' leaves (em_status_pages_live's sink) --------
+ * EQUIPMENT 00214570 and EVENT 00215870 (STATUS_FIELD.md 3f): 0020A7A0,
+ * 00207D00, 00207E40, 00207F80 (0020CCB0's marker) and the text runs
+ * 001CBA50 / 001CC1E0 (0020B210's rows, the description) as the BATTERY
+ * page's above. */
+static int p_background(void *ctx, uint64_t tex0, uint32_t *token)
+{
+    G.frame_pages = 1;
+    return s_background(ctx, tex0, token);
+}
+
+static int p_blend(void *ctx, int32_t slot, int32_t mode)
+{
+    G.frame_pages = 1;
+    return s_blend(ctx, slot, mode);
+}
+
+static int p_sprite(void *ctx, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                    uint64_t tex0)
+{
+    G.frame_pages = 1;
+    return s_sprite(ctx, slot, x, y, w, h, rgba, tex0);
+}
+
+static int p_rectangle(void *ctx, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t rgba)
+{
+    G.frame_pages = 1;
+    return s_rectangle(ctx, slot, x0, y0, x1, y1, rgba);
+}
+
+/* 001CBA50(1, x, y, w, h, text, style) or 001CC1E0(1, ...): s_text (the
+ * BATTERY page's) over the style record's 8 bytes. Not reached by the
+ * first level's EQUIPMENT / EVENT frames (their text is the message
+ * service's glyph runs: STATUS_FIELD.md 3f); a slot other than 1 or no
+ * style record (style 0) is a form no capture shows: it faults. */
+static int p_text(void *ctx, int proportional, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                  const char *text, const uint8_t *style)
+{
+    G.frame_pages = 1;
+    if (slot != 1 || !style) return fault("a bound page's text run with a slot other than 1 or no style", NULL);
+    uint64_t record = 0;
+    for (unsigned i = 0; i < 8; ++i) record |= (uint64_t)style[i] << (8 * i);
+    return s_text(ctx, proportional, x, y, w, h, text, record);
+}
+
+static const EmStatusPagesSink k_pages_sink = {NULL, p_background, p_blend, p_sprite, p_rectangle, p_text};
+
 /* ---- 001CCB10: the glyph strip page and its CLUT ----------------------------
  * The boot's 001CCB10 (decomp src/func_001CCB10.c, func_001CCBD0.c,
  * func_001CCE80.c): 001CCBD0(0x1B00, 0x1B80, 0) sends one 8 x 8 PSMCT32
@@ -337,9 +386,18 @@ int em_sgp_field_claim(void)
 {
     if (!G.field_on || G.fault) return 0;
     if (!G.frame_page) {
-        fault("a status page frame (BATTERY, ITEM root) whose page built no slot-1 packets", NULL);
+        fault("a status page frame (BATTERY, ITEM root, EQUIPMENT, EVENT) whose page built no slot-1 packets",
+              NULL);
         return -1;
     }
+    G.field = 1;
+    return 1;
+}
+
+int em_sgp_field_claim_page(void)
+{
+    G.frame_pages = 1;
+    if (!G.field_on || G.fault) return 0;
     G.field = 1;
     return 1;
 }
@@ -481,6 +539,7 @@ int em_sgp_install(const char *font_path)
     G.installed = 1;
     em_battery_ui_set_sink(&k_battery_sink);
     em_status_runtime_set_item_sink(&k_item_sink);
+    em_status_pages_live_set_sink(&k_pages_sink);
     em_message_live_set_glyph_sink(&k_glyph_sink);
     return 0;
 }
@@ -493,7 +552,7 @@ static int slot1_cursor(uint32_t *cursor)
 
 void em_sgp_frame_begin(void)
 {
-    G.frame_page = G.frame_any = G.frame_item = G.bg_seen = 0;
+    G.frame_page = G.frame_any = G.frame_item = G.frame_pages = G.bg_seen = 0;
     G.field = 0;
     if (!G.installed || !em_rcl_bound() || !slot1_cursor(&G.frame_start)) G.frame_start = 0;
 }
@@ -507,7 +566,8 @@ static void put32(FILE *f, uint32_t v)
 void em_sgp_frame_end(void)
 {
     uint32_t end;
-    if (!G.dump || G.dumped >= EM_SGP_DUMP_FRAMES || !(G.frame_page || G.frame_any) || !G.frame_start ||
+    if (!G.dump || G.dumped >= EM_SGP_DUMP_FRAMES || !(G.frame_page || G.frame_any || G.frame_pages) ||
+        !G.frame_start ||
         !slot1_cursor(&end) || end < G.frame_start)
         return;
     const uint8_t *p = end > G.frame_start ? em_rcl_bytes(G.frame_start, end - G.frame_start) : NULL;
@@ -516,7 +576,7 @@ void em_sgp_frame_end(void)
     put32(G.dump, em_frame_counter());
     put32(G.dump, G.frame_start);
     put32(G.dump, end);
-    put32(G.dump, (G.frame_item ? 2u : G.frame_page ? 1u : 0u) | (G.bg_seen ? 4u : 0u));
+    put32(G.dump, (G.frame_item ? 2u : G.frame_pages ? 8u : G.frame_page ? 1u : 0u) | (G.bg_seen ? 4u : 0u));
     if (p) fwrite(p, 1, end - G.frame_start, G.dump);
     if (G.bg_seen) fwrite(&G.bg_before, 1, sizeof G.bg_before, G.dump);
     fflush(G.dump);

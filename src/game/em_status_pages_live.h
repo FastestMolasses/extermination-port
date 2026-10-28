@@ -162,4 +162,32 @@ void em_status_pages_live_deactivate(EmStatusPagesLive *live);
 /* For tests: the calls the last tick made, by original callee address. */
 unsigned em_status_pages_live_calls(const EmStatusPagesLive *live, uint32_t callee);
 
+/* The live packet sink of the bound pages (docs/STATUS_FIELD.md 3f; bound
+ * by em_status_gs_page in both profiles). Bound: the ITEM children
+ * EQUIPMENT 00214570 and EVENT 00215870. On a tick of a bound page every
+ * leaf call reaches the sink at its call time, in the original's order, as
+ * well as em_page_draw: 0020A7A0 is stepped there (background; em_page_draw
+ * draws that step), 00207D00, 00207E40, 00207F80 (rectangle) and the text
+ * runs 001CBA50 / 001CC1E0 (text: `style` the 8 bytes of the style record,
+ * NULL for none, which the bound sink refuses). A leaf the sink has no builder for (00207D90, 00208040,
+ * 00208AD0's gauge, 0020AC70's trail, 001B0000's models) faults on a bound
+ * page. Each returns 1; anything else fails the page. NULL, the default
+ * (the reference tests): no page is bound and the render steps the
+ * background. */
+typedef struct {
+    void *context;
+    int (*background)(void *, uint64_t tex0, uint32_t *token);
+    int (*blend)(void *, int32_t slot, int32_t mode);
+    int (*sprite)(void *, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                  uint64_t tex0);
+    int (*rectangle)(void *, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                     uint32_t rgba);
+    int (*text)(void *, int proportional, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                const char *text, const uint8_t *style);
+} EmStatusPagesSink;
+void em_status_pages_live_set_sink(const EmStatusPagesSink *sink);
+/* 1 when the last tick ran a bound page with the sink set (its frame's
+ * leaves built packets), else 0. */
+int em_status_pages_live_sunk(const EmStatusPagesLive *live);
+
 #endif

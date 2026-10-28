@@ -64,6 +64,7 @@ struct EmStatusPagesLive {
     uint32_t callees[CALLS][2];
     unsigned callee_count;
     uint32_t page;
+    int sunk; /* this tick's page is bound to the sink (em_status_pages_live_sunk) */
     /* EM_STATUS_PAGES_TRACE: every call's inputs, callee entries (with the
      * bytes each callee wrote) and outputs, for the original-instruction
      * replay tools/test_status_pages_live.py. */
@@ -382,15 +383,82 @@ static int ok0(int accepted)
     return accepted ? 0 : -1;
 }
 
+/* ---- the bound pages' packet sink (STATUS_FIELD.md 3f) ----------------
+ * Each leaf reaches the sink first (its packet at its call time, in the
+ * call order), then em_page_draw (the GPU renderer's record). */
+static const EmStatusPagesSink *s_sink;
+
+void em_status_pages_live_set_sink(const EmStatusPagesSink *sink)
+{
+    s_sink = sink;
+}
+
+int em_status_pages_live_sunk(const EmStatusPagesLive *l)
+{
+    return l && l->sunk;
+}
+
+static int bound_page(uint32_t page)
+{
+    return page == 0x00214570u || page == 0x00215870u;
+}
+
+/* A leaf that has no packet builder yet: on a bound page it faults. */
+static int unsunk(EmStatusPagesLive *l, uint32_t callee)
+{
+    if (!l->sunk)
+        return 1;
+    fprintf(stderr, "status pages: %08X called %08X, which has no GS packet builder on a bound page\n",
+            (unsigned)l->page, (unsigned)callee);
+    return 0;
+}
+
+static int page_blend(EmStatusPagesLive *l, int32_t slot, int32_t mode)
+{
+    if (l->sunk && (!s_sink->blend || s_sink->blend(s_sink->context, slot, mode) != 1))
+        return 0;
+    return em_page_draw_blend(l->draw, slot, mode);
+}
+
+static int page_sprite(EmStatusPagesLive *l, int32_t slot, int32_t x, int32_t y, int32_t w,
+                       int32_t h, uint32_t rgba, uint64_t tex0)
+{
+    if (l->sunk &&
+        (!s_sink->sprite || s_sink->sprite(s_sink->context, slot, x, y, w, h, rgba, tex0) != 1))
+        return 0;
+    return em_page_draw_sprite(l->draw, slot, x, y, w, h, rgba, tex0);
+}
+
+static int page_rectangle(EmStatusPagesLive *l, int32_t slot, int32_t x0, int32_t y0, int32_t x1,
+                          int32_t y1, uint32_t rgba)
+{
+    if (l->sunk && (!s_sink->rectangle ||
+                    s_sink->rectangle(s_sink->context, slot, x0, y0, x1, y1, rgba) != 1))
+        return 0;
+    return em_page_draw_rectangle(l->draw, slot, x0, y0, x1, y1, rgba);
+}
+
+/* 0020A7A0(tex0): on a bound page stepped here (the sink), drawn by the
+ * render as that step; otherwise stepped at the render. */
+static int page_background(EmStatusPagesLive *l, uint64_t tex0)
+{
+    if (!l->sunk)
+        return em_page_draw_background(l->draw, tex0);
+    uint32_t token = 0;
+    if (!s_sink->background || s_sink->background(s_sink->context, tex0, &token) != 1)
+        return 0;
+    return em_page_draw_background_step(l->draw, tex0, token);
+}
+
 static int sul_blend(void *c, int32_t slot, int32_t mode)
 {
-    return ok0(em_page_draw_blend(((EmStatusPagesLive *)c)->draw, slot, mode));
+    return ok0(page_blend(c, slot, mode));
 }
 
 static int sul_sprite(void *c, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
                       uint32_t rgba, uint64_t tex0)
 {
-    return ok0(em_page_draw_sprite(((EmStatusPagesLive *)c)->draw, slot, x, y, w, h, rgba, tex0));
+    return ok0(page_sprite(c, slot, x, y, w, h, rgba, tex0));
 }
 
 /* An 8-byte text style record as 001CBA50 / 001CC1E0 read it through
@@ -408,14 +476,29 @@ static int style_record(EmStatusPagesLive *l, uint32_t style, EmMessageTextStyle
     return 1;
 }
 
+/* A fixed-pitch text run (001CBA50) to the bound pages' sink: the style
+ * record's 8 bytes (none for 0). 1 when accepted or no page is bound. */
+static int page_text_sink(EmStatusPagesLive *l, int32_t slot, int32_t x, int32_t y, int32_t w,
+                          int32_t h, const char *text, uint32_t style)
+{
+    if (!l->sunk)
+        return 1;
+    const uint8_t *record = style ? at_byte(l, style, 8) : NULL;
+    if ((style && !record) || !s_sink->text)
+        return 0;
+    return s_sink->text(s_sink->context, 0, slot, x, y, w, h, text, record) == 1;
+}
+
 /* 001CBA50(slot, x, y, advance, height, text, style), translated
- * (em_page_draw_cba50); style 0 is the original's null pointer. */
+ * (em_page_draw_cba50); style 0 is the original's null pointer. On a bound
+ * page the run reaches the sink first, at its call time. */
 static int sul_text_fixed(void *c, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
                           const char *text, uint32_t style)
 {
     EmStatusPagesLive *l = c;
     EmMessageTextStyle record;
-    if (slot != 1 || !text || (style && !style_record(l, style, &record)))
+    if (slot != 1 || !text || (style && !style_record(l, style, &record)) ||
+        !page_text_sink(l, slot, x, y, w, h, text, style))
         return -1;
     return ok0(em_page_draw_cba50(l->draw, slot, x, y, w, h, (const uint8_t *)text,
                                   (uint32_t)strlen(text) + 1u, style ? &record : NULL));
@@ -439,6 +522,11 @@ static int sul_text_proportional(void *c, int32_t slot, int32_t x, int32_t y, in
         }
     if (slot != 1 || !p || !memchr(p, 0, avail) || (style && !style_record(l, style, &record)))
         return -1;
+    /* On a bound page its glyph packets reach the GS field through the
+     * message service's glyph sink (em_message_live_set_glyph_sink:
+     * em_status_gs_page's 001CC8A0 / 001CC3B0), the same glyph state the
+     * original's 001CC1E0 shares with the message service; the pages' sink
+     * is not given it again. */
     return em_message_live_cc1e0(slot, x, y, w, h, p, avail, style ? &record : NULL) < 0 ? -1 : 0;
 }
 
@@ -483,7 +571,7 @@ static int sul_health(void *c, uint32_t page, int32_t x, int32_t y)
 {
     EmStatusPagesLive *l = c;
     const EmStatusPagesFrame *f = l->frame;
-    if (page != T_UI || !f->health_data || !f->ui_clock)
+    if (page != T_UI || !f->health_data || !f->ui_clock || !unsunk(l, 0x00208AD0u))
         return -1;
     float health;
     memcpy(&health, l->vitals, 4);
@@ -535,7 +623,7 @@ static int rect_float_to_int(void *c, uint32_t bits, int32_t *value)
 static int rect_rectangle(void *c, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
                           uint32_t rgba)
 {
-    return ok0(em_page_draw_rectangle(((EmStatusPagesLive *)c)->draw, slot, x0, y0, x1, y1, rgba));
+    return ok0(page_rectangle(c, slot, x0, y0, x1, y1, rgba));
 }
 
 static int message_present(void *c, int32_t a0, int32_t a1, int32_t a2, int32_t a3)
@@ -671,18 +759,18 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
 #define U(i) ((uint32_t)A(i))
     switch (target) {
     case 0x00207D00u:
-        return ok0(em_page_draw_blend(l->draw, I(0), I(1)));
+        return ok0(page_blend(l, I(0), I(1)));
     case 0x00207E40u:
-        return ok0(em_page_draw_sprite(l->draw, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
+        return ok0(page_sprite(l, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
     case 0x00207D90u: /* (slot, x0, y0, x1, y1): SCISSOR_1's SCAX0, SCAY0, SCAX1, SCAY1 */
-        return ok0(em_page_draw_scissor(l->draw, I(0), I(1), I(2), I(3), I(4)));
+        return ok0(unsunk(l, target) && em_page_draw_scissor(l->draw, I(0), I(1), I(2), I(3), I(4)));
     case 0x001281C0u:
         if (nf < 1)
             return -1;
         *v0 = (uint64_t)(int64_t)em_player_float_to_int(f[0]);
         return 0;
     case 0x0020A7A0u:
-        return ok0(em_page_draw_background(l->draw, A(0)));
+        return ok0(page_background(l, A(0)));
     case 0x0020AE40u:
         return em_sul_0020AE40(&l->sul, &l->mem, U(0), U(1), I(2));
     case 0x0020B0D0u:
@@ -829,6 +917,8 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
         em_item_trail_reset(fr->trail);
         return 0;
     case 0x0020AC70u: {
+        if (!unsunk(l, target))
+            return -1;
         EmItemStick stick = {0, 0, 0, 0};
         uint8_t *base = at_byte(l, U(1), 8);
         if (!base || !fr->trail || !fr->math ||
@@ -864,6 +954,8 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
     case 0x001B0000u: {
         if (!fr->models)
             return report(l, target, "has no UI pool (no em_status_models)");
+        if (!unsunk(l, target))
+            return -1;
         const uint32_t saved = l->dispatch_sp;
         if (target == 0x001B0000u) {
             if (!em_page_draw_models(l->draw))
@@ -881,6 +973,8 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
      * = sx32(float_to_int(x) | float_to_int(z) << 16) (z converted first):
      * X its low halfword, Y its high one. */
     case 0x00208040u: {
+        if (!unsunk(l, target))
+            return -1;
         int32_t xy[3][2];
         for (unsigned i = 0; i < 3; ++i) {
             const uint8_t *v = at_byte(l, U(1 + i), 12);
@@ -1140,6 +1234,7 @@ int em_status_pages_live_tick(EmStatusPagesLive *l, uint32_t page, const EmStatu
     l->c61 = f->fire_mode();
     const uint8_t c61 = l->c61;
     em_page_draw_begin(l->draw);
+    l->sunk = s_sink && bound_page(page);
     memset(&l->s.core.fault, 0, sizeof l->s.core.fault);
     l->s.core.function = 0;
     l->s.call = dispatch;

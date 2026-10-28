@@ -12,7 +12,7 @@
 enum { CALLS = 2048, ATLAS_W = 1024, ATLAS_H = 2048, TEXTURES = 128, ARCS = 16, SMALLS = 256,
        SMALL_UPLOADS = 4096 };
 enum { K_BLEND = 1, K_SPRITE, K_SCISSOR, K_RECT, K_SMALL, K_BACKGROUND, K_TRIANGLE, K_ARC, K_FLAT,
-       K_MODELS };
+       K_MODELS, K_BACKGROUND_STEP };
 
 typedef struct {
     uint8_t kind, mode;
@@ -227,6 +227,19 @@ int em_page_draw_background(EmPageDraw *d, uint64_t tex0)
     return 1;
 }
 
+int em_page_draw_background_step(EmPageDraw *d, uint64_t tex0, uint32_t token)
+{
+    if (!d || !em_gs_texture_size(tex0, NULL, NULL))
+        return refuse(d);
+    Call *c = append(d, K_BACKGROUND_STEP);
+    if (!c)
+        return 0;
+    c->tex0 = tex0;
+    c->rgba = token;
+    d->mode = 0; /* 0020A7A0 leaves 00207D00(1, 0) */
+    return 1;
+}
+
 int em_page_draw_triangle(EmPageDraw *d, const int32_t xy[3][2], unsigned intensity)
 {
     if (!d || !xy || intensity > 255)
@@ -431,6 +444,11 @@ static int flat(EmGfx *gfx, const Clip *clip, const float in[3][2], const float 
     return 1;
 }
 
+static int textured(unsigned kind)
+{
+    return kind == K_SPRITE || kind == K_BACKGROUND || kind == K_BACKGROUND_STEP;
+}
+
 int em_page_draw_render(EmPageDraw *d, EmGfx *gfx)
 {
     if (!d || !gfx || d->refused)
@@ -439,13 +457,11 @@ int em_page_draw_render(EmPageDraw *d, EmGfx *gfx)
         atlas_reset(d);
     /* Decode every texture of the frame first: one upload. */
     for (unsigned i = 0; i < d->count; ++i)
-        if ((d->calls[i].kind == K_SPRITE || d->calls[i].kind == K_BACKGROUND) &&
-            !texture(d, d->calls[i].tex0)) {
+        if (textured(d->calls[i].kind) && !texture(d, d->calls[i].tex0)) {
             /* The atlas filled: rebuild it from this frame's textures. */
             atlas_reset(d);
             for (unsigned j = 0; j < d->count; ++j)
-                if ((d->calls[j].kind == K_SPRITE || d->calls[j].kind == K_BACKGROUND) &&
-                    !texture(d, d->calls[j].tex0))
+                if (textured(d->calls[j].kind) && !texture(d, d->calls[j].tex0))
                     return refuse(d);
             break;
         }
@@ -497,6 +513,15 @@ int em_page_draw_render(EmPageDraw *d, EmGfx *gfx)
             em_status_background_frame(gfx);
             ok = em_status_background_render(gfx, (float)t->u, (float)t->v, (float)t->w,
                                              (float)t->h) == 1;
+            break;
+        }
+        case K_BACKGROUND_STEP: {
+            const Texture *t = texture(d, c->tex0);
+            if (!t)
+                return refuse(d);
+            em_status_background_frame(gfx);
+            ok = em_status_background_render_step(gfx, c->rgba, (float)t->u, (float)t->v, (float)t->w,
+                                                  (float)t->h) == 1;
             break;
         }
         case K_ARC: {

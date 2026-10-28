@@ -142,6 +142,32 @@ int em_status_background_render_step(struct EmGfx *g, uint32_t token, float u, f
     (void)h;
     return 0;
 }
+/* The Original profile's GS frame is off in this fixture (no GS model, no
+ * GS page fields): every status page is drawn by the GPU renderer's path. */
+EmGfx *em_frame_gfx(void)
+{
+    return NULL;
+}
+int em_gfx_gs_world_enabled(EmGfx *g)
+{
+    (void)g;
+    return 0;
+}
+int em_gfx_gs_upload(EmGfx *g, const uint8_t *chain, size_t bytes)
+{
+    (void)g;
+    (void)chain;
+    (void)bytes;
+    return 0;
+}
+int em_sgp_field_claim(void)
+{
+    return 0;
+}
+int em_sgp_field_claim_page(void)
+{
+    return 0;
+}
 /* The hub's ordered 2D layer: this fixture never binds the hub (its hub
  * pages run the other_page hooks), so nothing may flush it. */
 void em_gfx_overlay_backdrop_flush(EmGfx *g)

@@ -2064,7 +2064,13 @@ pool's free list (item 5): those are port work that needs no new recording
      fans, 001D66A0, built byte for byte against the original instructions;
      the status_pages side run's 54 root frames presented as GS fields, two
      of them 0 pixels off two fork captures given the port's D_002655A0);
-     the hub and the other pages still draw with the GPU renderer;
+     since step 3f (STATUS_FIELD.md 3f) the ITEM children EQUIPMENT and
+     EVENT (em_status_pages_live's packet sink; the side run's 100 frames
+     of theirs presented as GS fields, four of them 0 pixels off fork
+     captures given the port's D_002655A0 and the Circle frame off none);
+     HEALING (its health gauge's 002082B0 arcs), DATABASE, SPR4, MAP, the
+     hub, the page transitions and the other pages still draw with the GPU
+     renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make

@@ -11,8 +11,9 @@ letterbox bars, the fade) stays as it is.
 ## 1. What the port draws today
 
 Since step 3d (section 3d) the Original profile draws the BATTERY page's
-frames as the original's GS field, and since step 3e (section 3e) the ITEM
-root's. The rest of this section is the state before them, which still
+frames as the original's GS field, since step 3e (section 3e) the ITEM
+root's and since step 3f (section 3f) the ITEM children EQUIPMENT's and
+EVENT's. The rest of this section is the state before them, which still
 holds for the hub and the other pages. Those status frames have no GS field in the port: they are drawn
 whole by the GPU renderer
 (em_status_runtime_render: em_battery_ui, em_item_ui, em_status_hub_ui,
@@ -504,6 +505,108 @@ Not compared by pixels: the lit frames and those of a moving stick (their
 fans hold the stick's history, which no capture shares yet), and the page
 transitions into and out of the root (section 5).
 
+## 3f. Step 3, fourth part: EQUIPMENT and EVENT in the GS field (2026-10-21)
+
+The Original profile now draws every frame of the ITEM children EQUIPMENT
+(00214570) and EVENT (00215870) as the original's GS draws it, and
+presents that field. HEALING (002160B0) is not bound yet: its 0020AE40
+call (flags 8) draws 00208AD0's health gauge, whose arcs go through
+002082B0, a builder not translated yet.
+
+**What the original's list is (measured).** Hidden fork captures from the
+state slot12_status_root (section 4: the stick to the region, Cross, the
+page open; EQUIPMENT opens at loop top 31, EVENT at 33, after 0020EE50
+state 3's module load 0x20 / 0x22) show DIRECT-only lists (no VU1 code):
+EQUIPMENT 108,400 GIF bytes, 549 primitives (the clear, 0020A7A0's
+background over TEX0 0x200425859D422100, 0020AE40's plates, 0020B210's
+rows, 0020B0D0's arrows and the description's four tall glyph runs);
+EVENT 52,000 bytes, 525 primitives (an empty list: no event item is
+owned). The page's own text in these frames is the message service's
+(001FE070 / 001FCF10: its glyph uploads and flushes, bound since 3b); the
+pages call 001CBA50 / 001CC1E0 and 00207F80 directly in no captured frame.
+The frame whose Circle leaves EQUIPMENT (state 1's 0x20 test returns
+before any leaf) builds no slot-1 packet at all: its list is the head, one
+primitive (the clear), captured at loop top 72. The CPU GS model draws all
+seven captured lists bit-exact in both modes, all of local memory
+(`make test-status-field-reference`).
+
+**The binding.** `em_status_pages_live` has a packet sink
+(`em_status_pages_live_set_sink`, bound by em_status_gs_page in both
+profiles). On a tick of a bound page every leaf reaches it at its call
+time, in the call order, before em_page_draw records it for the GPU
+renderer: 0020A7A0 steps the shared D_002655A0 there
+(em_status_background_live_step; em_page_draw draws that step,
+`em_page_draw_background_step`, instead of stepping again at the
+render), 00207D00 and 00207E40 become their packets as the BATTERY page's
+do, 00207F80 and the text runs go to the BATTERY page's glue (s_rectangle,
+s_text; a text run without a style record or with a slot other than 1
+faults). A leaf with no builder (00207D90, 00208040, 00208AD0's gauge,
+0020AC70's trail, 001B0000's models) faults on a bound page.
+em_status_runtime_render's DRAW_PAGE claims the field for a bound page's
+frame through `em_sgp_field_claim_page`, which, unlike em_sgp_field_claim,
+accepts a frame whose page built no packets (the Circle frame: the
+original kicks the head alone then). The dump marks a bound page's frame
+with flag 8.
+
+**Field parity.** The captured page frames T = 60 / 62 draw into FBP 0x38
+with the half-line offset (XYOFFSET_1 Y 1936.5), T + 1 into FBP 0 (1936.0).
+A first pair of written-background captures was taken against port frames
+of the other parity (FBP 0 first): every call equal, but every field pixel
+a few levels off (the background's bilinear sprites sampled half a line
+apart); replaying the captured list over the port's own GS memory (a
+scratch dump) drew the displayed field exactly, so the memory was right
+and the parity the difference. Those captures were deleted; the pairs
+below are against port frames of the captures' parity.
+
+Proof:
+
+- `make test-status-gs-page EM_TEST_FULL=1` (section 7 of the test, the
+  same status_pages run as section 6; `--item` alone runs both, about
+  90 s): all 1,696 dumped frames decode; its 100 bound page frames are
+  all presented as GS fields: 54 equal the capture
+  slot12_status_root_equipment f0060 and 44 slot12_status_root_event
+  f0062 in every call after the background, and 2 are empty (port frames
+  3450 and 3534, the Circle frames), each presenting exactly the displayed
+  field of slot12_status_root_equipment_circle f0072. The original was
+  given the port's D_002655A0 of port frame 3421 (EQUIPMENT) and 3511
+  (EVENT) at loop top T - 1 (capture.py CAPTURE_WRITE, the only write):
+  port frames 3422 / 3423 equal slot12_status_root_equipment_bg3421 f0060
+  / f0061 and 3512 / 3513 equal slot12_status_root_event_bg3511 f0062 /
+  f0063 in every call (627 and 529, the background included; 85,413 and
+  62,391 written bytes equal the builders' and the capture's), their
+  presented fields hash equal to the displayed fields, and the presented
+  pictures, the overlay pass included, are 0 of 114,688 pixels off at all
+  four and at the Circle frame 3450.
+- `make test-ui-packet-reference EM_TEST_FULL=1`: the seven new captured
+  chains decode into the builders and are rebuilt byte for byte (16
+  chains now), each drawn to the displayed field.
+- Mutations of the live binding (test_status_gs_page --item): 3 of 5
+  killed (EVENT not bound, the background stepped at the render, an empty
+  frame claimed through em_sgp_field_claim). The survivors (the tall text
+  run's style dropped, a text run handed to the small font) are
+  equivalent on this route: no bound frame calls 001CBA50 / 001CC1E0; the
+  text path was then reduced to the BATTERY page's verified s_text.
+- **Unchanged elsewhere.** Against a build of the branch head with round
+  3e's change (e47a495 + that patch): the main route through the AREA01
+  arrival, its 13,813-tick log identical and all 15,070 committed frames
+  of the same kind and field hash; the status_pages side run, its
+  5,674-tick log identical and of its 6,932 committed frames exactly the
+  100 EQUIPMENT / EVENT frames differ (GPU frames before, GS fields now).
+  The GPU renderer (EM_GPU_RENDERER=1): the side run's tick log identical
+  and the presented frames at four bound-page ticks (two EQUIPMENT, one
+  EVENT, the Circle frame) byte-identical (one run against that build,
+  not a committed test). `make test-status-runtime` links and passes again
+  (its fixture stubs the GS frame off: em_frame_gfx, em_gfx_gs_upload,
+  em_gfx_gs_world_enabled, em_sgp_field_claim, em_sgp_field_claim_page);
+  `make test-status-gs-page`, `test-status-pages-reference`,
+  `test-item-ui-reference`, `test-status-field-reference` (EM_TEST_FULL=1)
+  and `test-level-smoke` pass; `make all` 0 warnings.
+
+Not compared by pixels: EQUIPMENT with an equipment entry selected or a
+scrolled list, EVENT with an event item (its 0020CCB0 marker), and the
+transitions into and out of the pages (0020EE50 state 3's module-load
+frames, the frames after the Circle frame): section 5.
+
 ## 4. The captures (decomp, ignored)
 
 - `build/status_field_capture/capture.py <beat> <T> ...` (and
@@ -535,6 +638,18 @@ transitions into and out of the root (section 5).
   the only write; the port's D_002655A0 of its frame 3467), frames 40 and
   41 (`slot12_status_root_pad8080_bg3467`). The root's list is DIRECT
   only: no VU1 code.
+- EQUIPMENT and EVENT (section 3f): `CAPTURE_INPUTS='<json pad
+  schedule>' CAPTURE_INPUTS_TAG=<name> capture.py state:slot12_status_root
+  <T>` (this step's option: the schedule is set before frame f's step).
+  EQUIPMENT: stick (0x80, 0xFF) from frame 0, Cross with it at frames 8-9,
+  neutral 0x80 from 10 (folder `slot12_status_root_equipment`, f0060);
+  EVENT: stick (0x00, 0x66) (`slot12_status_root_event`, f0062); with
+  CAPTURE_WRITE of the port's D_002655A0 of frame 3421 / 3511 at loop top
+  59 / 61, frames 60, 61 / 62, 63 (`..._equipment_bg3421`,
+  `..._event_bg3511`); and EQUIPMENT with Circle (0x2000) at frames 70-71
+  (`slot12_status_root_equipment_circle`, f0072: the Circle frame).
+  `build/status_field_capture/pages/explore.py` (the page core's bytes
+  each frame of a schedule) found the frames.
 - The status hub (`state:slot14_status_hub`) draws 001B0000's models
   through the VU1: its GS stream is the fork's GS dump, which `capture.py`
   records in its third pass (not yet run to completion: the hub run's
@@ -557,15 +672,18 @@ not commit to the decomp).
    frames drawn and presented as the GS field, with the page module
    uploads, the restore and 001CCB10 in the model's memory; (done,
    section 3e) the ITEM root (0020F170 / 0020F2A0 and 0020AC70's fans,
-   001D66A0) drawn and presented as the GS field. Still to bind:
-   em_status_pages_live (its 00207D00 / 00207E40 / 00207D90 / 00208040 /
-   001CBA50 / 0020A7A0 dispatch cases, em_page_draw's recorder; the ITEM
-   children's own 0020AC70 fans go through em_uip_001D66A0 too) and the
-   hub's 2D layer (em_status_hub_ui), each with its 0020A7A0 at call time;
-   then em_status_runtime_render's DRAW_PAGE / DRAW_OTHER cases claim the
-   field as DRAW_BATTERY and DRAW_ITEM do (check each list for VU1 code
-   with a capture first), and the video comparison's segments 8 and 14 are
-   compared again. The ITEM root's lit frames by pixels: a designed capture
+   001D66A0) drawn and presented as the GS field; (done, section 3f)
+   em_status_pages_live's sink and EQUIPMENT / EVENT drawn and presented
+   as the GS field, their Circle frame included. Still to bind: HEALING
+   (00208AD0's health gauge: its 002082B0 arcs need a translated builder
+   first), DATABASE (00214020) and SPR4 (00211970: its 0020AC70 fans go
+   through em_uip_001D66A0, its 00207D90 SCISSOR_1 through
+   em_uip_00207D90), MAP (00208040's flat triangle and 001B0000's models:
+   VU1, item 4), the hub's 2D layer (em_status_hub_ui; with its models,
+   item 4) and DRAW_OTHER, each with its 0020A7A0 at call time and each
+   list checked for VU1 code with a capture first; the page transitions
+   (0020EE50 state 3's module-load frames, the frames after a Circle);
+   then the video comparison's segments 8 and 14 are compared again. The ITEM root's lit frames by pixels: a designed capture
    that also writes the port's trail ring (D_00821300, D_00275C90) and
    hover byte.
 4. The hub and the pages with models (001B0000's units through the object

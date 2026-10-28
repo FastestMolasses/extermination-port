@@ -10,7 +10,8 @@ A. The status pages. ../Extermination/build/status_field_capture/<beat>/
    f<T>/ (decomp build/status_field_capture/capture.py, its capture.json):
    route beat 01 (the battery take: the ITEM / BATTERY page with the take
    notice) and 03 (the panel's BATTERY page), and the ITEM root from the
-   fork state slot12_status_root (ROOT_FRAMES), replayed in the fork to
+   fork state slot12_status_root (ROOT_FRAMES) and its children EQUIPMENT
+   and EVENT, open and leaving with Circle (PAGE_FRAMES), replayed in the fork to
    frame T, then at step V (001D21E0) of iterations T and T + 1 the EE RAM,
    the GS memory after list T (vram_after.bin) and, in a second run with
    list T's first tag made END, the GS memory list T starts from
@@ -68,9 +69,16 @@ LIST_BASE = 0x0028F700
 # D_002655A0 set to the port's at loop top 39 (capture.py CAPTURE_WRITE)
 ROOT_FRAMES = [('slot12_status_root', 30), ('slot12_status_root_pad8080', 40),
                ('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_pad8080_bg3467', 41)]
-QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40)]
+# the ITEM children EQUIPMENT and EVENT (STATUS_FIELD.md 3f): from the same
+# state, the stick to the region, Cross, the page open (capture.py
+# CAPTURE_INPUTS), and with D_002655A0 set to the port's (CAPTURE_WRITE)
+PAGE_FRAMES = [('slot12_status_root_equipment', 60), ('slot12_status_root_event', 62),
+               ('slot12_status_root_equipment_bg3421', 60), ('slot12_status_root_equipment_bg3421', 61),
+               ('slot12_status_root_event_bg3511', 62), ('slot12_status_root_event_bg3511', 63),
+               ('slot12_status_root_equipment_circle', 72)]
+QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_equipment', 60)]
 FRAMES = [('01_battery', 230), ('01_battery', 300), ('01_battery', 400),
-          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES
+          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES + PAGE_FRAMES
 # The column probes (B), each a batch folder under CAP.
 PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout',
           'probe_open/p14_rows', 'probe_open/p15_rows_holdout']

@@ -1004,9 +1004,13 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
     case DRAW_OTHER:
         result = runtime->hooks.other_page_render(runtime->hooks.context, gfx, &runtime->page);
         break;
-    case DRAW_PAGE:
-        result = em_status_pages_live_render(runtime->pages, gfx);
+    case DRAW_PAGE: {
+        /* A bound page (EQUIPMENT, EVENT: STATUS_FIELD.md 3f) is drawn by
+         * the Original profile's GS frame from its list at step V. */
+        const int field = em_status_pages_live_sunk(runtime->pages) ? em_sgp_field_claim_page() : 0;
+        result = field < 0 ? 0 : field ? 1 : em_status_pages_live_render(runtime->pages, gfx);
         break;
+    }
     default:
         break;
     }
