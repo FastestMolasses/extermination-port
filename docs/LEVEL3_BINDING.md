@@ -14,6 +14,73 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 20: the AREA00 arrival and a00_00..a00_08 are exact
+row for row, and a00_09 is exact through row 460; the run stops at a00_09
+frame 13012, where a bug's sub-state machine `0012C490` faults (next unit).**
+The one arrival row left is row 0's clock (the port 80.0 one tick early, the
+original 0.0). Ignoring nothing else, every compared row of a00_00..a00_08
+is exact, the `lock_r54` toggle class included (a00_03 / a00_04 keep 38 /
+22 `lock_r54` rows), and a00_04's eight camera rows (the shake) are exact:
+they followed the rand() stream. The fork's rand() return log of a01_07
+(the AREA01 exit and the whole arrival, 168,984 draws) and the port's trace
+now pair caller for caller with no difference.
+
+- **The arrival's message phase (iteration 19's next unit) was the drive
+  replay's anchor.** The arrival plays inside a01_07's recording, whose
+  reads anchor at a01_07's row 0; across the AREA00 load the run's counter
+  relation to the recording's changes (427 to 638 frames), so the arrival's
+  voice reads were served off the recording's time and the message chain
+  closed four ticks late (and the faces' talk draws moved). The AREA00
+  harness now anchors the arrival again at its row 0 (`drive_replay.py`
+  `write_table(extra_anchors=)`, the recording's counter 27563 at the run's
+  26925).
+
+**2026-10-28, iteration 19: the AREA00 arrival plays 4,011 of 4,017 rows
+exact, and the creatures' rand() values are the original's through the
+arrival's message phase.** The run still stops at a00_09 frame 12948
+(001C2690), inside a00_09 rows that differ from row 152 (the taken bit 0x71);
+a00_00..a00_08 are as before.
+
+- **Why the creatures drew other values (iteration 18's open unit), in two
+  parts.**
+  1. *The first level is navigated, not replayed.* The level smoke drives
+     AREA11 with its own navigation (em_level_smoke_test.c), so the rand()
+     stream reaches the AREA01 arrival at another position than the route's
+     recording: the per-call comparison (fork return-point logs of route
+     beats 00..15 and a01_00..a01_07, every 00122BB8 return with its caller
+     and result, against EM_RAND_TRACE) pairs other callers with the same
+     values from route beat 00 on. The AREA01 / AREA00 phases replay the
+     recording's pads, so one comparison-only anchor at the AREA01 area
+     entry (the draw of 0x1AE040 state 0's 001FAE70(1), return address
+     0x1FAF28) puts the recording's stream in place: with it, a01_00 ..
+     a01_06 and a01_07 through the AREA00 load draw the original's values
+     caller for caller. `tools/record_rand_replay.py` records the anchor on
+     the fork (route 15: state 0x9f9c1222 before draw 8,983); the AREA00
+     harness passes the newest `build/rand_replay/*/table.txt` as
+     `EM_RAND_REPLAY` (`--rand-replay`, `--no-rand-replay`), and
+     `em_level_smoke_test.c` seeds it at the area entry
+     (`em_level_smoke_test_area_entry`, called from the scene bindings'
+     `w_001FAE70`; inert without the variable).
+  2. *The AREA00 arrival's entry stance was missing.* 001B07C0 copies the
+     spawn record's +0x14 to the player's +0x0E and 0015C420 (byte-matched)
+     switches on it at the first stage: entry 1 sets the selector
+     0x70003B8D = 4, +4 = 5, +5 = 1, +0x1F0 = 1 (the walk-out, arrival rows
+     540..541, then two footstep draws of 00179B90 that shifted the whole
+     stream). The port now stores +0x0E (`spawn_commit`) and runs the
+     switch at the rebuild stage (`em_player.c`
+     `player_states_entry_stance`, every case of 0015C420). The walk-out's
+     0015B610 then hands the player straight to the arrival script's
+     takeover (+4 = 4, 00182B30 = 0), and 0015B130's prelude can do the
+     same on a plain stage; the pose host's hold is now admitted on both
+     paths (`em_player_stage_live.c` `w_0015B610`, `em_player.c`
+     `live_major1`), or 0015B530's 00182DF0 refused the release at arrival
+     row 4495. Arrival rows 0..80 (the stance) are now exact but row 0 (the
+     clock: the port 80.0 one tick early, the original 0.0).
+- **Next divergence:** the arrival's message phase, rows 3750..3754: the
+  original's message block closes (+1 = 2, then 0) four ticks before the
+  port's; the faces' 001D0720 draws there move with it (a01_07 draw
+  136,761). Then a00_09 row 152.
+
 **2026-10-28, iteration 18: `001EF510` bound; the AREA00 creatures'
 divergence is an rand() phase lag, not a translation fault.** The run still
 stops at a00_09 frame 13225 inside the diverged a00_09 (iteration 17).

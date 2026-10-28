@@ -553,6 +553,47 @@ void player_states_spawn_values(void)
     live.initialised = 1;
 }
 
+/* 0015C420's switch on the record's +0xE (byte-matched decomp C), the
+ * entry stance 001B07C0 copied from the spawn record's +0x14
+ * (em_scene_bindings spawn_commit). It runs where 0015C420 runs in the
+ * original, the first stage after the rebuild; the rest of 0015C420 is
+ * player_states_spawn_values and the area bind's children. 1, 3, 4 and 5
+ * take the selector 0x70003B8D = 4 when it is 0 and set +4 = 5 with +5 = 1,
+ * 4, 2, 3 and +0x1F0 = 1, 0x45, 0x43, 0x44 (4 and 5 also clear +0x2F1, 5
+ * the word +0x268); 2 sets +4 = 1, +5 = 0x1A, +0x1F0 = 0x2E, +0xD = 0; any
+ * other value +4 = 1, +5 = 0 (the spawn values). +6 = 0 in all. */
+static void player_states_entry_stance(void)
+{
+    EmPlayerLiveActor *a = &live.a;
+    EmSceneState *s = em_scene_state();
+    const uint8_t e = em_live_u8(a, 0x0E);
+    em_live_set_u8(a, 0x1F0, 0);
+    if (e == 1 || e == 3 || e == 4 || e == 5) {
+        if (s && s->spad3B8D == 0)
+            s->spad3B8D = 4;
+        static const uint8_t sub[6] = {0, 1, 0, 4, 2, 3};
+        static const uint8_t action[6] = {0, 1, 0, 0x45, 0x43, 0x44};
+        em_live_set_u8(a, 4, 5);
+        em_live_set_u8(a, 5, sub[e]);
+        em_live_set_u8(a, 6, 0);
+        em_live_set_u8(a, 0x1F0, action[e]);
+        if (e == 4 || e == 5)
+            em_live_set_u8(a, 0x2F1, 0);
+        if (e == 5)
+            em_live_set_u32(a, 0x268, 0);
+    } else if (e == 2) {
+        em_live_set_u8(a, 4, 1);
+        em_live_set_u8(a, 5, 0x1A);
+        em_live_set_u8(a, 6, 0);
+        em_live_set_u8(a, 0x1F0, 0x2E);
+        em_live_set_u8(a, 0x0D, 0);
+    } else {
+        em_live_set_u8(a, 4, 1);
+        em_live_set_u8(a, 5, 0);
+        em_live_set_u8(a, 6, 0);
+    }
+}
+
 static int live_major1(void *context, EmPlayerLiveActor *a);
 static int live_port_state(void *context, EmPlayerLiveActor *a);
 static int live_idle(void *context, EmPlayerLiveActor *a);
@@ -1114,7 +1155,16 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
         if (!loco_live()) return live_port_state(NULL, a);
         return em_live_u8(a, 5) == 0 ? live_idle(NULL, a) : live_walk(NULL, a);
     }
-    return em_player_stage_0015B130(context, a);
+    /* The prelude admits the player under 0x70003B8D whatever stage
+     * reached it (the AREA00 arrival: the entry stance's walk-out returns
+     * +4 = 1 and the arrival script's frame selector is already set, so
+     * 0015B130 runs before the takeover hook reports its request): the
+     * source is the takeover's until 0015B530's 00182DF0, as above. */
+    const uint8_t major = em_live_u8(a, 4);
+    if (em_player_stage_0015B130(context, a) < 0) return -1;
+    if (major != 4 && em_live_u8(a, 4) == 4)
+        (void)player_pose_takeover_admitted();   /* 0: no source, or already held */
+    return 0;
 }
 
 /* 0015BCF0 retains the previous feet at +A0 while its state callbacks
@@ -1176,6 +1226,7 @@ void player_states_stage(void)
         return;
     }
     if (live.rebuild) {
+        player_states_entry_stance();
         /* 0015BA50's switch with +4 = 0 (the first stage after the
          * 001AF5C0 wipe) is 0015C420 alone: no advance, no state callback.
          * 0015C420's own writes are the port's spawn values

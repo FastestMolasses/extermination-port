@@ -2799,6 +2799,11 @@ static void spawn_commit(const EmSpawnIo *io)
          * scratch 70003B50 takes +CC from this canonical player record. */
         em_live_set_f32(rec, 0xC0 + 4 * i, io->player.f0C0[i]);
     }
+    /* 001B07C0's +0x0E (the spawn record's +0x14, cleared for a loaded
+     * game), which 0015C420 switches on at the next stage
+     * (player_states_entry_stance). */
+    if (rec)
+        em_live_set_u8(rec, 0x0E, io->player.b00E);
     if (rec && io->player.b004 != 0) {
         /* The walk-out branch is 001B07C0's only +4/+5/+6 store (the image
          * starts zeroed): 5 / 1 / 0. */
@@ -4367,6 +4372,8 @@ static int w_001FAE70(void *ctx, int a0)
                       (s_entry_state == 6 && a0 == 1);
     if (!bound)
         return unmirrored(UM_001FAE70);
+    if (s_entry_state == 0 && a0 == 1)
+        em_level_smoke_test_area_entry(s_state.d810700); /* test instrumentation; inert when unset */
     return em_stream_live_001FAE70(a0);
 }
 

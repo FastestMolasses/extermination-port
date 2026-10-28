@@ -315,6 +315,12 @@ def main():
                              'comparison-only drive replay (EM_PS2_DRIVE_REPLAY)')
     replay.add_argument('--no-drive-replay', action='store_true',
                         help='no replay: the drive as the environment selects (host speed by default)')
+    parser.add_argument('--rand-replay', type=Path, default=None,
+                        help='the fork-recorded rand() anchor table (tools/record_rand_replay.py; default: the '
+                             'newest build/rand_replay/*/table.txt when one exists): EM_RAND_REPLAY, comparison '
+                             'only. The first level is navigated, not replayed, so without it the AREA01 '
+                             'stream starts elsewhere and the AREA00 creatures choose other values')
+    parser.add_argument('--no-rand-replay', action='store_true')
     args = parser.parse_args()
     until, out = args.side or args.until or 'a00_arrival', args.out.resolve()
     if (args.until or args.side) and not (args.run or args.prepare):
@@ -343,16 +349,30 @@ def main():
         # The AREA00 phases' bank loads (a00_08's module 0x1D) take the
         # recording's loader polls too (drive_replay.loader_reads).
         traces = {p: a00.capture_path(p) for p in a00.phase_path(until) if p != 'a00_arrival'}
-        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt', traces)
+        # The arrival plays inside a01_07's recording (its reads are in that
+        # beat's table); the AREA00 load changes the run's counter relation,
+        # so the arrival's row 0 anchors again (its recorded counter).
+        arrival = a00.route_capture('a00_arrival')['rows'][a00.ARRIVAL_ROW]['counter']
+        replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt', traces,
+                                               extra_anchors=[('a00_arrival', arrival)])
         env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
         print(f"AREA00: drive replay of {replay_info['entries']} fork-recorded reads and "
               f"{replay_info['loader_entries']} loader reads over {len(phases)} phases (comparison only)",
               flush=True)
+    rand_table = None
+    if not args.no_rand_replay:
+        rand_table = args.rand_replay
+        if rand_table is None:
+            tables = sorted((ROOT / 'build/rand_replay').glob('*/table.txt'), key=lambda p: p.stat().st_mtime)
+            rand_table = tables[-1] if tables else None
+        if rand_table is not None:
+            env.update(EM_RAND_REPLAY=str(rand_table.resolve()))
+            print(f'AREA00: rand() replay anchors from {rand_table} (comparison only)', flush=True)
     started = time.monotonic()
     receipt = dict(binary=str(binary), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                    reference=refs.label(), until=until, area00_path=a00.phase_path(until), pad_changes=count,
                    pad_manifest=str(out / 'pads/area00/manifest.json'), native_parity=False,
-                   drive_replay=replay_info)
+                   drive_replay=replay_info, rand_replay=str(rand_table) if rand_table else None)
     with (out / 'run.log').open('w') as log:
         result = subprocess.run([str(binary)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
     receipt.update(run_returncode=result.returncode, seconds=round(time.monotonic() - started, 3))

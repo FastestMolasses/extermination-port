@@ -116,7 +116,7 @@ def loader_reads(trace_path, iso=None, stream_reads=None):
     return out
 
 
-def write_table(phases, table_dir, out_path, traces=None):
+def write_table(phases, table_dir, out_path, traces=None, extra_anchors=()):
     """phases: (phase, beat folder name, first_counter) in path order.
     traces: optional {phase: fork trace.json}; their bank-load reads
     (loader_reads) are added as "L" lines for the module loader.
@@ -136,6 +136,10 @@ def write_table(phases, table_dir, out_path, traces=None):
         anchors.append(f'@ {phase} {first}')
         entries.extend(reads)
         sources.append(str(path))
+    # Extra anchors re-align a phase that has no table of its own inside
+    # another beat's recording (the AREA00 arrival inside a01_07): the
+    # run's counter relation changes across the area load.
+    anchors.extend(f'@ {phase} {counter}' for phase, counter in extra_anchors)
     lines.append('# merged drive replay (comparison only; disc-derived, never committed)')
     lines.extend(anchors)
     lines.extend('%d %d %d %d' % e for e in entries)

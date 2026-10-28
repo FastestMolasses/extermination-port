@@ -34,6 +34,11 @@ void em_level_smoke_test_scene_stopped(void);
  * frames without a world frame (the area load, its veil, the AREA01
  * arrival's state-0 rebuild) use it: the after-frame hook never runs there. */
 void em_level_smoke_test_task_end(void);
+/* Just before 0x1AE040 state 0's area-entry 001FAE70(1) draw (the scene
+ * bindings' w_001FAE70): the comparison-only rand() replay (EM_RAND_REPLAY,
+ * key "entry<area>") puts the recording's state in place there. Inert
+ * without the variable. Test instrumentation only. */
+void em_level_smoke_test_area_entry(unsigned area);
 int em_level_smoke_test_active(void);
 int em_level_smoke_test_failed(void);
 
