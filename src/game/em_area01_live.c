@@ -947,6 +947,22 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_aim_fire_sdk_memory_call(l,sdk_bytes,&s);
         if(rc!=1) { c->v0=s.v0;c->f0=s.f0;return rc; }
     }
+    if(c->function==0x001AF800u && c->na>=1) {
+        /* 001AF800 on a typed shared owner (an AREA00 record bound through
+         * the boxes' owner views: [60] 0x8266A0's model switch at a00_10):
+         * its +0x110 words are the owner's own slots, read-only in the
+         * record view, so the release is the one 001AF800 over them, the
+         * pool's (em_area11_boxes_001AF800: em_roger_actor_001AF800 over
+         * the canonical slot stack), with the views published around it. */
+        EmActor *a=actor(l,c->a[0]);
+        if(a && em_area11_boxes_owner_view(a)) {
+            if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
+            EmActorPool *pool=l->host.pool;
+            int rc=pool && pool->w_001AF800 ? pool->w_001AF800(pool->worker_ctx,a) : -1;
+            if(em_area01_live_resume(l)<0)return -1;
+            c->v0=0;return rc<0 ? -1 : 0;
+        }
+    }
     if(model_function(c->function)) {
         /* Model worker brackets actor views itself; the player and camera
          * must also publish before its native head/shadow callbacks. */

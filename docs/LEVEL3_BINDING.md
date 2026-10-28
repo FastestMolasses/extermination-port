@@ -14,6 +14,27 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 24: AREA00 plays through a00_10 to its return to
+AREA01 (the harness: "PASS 40 live phases through a00_10"). The arrival and
+a00_00..a00_09 are exact on every row, and a00_10 on rows 0..714; rows
+715..769 are the AREA01 area read (task slot 0 +8 = 3, +9 = 5), where the
+port's read finishes at host speed (38 + 55 rows in step 1 / 2 against the
+original's 221 + 80). Area reads are not on the drive replay (only stream
+and module-loader reads are, `drive_replay.py`), as before; the return
+boundary aligns the next phase.** Next: the a00 -> a01r handoff
+(`tools/test_level_smoke_area01r.py --run`).
+
+- **0x8266A0 ([60])'s model switch at a00_10 row 675** (D_0081075E = 0xFF:
+  +0x0D 0x19 -> 0x1A, then 001AF800, 001CB5B0(+0x09), 001B0FD0, 001C6380)
+  faulted in the record view: [60] is bound through the boxes' owner views,
+  whose +0x110 words are the owner's own slots (read-only in the view), and
+  the model view ran 001AF800 on a typed copy it cannot write back. A
+  001AF800 on such a record now goes to the pool's release
+  (`em_area11_boxes_001AF800`: em_roger_actor_001AF800 over the canonical
+  slot stack) with the views published around it (em_area01_live).
+- Receipts: `build/frontier/i25`. Quick tests: AREA01 runtime and revisit
+  runtime references.
+
 **2026-10-28, iteration 23: the AREA00 arrival is exact on all 4,017 rows,
 a00_00..a00_09 on every row, and a00_10 through row 675; the run stops at
 a00_10 frame 15254, where the owner 008266A0's node 007B9380 fails at
@@ -77,7 +98,8 @@ still differs).
 - Checks: `test-chain-page` (two passes in one page, a target CALLed twice),
   `test-gs-world`, `test-dof-pass-reference`, `test-ramp-pass-reference`,
   New Game control 9.599849; not run: the first-level smokes and
-  EM_TEST_FULL. Receipts: `build/frontier/i23` (run log, ticks).
+  EM_TEST_FULL. Receipts: the iteration-23 run `build/frontier/i24` (the
+  same code plus iteration 23's; i23 removed).
 
 **2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's
 attack on the player included); the run stops at a00_09 frame 13345, where
@@ -113,7 +135,8 @@ iteration 20.
   four-sprite call), and the page walks it as plain packets, faulting on
   its FRAME_1 write (A+D register 0x4C at +0x1C): the page knows one
   slot-0xFFF pass (001DDE10's depth-of-field) and has no drawing for this
-  one yet (drawing, not gameplay; receipts `build/frontier/r15`, `r16`).
+  one yet (drawing, not gameplay; resolved in iteration 22, whose run
+  replaced the receipts r15 / r16).
 - **Clean-up of the measurement:** every run of this iteration used the
   harness defaults (drive replay with the arrival anchor, the newest rand()
   table). Not run: the first-level smokes and EM_TEST_FULL (as instructed);
@@ -283,8 +306,9 @@ at row 193, the port at 200.
   001F4A00 -> 001F4BF0, one draw per call): original 327, native 218,
   because a glowing creature is not drawn (+1 = 0) on frames where the
   original's is. Receipts: ignored `build/frontier/fork/a00_00..a00_04`
-  (pool.jsonl, rand_calls.bin), `build/frontier/i16c2` (native class-2
-  dumps, a temporary EM_DIAG_CLASS2 build).
+  (pool.jsonl, rand_calls.bin); the native class-2 dumps (i16c2, a
+  temporary EM_DIAG_CLASS2 build) were removed once iteration 19 resolved
+  the drift.
 
 **2026-10-28, iteration 15 (branch `drawbridge`): the C side plays
 a00_00..a00_05 and 181 rows of a00_06, and stops at a00_06 frame 9758**
@@ -325,7 +349,7 @@ fidelity unit). The a00_04 frame 6540 stop is gone:
 - Assets: this worktree's `assets/` is a private directory (symlinks to the
   primary checkout's entries, private regular files `effect_tables.emet`,
   63 windows, and `player_hull.emom`).
-- Receipts: ignored `build/frontier/i15e/` (run log, ticks, rand trace).
+- Receipts: the run i15e was removed (superseded by later iterations).
 
 **2026-10-21, iteration 14 (port main 74e6c04 plus the creatures' ground
 probe): the C side plays a00_00..a00_03 and 143 rows of a00_04, and stops
