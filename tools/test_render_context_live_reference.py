@@ -37,7 +37,8 @@ views), then run the same sequence of original entries:
   then the effect callees of 001DDA00: the fade (001DFE10, a frame whose
   001D1EA0(1) reaches 001DFF70 through flag 7, 001DFF70 rising to its
   clamp, 001DFE40, 001DFF70 falling to state 3 and its 001D2830(7, 0)) and
-  001DDB70 under each of its three 001B0070 colour choices.
+  001DDB70 under each of its three 001B0070 colour choices, and the ramp
+  records' 001DF110 (frames with flags 2 and 9 set, then clear).
 
 Step V's 001D21E0 ends in the hardware kick: on the original side the DMA
 channel pointer (dmac_channel_base returns D1_CHCR 0x10009000) and the VIF1
@@ -101,7 +102,7 @@ STATIC_WORLD = ROOT / 'assets/scene_snow/static_world.emsw'
 OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2250),
          (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x70003B70, 4), (0x241010, 8), (0x26E510, 16),
          (0x26E850, 16), (0x253560, 0x90), (0x817240, 0x80), (0x8101D0, 0x10), (0x817E20, 0x100),
-         (0x81C050, 0x38A0), (0x275C08, 4), (0x253500, 0x30), (0x26E810, 0x40))
+         (0x81C050, 0x38A0), (0x275C08, 4), (0x2534C0, 0x70), (0x26E810, 0x40))
 EXTERNAL = ((0x810610, 0x40), (0x8105E0, 0x10), (0x8106B0, 0x48), (0x810700, 3), (0x8101E4, 1),
             (0x70003B8D, 1), (0x8102B0, 0x320), (0x28A5A0, 4))
 RECORDED = (0x1D7C30, 0x1C1EA0, 0x1F68B0, 0x1F6E40)
@@ -365,6 +366,23 @@ def effects(p):
         p.step('001DDB70(%#x)' % word, 0x1DDB70, lambda: n.em_rcl_001DDB70())
         steps += 1
     p.poke_external(0x8106C8, req)
+    # The ramp records (001DEEE0 on +0x2470 / +0x2490, flags 2 / 9): three
+    # frames with both flags set (the records rise and call 001DF110 each
+    # frame), then two with them clear (they fall, still calling it).
+    for flags, frames in ((1, 3), (0, 2)):
+        for flag in (2, 9):
+            p.step('ramp 001D2830(%d, %d)' % (flag, flags), 0x1D2830, lambda: n.em_rcl_001D2830(flag, flags),
+                   ints=(flag, flags))
+        for f in range(frames):
+            e80 = struct.unpack('<h', bytes(E80))[0]
+            label = 'ramp %d/%d' % (flags, f)
+            p.step(label + ' 001D1AE0', 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
+            p.step(label + ' 001D1C50', 0x1D1C50, lambda: n.em_rcl_001D1C50())
+            p.step(label + ' 001D1EA0(1)', 0x1D1EA0, lambda: n.em_rcl_001D1EA0(1), ints=(1,))
+            steps += 3 + step_vw(p, label)
+        steps += 2
+    ramps = [p.ee.read(0x811CC0 + r, 0x20) for r in (0x2470, 0x2490)]
+    assert all(r[0] == 2 for r in ramps), ('the ramp records did not fall', [r.hex() for r in ramps])
     fade = p.ee.read(0x811CC0 + 0x1F0, 8)
     assert fade[0] == 3 and fade[4:] == bytes(4), ('the fade did not reach state 3', fade.hex())
     return steps

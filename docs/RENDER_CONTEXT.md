@@ -559,10 +559,10 @@ on this module's views since the static-world step, STATIC_WORLD.md). The
 static world adds its storage and views here too (D_00253560, D_00817240,
 the scratchpad 0x70003400, the state block D_008101D0 and, read only, the
 bank and the loader's D_0028A5A0 word; STATIC_WORLD.md 5.2). Of the four
-001DDA00 effect callees (none is reached on the recorded route), 001DF110
-and 001DE920 are bound to a fault, as is every callee of the entries that
-are not bound; 001DDB70 and 001DFF70 are translated since 2026-10-28
-(section 8.6).
+001DDA00 effect callees (none is reached on the recorded route), 001DE920
+is bound to a fault, as is every callee of the entries that are not bound;
+001DDB70, 001DFF70 and 001DF110 are translated since 2026-10-28 (section
+8.6).
 
 ### 8.2 What runs live, and where
 
@@ -646,7 +646,6 @@ by `em_rcl_page` (section 7 of that doc).
 
 | Original | Why not | What it needs |
 |---|---|---|
-| 001DF110 (001DEEE0's ramp records, flags 2 / 9) | its 001DF020 needs 001D7510, 001D7000, 001D6DD0 and 001D7A80, which the port has only inside the AREA00 lanes (em_area00_hud / em_area00_fx_gs, their own register model) | those four packet builders over this module's storage |
 | 001DE920 (001DDAA0, area keys 0x0B00..0x0E00 with 001B0070 bit 5 or 6: AREA11 is 0x0B) | NEARMISS, 180 lines of VU0 packet code; only em_level9_port_fx has a translation, over its own memory | a translation over this module's storage |
 | 001D1EF0 before the area bind (the New Game bring-up 001ACEC0 case 0, 001AD360 steps 0, 1, 2, 5) | its 001D1C50 needs the views the area load hands over (the camera pool's D_00810610, the collision world's SDK sqrtf / tanf) | reported (UM_001D1EF0); from the area build on it is bound (section 9) |
 | 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |
@@ -663,8 +662,9 @@ the library model 0x16 in the Roger export: `em_area11_roger_001D19D0`).
   under the area key 0x1100, its 001E0380 branch, and once under the beat's
   own key), the fade (001DFE10; a frame whose 001D1EA0(1) reaches 001DFF70
   through flag 7; 001DFF70 nine times rising past its clamp; 001DFE40;
-  nine times falling to state 3 and its 001D2830(7, 0)) and 001DDB70 under
-  the three colour choices of D_008106C8. The new ranges (D_00817E20,
+  nine times falling to state 3 and its 001D2830(7, 0)), 001DDB70 under
+  the three colour choices of D_008106C8, and the ramp records' 001DF110
+  (three frames with flags 2 and 9 set, two with them clear). The new ranges (D_00817E20,
   D_0081C050..D_0081F8EF, D_00275C08 and the effect .data) are compared too.
   Mutations checked by hand (pi by one ulp in 001E0380, 0.42 and 1/60 in
   the fade, the 001DDB70 colour pick, FRAME's 0x12C in 001D9720) all fail it;
@@ -745,16 +745,19 @@ carry over from the previous area.
 | 001DFE70 | BM | (001DFF70) | `rcl_001DFE70`: float_to_int((255 - c) x f12) per colour word, 001D1F80(1, 0, 3), 001D64A0, 001D2040(1, 1) |
 | 001D64A0 | BM | (001DFE70) | `rcl_001D64A0`: one 0x60-byte sprite packet at the channel cursor |
 | 001DDB70 | BM | flag 6, 0015D2F0 mode 2, D_008106C6 == 2 | `rcl_001DDB70`: the channel-3 set-up, one 0x80-byte packet, 112 001D63B0 line pairs in the colour 001B0070's word picks, the close and 001CB760(slot 0xFFF) |
+| 001DF110 | BM | 001DEEE0's ramp records (+0x2470 flag 2, +0x2490 flag 9) in states 1 and 2 | `rcl_001DF110`: 001DF020(3, record + 0x10), the channel-3 close, 001CB760(slot 0xFFF, 001DF020's cursor) |
+| 001DF020 | BM | (001DF110) | `rcl_001DF020`: 001D1FF0(3, 2), 001D7510, 001D1F80(3, 0, 1), 001D7000, 001D6DD0(3, 0x7000, 0x7900), 001D7A80(3, 0x40, D_002534C0, D_002534E0, the record's colour), 001D1F20(3) |
+| 001D7510, 001D7000, 001D6DD0, 001D7A80 | BM | (001DF020) | `rcl_001D7510` (the 0x50-byte TEST / register-6 packet, its chip bits from context +0x9C), `one_register` (001D7000: register 0x3B; 001D6DD0: XYOFFSET_1), `rcl_001D7A80` (the 0x80-byte sprite packet) |
 
-001DDB70's 001CB760 is the packet chain's own (not `f_001CB760`): the
-page's four-sprite pass stays 001DDE10's. Whether em_chain_page_live draws
-a second slot-0xFFF list (001DDB70's) and 001DFE70's channel-1 sprite
-exactly is not verified: neither is on the recorded route. The data they
+001DDB70's and 001DF110's 001CB760 is the packet chain's own (not
+`f_001CB760`): the page's four-sprite pass stays 001DDE10's. Whether
+em_chain_page_live draws their slot-0xFFF lists and 001DFE70's channel-1
+sprite exactly is not verified: none is on the recorded route. The data they
 read is the export's second file, `assets/render_context_effects.emrc`
-(tools/export_render_context.py; D_00253500..2F and D_0026E810..4F, equal
+(tools/export_render_context.py; D_002534C0..2F and D_0026E810..4F, equal
 to every capture).
 
-Still bound to a fault: 001DF110 and 001DE920 (section 8.4).
+Still bound to a fault: 001DE920 (section 8.4).
 
 ## 9. Main-loop steps V and W, 001D1EF0, the (3, 1) registrations (2026-09-27)
 

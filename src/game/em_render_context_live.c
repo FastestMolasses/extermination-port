@@ -78,8 +78,8 @@ typedef uint32_t u32;
 #define D_81C050_SIZE 0x38A0u     /* grids D_0081C0F0 / D_0081D0F0 (0x1000 each) and */
                                   /* 001E1010's table D_0081E0F0 (0x1800), .bss */
 #define D_275C08    0x00275C08u   /* the GS read-back queue count 001D71F0 clears */
-#define D_253500    0x00253500u   /* .data: 001DFE70's corners, 001E0380's quadword */
-#define D_253500_SIZE 0x30u
+#define D_2534C0    0x002534C0u   /* .data: 001DF020's pairs, 001DFE70's corners, */
+#define D_2534C0_SIZE 0x70u       /* 001E0380's quadword (D_00253520) */
 #define D_26E810    0x0026E810u   /* .data: 001DDB70's four colour quadwords */
 #define D_26E810_SIZE 0x40u
 #define VIEWS_MAX   40u
@@ -102,7 +102,7 @@ static uint8_t *s_spad3400_borrowed;
 static uint32_t s_d817E20_words[0x100 / 4];
 static uint32_t s_d81C050_words[D_81C050_SIZE / 4];
 static uint32_t s_d275C08_words[1];
-static uint8_t s_d253500[D_253500_SIZE];
+static uint8_t s_d2534C0[D_2534C0_SIZE];
 static uint8_t s_d26E810[D_26E810_SIZE];
 static uint32_t s_d8101D0_words[0x10 / 4];
 /* The static-object bank *D_0028A5A0 (static_world.emsw block 0), read only. */
@@ -269,7 +269,7 @@ static void build_views(void)
     add_view(D_817E20, 0x100, (uint8_t *)s_d817E20_words, 1);
     add_view(D_81C050, D_81C050_SIZE, (uint8_t *)s_d81C050_words, 1);
     add_view(D_275C08, 4, (uint8_t *)s_d275C08_words, 1);
-    add_view(D_253500, D_253500_SIZE, s_d253500, 0);
+    add_view(D_2534C0, D_2534C0_SIZE, s_d2534C0, 0);
     add_view(D_26E810, D_26E810_SIZE, s_d26E810, 0);
     if (s_dynamic_word) {
         add_view(EM_A01R_D_0028A5A4, 4, (uint8_t *)(uintptr_t)s_dynamic_word, 0);
@@ -781,7 +781,7 @@ static int rcl_001D64A0(int32_t chan, const u32 a1[3], const u32 a2[3], const u3
 static int rcl_001DFE70(u32 colour, u32 f12)
 {
     const u32 fn = 0x001DFE70u;
-    const uint8_t *k = rd(D_253500, 0x20, fn), *c = rd(colour, 12, fn);
+    const uint8_t *k = rd(D_2534C0 + 0x40u, 0x20, fn), *c = rd(colour, 12, fn);
     if (!k || !c) return -1;
     u32 c0[4], c1[4], col[4];
     for (unsigned i = 0; i < 4; ++i) {
@@ -925,6 +925,142 @@ static int rcl_001DDB70(void *ctx)
                ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
 }
 
+/* The ramp records' 001DF110 and the packet builders its 001DF020 calls
+ * (each byte-matched). Each claims a block at the channel cursor with the
+ * tag CNT (dma_tag) and advances the cursor past it. */
+
+/* 001D7510(chan, a1, a2): 0x50 bytes (qwc 4): +0x10 zero with DIRECT
+ * 0x50000003 at +0x1C; GIF tag 0x1000000000008002 with the A+D register
+ * word 0xE; (0, register 0x3F); then (a1 << 35 | (s >> 8) | 0x224020000 |
+ * a2 << 34, register 6), s = 0 when the context word +0x9C is 0, else
+ * 0x70000 (a1 and a2 sign-extended from 32 bits). */
+static int rcl_001D7510(int32_t chan, int32_t a1, int32_t a2)
+{
+    const u32 fn = 0x001D7510u;
+    const uint8_t *nine_c = rd(d275670() + 0x9Cu, 4, fn);
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!nine_c || !slot) return -1;
+    const u32 chip = rd32(nine_c) == 0 ? 0 : 0x70000u;
+    const u32 at = rd32(slot);
+    uint8_t *e = wr(at, 0x50, fn);
+    if (!e) return -1;
+    dma_tag(e, 0x10, 4);
+    put32(slot, at + 0x50u);
+    memset(e + 0x10, 0, 16);
+    put32(e + 0x1C, 0x50000003u);
+    put64(e + 0x20, UINT64_C(0x1000000000008002));
+    put64(e + 0x28, 0xEu);
+    put64(e + 0x30, 0);
+    put64(e + 0x38, 0x3Fu);
+    put64(e + 0x40, (uint64_t)(int64_t)a1 << 35 | ((uint64_t)(chip >> 8) | UINT64_C(0x224020000)) |
+                    (uint64_t)(int64_t)a2 << 34);
+    put64(e + 0x48, 6u);
+    return 0;
+}
+
+/* 001D7000(chan, v) and 001D6DD0(chan, x, y): 0x40 bytes (qwc 3): +0x10
+ * zero with DIRECT 0x50000002 at +0x1C; GIF tag 0x1000000000008001 with the
+ * A+D register word 0xE; then one register: (v sign-extended, 0x3B) for
+ * 001D7000, (x | y << 32, 0x18: XYOFFSET_1) for 001D6DD0. (The static
+ * world's em_static_world_001D7000 is the same function over its views.) */
+static int one_register(int32_t chan, uint64_t value, u32 reg, u32 fn)
+{
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!slot) return -1;
+    const u32 at = rd32(slot);
+    uint8_t *e = wr(at, 0x40, fn);
+    if (!e) return -1;
+    dma_tag(e, 0x10, 3);
+    put32(slot, at + 0x40u);
+    memset(e + 0x10, 0, 16);
+    put32(e + 0x1C, 0x50000002u);
+    put64(e + 0x20, UINT64_C(0x1000000000008001));
+    put64(e + 0x28, 0xEu);
+    put64(e + 0x30, value);
+    put64(e + 0x38, reg);
+    return 0;
+}
+static int rcl_001D7000(int32_t chan, int32_t v)
+{
+    return one_register(chan, (uint64_t)(int64_t)v, 0x3Bu, 0x001D7000u);
+}
+static int rcl_001D6DD0(int32_t chan, int32_t x, int32_t y)
+{
+    return one_register(chan, (uint64_t)(int64_t)x | (uint64_t)(int64_t)y << 32, 0x18u, 0x001D6DD0u);
+}
+
+/* 001D7A80(chan, a1, a2, a3, a4): 0x80 bytes (qwc 7): +0x10 zero with
+ * DIRECT 0x50000006 at +0x1C; GIF tag 0x5000400000008001 with PRIM
+ * (a1 | 0x116) at bit 47, registers 0x43431; then the quadwords a4[0],
+ * a3[0], a2[0], a3[1], a2[1] at +0x30..+0x70. a2..a4 are original
+ * addresses. */
+static int rcl_001D7A80(int32_t chan, int32_t a1, u32 a2, u32 a3, u32 a4)
+{
+    const u32 fn = 0x001D7A80u;
+    const uint8_t *p2 = rd(a2, 0x20, fn), *p3 = rd(a3, 0x20, fn), *p4 = rd(a4 & ~15u, 0x10, fn);
+    uint8_t *slot = cursor_word(chan, fn);
+    if (!p2 || !p3 || !p4 || !slot) return -1;
+    uint8_t q[5][16];
+    memcpy(q[0], p4, 16);
+    memcpy(q[1], p3, 16);
+    memcpy(q[2], p2, 16);
+    memcpy(q[3], p3 + 16, 16);
+    memcpy(q[4], p2 + 16, 16);
+    const u32 at = rd32(slot);
+    uint8_t *b = wr(at, 0x80, fn);
+    if (!b) return -1;
+    dma_tag(b, 0x10, 7);
+    put32(slot, at + 0x80u);
+    memset(b + 0x10, 0, 16);
+    put32(b + 0x1C, 0x50000006u);
+    put64(b + 0x20, (uint64_t)(int64_t)(int32_t)((u32)a1 | 0x116u) << 47 | UINT64_C(0x8001) |
+                    (uint64_t)0x50004000u << 32);
+    put64(b + 0x28, 0x43431u);
+    for (unsigned i = 0; i < 5; ++i) memcpy(b + 0x30 + 0x10 * i, q[i], 16);
+    return 0;
+}
+
+/* 001DF020(chan, a1): *result = the channel cursor as it was; then
+ * 001D1FF0(chan, 2), 001D7510(chan, 0, 0), 001D1F80(chan, 0, 1),
+ * 001D7000(chan, 0), 001D6DD0(chan, 0x7000, 0x7900), 001D7A80(chan, 0x40,
+ * the pair D_002534C0, the pair D_002534E0 (both copied to the stack
+ * first), a1) and 001D1F20(chan). */
+static int rcl_001DF020(int32_t chan, u32 a1, u32 *result)
+{
+    const u32 fn = 0x001DF020u;
+    const uint8_t *slot = cursor_word(chan, fn);
+    if (!slot) return -1;
+    *result = rd32(slot);
+    if (em_load_veil_particles_001D1FF0(&R.veil, chan, 2) < 0) return fail(0x001D1FF0u, "001D1FF0 fault");
+    if (rcl_001D7510(chan, 0, 0) < 0) return -1;
+    if (em_load_veil_particles_001D1F80(&R.veil, chan, 0, 1) < 0) return fail(0x001D1F80u, "001D1F80 fault");
+    if (rcl_001D7000(chan, 0) < 0 || rcl_001D6DD0(chan, 0x7000, 0x7900) < 0) return -1;
+    if (rcl_001D7A80(chan, 0x40, D_2534C0, D_2534C0 + 0x20u, a1) < 0) return -1;
+    if (em_load_veil_particles_001D1F20(&R.veil, chan) < 0) return fail(0x001D1F20u, "001D1F20 fault");
+    return 0;
+}
+
+/* 001DF110(a0): r = 001DF020(3, a0); the channel-3 list close (tag 0x60,
+ * the cursor + 0x10); 001CB760(D_007635C0, 0xFFF000, r) (the packet
+ * chain's own, as in 001DDB70). 001DEEE0 passes its record + 0x10 (the
+ * ramp colour quadword). */
+static int rcl_001DF110(void *ctx, uint32_t a0)
+{
+    (void)ctx;
+    const u32 fn = 0x001DF110u;
+    u32 r;
+    if (rcl_001DF020(3, a0, &r) < 0) return -1;
+    uint8_t *slot = cursor_word(3, fn);
+    if (!slot) return -1;
+    const u32 end = rd32(slot);
+    uint8_t *t = wr(end, 0x10, fn);
+    if (!t) return -1;
+    dma_tag(t, 0x60, 0);
+    put32(slot, end + 0x10u);
+    return em_packet_chain_w_001CB760(&R.pc, 0x007635C0u, 0xFFF000, r) < 0
+               ? fail(R.pc.fault_function ? R.pc.fault_function : 0x001CB760u, "001CB760 fault") : 0;
+}
+
 /* 001D9720: the target packet D_00817E20: words 0, 0, 0x11000000,
  * 0x5000000F; the GIF tag's fields NLOOP 14, EOP 1, PRE 0, FLG 0, NREG 1
  * and REGS0 0xE (A+D) set in place (its other bits keep theirs);
@@ -968,7 +1104,7 @@ static int rcl_001E0380(void *ctx)
 {
     (void)ctx;
     const u32 fn = 0x001E0380u;
-    const uint8_t *q = rd(D_253500 + 0x20u, 16, fn);
+    const uint8_t *q = rd(D_2534C0 + 0x60u, 16, fn);
     uint8_t *g = wr(D_81C050 + 0xA0u, 0x2000, fn);
     if (!q || !g) return -1;
     for (int32_t i = 0; i < 16; ++i) {
@@ -1091,13 +1227,14 @@ static void wire(void)
     w->w_001D4B20 = unbound_u;
     w->w_001D5BD0 = unbound;
     /* 001DDA00's effect callees: 001DDB70 (flag 6, 0015D2F0 mode 2,
-     * D_008106C6 == 2) and 001DFF70 (flag 7, the fade 001DFE10 starts) are
-     * translated here; 001DE920 (areas 0x0B..0x0E only) and the ramp
-     * records' 001DF110 (flags 2 / 9) are not: reaching one faults. */
+     * D_008106C6 == 2), 001DFF70 (flag 7, the fade 001DFE10 starts) and
+     * the ramp records' 001DF110 (flags 2 / 9) are translated here;
+     * 001DE920 (001DDAA0's area keys 0x0B00..0x0E00 with 001B0070 bit 5 or
+     * 6; AREA11 is 0x0B) is not: reaching it faults. */
     w->w_001DE920 = unbound;
     w->w_001DDB70 = rcl_001DDB70;
     w->w_001DFF70 = rcl_001DFF70;
-    w->w_001DF110 = unbound_u;
+    w->w_001DF110 = rcl_001DF110;
     R.rc.world.ctx = CTX_BASE;
 
     EmLoadVeilParticlesWorld *v = &R.veil.world;
@@ -1138,7 +1275,7 @@ static const Block k_blocks[] = {
 };
 /* The second file (the effect callees and 001E0380). */
 static const Block k_effect_blocks[] = {
-    {D_253500, D_253500_SIZE, s_d253500},
+    {D_2534C0, D_2534C0_SIZE, s_d2534C0},
     {D_26E810, D_26E810_SIZE, s_d26E810},
 };
 #define BLOCK_COUNT (sizeof k_blocks / sizeof k_blocks[0])
@@ -1950,7 +2087,7 @@ uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)
     if (p >= s_d241010 && p < s_d241010 + sizeof s_d241010) return NULL;
     if (p >= s_d26E510 && p < s_d26E510 + sizeof s_d26E510) return NULL;
     if (p >= s_d26E850 && p < s_d26E850 + sizeof s_d26E850) return NULL;
-    if (p >= s_d253500 && p < s_d253500 + sizeof s_d253500) return NULL;
+    if (p >= s_d2534C0 && p < s_d2534C0 + sizeof s_d2534C0) return NULL;
     if (p >= s_d26E810 && p < s_d26E810 + sizeof s_d26E810) return NULL;
     if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return NULL;
     if ((s_dynamic_word && p >= s_dynamic_word && p < s_dynamic_word + 4) ||

@@ -35,7 +35,9 @@ and D_00275690 / D_00275694 (001DDE10).
 
 Effect blocks (a second file, so the first keeps its layout for every
 reader of it):
-  0x00253500   0x30    D_00253500 / D_00253510 (001DFE70's two sprite
+  0x002534C0   0x70    D_002534C0 / D_002534E0 (the two quadword pairs
+                       001DF020 hands 001D7A80, the ramp records' 001DF110),
+                       D_00253500 / D_00253510 (001DFE70's two sprite
                        corners, the 001DFF70 fade) and D_00253520 (the
                        quadword 001E0380 multiplies into its two grids)
   0x0026E810   0x40    D_0026E810 (001DDB70's 001D6B60 colour) and
@@ -66,7 +68,7 @@ DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00241010, 0x8), (0x00250F30, 0x2250), (0x0026E510, 0x10), (0x0026E850, 0x10),
           (0x0026E880, 0x10), (0x00275670, 0x30))
-EFFECT_BLOCKS = ((0x00253500, 0x30), (0x0026E810, 0x40))
+EFFECT_BLOCKS = ((0x002534C0, 0x70), (0x0026E810, 0x40))
 # Words the game writes at run time (address, bytes): not compared.
 # 0x241016: 00100158 (the boot GS reset) stores the GS revision read from
 # CSR there; 001D6E60 masks it out (D_00241010 & 0x0000FFFF0000FFFF).
