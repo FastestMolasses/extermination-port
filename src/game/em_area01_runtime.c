@@ -7,6 +7,8 @@
 #include "game/em_area00_fx.h"
 #include "game/em_area01_revisit_spawn.h"
 #include "game/em_script_door_fan.h"
+#include "game/em_startup_load_gaps.h"
+#include "game/em_area02_misc.h"
 #include "game/em_ee_float.h"
 #include <string.h>
 

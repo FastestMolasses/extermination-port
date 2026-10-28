@@ -3380,7 +3380,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     case 0x001C5680u: case 0x001C5760u:
     /* The AREA01 revisit's owners (em_area01_runtime_revisit.inc). */
     case 0x00823CD0u: case 0x00825950u: case 0x008237D0u: case 0x00823900u: case 0x008239C0u:
-    case 0x001C7EB0u:
+    case 0x001C7EB0u: case 0x001BB0E0u:
     bind:
         a->callback = fn;
         a->behavior = area01_behavior;

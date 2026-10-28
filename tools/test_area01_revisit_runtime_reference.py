@@ -40,7 +40,7 @@ import test_area00_fx_reference as FX
 
 MASK = (1 << 64) - 1
 BOUND = {0x825950, 0x823CD0, 0x824340, 0x824770, 0x824D50, 0x825910, 0x826010,
-         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0, 0x1BAC00, 0x1C8140, 0x1C7EB0}
+         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0, 0x1BAC00, 0x1C8140, 0x1C7EB0, 0x1BB0E0, 0x1F9660}
 RESULT = {0x825910, 0x1BAC00, 0x1C8140}
 
 
@@ -271,6 +271,21 @@ def main():
                               ((node + 4, b8(state)), (node + 0x24, struct.pack('<I', 0)),
                                (node + 0x40, struct.pack('<I', bank)), (node + 0x94, h16(9 + k)),
                                (node + 0x2EC, struct.pack('<I', behaviour)), (node + 0x2E4, struct.pack('<I', count)))))
+    # The group's five script actors: 001BB0E0 (with its 001BAD40) on a
+    # creature node made one of them (+0x20 the entry, +0x24 g[5], +0x2E its
+    # index), states 0 .. 3 with g[5]'s +0x2E done mask clear and set (the
+    # command-5 entry [1] only in states 2 / 3: its 001C5C90 needs the body
+    # node at +0x18, which a creature node is not); and 001F9660 (command 6's
+    # sound copy) for the group's key and two that reach 001F91C0.
+    for k in range(5):
+        entry_address = 0x82A900 + 0x2C * k
+        for state in ((2, 3) if k == 1 else (0, 1, 2, 3)):
+            for mask in ((0, 0xFFFF) if state == 1 else (0,)):
+                cases.append((beat, 0x1BB0E0, (node,),
+                              ((node + 4, b8(state)), (node + 0x20, struct.pack('<I', entry_address)),
+                               (node + 0x24, struct.pack('<I', g5)), (node + 0x2E, h16(k)), (g5 + 0x2E, h16(mask)))))
+    for key in (0x4B, 0x6E, 0x72):
+        cases.append((beat, 0x1F9660, (node, key), ()))
 
     # Quick: every captured case, one of each entry and a fixed-seed sample
     # of the designed ones (EM_TEST_FULL=1: all).

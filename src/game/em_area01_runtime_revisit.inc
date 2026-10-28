@@ -162,6 +162,328 @@ static int rv_001BAC00(EmArea01Runtime *r, EmArea01Call *c)
     return 0;
 }
 
+/* --- 001BB0E0 (the default behaviour 001BAC00 gives the group 0x82A900's
+ * five script actors) with its 001BAD40: em_slg_001BB0E0 and
+ * em_sdf_001BAD40, the one translations (the AREA11 opening binds them over
+ * its Roger pair), over this runtime. The node's bytes are a local image:
+ * before each callee the bytes the translations changed go back to the
+ * runtime, after it the image is read again, so every callee sees and
+ * leaves the node as in the original. Frames: 001BB0E0 0x40, 001BAD40 0x60.
+ * 001BAD40's message (0x270D / 0x270C) and camera (command 3) paths have no
+ * world here: they fault if reached (the group's commands are 0, 5, 6, 2
+ * and 2). */
+enum { RV_NODE = 0x2F0 };
+typedef struct {
+    EmArea01Runtime *r;
+    uint32_t node, sp, fault;
+    int freed;
+    uint8_t image[RV_NODE], base[RV_NODE];
+} RvActor;
+
+static int rv_actor_flush(RvActor *a)
+{
+    if (a->freed) return 0;
+    for (uint32_t i = 0; i < RV_NODE;) {
+        if (a->image[i] == a->base[i]) { ++i; continue; }
+        uint32_t j = i;
+        while (j < RV_NODE && a->image[j] != a->base[j]) ++j;
+        uint8_t *p = bytes(a->r, a->node + i, j - i, 1);
+        if (!p) { if (!a->fault) a->fault = a->node + i; return -1; }
+        memcpy(p, a->image + i, j - i);
+        i = j;
+    }
+    memcpy(a->base, a->image, RV_NODE);
+    return 0;
+}
+
+static int rv_actor_load(RvActor *a)
+{
+    if (a->freed) return 0;
+    const uint8_t *p = bytes(a->r, a->node, RV_NODE, 0);
+    if (!p) { if (!a->fault) a->fault = a->node; return -1; }
+    memcpy(a->image, p, RV_NODE);
+    memcpy(a->base, p, RV_NODE);
+    return 0;
+}
+
+/* One callee by address with the node as a0 (when `node`), then the
+ * integer arguments, at most two floats; the node is synced around it. */
+static int rv_actor_call(RvActor *a, uint32_t fn, uint32_t sp, int node, unsigned na, const uint64_t *args,
+                         unsigned nf, const uint32_t *fs, uint64_t *v0)
+{
+    if (a->fault) return -1;
+    EmArea01Call c = {.function = fn, .sp = sp};
+    if (node) c.a[c.na++] = (uint64_t)(int64_t)(int32_t)a->node;
+    for (unsigned k = 0; k < na; ++k) c.a[c.na++] = args[k];
+    for (unsigned k = 0; k < nf; ++k) c.f[c.nf++] = fs[k];
+    if (rv_actor_flush(a) < 0) return -1;
+    if (em_area01_runtime_call(a->r, &c) < 0) { if (!a->fault) a->fault = fn; return -1; }
+    if (fn == 0x001AFC10u) a->freed = 1;
+    if (rv_actor_load(a) < 0) return -1;
+    if (v0) *v0 = c.v0;
+    return 0;
+}
+
+static uint64_t rv_reg(int32_t v) { return (uint64_t)(int64_t)v; }
+
+/* em_sdf's view of the node <-> the image. */
+static void rv_event_load(const RvActor *a, EmSdfEventActor *v)
+{
+    const uint8_t *n = a->image;
+    v->lifecycle = n[0x04];
+    v->b09 = n[0x09];
+    v->b0C = n[0x0C];
+    memcpy(&v->w18, n + 0x18, 4);
+    memcpy(&v->bank_40, n + 0x40, 4);
+    memcpy(&v->w44, n + 0x44, 4);
+    memcpy(v->bones_110, n + 0x110, sizeof v->bones_110);
+}
+
+static void rv_event_store(RvActor *a, const EmSdfEventActor *v)
+{
+    uint8_t *n = a->image;
+    n[0x04] = v->lifecycle;
+    n[0x09] = v->b09;
+    n[0x0C] = v->b0C;
+    memcpy(n + 0x40, &v->bank_40, 4);
+    memcpy(n + 0x44, &v->w44, 4);
+    memcpy(n + 0x110, v->bones_110, sizeof v->bones_110);
+}
+
+#define RV_SDF_SP(a) ((a)->sp - 0x60u)
+static int rv_sdf_obj(RvActor *a, EmSdfEventActor *obj, uint32_t fn, unsigned na, const uint64_t *args)
+{
+    rv_event_store(a, obj);
+    int rc = rv_actor_call(a, fn, RV_SDF_SP(a), 1, na, args, 0, NULL, NULL);
+    if (rc == 0 && !a->freed) rv_event_load(a, obj);
+    return rc;
+}
+
+static int rv_sdf_value(RvActor *a, uint32_t fn, unsigned na, const uint64_t *args, uint64_t *v0)
+{
+    return rv_actor_call(a, fn, RV_SDF_SP(a), 0, na, args, 0, NULL, v0);
+}
+
+static int rv_sdf_r_0028A490(void *ctx, int32_t index, uint32_t *value)
+{
+    RvActor *a = ctx;
+    const uint8_t *p = index >= 0 ? bytes(a->r, 0x0028A490u + 4u * (uint32_t)index, 4, 0) : NULL;
+    if (!p) return -1;
+    memcpy(value, p, 4);
+    return 0;
+}
+static int rv_sdf_001CA6E0(void *ctx, EmSdfEventActor *obj, uint32_t bank)
+{
+    const uint64_t args[1] = {rv_reg((int32_t)bank)};
+    return rv_sdf_obj(ctx, obj, 0x001CA6E0u, 1, args);
+}
+static int rv_sdf_001C5C90(void *ctx, EmSdfEventActor *obj) { return rv_sdf_obj(ctx, obj, 0x001C5C90u, 0, NULL); }
+static int rv_sdf_001BA8E0(void *ctx, EmSdfEventActor *obj, int16_t type)
+{
+    const uint64_t args[1] = {rv_reg(type)};
+    return rv_sdf_obj(ctx, obj, 0x001BA8E0u, 1, args);
+}
+static int rv_sdf_001D8BF0(void *ctx, EmSdfEventActor *obj, int32_t a1)
+{
+    const uint64_t args[1] = {rv_reg(a1)};
+    return rv_sdf_obj(ctx, obj, 0x001D8BF0u, 1, args);
+}
+static int rv_sdf_001CA6F0(void *ctx, EmSdfEventActor *obj, uint8_t mode)
+{
+    const uint64_t args[1] = {mode};
+    return rv_sdf_obj(ctx, obj, 0x001CA6F0u, 1, args);
+}
+static int rv_sdf_001C63E0(void *ctx, EmSdfEventActor *obj, int16_t clip)
+{
+    const uint64_t args[1] = {rv_reg(clip)};
+    return rv_sdf_obj(ctx, obj, 0x001C63E0u, 1, args);
+}
+static int rv_sdf_001C6150(void *ctx, uint32_t model, int32_t *result)
+{
+    const uint64_t args[1] = {rv_reg((int32_t)model)};
+    uint64_t v0 = 0;
+    if (rv_sdf_value(ctx, 0x001C6150u, 1, args, &v0) < 0) return -1;
+    *result = (int32_t)v0;
+    return 0;
+}
+static int rv_sdf_001AF780(void *ctx, uint32_t *handle)
+{
+    uint64_t v0 = 0;
+    if (rv_sdf_value(ctx, 0x001AF780u, 0, NULL, &v0) < 0) return -1;
+    *handle = (uint32_t)v0;
+    return 0;
+}
+static int rv_sdf_001CB5B0(void *ctx, uint8_t count)
+{
+    const uint64_t args[1] = {count};
+    return rv_sdf_value(ctx, 0x001CB5B0u, 1, args, NULL);
+}
+static int rv_sdf_001C6120(void *ctx, uint32_t table, int32_t index, uint32_t *result)
+{
+    const uint64_t args[2] = {rv_reg((int32_t)table), rv_reg(index)};
+    uint64_t v0 = 0;
+    if (rv_sdf_value(ctx, 0x001C6120u, 2, args, &v0) < 0) return -1;
+    *result = (uint32_t)v0;
+    return 0;
+}
+static int rv_sdf_001C61D0(void *ctx, uint32_t bank, int16_t clip, int32_t *result)
+{
+    const uint64_t args[2] = {rv_reg((int32_t)bank), rv_reg(clip)};
+    uint64_t v0 = 0;
+    if (rv_sdf_value(ctx, 0x001C61D0u, 2, args, &v0) < 0) return -1;
+    *result = (int32_t)v0;
+    return 0;
+}
+static int rv_sdf_001C67E0(void *ctx, int16_t clip, float start, float length)
+{
+    RvActor *a = ctx;
+    const uint64_t args[1] = {rv_reg(clip)};
+    uint32_t fs[2];
+    memcpy(&fs[0], &start, 4);
+    memcpy(&fs[1], &length, 4);
+    return rv_actor_call(a, 0x001C67E0u, RV_SDF_SP(a), 1, 1, args, 2, fs, NULL);
+}
+
+static int rv_slg_001BAD40(void *ctx, const EmSlgScriptActor *s, int32_t *ret)
+{
+    RvActor *a = ctx;
+    EmSdfEventActor v;
+    rv_event_load(a, &v);
+    const uint8_t *bcc = bytes(a->r, 0x00275BCCu, 2, 0);
+    if (!bcc) return -1;
+    int16_t budget;
+    memcpy(&budget, bcc, 2);
+    EmSdfWorld world;
+    memset(&world, 0, sizeof world);
+    world.d275BCC = &budget;
+    EmSdfWorkers w;
+    memset(&w, 0, sizeof w);
+    w.ctx = a;
+    w.r_0028A490 = rv_sdf_r_0028A490;
+    w.w_001CA6E0 = rv_sdf_001CA6E0;
+    w.w_001C6120 = rv_sdf_001C6120;
+    w.w_001C5C90 = rv_sdf_001C5C90;
+    w.w_001C6150 = rv_sdf_001C6150;
+    w.w_001AF780 = rv_sdf_001AF780;
+    w.w_001BA8E0 = rv_sdf_001BA8E0;
+    w.w_001D8BF0 = rv_sdf_001D8BF0;
+    w.w_001CA6F0 = rv_sdf_001CA6F0;
+    w.w_001CB5B0 = rv_sdf_001CB5B0;
+    w.w_001C63E0 = rv_sdf_001C63E0;
+    w.w_001C61D0 = rv_sdf_001C61D0;
+    w.w_001C67E0 = rv_sdf_001C67E0;
+    EmSdfFault f = {0, 0};
+    const int r = em_sdf_001BAD40(&v, s->entry, &world, &w, &f);
+    if (r < 0) {
+        if (!a->fault) a->fault = f.address ? f.address : 0x001BAD40u;
+        return -1;
+    }
+    if (!a->freed) rv_event_store(a, &v);
+    *ret = r;
+    return 0;
+}
+
+static int rv_slg_node(void *ctx, uint32_t fn)
+{
+    RvActor *a = ctx;
+    return rv_actor_call(a, fn, a->sp, 1, 0, NULL, 0, NULL, NULL);
+}
+static int rv_slg_001C5C90(void *ctx, const EmSlgScriptActor *s) { (void)s; return rv_slg_node(ctx, 0x001C5C90u); }
+static int rv_slg_001C68C0(void *ctx, const EmSlgScriptActor *s) { (void)s; return rv_slg_node(ctx, 0x001C68C0u); }
+static int rv_slg_001BA540(void *ctx, const EmSlgScriptActor *s) { (void)s; return rv_slg_node(ctx, 0x001BA540u); }
+static int rv_slg_001AFC10(void *ctx, const EmSlgScriptActor *s) { (void)s; return rv_slg_node(ctx, 0x001AFC10u); }
+static int rv_slg_method_4C(void *ctx, const EmSlgScriptActor *s)
+{
+    RvActor *a = ctx;
+    uint32_t fn;
+    memcpy(&fn, s->node + 0x4C, 4);
+    return rv_slg_node(a, fn);
+}
+static int rv_slg_001BA580(void *ctx, const EmSlgScriptActor *s, int32_t key)
+{
+    RvActor *a = ctx;
+    (void)s;
+    const uint64_t args[1] = {rv_reg(key)};
+    return rv_actor_call(a, 0x001BA580u, a->sp, 1, 1, args, 0, NULL, NULL);
+}
+static int rv_slg_001F9660(void *ctx, const EmSlgScriptActor *s, int32_t key)
+{
+    RvActor *a = ctx;
+    (void)s;
+    const uint64_t args[1] = {rv_reg(key)};
+    return rv_actor_call(a, 0x001F9660u, a->sp, 1, 1, args, 0, NULL, NULL);
+}
+static int rv_slg_001C64F0(void *ctx, const EmSlgScriptActor *s, uint32_t dt_bits)
+{
+    RvActor *a = ctx;
+    (void)s;
+    return rv_actor_call(a, 0x001C64F0u, a->sp, 1, 0, NULL, 1, &dt_bits, NULL);
+}
+
+static int rv_001BB0E0(EmArea01Runtime *r, EmArea01Call *c)
+{
+    if (c->na < 1 || c->nf || c->sp < 0x100u) return fail(r, c->function);
+    static RvActor a;   /* one call at a time: the runtime does not re-enter 001BB0E0 */
+    memset(&a, 0, sizeof a);
+    a.r = r;
+    a.node = (uint32_t)c->a[0];
+    a.sp = c->sp - 0x40u;
+    if (rv_actor_load(&a) < 0) return fail(r, a.node);
+    uint32_t entry_address, owner_address;
+    memcpy(&entry_address, a.image + 0x20, 4);
+    memcpy(&owner_address, a.image + 0x24, 4);
+    const uint8_t *entry = bytes(r, entry_address, EM_SDF_ENTRY_SIZE, 0);
+    const uint8_t *owner_bytes = bytes(r, owner_address, 0x30, 0);
+    if (!entry || !owner_bytes) return fail(r, entry ? owner_address : entry_address);
+    uint8_t entry_copy[EM_SDF_ENTRY_SIZE], owner_copy[0x30];
+    memcpy(entry_copy, entry, sizeof entry_copy);
+    memcpy(owner_copy, owner_bytes, sizeof owner_copy);
+    const EmSlgScriptActorWorkers w = {&a,          rv_slg_001BAD40, rv_slg_001C5C90, rv_slg_001C68C0,
+                                       rv_slg_001BA580, rv_slg_001C64F0, rv_slg_001F9660, rv_slg_001BA540,
+                                       rv_slg_001AFC10, rv_slg_method_4C};
+    const EmSlgScriptActor s = {a.image, entry_copy, owner_copy};
+    if (em_slg_001BB0E0(&w, &s) < 0 || a.fault) return fail(r, a.fault ? a.fault : c->function);
+    if (rv_actor_flush(&a) < 0) return fail(r, a.fault);
+    return 0;
+}
+
+/* 001F9660(node, key), frame 0x310 (the node's 0x2F0-byte copy at sp -
+ * 0x2F0 of its frame): em_area02_misc's translation over the node, the area
+ * bytes D_00810700 / D_00810701 and its frame; block_copy 00121870 and
+ * 001F91C0 re-enter the runtime. */
+static int rv_misc_call(void *ctx, EmArea02MiscCall *in)
+{
+    EmArea01Call c = {.function = in->fn, .sp = in->sp, .na = in->na, .nf = in->nf};
+    if (in->na > 8 || in->nf > 8) return -1;
+    memcpy(c.a, in->a, sizeof c.a);
+    memcpy(c.f, in->f, sizeof c.f);
+    int rc = em_area01_runtime_call(ctx, &c);
+    in->v0 = c.v0;
+    in->f0 = c.f0;
+    return rc;
+}
+
+static int rv_001F9660(EmArea01Runtime *r, EmArea01Call *c)
+{
+    if (c->na < 2 || c->nf || c->sp < 0x310u) return fail(r, c->function);
+    const uint32_t node = (uint32_t)c->a[0];
+    EmArea02MiscRegion regions[3] = {
+        {node, RV_NODE, bytes(r, node, RV_NODE, 0)},
+        {0x00810700u, 2, bytes(r, 0x00810700u, 2, 0)},
+        {c->sp - 0x310u, 0x310u, bytes(r, c->sp - 0x310u, 0x310u, 1)}};
+    for (unsigned k = 0; k < 3; ++k)
+        if (!regions[k].bytes) return fail(r, regions[k].base);
+    EmArea02Misc m;
+    memset(&m, 0, sizeof m);
+    m.regions = regions;
+    m.region_count = 3;
+    m.call = rv_misc_call;
+    m.ctx = r;
+    m.sp = c->sp;
+    if (em_area02_misc_001F9660(&m, node, c->a[1]) < 0) return fail(r, m.fault_address ? m.fault_address : c->function);
+    return 0;
+}
+
 /* Returns 1 when `function` is one of these entries (*rc set), else 0. */
 static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
@@ -220,6 +542,12 @@ static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     }
     case 0x001BAC00u: /* script op14's placement (script 0x82AD90, group 0x82A900) */
         *rc = rv_001BAC00(r, c);
+        return 1;
+    case 0x001BB0E0u: /* the group's script actors (em_slg_001BB0E0 with em_sdf_001BAD40) */
+        *rc = rv_001BB0E0(r, c);
+        return 1;
+    case 0x001F9660u: /* 001BB0E0 command 6's sound copy (em_area02_misc) */
+        *rc = rv_001F9660(r, c);
         return 1;
     case 0x001C8140u: { /* a 0x270E placement entry's node (em_area01_revisit_spawn) */
         if (c->na < 3 || c->nf) { *rc = fail(r, c->function); return 1; }
