@@ -1025,6 +1025,12 @@ static int heal_request(void *context, EmPlayerLiveActor *actor, int clip, int f
     return em_player_record_pose_request(&source.record, clip, flags, blend, &result) < 0 ? -1 : 0;
 }
 
+int player_pose_record_request(EmPlayerLiveActor *actor, int clip, int flags, float blend)
+{
+    if (!actor || !em_player_record_pose_ready(&source.record)) return -1;
+    return heal_request(NULL, actor, clip, flags, blend);
+}
+
 int player_pose_0015C700(float health, uint32_t d8106C8,
                          int (*table16)(void *, uint32_t, int16_t *), void *context)
 {

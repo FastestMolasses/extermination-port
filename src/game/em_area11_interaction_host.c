@@ -712,6 +712,19 @@ static int page_player_00182B30(void *context, int32_t *result)
     return 0;
 }
 
+/* 0015C750(D_008102B0): the closure's em_area02_misc_0015C750 binding over
+ * the live record (em_player_closure_live_0015C750), with 001B0070()'s word
+ * D_008106C8 from the canonical request block. */
+static int page_player_0015C750(void *context, int (*table16)(void *, uint32_t, int16_t *),
+                                void *table_context, uint8_t *d810707)
+{
+    (void)context;
+    const uint8_t *c8 = em_scene_req_at(em_scene_state(), 0x008106C8u);
+    const uint32_t word = (uint32_t)c8[0] | (uint32_t)c8[1] << 8 | (uint32_t)c8[2] << 16 |
+                          (uint32_t)c8[3] << 24;
+    return em_player_closure_live_0015C750(word, table16, table_context, d810707);
+}
+
 /* The MAP page's 001B0000 models at their place in the page's draw
  * stream (em_status_pages_live): the walk's queued draws on 0020DFA0's
  * camera (as the hub's), clipped to the page's SCISSOR_1 window. */
@@ -1420,7 +1433,8 @@ static int load_status(const char *directory,const EmItemMath *math,
     {
         static const EmStatusPagesHost pages_host = {NULL, page_sound, page_present,
                                                      page_find_device, page_player_0015C700,
-                                                     pages_models_draw, page_player_00182B30};
+                                                     pages_models_draw, page_player_00182B30,
+                                                     page_player_0015C750};
         EmStatusPagesLive *pages =
             em_status_pages_live_load("assets/status_pages/status_pages.emsp", &pages_host);
         if (!pages)

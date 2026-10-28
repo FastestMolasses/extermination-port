@@ -96,6 +96,11 @@ typedef struct {
     /* 00182B30(D_008102B0), the EVENT page's Cross: *result = its return
      * value (0 when the player may act) over the live player record */
     int (*player_00182B30)(void *context, int32_t *result);
+    /* 0015C750(D_008102B0), HEALING kind 2's hand-off, over the live player
+     * record: `table16` reads 0015C7C0's .data halfwords, `d810707` is the
+     * page's D_00810707 byte. 0, or -1. */
+    int (*player_0015C750)(void *context, int (*table16)(void *, uint32_t, int16_t *),
+                           void *table_context, uint8_t *d810707);
 } EmStatusPagesHost;
 
 /* Indices of the request bytes the page core keeps a view of. */

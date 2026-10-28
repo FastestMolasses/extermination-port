@@ -250,6 +250,11 @@ void em_sfx_stop_all(void) {}
 /* The EVENT page's 00182B30 on the live player (em_player_stage_live is not
  * linked here; no scenario reaches EVENT's Cross on a found device). */
 int em_player_stage_live_00182B30(int *result) { (void)result; return -1; }
+/* HEALING kind 2's 0015C750 on the live player (em_player_closure_live is
+ * not linked here; no scenario reaches it). */
+int em_player_closure_live_0015C750(uint32_t d8106C8, int (*table16)(void *, uint32_t, int16_t *),
+                                    void *table_context, uint8_t *d810707)
+{ (void)d8106C8; (void)table16; (void)table_context; (void)d810707; return -1; }
 /* The stream calls the host's status frame and interaction frame make
  * (em_scene_bindings.c binds them to the stream lanes, em_stream_live; the
  * lanes have their own tests): the status open's 001FBC50, 001FABB0 and

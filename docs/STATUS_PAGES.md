@@ -473,7 +473,7 @@ native or the gap):
 | 001AFF10 / 001B0000 / 001AFF90, 001C6120 / 001CA5E0 / 001C6150 / 001AF7C0 / 001CB5B0 / 001C62C0 / 001C6380, 001CB480 | `em_status_models_call` (MAP, section 7) | the UI pool and the MAP bank |
 | 00182B30 | the host's `page_player_00182B30` (2026-10-28): `em_player_stage_live_00182B30`, the player stage's own translation `em_player_stage_scripted_check` (test-player-stage-workers-reference) over the live player record | reached only after 00185420 finds a device (unreachable in AREA11, section 7) |
 | 0015C700 | `em_player_0015C700` (with 0015C7C0; chain C8b) through `player_pose_0015C700` | |
-| 0015C750 | faults (unreachable in AREA11, section 7) | HEALING kind 2 device hand-off; translated in em_area02_misc, but its 0015C1F0 (the player model rebind) is not bound on the live player |
+| 0015C750 | the host's `page_player_0015C750` (2026-10-28): `em_player_closure_live_0015C750`, em_area02_misc_0015C750 (test_area02_misc_reference) over the live record, the page's D_00810707 and its .data halfwords; 0015C1F0 = the closure's em_player_misc_0015C1F0, 001749A0 = the record pose's request, 001B0070 = D_008106C8; a nonzero +0x1C (no port link object) faults | HEALING kind 2 device hand-off (unreachable in AREA11, section 7); not run end to end |
 | 001C47E0 | `em_pickup_items_001C47E0` (chain C8b) | the item-use consume call of HEALING |
 
 **Dispatcher glue the chain must test.** The `reuse` group runs the
@@ -587,7 +587,7 @@ dispatches every callee by original address:
 | 00208040 | `em_page_draw_flat` (00210F30's marker: its corners' XYZF2 X / Y from float_to_int of x and z, as the packet builds them) |
 | 001029C0 / 00102BB0 / 001026A0 / 001026D0 / 001031E0 / 001B1470 | the SDK leaves over the views (`em_owner_services` identity / rotate-y, `em_effect_original_001026A0`, `em_sdk_vu0_001026D0`, the xyz copy, `em_player_001B1470`) |
 | 00182B30 | the host's `player_00182B30` (EmStatusPagesHost, since 2026-10-28): the live player record through the player stage's translation |
-| 0015C750 | fault: unreachable in AREA11 (below); its 0015C1F0 is not live |
+| 0015C750 | the host's `player_0015C750` (EmStatusPagesHost, since 2026-10-28): em_area02_misc's translation over the live record; unreachable in AREA11 (below) |
 
 The vitals D_00810858 / 5C are g.status (the port's one copy); the
 player's +0x220 (D_008104D0) is the same value there, so a +0x220 store

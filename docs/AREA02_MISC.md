@@ -356,7 +356,9 @@ ABI to this module's region model, as EXITA's):
   of the same address) can be backed by `em_area02_misc_0011E520`. It needs the four soft-float
   workers (`em_sdk_soft_float.c`: 00128350, 0011DB90, 00127758; 0011FD78) and 0011E080 / 0011DF78
   / 0011CB90 from the SDK math modules.
-- **Status pages.** `em_status_pages_live.c` refuses 0015C750 ("not bound"); this is it. Its
+- **Status pages.** `em_status_pages_live.c` runs 0015C750 through this translation since
+  2026-10-28 (`em_player_closure_live_0015C750`: regions = the live record, the page's
+  D_00810707, the clip-pair halfwords; calls = 0015C1F0, 001B0070, 001749A0). Its
   0015C7C0 is the standalone translation here; `em_player_0015C700` keeps its own inline copy for
   the heal path.
 - **Area script.** Command 0x1A (001B6AE0) is not in `em_area_script.c`'s command set and faults

@@ -57,6 +57,15 @@ void em_player_closure_live_set_scan(int (*scan)(void *context, EmPlayerLiveActo
  * first; an SDK worker's recorded fault fails it). *result is its return
  * (1: an action took the press). 0, or -1 on a fault. */
 int em_player_closure_live_use_press(EmPlayerLiveActor *actor, int *result);
+/* 0015C750(D_008102B0), the HEALING kind 2 hand-off of the status pages:
+ * em_area02_misc_0015C750 over the live player record, `d810707` (the
+ * caller's D_00810707 byte), the .data halfwords D_00248A00..0B and
+ * D_002754C0..DB that `table16` reads, with 0015C1F0 = this closure's
+ * em_player_misc_0015C1F0, 001B0070 = `d8106C8` and 001749A0 = the record
+ * pose's request (player_pose_record_request). The +0x1C link object the
+ * port does not keep: a nonzero +0x1C faults (unmapped). 0, or -1. */
+int em_player_closure_live_0015C750(uint32_t d8106C8, int (*table16)(void *, uint32_t, int16_t *),
+                                    void *table_context, uint8_t *d810707);
 
 /* 0017B490(p, cmd, idx, tbl) over the record (em_loco_0017B490 on the record
  * pose's regions): the stage callees' clip_lookup shape. -1 until bound. */

@@ -1107,11 +1107,16 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
         *v0 = (uint64_t)(int64_t)result;
         return 0;
     }
-    case 0x0015C750u:
-        /* HEALING kind 2's hand-off reaches 0015C1F0 (the player model
-         * rebind), which is not bound on the live player */
-        return report(l, target, "which the first level cannot reach (docs/STATUS_PAGES.md "
-                                 "section 1), is not bound (its 0015C1F0 is not live)");
+    case 0x0015C750u: {
+        /* HEALING kind 2's hand-off (off the first level, docs/STATUS_PAGES.md
+         * section 1): the host's 0015C750 over the live record, with this
+         * page's D_00810707 and .data halfwords. */
+        uint8_t *d810707 = consume_at(l, 0x00810707u, 1);
+        if (U(0) != PLAYER || !d810707 || !l->host.player_0015C750 ||
+            l->host.player_0015C750(l->host.context, table16, l, d810707) < 0)
+            return report(l, target, "faulted on the live player record");
+        return 0;
+    }
     default:
         return report(l, target, "which is not bound");
     }

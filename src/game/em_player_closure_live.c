@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "game/em_actor_collision.h"
+#include "game/em_area02_misc.h"
 #include "game/em_coll_move_original.h"
 #include "game/em_coll_segment_walkers.h"
 #include "game/em_coll_list_passes_walkers.h"
@@ -3265,6 +3266,88 @@ int em_player_closure_live_use_press(EmPlayerLiveActor *actor, int *result)
         r = -1;
     }
     return r;
+}
+
+/* 0015C750(D_008102B0): em_area02_misc_0015C750 (the one translation;
+ * tools/test_area02_misc_reference.py) over the live record. Its memory:
+ * the record at D_008102B0, the caller's D_00810707 byte, and the .data
+ * halfwords of 0015C7C0's clip pairs (D_00248A00..0B, D_002754C0..DB) each
+ * as its own two-byte region when `table16` has it (one it lacks faults
+ * only if read). The +0x1C link object is not kept by the port: a nonzero
+ * +0x1C reads its +4 outside every region (fail-stop). */
+typedef struct {
+    uint32_t d8106C8;
+    int failed;
+} C750Calls;
+
+static int c750_call(void *ctx, EmArea02MiscCall *call)
+{
+    C750Calls *k = ctx;
+    switch (call->fn) {
+    case 0x0015C1F0u:   /* the player model rebind, over the misc host */
+        if (call->na < 1 || (uint32_t)call->a[0] != 0x008102B0u) break;
+        if (refresh_all() < 0 || x_0015C1F0(NULL, L.actor) < 0) { k->failed = 1; return -1; }
+        call->v0 = 0;
+        return 0;
+    case 0x001B0070u:   /* D_008106C8, the area flag word */
+        call->v0 = (uint64_t)(int64_t)(int32_t)k->d8106C8;
+        return 0;
+    case 0x001749A0u: { /* the record pose's request (0015C7C0's restart) */
+        if (call->na < 3 || call->nf < 1 || (uint32_t)call->a[0] != 0x008102B0u) break;
+        float blend;
+        memcpy(&blend, &call->f[0], 4);
+        if (player_pose_record_request(L.actor, (int32_t)call->a[1], (int32_t)call->a[2], blend) < 0) {
+            k->failed = 1;
+            return unbound("001749A0 from 0015C7C0 (0015C750; the record pose refused the request)");
+        }
+        call->v0 = 0;
+        return 0;
+    }
+    default:
+        break;
+    }
+    char what[96];
+    snprintf(what, sizeof what, "%08X from 0015C750 (no binding for this call)", (unsigned)call->fn);
+    k->failed = 1;
+    return unbound(what);
+}
+
+int em_player_closure_live_0015C750(uint32_t d8106C8, int (*table16)(void *, uint32_t, int16_t *),
+                                    void *table_context, uint8_t *d810707)
+{
+    if (!L.bound || !L.actor || !table16 || !d810707) return -1;
+    enum { NHALF = 6 + 14 };
+    uint8_t half[NHALF][2];
+    EmArea02MiscRegion regions[2 + NHALF];
+    unsigned n = 0;
+    regions[n++] = (EmArea02MiscRegion){ 0x008102B0u, EM_PLAYER_ACTOR_SIZE, L.actor->bytes };
+    regions[n++] = (EmArea02MiscRegion){ 0x00810707u, 1, d810707 };
+    for (unsigned i = 0; i < NHALF; ++i) {
+        const uint32_t address = i < 6 ? 0x00248A00u + 2u * i : 0x002754C0u + 2u * (i - 6);
+        int16_t v;
+        if (table16(table_context, address, &v) < 0) continue;
+        half[i][0] = (uint8_t)((uint16_t)v & 0xFFu);
+        half[i][1] = (uint8_t)((uint16_t)v >> 8);
+        regions[n++] = (EmArea02MiscRegion){ address, 2, half[i] };
+    }
+    C750Calls k = { d8106C8, 0 };
+    EmArea02Misc m;
+    memset(&m, 0, sizeof m);
+    m.regions = regions;
+    m.region_count = n;
+    m.call = c750_call;
+    m.ctx = &k;
+    m.sp = 0x01FFF000u;   /* no stack local of 0015C750 / 0015C7C0 is addressed */
+    if (em_area02_misc_0015C750(&m, 0x008102B0u) < 0) {
+        if (!k.failed) {
+            char what[128];
+            snprintf(what, sizeof what, "0015C750 (em_area02_misc fault %d at %08X, address %08X)",
+                     (int)m.fault, (unsigned)m.fault_function, (unsigned)m.fault_address);
+            (void)unbound(what);
+        }
+        return -1;
+    }
+    return 0;
 }
 
 /* ---- The bind --------------------------------------------------------------------- */

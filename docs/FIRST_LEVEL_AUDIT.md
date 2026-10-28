@@ -805,8 +805,9 @@ status pages live, MAP included; STATUS_PAGES.md section 7, census 1.36 and
   decomp's decoder).
 - **Callee gaps.** 0020D930 is one owner (`em_menu_hover`, all three tables:
   the hub, the ITEM root and SPR4's selector); 001C47E0 and 0015C700 /
-  0015C7C0 are translated with oracles; 0015C750, 00185420's non-battery
-  kinds and 00182B30 are unreachable in AREA11 and keep their fail-stops.
+  0015C7C0 are translated with oracles; 0015C750 and 00182B30 are bound
+  (2026-10-28) though unreachable in AREA11; 00185420's non-battery kinds
+  keep their fail-stops.
 - **Evidence.** The level smoke's designed side run `status_pages` (part of
   make test-level-smoke-side): 1,143 page calls replayed through the
   original instructions over the status-hub capture, 12,636 callee entries
