@@ -1066,6 +1066,17 @@ long notices stay up.
   line) is drawn by its own node 001C5930 through the same 001CC1E0 glyph
   runs since the units step (2026-10-02; the entry "The area title card"
   below).
+- The GS field (the Original profile; side lane "status", 2026-10-20,
+  `STATUS_FIELD.md` 3d and 3e): the BATTERY page's and the ITEM root's
+  frames are drawn from the original's own slot-1 packets (the leaf
+  builders, the message glyph runs and the ITEM root's Gouraud fans
+  translated byte for byte against the original instructions) through the
+  CPU GS model and presented as the field, so their sprites' bilinear
+  sampling and their glyphs are the GS's pixels, not the renderer's: route
+  01's f300 / f400 (the BATTERY page) and two ITEM root frames (fork
+  captures given the port's D_002655A0) are 0 of 114,688 pixels off the
+  field the original displayed. The hub and the other pages are still
+  drawn by the renderer as described above.
 - Status: **PARTIAL**. Glyph pixels are
   drawn from the port's own atlas (the original's TEX0 / CLUT, TEST and
   ALPHA are not modelled) and are not compared (no fb2 frame shows text).

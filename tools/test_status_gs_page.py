@@ -49,7 +49,28 @@ FRAMES) and the user's font export.
    presented picture, the overlay pass included, at every field pixel's place
    (test_fb2_pixels.shown_field) equal to the original's displayed field.
 
-About 16 s (the game run; EM_TEST_FULL=1 about 45 s); --dump FILE --run-log FILE reuse a run.
+6. The ITEM root (STATUS_FIELD.md section 3e; EM_TEST_FULL=1, or --item
+   alone): the level smoke's status_pages side run (EM_LEVEL_SMOKE_UNTIL=
+   status_pages) with the dump. Every dumped frame decodes (the fans of a
+   moving stick by their shape); every ITEM root frame is 0020F170 and
+   0020F2A0's packets after the background (the five sprites and the
+   blend, 00207D00(1, 1) and the sixteen 001D66A0 fans, 00207D00(1, 0),
+   the region sprites, 00207D00(1, 3) and the last sprite) and is
+   presented as a GS field; every one at rest with hover 0 equals the
+   fork capture slot12_status_root_pad8080 f0040 (the original's ITEM root
+   with the port's neutral stick 0x80 held) in every call after the
+   background. The captures slot12_status_root_pad8080_bg3467 f0040 /
+   f0041 are the same with D_002655A0 set to the port's at loop top 39
+   (capture.py CAPTURE_WRITE: the only write): the port frame whose dumped
+   D_002655A0 (before its 0020A7A0) is those bytes is N, and frames N + 1
+   and N + 2 must equal the two captures in every call (the background
+   included), their written bytes equal the builders' and the capture's,
+   and their presented fields hash equal to the fields the original
+   displayed; a second run with frame captures at those two frames checks
+   the presented picture, the overlay pass included, at every field
+   pixel's place.
+
+About 16 s (the game run; EM_TEST_FULL=1 about 5.5 min: three more runs); --dump FILE --run-log FILE reuse a run.
 """
 from __future__ import annotations
 
@@ -77,6 +98,10 @@ EXACT = [('01_battery', 300), ('01_battery', 400)]
 BACKGROUND = 514          # 0020A7A0: 00207D00 then 513 sprites
 NOTICE_START = 219        # route 01: the ITEM root's state 5 step 3 (the notice) from f219
 UNTIL = 'panel' if FULL else 'battery'   # EM_TEST_FULL=1: on to route 03's panel BATTERY page
+BATTERY_BEATS = ('01_battery', '03_panel_power')
+ROOT_REST = ('slot12_status_root_pad8080', 40)
+ROOT_INJECTED = [('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_pad8080_bg3467', 41)]
+LIT = 0x805FFF6E          # 0020F2A0's lit region colour
 
 FAILS = t.FAILS
 
@@ -154,7 +179,9 @@ def check_clut(lib, rlib, caps) -> int:
     return equal
 
 
-def records(dump: Path) -> list[tuple[int, int, int, int, bytes]]:
+def records(dump: Path, backgrounds: dict | None = None) -> list[tuple[int, int, int, int, bytes]]:
+    """The dump's records (em_status_gs_page.h); flag 4's D_002655A0 bytes
+    go to `backgrounds` by frame."""
     d = dump.read_bytes()
     out, i = [], 0
     while i < len(d):
@@ -164,6 +191,10 @@ def records(dump: Path) -> list[tuple[int, int, int, int, bytes]]:
         i += 20
         out.append((fc, st, en, fl, d[i:i + en - st]))
         i += en - st
+        if fl & 4:
+            if backgrounds is not None:
+                backgrounds[fc] = d[i:i + 0x60]
+            i += 0x60
     return out
 
 
@@ -202,11 +233,144 @@ def written_mask(lib, ram: bytes, context: int, start: int, port: bytes, calls) 
     return builds[0] == builds[1], builds[0]
 
 
+def item_root(lib, rlib, report: dict) -> None:
+    """Section 6 of the docstring."""
+    dump = OUT / 'item_chains.bin'
+    run_game(dump, 'status_pages', tag='run_item')
+    bgs: dict[int, bytes] = {}
+    recs = records(dump, bgs)
+    ref = capture(*ROOT_REST)
+    context = struct.unpack_from('<I', ref['ram'], t.CONTEXT_PTR)[0]
+    img = bytearray(0x490000)
+    port, shaped = [], 0
+    for fc, st, en, fl, b in recs:
+        img[st:en] = b
+        try:
+            calls = t.decode(img, st, en, BLOCKS, *ref['fonts'], ref['inv'], skewed=True)
+        except RuntimeError as e:
+            fail(f'6: frame {fc}: {e}')
+            continue
+        shaped += sum(1 for _, w, a in calls if a is None)
+        port.append((fc, st, en, fl, b, calls))
+    items = [p for p in port if p[3] & 2]
+    print(f'  6: status_pages run: {len(port)} of {len(recs)} frames decode completely ({shaped} calls by shape), '
+          f'{len(items)} ITEM root frames')
+    if not items:
+        fail('6: no ITEM root frame was dumped')
+        return
+    # the structure
+    head = [t.B_7E40, t.B_7E40, t.B_7D00, t.B_7E40, t.B_7E40, t.B_7D00] + [t.B_1D66A0] * 16 + [t.B_7D00]
+    glyphs = (t.B_CC8A0, t.B_CC3B0, t.B_CBC20)
+    at_rest = equal_rest = 0
+    want_rest = ref['calls']
+    for fc, st, en, fl, b, calls in items:
+        ws = [w for _, w, _ in calls]
+        page = ws[BACKGROUND:]
+        cut = next((i for i, w in enumerate(page) if w in glyphs), len(page))
+        lit = any(a is not None and w == t.B_7E40 and a[5] == LIT for _, w, a in calls[BACKGROUND:])
+        tail = [t.B_7E40] * (11 if lit else 10) + [t.B_7D00, t.B_7E40]
+        if (ws[:1] != [t.B_7D00] or ws[1:BACKGROUND] != [t.B_7E40] * (BACKGROUND - 1) or
+                page[:cut] != head + tail or any(w not in glyphs for w in page[cut:])):
+            fail(f'6: frame {fc}: not the background, then 0020F170 and 0020F2A0\'s packets')
+            continue
+        if not lit and all(a is not None for _, _, a in calls):
+            at_rest += 1
+            if [(w, a) for _, w, a in calls][BACKGROUND:] == want_rest[BACKGROUND:]:
+                equal_rest += 1
+            else:
+                fail(f'6: frame {fc}: at rest with hover 0, but not the captured ITEM root after the background')
+    print(f'  6: every ITEM root frame is the background, 0020F170\'s and 0020F2A0\'s packets; {equal_rest} of '
+          f'{at_rest} at rest with hover 0 equal {ROOT_REST[0]} f{ROOT_REST[1]:04d} after the background')
+    res = {'frames': len(items), 'at_rest_hover0': at_rest, 'equal_after_background': equal_rest}
+    # the captures with the port's D_002655A0
+    caps = [capture(*k) for k in ROOT_INJECTED]
+    w = caps[0]['info'].get('write') or {}
+    if int(w.get('addr', '0'), 16) != 0x2655A0 or w.get('at_loop_top') != ROOT_INJECTED[0][1] - 1:
+        fail(f'6: {ROOT_INJECTED[0][0]}: its capture wrote no D_002655A0 at loop top {ROOT_INJECTED[0][1] - 1}')
+        return
+    state = bytes.fromhex(w['bytes'])
+    hits = [fc for fc, b in bgs.items() if b == state]
+    by_fc = {p[0]: p for p in items}
+    if len(hits) != 1 or hits[0] + 1 not in by_fc or hits[0] + 2 not in by_fc:
+        fail(f'6: the port frames holding the written D_002655A0 are {hits}, not one ITEM root frame N with N + 1 '
+             f'and N + 2 ITEM root frames')
+        return
+    n0 = hits[0]
+    plog = present_log(OUT / 'present.log')
+    kinds: dict[str, int] = {}
+    for fc in by_fc:
+        kinds[plog.get(fc, ('none',))[0]] = kinds.get(plog.get(fc, ('none',))[0], 0) + 1
+    if kinds != {'field': len(by_fc)}:
+        fail(f'6: the ITEM root frames are presented as {kinds}, not all as GS fields')
+    res['presented'] = kinds
+    res['injected'] = {}
+    for (beat, T), c, fc in zip(ROOT_INJECTED, caps, (n0 + 1, n0 + 2)):
+        _, st, en, fl, b, calls = by_fc[fc]
+        where = f'{beat} f{T:04d}'
+        if [(w2, a) for _, w2, a in calls] != c['calls']:
+            fail(f'6: {where}: port frame {fc} is not the captured chain call for call')
+            continue
+        mask, built = written_mask(lib, ref['ram'], context, st, b, calls)
+        got = np.frombuffer(b, np.uint8)
+        capb = np.frombuffer(c['ram'][c['first'] + 0x30:c['end'] - 0x30], np.uint8)
+        off_port, off_cap = int((mask & (built != got)).sum()), int((mask & (got != capb)).sum())
+        if off_port or off_cap:
+            fail(f'6: {where}: frame {fc}: {off_port} written bytes off the builders\', {off_cap} off the capture')
+        disp = (c['d'] / 'displayed_field_T2.rgba').read_bytes()
+        got_f = plog.get(fc, ('none',))
+        field_ok = got_f[0] == 'field' and got_f[3] == fnv64(disp)
+        if not field_ok:
+            fail(f'6: {where}: port frame {fc}\'s presented field is not the displayed field')
+        print(f'  6: {where} = port frame {fc} (N = {n0} holds the written D_002655A0): every call ({len(calls)}), '
+              f'the written bytes ({int(mask.sum())}) equal the builders\' and the capture\'s; presented field equal '
+              f'to the displayed field: {field_ok}')
+        res['injected'][where] = {'frame': fc, 'written': int(mask.sum()), 'field_equal': field_ok}
+    # the presented pictures, the overlay pass included
+    import test_fb2_pixels as F
+    lines = [json.loads(x) for x in (OUT / 'ticks.jsonl').open()]
+    tick_of = {x['counter']: x['tick'] for x in lines if 'tick' in x}
+    spec, shots = [], {}
+    for (beat, T), fc in zip(ROOT_INJECTED, (n0 + 1, n0 + 2)):
+        shot = OUT / f'present_item_{fc}.bmp'
+        spec.append(f'{tick_of[fc]}:{shot}')
+        shots[(beat, T)] = shot
+    run_game(OUT / 'item_chains2.bin', 'status_pages', {'EM_FB_CAPTURE_TICKS': ';'.join(spec)}, 'run_item2')
+    (OUT / 'item_chains2.bin').unlink(missing_ok=True)
+    for (key, shot), c in zip(shots.items(), caps):
+        shown, _ = F.shown_field(F.read_bmp(shot), shot)
+        disp = np.frombuffer((c['d'] / 'displayed_field_T2.rgba').read_bytes(), np.uint8).reshape(224, 512, 4)
+        off = int((shown[..., :3] != disp[..., :3]).any(axis=2).sum())
+        print(f'  6: {key[0]} f{key[1]:04d}: the presented picture at every field pixel\'s place: {off} of '
+              f'{512 * 224} pixels off the displayed field')
+        if off:
+            fail(f'6: {key[0]} f{key[1]:04d}: the presented picture differs from the displayed field in {off} pixels')
+        res['injected'][f'{key[0]} f{key[1]:04d}']['pixels_off'] = off
+        for ext in ('', '.gsfield', '.present'):
+            Path(str(shot) + ext).unlink(missing_ok=True)
+    report['item_root'] = res
+    dump.unlink(missing_ok=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--dump', type=Path, help='reuse an EM_STATUS_GS_DUMP file instead of running the game')
     ap.add_argument('--run-log', type=Path, help='the reused run\'s log (its hub_draws count)')
+    ap.add_argument('--item', action='store_true', help='section 6 (the ITEM root) only')
     args = ap.parse_args()
+    if args.item:
+        OUT.mkdir(parents=True, exist_ok=True)
+        t0 = time.monotonic()
+        report = {'mode': MODE}
+        item_root(t.build(), t.sf.build(), report)
+        for name in ('ticks.jsonl', 'present.log'):
+            (OUT / name).unlink(missing_ok=True)
+        (OUT / 'result_item.json').write_text(json.dumps(report, indent=2) + '\n')
+        dt = time.monotonic() - t0
+        if FAILS:
+            print(f'test_status_gs_page --item: FAIL ({len(FAILS)} failures; {dt:.1f} s)')
+            return 1
+        print(f'test_status_gs_page --item: PASS ({dt:.1f} s)')
+        return 0
     if (args.dump is None) != (args.run_log is None):
         ap.error('--dump and --run-log go together')
     t0 = time.monotonic()
@@ -230,11 +394,12 @@ def main() -> int:
         return 2
     hub_draws = int(m.group(1))
     recs = records(dump)
-    caps = {key: capture(*key) for key in t.FRAMES if key[0] == '01_battery' or UNTIL == 'panel'}
+    caps = {key: capture(*key) for key in t.FRAMES
+            if key[0] == '01_battery' or (UNTIL == 'panel' and key[0] in BATTERY_BEATS)}
     ref = next(iter(caps.values()))
     lib, rlib = t.build(), t.sf.build()
     context = struct.unpack_from('<I', ref['ram'], t.CONTEXT_PTR)[0]
-    print(f'mode {MODE}: {len(recs)} dumped frames ({sum(1 for r in recs if r[3])} with the BATTERY page)')
+    print(f'mode {MODE}: {len(recs)} dumped frames ({sum(1 for r in recs if r[3] & 1)} with the BATTERY page)')
 
     # 1. every frame decodes
     img = bytearray(0x490000)
@@ -254,7 +419,7 @@ def main() -> int:
           f'({skewed} skewed glyph strips by shape)')
 
     # 2. the BATTERY frames' structure
-    pages = [p for p in port if p[3]]
+    pages = [p for p in port if p[3] & 1]
     shapes: dict[str, int] = {}
     for fc, st, en, fl, b, calls in pages:
         names = [t.NAME[w] for _, w, _ in calls]
@@ -403,6 +568,10 @@ def main() -> int:
                     Path(str(shot) + ext).unlink(missing_ok=True)
     (OUT / 'ticks.jsonl').unlink(missing_ok=True)
     plog_path.unlink(missing_ok=True)
+    if FULL and args.dump is None:
+        item_root(lib, rlib, report)
+        (OUT / 'ticks.jsonl').unlink(missing_ok=True)
+        plog_path.unlink(missing_ok=True)
 
     (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     dt = time.monotonic() - t0
@@ -412,7 +581,8 @@ def main() -> int:
         print(f'test_status_gs_page: FAIL ({len(FAILS)} failures; {dt:.1f} s)')
         return 1
     print(f'test_status_gs_page: PASS ({len(recs)} live frames decode into the builders\' packets; route 01 '
-          f'f300 / f400 built byte for byte by the live page and presented as the displayed field; {dt:.1f} s)')
+          f'f300 / f400 built byte for byte by the live page and presented as the displayed field'
+          f'{"; the ITEM root (section 6)" if FULL and args.dump is None else ""}; {dt:.1f} s)')
     return 0
 
 

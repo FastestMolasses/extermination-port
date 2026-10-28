@@ -23,6 +23,8 @@ struct EmItemUI {
     Sprite sprites[18];
     Text texts[5];
     int uploaded;
+    int stepped;          /* em_item_ui_background_stepped: token below */
+    uint32_t step_token;
 };
 
 static uint32_t word(const uint8_t *p)
@@ -149,6 +151,14 @@ void em_item_ui_deactivate(EmItemUI *ui)
     }
 }
 
+void em_item_ui_background_stepped(EmItemUI *ui, uint32_t token)
+{
+    if (ui) {
+        ui->stepped = 1;
+        ui->step_token = token;
+    }
+}
+
 void em_item_ui_free(EmItemUI *ui)
 {
     if (!ui)
@@ -200,8 +210,12 @@ int em_item_ui_render(EmItemUI *ui, EmGfx *gfx, unsigned hover, int line, EmItem
         if (kind == 1) {
             /* 0020A7A0 with the ITEM tile, over the status frame's black. */
             em_status_background_frame(gfx);
-            if (!em_status_background_render(gfx, sprite->u, sprite->v, sprite->w,
-                                             sprite->h)) {
+            const int stepped = ui->stepped;
+            ui->stepped = 0;
+            if (!(stepped ? em_status_background_render_step(gfx, ui->step_token, sprite->u,
+                                                             sprite->v, sprite->w, sprite->h)
+                          : em_status_background_render(gfx, sprite->u, sprite->v, sprite->w,
+                                                        sprite->h))) {
                 em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
                 return 0;
             }

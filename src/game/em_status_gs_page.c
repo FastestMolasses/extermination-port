@@ -14,6 +14,7 @@
 #include "game/em_player_stage_workers.h"
 #include "game/em_render_context_live.h"
 #include "game/em_status_background.h"
+#include "game/em_status_runtime.h"
 #include "game/em_ui_font_raw.h"
 #include "game/em_ui_packet_original.h"
 #include "gs/em_gs_world.h"
@@ -24,17 +25,21 @@
 #define SLOT1_BASE (ARENA + 0xC9000u) /* 001D1AE0's +0x14 cursor for index 0 */
 #define SLOT1_SIZE 0x95760u           /* the index stride: slot 2's buffer follows */
 
+_Static_assert(sizeof(EmStatusBackground) == 0x60, "D_002655A0 is three 0x20-byte blocks");
+
 static struct {
     int installed;
     EmUfrFonts fonts;
     uint16_t nibbles[16];
     EmMessageGlyph glyph;  /* the page text's own 001CC1E0 runs */
     uint64_t bg_tex0;      /* the background call's TEX0 */
+    EmStatusBackground bg_before; /* D_002655A0 before the frame's 0020A7A0 (the dump) */
+    int bg_seen;
     const char *fault;
     int reported;
     unsigned long packets;
     uint32_t frame_start;
-    int frame_page, frame_any;
+    int frame_page, frame_any, frame_item; /* a page's packets, any packets, the ITEM root's */
     FILE *dump;
     unsigned dumped;
     /* the GS field of the bound pages (Original profile) */
@@ -179,6 +184,10 @@ static int s_background(void *ctx, uint64_t tex0, uint32_t *token)
     const int on = active();
     G.bg_tex0 = tex0;
     if (on) G.frame_page = 1;
+    if (!G.bg_seen) {
+        em_status_background_live_state(&G.bg_before);
+        G.bg_seen = 1;
+    }
     if (em_status_background_live_step(on ? &emit : NULL, token) != 1)
         return G.fault ? 0 : fault("0020A7A0 at its call time", NULL);
     return 1;
@@ -253,6 +262,58 @@ static int s_text(void *ctx, int proportional, int32_t x, int32_t y, int32_t w, 
 static const EmBatteryUISink k_battery_sink = {NULL,     s_background, s_draw_background, s_blend,
                                                s_sprite, s_rectangle,  s_text};
 
+/* ---- the ITEM root's leaves (em_status_runtime's item sink) --------------
+ * 0020F170 and 0020F2A0 call 0020A7A0, 00207D00 and 00207E40 as the BATTERY
+ * page does (the functions above), and 0020AC70 its sixteen 00208AB0(pos,
+ * colour, D_00273580, angle) = 001D66A0(1, ...) fans. The colour quadword
+ * is 0020AC70's int[3] on its stack plus the word above it, which
+ * 0020AC70 never writes (its frame's top word, sp + 0x5C). Measured:
+ * every captured fan holds 0 there (test_ui_packet_reference's decode
+ * asserts it), so 0 is passed. Why it is 0 is a hypothesis only (the top
+ * word of a 128-bit $ra an earlier callee at the same depth saved;
+ * STATUS_FIELD.md 3e). It is the centre vertex's RGBAQ alpha: blend mode 1
+ * (additive, FIX 0x80) does not use it for the colour, but the
+ * interpolated alpha is written to the framebuffer's alpha bits, so a
+ * nonzero value would change GS local memory. D_00273580, the rim's
+ * colour, is sixteen zero bytes of the ELF's data that nothing writes. */
+static int s_fan(void *ctx, const float pos[4], int32_t colour, float angle, const float trig[4])
+{
+    (void)ctx;
+    (void)angle; /* trig holds the worker results 001D66A0 computes from it */
+    if (G.fault) return 0;
+    if (!active()) return 1;
+    EmUip u;
+    if (!uip(&u)) return 0;
+    uint32_t a1[4], t[4];
+    memcpy(a1, pos, sizeof a1);
+    memcpy(t, trig, sizeof t);
+    const uint32_t a2[4] = {(uint32_t)colour, (uint32_t)colour, (uint32_t)colour, 0u};
+    static const uint32_t k_d00273580[4] = {0u, 0u, 0u, 0u};
+    G.frame_page = 1;
+    return done(&u, em_uip_001D66A0(&u, 1, a1, a2, k_d00273580, t), "001D66A0 (0020AC70)");
+}
+
+static int i_background(void *ctx, uint64_t tex0, uint32_t *token)
+{
+    G.frame_item = 1;
+    return s_background(ctx, tex0, token);
+}
+
+static int i_blend(void *ctx, int32_t slot, int32_t mode)
+{
+    G.frame_item = 1;
+    return s_blend(ctx, slot, mode);
+}
+
+static int i_sprite(void *ctx, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgba,
+                    uint64_t tex0)
+{
+    G.frame_item = 1;
+    return s_sprite(ctx, slot, x, y, w, h, rgba, tex0);
+}
+
+static const EmStatusItemSink k_item_sink = {NULL, i_background, i_blend, i_sprite, s_fan};
+
 /* ---- 001CCB10: the glyph strip page and its CLUT ----------------------------
  * The boot's 001CCB10 (decomp src/func_001CCB10.c, func_001CCBD0.c,
  * func_001CCE80.c): 001CCBD0(0x1B00, 0x1B80, 0) sends one 8 x 8 PSMCT32
@@ -276,7 +337,7 @@ int em_sgp_field_claim(void)
 {
     if (!G.field_on || G.fault) return 0;
     if (!G.frame_page) {
-        fault("a BATTERY frame whose page built no slot-1 packets", NULL);
+        fault("a status page frame (BATTERY, ITEM root) whose page built no slot-1 packets", NULL);
         return -1;
     }
     G.field = 1;
@@ -419,6 +480,7 @@ int em_sgp_install(const char *font_path)
     }
     G.installed = 1;
     em_battery_ui_set_sink(&k_battery_sink);
+    em_status_runtime_set_item_sink(&k_item_sink);
     em_message_live_set_glyph_sink(&k_glyph_sink);
     return 0;
 }
@@ -431,7 +493,7 @@ static int slot1_cursor(uint32_t *cursor)
 
 void em_sgp_frame_begin(void)
 {
-    G.frame_page = G.frame_any = 0;
+    G.frame_page = G.frame_any = G.frame_item = G.bg_seen = 0;
     G.field = 0;
     if (!G.installed || !em_rcl_bound() || !slot1_cursor(&G.frame_start)) G.frame_start = 0;
 }
@@ -454,8 +516,9 @@ void em_sgp_frame_end(void)
     put32(G.dump, em_frame_counter());
     put32(G.dump, G.frame_start);
     put32(G.dump, end);
-    put32(G.dump, G.frame_page ? 1u : 0u);
+    put32(G.dump, (G.frame_item ? 2u : G.frame_page ? 1u : 0u) | (G.bg_seen ? 4u : 0u));
     if (p) fwrite(p, 1, end - G.frame_start, G.dump);
+    if (G.bg_seen) fwrite(&G.bg_before, 1, sizeof G.bg_before, G.dump);
     fflush(G.dump);
     G.dumped++;
 }

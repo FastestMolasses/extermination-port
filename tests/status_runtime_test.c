@@ -130,6 +130,18 @@ int em_status_background_render(struct EmGfx *g, float u, float v, float w, floa
     (void)h;
     return 1;
 }
+/* No item sink is bound here (em_status_runtime_set_item_sink): the render
+ * steps the background, so a stepped draw is a failure. */
+int em_status_background_render_step(struct EmGfx *g, uint32_t token, float u, float v, float w, float h)
+{
+    (void)g;
+    (void)token;
+    (void)u;
+    (void)v;
+    (void)w;
+    (void)h;
+    return 0;
+}
 /* The hub's ordered 2D layer: this fixture never binds the hub (its hub
  * pages run the other_page hooks), so nothing may flush it. */
 void em_gfx_overlay_backdrop_flush(EmGfx *g)

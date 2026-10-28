@@ -175,6 +175,17 @@ unsigned long em_status_background_live_steps(void)
     return s_steps;
 }
 
+void em_status_background_live_state(EmStatusBackground *out)
+{
+    if (!out)
+        return;
+    if (!s_ready) {
+        em_status_background_init(&s_state);
+        s_ready = 1;
+    }
+    *out = s_state;
+}
+
 void em_status_background_frame(EmGfx *gfx)
 {
     static const float black[4] = {0.0f, 0.0f, 0.0f, 1.0f};

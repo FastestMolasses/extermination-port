@@ -9,7 +9,8 @@ embedded here):
 A. The status pages. ../Extermination/build/status_field_capture/<beat>/
    f<T>/ (decomp build/status_field_capture/capture.py, its capture.json):
    route beat 01 (the battery take: the ITEM / BATTERY page with the take
-   notice) and 03 (the panel's BATTERY page) replayed in the fork to beat
+   notice) and 03 (the panel's BATTERY page), and the ITEM root from the
+   fork state slot12_status_root (ROOT_FRAMES), replayed in the fork to
    frame T, then at step V (001D21E0) of iterations T and T + 1 the EE RAM,
    the GS memory after list T (vram_after.bin) and, in a second run with
    list T's first tag made END, the GS memory list T starts from
@@ -38,8 +39,8 @@ B. The column probes (GS_EXACT.md 3.4): ../Extermination/build/
    matters, XYOFFSET X at 1025 and 1024.5 pixels). Each packet through the
    model in both modes: nothing refused, every pixel of every test equal.
 
-Quick (default): A at 01_battery f0300, and B. EM_TEST_FULL=1: every
-captured frame. A difference fails.
+Quick (default): A at 01_battery f0300 and one ITEM root frame, and B.
+EM_TEST_FULL=1: every captured frame. A difference fails.
 """
 from __future__ import annotations
 
@@ -62,9 +63,14 @@ ROOT = Path(__file__).resolve().parents[1]
 CAP = Path(os.environ.get('STATUS_FIELD_CAPTURE_ROOT', ROOT.parent / 'Extermination/build/status_field_capture'))
 OUT = ROOT / 'build/status_field_reference'
 LIST_BASE = 0x0028F700
-QUICK = [('01_battery', 300)]
+# the ITEM root (STATUS_FIELD.md 3e): the fork state slot12_status_root, its
+# own stick (0x7F) and the port's neutral 0x80 held from frame 0, and with
+# D_002655A0 set to the port's at loop top 39 (capture.py CAPTURE_WRITE)
+ROOT_FRAMES = [('slot12_status_root', 30), ('slot12_status_root_pad8080', 40),
+               ('slot12_status_root_pad8080_bg3467', 40), ('slot12_status_root_pad8080_bg3467', 41)]
+QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40)]
 FRAMES = [('01_battery', 230), ('01_battery', 300), ('01_battery', 400),
-          ('03_panel_power', 440), ('03_panel_power', 500)]
+          ('03_panel_power', 440), ('03_panel_power', 500)] + ROOT_FRAMES
 # The column probes (B), each a batch folder under CAP.
 PROBES = ['probe_cols/p10_cols', 'probe_open/p11_open', 'probe_open/p12_open', 'probe_open/p13_holdout',
           'probe_open/p14_rows', 'probe_open/p15_rows_holdout']
@@ -276,7 +282,8 @@ def main() -> int:
                [CAP / rel / 'packet.bin' for rel in PROBES] if not p.exists()]
     if missing:
         print(f'test_status_field_reference: REFUSED (no capture at {missing[0]}; decomp '
-              f'build/status_field_capture/capture.py, probe_cols.py, probe_open.py, probe_open2.py and probe_holdout.py record them)')
+              f'build/status_field_capture/capture.py, probe_cols.py, probe_open.py, probe_open2.py and probe_holdout.py record them; '
+              f'the ITEM root frames: STATUS_FIELD.md section 4)')
         return 2
     lib = build()
     frames = FRAMES if FULL else QUICK

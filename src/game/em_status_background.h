@@ -98,6 +98,10 @@ int em_status_background_render_step(struct EmGfx *gfx, uint32_t token, float u,
  * once), for the level smoke's once-per-status-frame check. */
 unsigned long em_status_background_live_steps(void);
 
+/* The shared D_002655A0 now (its 96 bytes in the original's layout), for
+ * em_status_gs_page's dump (the tests). */
+void em_status_background_live_state(EmStatusBackground *out);
+
 /* The opaque black under the layers: the port's stand-in for the status
  * frame's cleared UI-camera frame (the original clear colour is still open,
  * FIRST_LEVEL_AUDIT R09). Not part of 0020A7A0. */

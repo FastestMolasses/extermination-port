@@ -66,13 +66,20 @@ CAP = sf.CAP
 OUT = ROOT / 'build/ui_packet_reference'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 SOURCES = ['tests/ui_packet_reference_bridge.c', 'src/game/em_ui_packet_original.c',
-           'src/game/em_message_glyph_original.c', 'src/game/em_ui_font_raw.c']
+           'src/game/em_message_glyph_original.c', 'src/game/em_ui_font_raw.c', 'src/game/em_item_sdk_math.c',
+           'src/game/em_interaction_scan.c']
 
-B_7D00, B_7D90, B_7E40, B_7F80, B_8040, B_CC8A0, B_CBC20, B_CC3B0, B_CBA50 = range(9)
+B_7D00, B_7D90, B_7E40, B_7F80, B_8040, B_CC8A0, B_CBC20, B_CC3B0, B_CBA50, B_1D66A0 = range(10)
 ENTRY = {B_7D00: 0x207D00, B_7D90: 0x207D90, B_7E40: 0x207E40, B_7F80: 0x207F80, B_8040: 0x208040,
-         B_CC8A0: 0x1CC8A0, B_CBC20: 0x1CBC20, B_CC3B0: 0x1CC3B0, B_CBA50: 0x1CBA50}
+         B_CC8A0: 0x1CC8A0, B_CBC20: 0x1CBC20, B_CC3B0: 0x1CC3B0, B_CBA50: 0x1CBA50, B_1D66A0: 0x1D66A0}
 NAME = {B_7D00: '00207D00', B_7D90: '00207D90', B_7E40: '00207E40', B_7F80: '00207F80', B_8040: '00208040',
-        B_CC8A0: '001CC8A0', B_CBC20: '001CBC20', B_CC3B0: '001CC3B0', B_CBA50: '001CBA50'}
+        B_CC8A0: '001CC8A0', B_CBC20: '001CBC20', B_CC3B0: '001CC3B0', B_CBA50: '001CBA50',
+        B_1D66A0: '001D66A0'}
+# 0020AC70's fans at rest (every ring slot zero magnitude): pos {2040, 2032,
+# 28, 28} (248 + 1792, 208 + 1824), the colour 16 (float_to_int(16 (1 + 0)))
+FAN_REST_CENTRE = (16 * 2040, 16 * 2032)
+FAN_REST_A1 = tuple(struct.unpack('<I', struct.pack('<f', v))[0] for v in (2040.0, 2032.0, 28.0, 28.0))
+FAN_REST_A2, FAN_A3 = (16, 16, 16, 0), (0, 0, 0, 0)   # A3: D_00273580, sixteen zero bytes of the ELF
 EXECUTED = ((0x207D00, 0x84), (0x207D90, 0xAC), (0x207E40, 0x134), (0x207F80, 0xB8), (0x208040, 0x160),
             (0x1CC8A0, 0x254), (0x1CCE80, 0xEC), (0x1CBC20, 0x1F0), (0x1CC3B0, 0x4E8), (0x1281C0, 0x8C),
             (0x1CBA50, 0x1C4), (0x1232E0, 0x138), (0x1CCB00, 0x8))
@@ -89,7 +96,7 @@ FONT_EXPORT = ROOT / 'assets/font.emfn'        # the user's own font export (too
 UFR_TALL, UFR_SMALL = 409 * 30, 256 * 32       # em_ui_font_raw's resource sizes
 CH1_BASE, CH1_STRIDE = 0x0028F700 + 0xC9000, 0x95760   # 001D1AE0's +0x14 buffers
 FRAMES = sf.FRAMES
-RASTER_QUICK = [('01_battery', 300)]
+RASTER_QUICK = [('01_battery', 300), ('slot12_status_root_pad8080_bg3467', 40)]
 STRIP_PAGES = (0x1B00 * 256, 0x1B00 * 256 + 0x8000)    # GS block 0x1B00, PSMT4 512 x 128 texels
 
 FAILS: list[str] = []
@@ -103,6 +110,26 @@ def fail(msg: str) -> None:
 TO_INT = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.POINTER(C.c_int32))
 
 
+def float_to_int(bits: int) -> int | None:
+    """001281C0 over a finite binary32 inside int32: truncation toward zero
+    (the fans' coordinates; None outside that domain)."""
+    v = struct.unpack('<f', struct.pack('<I', bits & 0xFFFFFFFF))[0]
+    if v != v or not -2.0 ** 31 <= v < 2.0 ** 31:
+        return None
+    return int(v)
+
+
+def _fan_to_int(ctx, bits, out):
+    v = float_to_int(bits)
+    if v is None:
+        return 0
+    out[0] = v
+    return 1
+
+
+FAN_TO_INT = TO_INT(_fan_to_int)
+
+
 def build() -> C.CDLL:
     OUT.mkdir(parents=True, exist_ok=True)
     lib = OUT / ('libuipacket.dylib' if sys.platform == 'darwin' else 'libuipacket.so')
@@ -110,7 +137,8 @@ def build() -> C.CDLL:
            '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc', *SOURCES, '-o', str(lib)]
     digest = hashlib.sha256(' '.join(cmd).encode())
     for path in SOURCES + ['src/game/em_ui_packet_original.h', 'src/game/em_message_glyph_original.h',
-                           'src/game/em_message_draw_original.h', 'src/game/em_ui_font_raw.h']:
+                           'src/game/em_message_draw_original.h', 'src/game/em_ui_font_raw.h',
+                           'src/game/em_ee_float.h', 'src/game/em_item_sdk_math.h']:
         digest.update(path.encode() + b'\0' + (ROOT / path).read_bytes())
     stamp = lib.with_suffix('.sha256')
     if not lib.exists() or not stamp.exists() or stamp.read_text() != digest.hexdigest():
@@ -126,6 +154,13 @@ def build() -> C.CDLL:
     n.uipb_latch.restype = C.c_int
     n.uipb_fonts.argtypes = [C.c_char_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_char_p, C.c_uint32]
     n.uipb_fonts.restype = C.c_int
+    n.uipb_fan.argtypes = [P(C.c_uint32), P(C.c_uint32), P(C.c_void_p), C.c_uint32, C.c_uint32, TO_INT, C.c_int32,
+                           P(C.c_uint32), P(C.c_uint32), P(C.c_uint32), P(C.c_uint32), C.c_char_p, C.c_uint32]
+    n.uipb_fan.restype = C.c_int
+    n.uipb_fan_sdk.argtypes = [P(C.c_uint32), P(C.c_uint32), P(C.c_void_p), C.c_uint32, C.c_uint32, TO_INT,
+                               C.c_int32, P(C.c_uint32), P(C.c_uint32), P(C.c_uint32), C.c_uint32, C.c_char_p,
+                               C.c_uint32]
+    n.uipb_fan_sdk.restype = C.c_int
     return n
 
 
@@ -148,6 +183,13 @@ class Native:
         addr = (C.c_uint32 * len(regions))(*[a for a, _ in regions])
         size = (C.c_uint32 * len(regions))(*[len(b) for _, b in regions])
         ptrs = (C.c_void_p * len(regions))(*[C.addressof(k) for k in keep])
+        if which == B_1D66A0:
+            # (slot, a1 x4, a2 x4, a3 x4, f12 bits): the live workers' sin / cos (em_item_sdk_math)
+            vec = [(C.c_uint32 * 4)(*args[1 + 4 * i:5 + 4 * i]) for i in range(3)]
+            rc = self.lib.uipb_fan_sdk(addr, size, ptrs, len(regions), self.context, FAN_TO_INT, args[0], *vec,
+                                       args[13], self.fault, 128)
+            del keep, ptrs
+            return rc, self.fault.value.decode()
         a = (C.c_int64 * 16)(*[int(v) - (1 << 64) if int(v) >= 1 << 63 else int(v) for v in args])
         rc = self.lib.uipb_call(addr, size, ptrs, len(regions), self.context, self.blocks,
                                 self.nib if nibbles else None, self.tall if fonts else None, FONT_TALL_SIZE,
@@ -512,9 +554,13 @@ def ref_at(ram, at):
 
 
 def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font_small: bytes, inv: dict,
-           skewed: bool = False):
+           skewed: bool = False, fan_angles: list[int] | None = None):
     """The chain as [(address, kind, args)]: 'tag' entries for the open and
-    close (their 8 written bytes), builder calls for the rest."""
+    close (their 8 written bytes), builder calls for the rest. A fan
+    (001D66A0) decodes at rest only (FAN_REST_*), its f12 the k-th of
+    `fan_angles` (the ring's angles; default 0.0, the port's neutral stick).
+    skewed: the skewed glyph strips and the fans not at rest are accepted by
+    their shape alone (args None)."""
     out, at = [], start
     modes = {0x6A0: 3, 0x7A0: 1, 0x820: 2, 0x720: 0}
     while at < end:
@@ -565,6 +611,26 @@ def decode(ram: bytes, start: int, end: int, blocks: int, font_tall: bytes, font
             w, h = (((xyz2 & 0xFFFF) - x) & 0xFFFF) >> 4, (((xyz1 >> 16) - y) & 0xFFFF) >> 3
             out.append((at, B_7E40, (1, x, y, w, h, rgba, tex0)))
             at += 0x80
+        elif tid == 1 and qwc == 0x86 and q(ram, at + 0x20) == 0x4026400000008021 and q(ram, at + 0x28) == 0x4141:
+            # 001D66A0 (0020AC70's fan): the inputs are recovered at rest only
+            a2, a3 = struct.unpack_from('<4I', ram, at + 0x30), struct.unpack_from('<4I', ram, at + 0x50)
+            centre = struct.unpack_from('<4I', ram, at + 0x40)
+            for i in range(33):
+                p = at + 0x30 + 0x40 * i
+                if (struct.unpack_from('<4I', ram, p) != a2 or struct.unpack_from('<4I', ram, p + 0x10) != centre
+                        or struct.unpack_from('<4I', ram, p + 0x20) != a3
+                        or struct.unpack_from('<2I', ram, p + 0x38) != (0xFFFFFF, 0)):
+                    raise RuntimeError(f'fan at {at:#x}: pair {i} is not 001D66A0\'s')
+            k = sum(1 for _, w, _ in out if w == B_1D66A0)
+            if centre[:2] != FAN_REST_CENTRE or centre[2:] != (0xFFFFFF, 0) or a2 != FAN_REST_A2 or a3 != FAN_A3:
+                if not skewed:
+                    raise RuntimeError(f'fan at {at:#x}: not at rest (centre {centre[:2]}, colour {a2}): its '
+                                       f'inputs are not recoverable from the packet')
+                out.append((at, B_1D66A0, None))   # by shape only (the stick moved)
+            else:
+                angle = fan_angles[k] if fan_angles else 0
+                out.append((at, B_1D66A0, (1, *FAN_REST_A1, *a2, *a3, angle)))
+            at += 0x870
         elif tid == 1 and qwc == 4 and q(ram, at + 0x20) == 0x4400000000008001:
             d40, d48 = lo32(q(ram, at + 0x40)), lo32(q(ram, at + 0x48))
             out.append((at, B_7F80, (1, d40 & 0xFFFF, d40 >> 16, d48 & 0xFFFF, d48 >> 16, lo32(q(ram, at + 0x38)))))
@@ -626,9 +692,13 @@ def part_b(lib, beat: str, T: int, raster: bool, rlib) -> dict:
     if closes[0] != (3, 1, blocks) or closes[1] != (3, 9, blocks + 0xF90) or closes[2][0] != 2:
         fail(f'{where}: the chain close {closes} is not step V\'s')
         return {}
+    # the fans' f12: the trail ring D_00821300 after the frame's 0020AC70 (the
+    # angles do not decay; at rest the magnitudes are 0 before and after)
+    ring = (d / 'ee_V_T.bin').read_bytes()[0x821300:0x821400]
+    angles = [struct.unpack_from('<I', ring, 16 * k + 12)[0] for k in range(16)]
     try:
         calls = decode(ram, first + 0x30, end - 0x30, blocks, ram[tall:tall + FONT_TALL_SIZE],
-                       ram[small:small + FONT_SMALL_SIZE], inv)
+                       ram[small:small + FONT_SMALL_SIZE], inv, fan_angles=angles)
     except RuntimeError as e:
         fail(f'{where}: {e}')
         return {}

@@ -11,9 +11,9 @@ letterbox bars, the fade) stays as it is.
 ## 1. What the port draws today
 
 Since step 3d (section 3d) the Original profile draws the BATTERY page's
-frames as the original's GS field. The rest of this section is the state
-before it, which still holds for the hub, the ITEM root and the other
-pages. Those status frames have no GS field in the port: they are drawn
+frames as the original's GS field, and since step 3e (section 3e) the ITEM
+root's. The rest of this section is the state before them, which still
+holds for the hub and the other pages. Those status frames have no GS field in the port: they are drawn
 whole by the GPU renderer
 (em_status_runtime_render: em_battery_ui, em_item_ui, em_status_hub_ui,
 em_page_draw, em_status_models), at host resolution, from the leaf calls
@@ -364,6 +364,146 @@ Proof:
   strips draw the page as before (the d3d12 / Vulkan backends refuse a
   GIF frame and never get one: their GS frame is off).
 
+## 3e. Step 3, third part: the ITEM root in the GS field (2026-10-20)
+
+The Original profile now draws every ITEM root frame (0020EE50 state 1:
+0020F170 and 0020F2A0, the root of ITEM with its five regions, the analog
+glow and, while a region is lit, its help line) as the original's GS draws
+it, and presents that field.
+
+**What the original's list is (measured).** Hidden fork captures of the
+root (section 4: the fork state slot12_status_root, as it is and with the
+port's neutral stick 0x80 held) show a DIRECT-only list (no VU1 code: the
+root draws no model; section 4's earlier note said otherwise without a
+capture): 86,432 GIF bytes, 1,553 primitives into the field: the clear,
+0020A7A0's background, 0020F170's and 0020F2A0's UV sprites and 0020AC70's
+sixteen fans. Each fan is 001D66A0 (through the forwarder 00208AB0): a CNT
+packet of 0x86 quadwords, PRIM 0x4C (an additive Gouraud triangle strip),
+33 centre / rim vertex pairs (64 triangles, 32 of them not degenerate).
+The CPU GS model draws all four captured lists bit-exact in both modes, all
+of local memory (`make test-status-field-reference`), so the Gouraud
+triangles needed no new rule.
+
+**The builders.**
+- `em_uip_001D66A0` (em_ui_packet_original; decomp src/func_001D66A0.c is
+  NEARMISS, the .s followed for every operation and operand order): the
+  fan's EE FPU arithmetic on em_ee_float (MULA / MADD / MSUB included);
+  the four sin / cos results (0011E2A8 / 0011DE90 of the angle and of
+  pi / 32) come from the caller's workers, float_to_int (66 calls) from
+  the memory callbacks; every value is computed before the first store, a
+  cursor not quadword aligned is refused (the original's quadword store).
+- `em_item_root_draw_0020F170` / `em_item_root_draw_0020F2A0`
+  (em_item_root; decomp src/func_0020F170.c and src/func_0020F2A0.c, both
+  byte-matched C): the leaf calls, in order, with the original's
+  arguments; 0020F2A0 is entered after 0020D930 (the caller's hover
+  update) and calls 0020AC70 with 248.0 / 208.0 (D_700038A0) and reset 0.
+
+**The binding.** em_status_runtime's ITEM worker calls them at their call
+time through a sink (`em_status_runtime_set_item_sink`, bound by
+em_status_gs_page in both profiles): 0020F170's 0020A7A0 steps the shared
+D_002655A0 there (em_status_background_live_step; em_item_ui draws that
+step's sprites in the GPU renderer, `em_item_ui_background_stepped`,
+instead of stepping again), and 0020AC70 becomes 00207D00(1, 1) and the
+sixteen fans: em_item_trail_step_fans hands each 00208AB0 call (its
+vector, its colour int, its angle and the four worker results the fan's
+triangles use) to the sink, which builds 001D66A0(1, pos, {c, c, c, 0},
+D_00273580, angle). The colour quadword's fourth word is a stack word
+0020AC70 never writes (its frame's top word). Measured: every captured
+fan holds 0 there (test_ui_packet_reference's decode asserts the colour
+quadword is (16, 16, 16, 0)), so the sink passes 0. Why the word is 0 is
+a hypothesis, not measured: it may be the top word of the 128-bit $ra
+that 0020D930, called just before at the same depth, saved. The word is
+the centre vertex's alpha. Blend mode 1 (additive, FIX 0x80) does not use
+it for the colour, but the Gouraud-interpolated alpha is written to the
+framebuffer's alpha bits, so a nonzero value would change GS local memory
+(the all-local-memory checks pass because it is 0 in every capture).
+D_00273580, the rim colour, is sixteen zero bytes of the ELF's data that
+nothing writes. em_status_runtime_render's DRAW_ITEM claims the
+field as DRAW_BATTERY does (em_sgp_field_claim); the help line's glyph
+runs are the message service's packets (section 3b). The dump's records
+carry flag 2 for an ITEM root frame and, with flag 4, the 96 bytes of
+D_002655A0 before the frame's 0020A7A0 (em_status_gs_page.h).
+
+Proof:
+
+- `make test-item-trail-reference` (extended, about 10 s): on 43 ticks of
+  stick history the sixteen fans built natively (em_item_trail_step_fans'
+  sink into em_uip_001D66A0, the colour words as the binding passes them)
+  equal the packets the original instructions of 0020AC70 / 001D66A0
+  write, every byte of a filled area (1,486,080 bytes) and the cursor; and
+  001D66A0 alone over 400 cases (random positions, colour words, slots,
+  cursor offsets and worker results: the sin / cos hooks return the same
+  random bits to both): every byte of a filled area (1,068,800), the
+  cursor, the four worker calls' arguments and order, no store of the
+  original outside its packet, its cursor and its stack; fail-stop: an
+  unaligned cursor and a failing float_to_int write nothing.
+- `make test-item-root-reference` (extended): 0020F170 and 0020F2A0
+  executed (tools/export_item_root.py's executor) for the hover byte 0..7
+  and 0xFF: their 185 leaf calls, in order, equal the native draws'; a
+  refusing worker at any of them stops the draw.
+- `make test-ui-packet-reference` (extended): the four captured ITEM root
+  chains decode into the builders (a fan at rest: every ring slot of zero
+  magnitude, its angle from the capture's ring) and the native builders
+  rebuild them byte for byte (97,325 written bytes each; the fans' sin /
+  cos by the live workers em_item_sdk_math, the 0x7F stick's angle
+  -3 pi / 4 among them); the rebuilt list drawn: the displayed field, no
+  word of local memory off.
+- `make test-status-gs-page EM_TEST_FULL=1` (section 6 of the test; `--item`
+  alone about 96 s, the whole EM_TEST_FULL=1 run about 5.5 min): the level smoke's status_pages side run with the dump.
+  All 1,650 dumped frames decode; its 54 ITEM root frames are each the
+  background, 0020F170's and 0020F2A0's packets (and the help line's glyph
+  runs) and are all presented as GS fields; the 45 at rest with hover 0
+  equal the capture slot12_status_root_pad8080 f0040 in every call after
+  the background. The original was then given the port's D_002655A0 of
+  port frame 3467 at its loop top 39 (capture.py CAPTURE_WRITE, the only
+  write; captures slot12_status_root_pad8080_bg3467 f0040 / f0041): port
+  frames 3468 and 3469 equal them in every call (549, the background
+  included; 97,283 written bytes equal the builders' and the capture's),
+  their presented fields hash equal to the displayed fields, and the
+  presented pictures, the overlay pass included, are 0 of 114,688 pixels
+  off at both.
+- Mutations: of em_uip_001D66A0, 6 of 7 killed (MSUB as MADD, the rim's
+  0.5 as 0.8, the quadword count, an unwritten rim word, the update order,
+  the alignment check); the survivor (MADD as MUL then ADD) equals the
+  original unless a product overflows binary32, which no trail input
+  reaches (|x|, |y| < 4096, radius at most 44, |sin|, |cos| at most 1).
+  Of the draws, 4 of 4 (a region's colour, 0020F170's blend dropped,
+  0020AC70's y, the lit region); the trail sink's vector, 1 of 1; the live
+  binding (test_status_gs_page --item), 3 of 3 (the fan colour's fourth word as
+  the colour, 0020AC70's 00207D00(1, 1) dropped, 0020F170 not called).
+- **Unchanged elsewhere.** Against a build of the branch head (e47a495):
+  the main route through the AREA01 arrival, its 13,813-tick log identical
+  and all 15,070 committed frames of the same kind and field hash (no
+  ITEM root frame on it); the status_pages side run, its 5,674-tick log
+  identical and of its 6,932 committed frames exactly the 54 ITEM root
+  frames differ (GPU frames before, GS fields now). The GPU renderer
+  (EM_GPU_RENDERER=1, the Enhanced profile's path): the side run's tick log
+  identical and the presented frames at four ITEM root ticks (one lit, with
+  its help line) byte-identical; that comparison was one run against a
+  build of the branch head, not a committed test.
+- **The GPU renderer's half of the binding.** `make test-item-ui-reference`
+  (its fixture, tests/item_ui_test.c): after em_item_ui_background_stepped
+  the next render draws that step (its token, the ITEM tile's rectangle
+  the render's own step is given) and does not step D_002655A0 itself; the
+  token is consumed, so the render after it steps on its own; a refused
+  draw fails the render and is consumed too. Mutations 3 of 3 killed (the
+  token not consumed, the stepped draw skipped, the wrong token). Not
+  covered by a committed test: em_status_runtime's item_background handing
+  the sink's token to em_item_ui_background_stepped (its fixture,
+  `make test-status-runtime`, does not link, below), and a live
+  once-per-ITEM-root-frame count of em_status_background_live_steps in the
+  GPU renderer's run (only the one-off comparison above).
+- `make test-item-ui-reference`, `make
+  test-item-sdk-math-reference`, `make test-status-field-reference`
+  (EM_TEST_FULL=1), `make test-level-smoke` pass; `make all` 0 warnings.
+  `make test-status-runtime` does not link at the branch head already
+  (step 3d's em_sgp_* and em_gfx_gs_* calls have no stubs in its
+  fixture); its fixture gained this step's stub only.
+
+Not compared by pixels: the lit frames and those of a moving stick (their
+fans hold the stick's history, which no capture shares yet), and the page
+transitions into and out of the root (section 5).
+
 ## 4. The captures (decomp, ignored)
 
 - `build/status_field_capture/capture.py <beat> <T> ...` (and
@@ -386,11 +526,19 @@ Proof:
   dump of the BATTERY frames, written by the lane's scratch script) and
   p15_rows_holdout under `build/status_field_capture/probe_open` (section
   3d).
-- The status hub (`state:slot14_status_hub`) and the ITEM root
-  (`state:slot12_status_root`) lists hold VU1 code (the models): their GS
-  stream is the fork's GS dump, which `capture.py` records in its third
-  pass (not yet run to completion: the hub run's hidden launch timed out
-  once).
+- The ITEM root (section 3e): `capture.py state:slot12_status_root 30`
+  (the state's own stick 0x7F), `CAPTURE_PAD=0x80,0x80 capture.py
+  state:slot12_status_root 40` (the port's neutral stick held from frame 0;
+  folder `slot12_status_root_pad8080`) and, with `CAPTURE_WRITE=
+  0x2655A0:<hex> CAPTURE_TAG=bg3467` (the bytes written to EE memory at
+  loop top T - 1 of the first T, before its checkpoint: a designed probe,
+  the only write; the port's D_002655A0 of its frame 3467), frames 40 and
+  41 (`slot12_status_root_pad8080_bg3467`). The root's list is DIRECT
+  only: no VU1 code.
+- The status hub (`state:slot14_status_hub`) draws 001B0000's models
+  through the VU1: its GS stream is the fork's GS dump, which `capture.py`
+  records in its third pass (not yet run to completion: the hub run's
+  hidden launch timed out once).
 
 These scripts are this lane's own code in an ignored folder; copies for
 the decomp's `tools/` are in the lane's diff folders (the port lane does
@@ -407,15 +555,19 @@ not commit to the decomp).
    em_render_context_live's arena: (done, section 3b) the BATTERY page and
    the message service's glyph runs; (done, section 3d) the BATTERY page's
    frames drawn and presented as the GS field, with the page module
-   uploads, the restore and 001CCB10 in the model's memory. Still to bind:
+   uploads, the restore and 001CCB10 in the model's memory; (done,
+   section 3e) the ITEM root (0020F170 / 0020F2A0 and 0020AC70's fans,
+   001D66A0) drawn and presented as the GS field. Still to bind:
    em_status_pages_live (its 00207D00 / 00207E40 / 00207D90 / 00208040 /
-   001CBA50 / 0020A7A0 dispatch cases, em_page_draw's recorder), the ITEM
-   root (em_item_ui) and the hub's 2D layer (em_status_hub_ui), each with
-   its 0020A7A0 at call time; then em_status_runtime_render's DRAW_ITEM /
-   DRAW_PAGE / DRAW_OTHER cases claim the field as DRAW_BATTERY does (their
-   lists are DIRECT only too: the ITEM root's picture is a sprite; check
-   with a capture), and the video comparison's segments 8 and 14 are
-   compared again.
+   001CBA50 / 0020A7A0 dispatch cases, em_page_draw's recorder; the ITEM
+   children's own 0020AC70 fans go through em_uip_001D66A0 too) and the
+   hub's 2D layer (em_status_hub_ui), each with its 0020A7A0 at call time;
+   then em_status_runtime_render's DRAW_PAGE / DRAW_OTHER cases claim the
+   field as DRAW_BATTERY and DRAW_ITEM do (check each list for VU1 code
+   with a capture first), and the video comparison's segments 8 and 14 are
+   compared again. The ITEM root's lit frames by pixels: a designed capture
+   that also writes the port's trail ring (D_00821300, D_00275C90) and
+   hover byte.
 4. The hub and the pages with models (001B0000's units through the object
    kernel's GS output, as the world frames draw them), with GS-dump
    captures; segment 5.

@@ -17,6 +17,12 @@
  *   00208040  flat triangle: a CNT packet, PRIM 0x143, the three vertices'
  *             X / Z through float_to_int 001281C0 (byte-matched C; the
  *             conversion is a worker)
+ *   001D66A0  the Gouraud fan 00208AB0 forwards to (0020AC70's analog
+ *             glow): a CNT packet of 0x86 quadwords, PRIM 0x4C (additive
+ *             Gouraud triangle strip), 33 centre / rim vertex pairs; its
+ *             EE FPU arithmetic is em_ee_float's; sin / cos (0011E2A8 /
+ *             0011DE90) and float_to_int are workers (NEARMISS C; the .s
+ *             followed)
  *   001CC8A0  glyph texel upload (mode 0: the small font, 16 x 16 PSMT4;
  *             mode 1: the tall font, 32 x 32 PSMT4, of which the original
  *             fills 12 x 20 texels) with 001CCE80's transfer header, to GS
@@ -50,7 +56,7 @@
  * the captured status pages' slot-1 chains from their decoded calls.
  *
  * stdint only; no dependency on any port subsystem but the glyph flush's
- * register packing. */
+ * register packing and the EE FPU model (em_ee_float.h, header only). */
 #ifndef EM_UI_PACKET_ORIGINAL_H
 #define EM_UI_PACKET_ORIGINAL_H
 
@@ -76,6 +82,8 @@ enum {
     EM_UIP_00207E40_BYTES = 0x80,
     EM_UIP_00207F80_BYTES = 0x50,
     EM_UIP_00208040_BYTES = 0x60,
+    EM_UIP_001D66A0_BYTES = 0x870,
+    EM_UIP_001D66A0_PAIRS = 0x21,          /* 33 centre / rim vertex pairs */
     EM_UIP_001CC8A0_SMALL_BYTES = 0x100,   /* mode 0 */
     EM_UIP_001CC8A0_TALL_BYTES = 0x280,    /* mode 1 */
     EM_UIP_001CBC20_BYTES = 0x80,
@@ -90,7 +98,7 @@ typedef struct {
      * covers the whole range. */
     uint8_t *(*bytes)(void *ctx, uint32_t address, uint32_t size);
     /* 001281C0 float_to_int(f12) on the raw binary32 bits: *result. 1, or
-     * 0 (failure). Needed by 00208040 only. */
+     * 0 (failure). Needed by 00208040 and 001D66A0 only. */
     int (*to_int)(void *ctx, uint32_t bits, int32_t *result);
 } EmUipMemory;
 
@@ -122,6 +130,15 @@ int em_uip_00207F80(EmUip *u, int32_t slot, int32_t x0, int32_t y0, int32_t x1, 
  * argument. */
 int em_uip_00208040(EmUip *u, int32_t slot, const uint32_t a[2], const uint32_t b[2], const uint32_t c[2],
                     uint32_t rgba);
+/* 001D66A0(slot, a1, a2, a3, f12): a1 the binary32 bits of the four
+ * floats a1 points at (x, y, radius, w), a2 / a3 the four words of each
+ * colour quadword (the centre's and the rim's RGBAQ), trig the four
+ * results of the original's worker calls in its order: 0011E2A8(f12),
+ * 0011DE90(f12), 0011E2A8(pi / 32), 0011DE90(pi / 32). float_to_int
+ * through mem.to_int (66 calls). The cursor must be quadword aligned (the
+ * original zeroes +0x10 with one quadword store). */
+int em_uip_001D66A0(EmUip *u, int32_t slot, const uint32_t a1[4], const uint32_t a2[4], const uint32_t a3[4],
+                    const uint32_t trig[4]);
 /* 001CC8A0(mode, x, y, offset): always slot 1. A mode other than 0 or 1
  * writes nothing and returns 0, as the original. */
 int em_uip_001CC8A0(EmUip *u, int32_t mode, int32_t x, int32_t y, int32_t offset);

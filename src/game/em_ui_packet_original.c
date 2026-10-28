@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "game/em_ee_float.h"
 #include "game/em_message_glyph_original.h"
 
 static int fail(EmUip *u, const char *why)
@@ -200,6 +201,82 @@ int em_uip_00208040(EmUip *u, int32_t slot, const uint32_t a[2], const uint32_t 
     w64(s.p, 0x48, xyz[1]);
     w64(s.p, 0x50, xyz[2]);
     w64(s.p, 0x58, 0u);
+    return 0;
+}
+
+/* 001D66A0(slot, a1, a2, a3, f12): the Gouraud fan (decomp
+ * src/func_001D66A0.c, NEARMISS; the .s followed for every operation and
+ * its operand order). With z = a1[2], w = a1[3] and the four worker
+ * results trig = {sin f12, cos f12, sin step, cos step} (the original's
+ * calls of 0011E2A8 / 0011DE90, in that order; step = 0x3DC90FDB, pi / 32):
+ *   u = z cos, k = 2 sin step, v = z sin,
+ *   c = (u sin step) + cos step (w sin)   (MULA, MADD),
+ *   d = (v sin step) - cos step (w cos)   (MULA, MSUB);
+ * then 33 vertex pairs: a2's four words, the centre (int)(16 a1[0]) /
+ * (int)(16 a1[1]) with Z 0xFFFFFF, a3's four words, the rim
+ * (int)(16 (0.8 u + a1[0])) / (int)(16 (0.5 v + a1[1])) with Z 0xFFFFFF,
+ * each (int) through 001281C0; after each pair u -= k c, v -= k d,
+ * c += k u, d += k v (the new u and v). Every value is computed before the
+ * first store (a worker refusal writes nothing); the stores' final bytes
+ * are the original's. */
+#define F_2 0x40000000u
+#define F_16 0x41800000u
+#define F_0_8 0x3F4CCCCDu
+#define F_0_5 0x3F000000u
+
+int em_uip_001D66A0(EmUip *u, int32_t slot, const uint32_t a1[4], const uint32_t a2[4], const uint32_t a3[4],
+                    const uint32_t trig[4])
+{
+    if (!u || u->fault) return -1;
+    if (!a1 || !a2 || !a3 || !trig) return fail(u, "001D66A0 argument missing");
+    if (!u->mem.to_int) return fail(u, "001281C0 worker missing");
+    const uint32_t z = a1[2], w = a1[3];
+    const uint32_t sa = trig[0], ca = trig[1], ss = trig[2], cs = trig[3];
+    uint32_t f21 = em_ee_mul_bits(z, ca);
+    const uint32_t k = em_ee_mul_bits(F_2, ss);
+    const uint32_t f2 = em_ee_mul_bits(w, sa), f1 = em_ee_mul_bits(w, ca);
+    uint32_t f22 = em_ee_mul_bits(z, sa);
+    uint32_t f23 = em_ee_madd_bits(em_ee_mula_bits(f21, ss), cs, f2);
+    uint32_t f24 = em_ee_msub_bits(em_ee_mula_bits(f22, ss), cs, f1);
+    int32_t centre[2], rim[EM_UIP_001D66A0_PAIRS][2];
+    if (!u->mem.to_int(u->mem.ctx, em_ee_mul_bits(F_16, a1[0]), &centre[0]) ||
+        !u->mem.to_int(u->mem.ctx, em_ee_mul_bits(F_16, a1[1]), &centre[1]))
+        return fail(u, "001281C0 worker failed");
+    for (unsigned i = 0; i < EM_UIP_001D66A0_PAIRS; i++) {
+        const uint32_t rx = em_ee_add_bits(em_ee_mul_bits(F_0_8, f21), a1[0]);
+        const uint32_t ry = em_ee_add_bits(em_ee_mul_bits(F_0_5, f22), a1[1]);
+        if (!u->mem.to_int(u->mem.ctx, em_ee_mul_bits(F_16, rx), &rim[i][0]) ||
+            !u->mem.to_int(u->mem.ctx, em_ee_mul_bits(F_16, ry), &rim[i][1]))
+            return fail(u, "001281C0 worker failed");
+        f21 = em_ee_sub_bits(f21, em_ee_mul_bits(k, f23));
+        f22 = em_ee_sub_bits(f22, em_ee_mul_bits(k, f24));
+        f23 = em_ee_add_bits(f23, em_ee_mul_bits(k, f21));
+        f24 = em_ee_add_bits(f24, em_ee_mul_bits(k, f22));
+    }
+    Slot s;
+    if (open_slot(u, slot, EM_UIP_001D66A0_BYTES, &s) < 0) return -1;
+    if (s.at & 15u) return fail(u, "001D66A0 packet not quadword aligned (its quadword store)");
+    tag(s.p, 0, 0x10u, 0u, 0x86u);
+    advance(&s, EM_UIP_001D66A0_BYTES);
+    w128_zero(s.p, 0x10);
+    w32(s.p, 0x1C, 0x50000085u);
+    w64(s.p, 0x20, 0x8021u | (uint64_t)0x40264000u << 32);
+    w64(s.p, 0x28, 0x4141u);
+    for (unsigned i = 0; i < EM_UIP_001D66A0_PAIRS; i++) {
+        const uint32_t at = 0x30u + 0x40u * i;
+        for (unsigned j = 0; j < 4; j++) {
+            w32(s.p, at + 4u * j, a2[j]);
+            w32(s.p, at + 0x20u + 4u * j, a3[j]);
+        }
+        w32(s.p, at + 0x10, (uint32_t)centre[0]);
+        w32(s.p, at + 0x14, (uint32_t)centre[1]);
+        w32(s.p, at + 0x18, 0xFFFFFFu);
+        w32(s.p, at + 0x1C, 0u);
+        w32(s.p, at + 0x30, (uint32_t)rim[i][0]);
+        w32(s.p, at + 0x34, (uint32_t)rim[i][1]);
+        w32(s.p, at + 0x38, 0xFFFFFFu);
+        w32(s.p, at + 0x3C, 0u);
+    }
     return 0;
 }
 

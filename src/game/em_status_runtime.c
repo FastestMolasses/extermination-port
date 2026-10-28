@@ -1,5 +1,6 @@
 #include "game/em_status_runtime.h"
 #include "game/em_battery_ui.h"
+#include "game/em_item_root.h"
 #include "game/em_item_ui.h"
 #include "game/em_status_background.h"
 #include "game/em_module_loader.h"
@@ -294,6 +295,67 @@ static int pages_tick(EmStatusRuntime *runtime, uint32_t address)
     return 1;
 }
 
+/* ---- the ITEM root's leaf calls through the live packet sink ---------- */
+
+static const EmStatusItemSink *s_item_sink;
+
+void em_status_runtime_set_item_sink(const EmStatusItemSink *sink)
+{
+    s_item_sink = sink;
+}
+
+static int item_background(void *context, uint64_t tex0)
+{
+    EmStatusRuntime *runtime = context;
+    uint32_t token = 0;
+    if (!s_item_sink->background || s_item_sink->background(s_item_sink->context, tex0, &token) != 1)
+        return 0;
+    em_item_ui_background_stepped(runtime->item, token);
+    return 1;
+}
+
+static int item_blend(void *context, int32_t slot, int32_t mode)
+{
+    (void)context;
+    return s_item_sink->blend && s_item_sink->blend(s_item_sink->context, slot, mode) == 1;
+}
+
+static int item_sprite(void *context, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                       uint32_t rgba, uint64_t tex0)
+{
+    (void)context;
+    return s_item_sink->sprite &&
+           s_item_sink->sprite(s_item_sink->context, slot, x, y, w, h, rgba, tex0) == 1;
+}
+
+static int item_fan(void *context, const float pos[4], int32_t colour, float angle,
+                    const float trig[4])
+{
+    (void)context;
+    return s_item_sink->fan && s_item_sink->fan(s_item_sink->context, pos, colour, angle, trig) == 1;
+}
+
+/* 0020AC70(self, {x, y}, reset): the ring step and its triangles for the
+ * GPU renderer (collect_triangle) and, with the sink, its 00207D00(1, 1)
+ * and the sixteen fans' packets. The blend packet is emitted before the
+ * ring step: the step writes no packet, so the order of the packets is the
+ * original's. */
+static int item_trail(void *context, float x, float y, int32_t reset)
+{
+    EmStatusRuntime *runtime = context;
+    EmItemStick stick;
+    if (reset != 0) /* 0020F2A0 passes 0 */
+        return 0;
+    runtime->triangle_count = 0;
+    if (s_item_sink && !item_blend(runtime, 1, 1))
+        return 0;
+    return em_item_stick_sample(&stick, runtime->input.stick_x, runtime->input.stick_y,
+                                &runtime->math) &&
+           em_item_trail_step_fans(&runtime->trail, &stick, x, y, &runtime->math,
+                                   collect_triangle, s_item_sink ? item_fan : NULL, runtime) &&
+           runtime->triangle_count == 512;
+}
+
 static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, unsigned argument)
 {
     EmStatusRuntime *runtime = context;
@@ -301,9 +363,15 @@ static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, u
     case EM_ITEM_RESET_INPUT:
         em_item_trail_reset(&runtime->trail);
         return 1;
-    case EM_ITEM_DRAW_BACKGROUND:
-        return 1; /* Submitted together with the following original ordered root commands. */
+    case EM_ITEM_DRAW_BACKGROUND: {
+        /* 0020F170. Without the sink the GPU render steps the background
+         * with the root commands (em_item_ui_render). */
+        const EmItemRootLeaves leaves = {runtime, item_background, item_blend, item_sprite, NULL};
+        return !s_item_sink || em_item_root_draw_0020F170(&leaves);
+    }
     case EM_ITEM_DRAW_ROOT: {
+        /* 0020F2A0: 0020D930, then (em_item_root_draw_0020F2A0) 0020AC70
+         * and the region sprites. */
         EmItemStick stick;
         if (!em_item_stick_sample(&stick, runtime->input.stick_x, runtime->input.stick_y,
                                   &runtime->math))
@@ -311,13 +379,14 @@ static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, u
         if (em_item_root_hover(item, stick.magnitude, stick.angle) && !sound(runtime, 5))
             return 0;
         runtime->draw_hover = item->hover;
-        runtime->triangle_count = 0;
-        if (!em_item_stick_sample(&stick, runtime->input.stick_x, runtime->input.stick_y,
-                                  &runtime->math) ||
-            !em_item_trail_step(&runtime->trail, &stick, 248, 208, &runtime->math, collect_triangle,
-                                runtime) ||
-            runtime->triangle_count != 512)
+        if (s_item_sink) {
+            const EmItemRootLeaves leaves = {runtime, item_background, item_blend, item_sprite,
+                                             item_trail};
+            if (!em_item_root_draw_0020F2A0(&leaves, item->hover))
+                return 0;
+        } else if (!item_trail(runtime, 248, 208, 0)) {
             return 0;
+        }
         runtime->draw_kind = DRAW_ITEM;
         return 1;
     }
@@ -922,10 +991,16 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
         result = field < 0 ? 0 : field ? 1 : em_battery_ui_render(runtime->battery, gfx);
         break;
     }
-    case DRAW_ITEM:
-        result = em_item_ui_render(runtime->item, gfx, runtime->draw_hover, runtime->draw_help,
-                                   render_trail, runtime);
+    case DRAW_ITEM: {
+        /* The Original profile's GS frame draws the ITEM root from its list
+         * at step V as it draws the BATTERY page (STATUS_FIELD.md 3e). */
+        const int field = em_sgp_field_claim();
+        result = field < 0   ? 0
+                 : field ? 1
+                         : em_item_ui_render(runtime->item, gfx, runtime->draw_hover,
+                                             runtime->draw_help, render_trail, runtime);
         break;
+    }
     case DRAW_OTHER:
         result = runtime->hooks.other_page_render(runtime->hooks.context, gfx, &runtime->page);
         break;

@@ -2059,8 +2059,12 @@ pool's free list (item 5): those are port work that needs no new recording
      Original profile draws every BATTERY page frame as the GS field from
      the kicked list and presents it (route 01's f300 / f400 presented
      exactly, 0 pixels off; the UV row rule measured by two fork probes,
-     strict mode refuses no UV sprite); the hub, the ITEM root and the other
-     pages still draw with the GPU renderer;
+     strict mode refuses no UV sprite); since step 3e (STATUS_FIELD.md 3e)
+     the ITEM root too (0020F170 / 0020F2A0 and 0020AC70's sixteen Gouraud
+     fans, 001D66A0, built byte for byte against the original instructions;
+     the status_pages side run's 54 root frames presented as GS fields, two
+     of them 0 pixels off two fork captures given the port's D_002655A0);
+     the hub and the other pages still draw with the GPU renderer;
    - (done) 001DDE10's depth-of-field pass is drawn by the model since
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make

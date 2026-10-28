@@ -5,6 +5,7 @@
  *
  * Nothing here is disc-derived: the captures, the fonts and the ELF data
  * are read at run time from the user's own files. */
+#include "game/em_item_sdk_math.h"
 #include "game/em_ui_font_raw.h"
 #include "game/em_ui_packet_original.h"
 
@@ -151,4 +152,36 @@ int uipb_fonts(const char *path, uint8_t *tall, uint8_t *small, uint16_t *nibble
     }
     em_ufr_nibbles(nibbles);
     return rc;
+}
+
+/* 001D66A0(slot, a1, a2, a3, f12) with the four worker results `trig` (the
+ * caller's: the original instructions' hooks return the same bits). */
+int uipb_fan(const uint32_t *address, const uint32_t *size, uint8_t *const *bytes, uint32_t count,
+             uint32_t context, UipbToInt to_int, int32_t slot, const uint32_t *a1, const uint32_t *a2, const uint32_t *a3,
+             const uint32_t *trig, char *fault, uint32_t fault_cap)
+{
+    Regions r = {address, size, bytes, count, to_int};
+    EmUipMemory mem = {&r, region_bytes, region_to_int};
+    EmUip u;
+    if (!em_uip_init(&u, &mem, context, 0x814220u)) return -2;
+    const int rc = em_uip_001D66A0(&u, slot, a1, a2, a3, trig);
+    if (fault && fault_cap) snprintf(fault, fault_cap, "%s", u.fault ? u.fault : "");
+    return rc;
+}
+
+/* The same with the live workers' results (em_item_sdk_sine / cosine, the
+ * translated 0011E2A8 / 0011DE90) for the angle f12 and for pi / 32. */
+int uipb_fan_sdk(const uint32_t *address, const uint32_t *size, uint8_t *const *bytes, uint32_t count,
+                 uint32_t context, UipbToInt to_int, int32_t slot, const uint32_t *a1, const uint32_t *a2,
+                 const uint32_t *a3, uint32_t angle_bits, char *fault, uint32_t fault_cap)
+{
+    float angle, step = 0.09817477f, v[4];
+    memcpy(&angle, &angle_bits, 4);
+    v[0] = em_item_sdk_sine(angle);
+    v[1] = em_item_sdk_cosine(angle);
+    v[2] = em_item_sdk_sine(step);
+    v[3] = em_item_sdk_cosine(step);
+    uint32_t trig[4];
+    memcpy(trig, v, sizeof trig);
+    return uipb_fan(address, size, bytes, count, context, to_int, slot, a1, a2, a3, trig, fault, fault_cap);
 }
