@@ -41,7 +41,8 @@ def build():
          'overlay_826d40', 'sys', 'exita', 'exitb', 'room', 'side')]
     sources += ['src/game/em_stream_lanes_original.c', 'src/game/em_area00_overlay.c',
                 'src/game/em_area00_world.c', 'src/game/em_area00_fx_gs.c',
-                'src/game/em_area01_revisit.c', 'src/game/em_area00_return.c']
+                'src/game/em_area01_revisit.c', 'src/game/em_area00_return.c',
+                'src/game/em_area01_revisit_spawn.c', 'src/game/em_script_door_fan.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', *sources, '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))

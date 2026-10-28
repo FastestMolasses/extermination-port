@@ -40,8 +40,8 @@ import test_area00_fx_reference as FX
 
 MASK = (1 << 64) - 1
 BOUND = {0x825950, 0x823CD0, 0x824340, 0x824770, 0x824D50, 0x825910, 0x826010,
-         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0}
-RESULT = {0x825910}
+         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0, 0x1BAC00, 0x1C8140, 0x1C7EB0}
+RESULT = {0x825910, 0x1BAC00, 0x1C8140}
 
 
 class EE(FX.FXEE):
@@ -252,6 +252,25 @@ def main():
         for state in (0, 1):
             for count in (8, 9, 19):
                 cases.append((beat, entry, (spare[0],), ((spare[0] + 4, b8(state)), (spare[0] + 0x28, h16(count)))))
+    # Script 0x82AD90's op14 (record 0x82AE90, group 0x82A900): the
+    # placement 001BAC00 with the pool as captured, with fewer than ten free
+    # (the class-0xC 001C8140 nodes refused) and with an empty free list; then
+    # 001C8140 and the node behaviour 001C7EB0 directly (states 0 .. 4, with
+    # each group behaviour at +0x2EC), on a creature node as the record.
+    assert u32(ram, 0x82AE90 + 0x14) == 0x82A900, 'op14 record moved'
+    for edits in ((), ((0x275BC8, h16(9)),), ((0x275BC4, struct.pack('<I', 0)),)):
+        cases.append((beat, 0x1BAC00, (g5, g5 + 0x1F0, 0x82AE90), edits))
+    bank = u32(ram, 0x28A490 + 4 * 150)   # the group's 0x270E entries: bank 150, indices 9 .. 11
+    for index, edits in ((9, ()), (11, ()), (-1, ()), (10, ((0x275BC8, h16(9)),))):
+        cases.append((beat, 0x1C8140, (bank, index & MASK, 0x8237D0), edits))
+    node = creatures[0]
+    for state in (0, 1, 2, 3, 4):
+        for k, behaviour in enumerate((0x8237D0, 0x823900, 0x8239C0)):
+            for count in ((0, 1) if state == 1 else (0,)):
+                cases.append((beat, 0x1C7EB0, (node,),
+                              ((node + 4, b8(state)), (node + 0x24, struct.pack('<I', 0)),
+                               (node + 0x40, struct.pack('<I', bank)), (node + 0x94, h16(9 + k)),
+                               (node + 0x2EC, struct.pack('<I', behaviour)), (node + 0x2E4, struct.pack('<I', count)))))
 
     # Quick: every captured case, one of each entry and a fixed-seed sample
     # of the designed ones (EM_TEST_FULL=1: all).

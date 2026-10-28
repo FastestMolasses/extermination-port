@@ -48,6 +48,120 @@ static int rv_world_worker(void *ctx, EmArea00WorldCall *w)
     return rc;
 }
 
+/* --- 001BAC00 (script op14's placement; the AREA01 revisit's 0x82AD90
+ * places group 0x82A900 at a01r_01 f1139): em_sdf_001BAC00, the one
+ * translation (the AREA11 opening binds it too), over this runtime. Its
+ * 001AFA90 / 001C8140 allocate through the runtime (001C8140:
+ * em_area01_revisit_spawn); the bytes em_sdf hands back per node (+0x03,
+ * +0x0D, +0xB0.., +0xC0.., +0x10, +0x20, +0x24, +0x2E; the 0x270E path's
+ * +0x24 / +0x2E) are stored after the walk, then the owner's +0x2E. */
+enum { RV_PLACE_MAX = 16 };
+typedef struct {
+    EmArea01Runtime *r;
+    uint32_t sp, node[RV_PLACE_MAX], fault;
+    int alt[RV_PLACE_MAX];
+    EmSdfSpawned view[RV_PLACE_MAX];
+    unsigned count;
+} RvPlace;
+
+static int rv_place_word(void *ctx, int32_t index, uint32_t *value)
+{
+    RvPlace *pl = ctx;
+    const uint8_t *p = index >= 0 ? bytes(pl->r, 0x0028A490u + 4u * (uint32_t)index, 4, 0) : NULL;
+    if (!p) return -1;
+    memcpy(value, p, 4);
+    return 0;
+}
+
+static int rv_place_slot(RvPlace *pl, uint32_t node, int alt, EmSdfSpawned **view)
+{
+    *view = NULL;
+    if (!node) return 0;
+    if (pl->count >= RV_PLACE_MAX) return -1;
+    memset(&pl->view[pl->count], 0, sizeof pl->view[pl->count]);
+    pl->node[pl->count] = node;
+    pl->alt[pl->count] = alt;
+    *view = &pl->view[pl->count++];
+    return 0;
+}
+
+static int rv_place_afa90(void *ctx, uint8_t type, uint32_t *node, EmSdfSpawned **view)
+{
+    RvPlace *pl = ctx;
+    EmArea01Call c = {.function = 0x001AFA90u, .sp = pl->sp, .a = {type}, .na = 1};
+    if (em_area01_runtime_call(pl->r, &c) < 0) return -1;
+    *node = (uint32_t)c.v0;
+    return rv_place_slot(pl, *node, 0, view);
+}
+
+static int rv_place_worker(void *ctx, EmArea01Call *c) { return em_area01_runtime_call(ctx, c); }
+
+static int rv_place_c8140(void *ctx, uint32_t bank, int16_t index, uint32_t callback, uint32_t *node,
+                          EmSdfSpawned **view)
+{
+    RvPlace *pl = ctx;
+    const EmArea01RuntimeHost host = {pl->r, bytes, rv_place_worker};
+    uint64_t v0 = 0;
+    if (em_area01_revisit_spawn_001C8140(&host, pl->sp, bank, index, callback, &v0, &pl->fault) < 0) return -1;
+    *node = (uint32_t)v0;
+    return rv_place_slot(pl, *node, 1, view);
+}
+
+static int rv_place_store(EmArea01Runtime *r, uint32_t a, const void *v, uint32_t n)
+{
+    uint8_t *p = bytes(r, a, n, 1);
+    if (!p) return -1;
+    memcpy(p, v, n);
+    return 0;
+}
+
+static int rv_001BAC00(EmArea01Runtime *r, EmArea01Call *c)
+{
+    if (c->na < 3 || c->nf || c->sp < 0x40u) return fail(r, c->function);
+    const uint32_t owner = (uint32_t)c->a[0], record = (uint32_t)c->a[2];
+    RvPlace pl;
+    memset(&pl, 0, sizeof pl);
+    pl.r = r;
+    pl.sp = c->sp - 0x40u;
+    const uint8_t *rec = bytes(r, record, 0x18, 0);
+    const uint8_t *self14 = bytes(r, owner + 0x14u, 4, 0);
+    /* The placement lists and their records lie in the overlay's data. */
+    const uint8_t *data = bytes(r, 0x00828A00u, 0x0082CD00u - 0x00828A00u, 0);
+    if (!rec || !self14 || !data) return fail(r, c->function);
+    uint8_t record_bytes[0x18];
+    memcpy(record_bytes, rec, sizeof record_bytes);
+    EmSdfSpawnOwner view_owner;
+    memcpy(&view_owner.self_14, self14, 4);
+    view_owner.s2E = 0;
+    const EmSdfImage image = {data, 0x00828A00u, 0x0082CD00u - 0x00828A00u};
+    EmSdfWorkers w;
+    memset(&w, 0, sizeof w);
+    w.ctx = &pl;
+    w.r_0028A490 = rv_place_word;
+    w.w_001AFA90 = rv_place_afa90;
+    w.w_001C8140 = rv_place_c8140;
+    EmSdfFault f = {0, 0};
+    const int result = em_sdf_001BAC00(&view_owner, record_bytes, &image, &w, &f);
+    if (result < 0) return fail(r, pl.fault ? pl.fault : f.address ? f.address : c->function);
+    for (unsigned k = 0; k < pl.count; ++k) {
+        const uint32_t n = pl.node[k];
+        const EmSdfSpawned *v = &pl.view[k];
+        const uint16_t s2E = (uint16_t)v->s2E;
+        int bad = 0;
+        if (!pl.alt[k]) {
+            bad |= rv_place_store(r, n + 0x03u, &v->b03, 1) | rv_place_store(r, n + 0x0Du, &v->b0D, 1);
+            bad |= rv_place_store(r, n + 0xB0u, v->pos_B0, 12) | rv_place_store(r, n + 0xC0u, v->rot_C0, 12);
+            bad |= rv_place_store(r, n + 0x10u, &v->handler_10, 4) | rv_place_store(r, n + 0x20u, &v->entry_20, 4);
+        }
+        bad |= rv_place_store(r, n + 0x24u, &v->owner_24, 4) | rv_place_store(r, n + 0x2Eu, &s2E, 2);
+        if (bad) return fail(r, n);
+    }
+    const uint16_t zero = 0;
+    if (rv_place_store(r, owner + 0x2Eu, &zero, 2) < 0) return fail(r, owner + 0x2Eu);
+    c->v0 = (uint64_t)(int64_t)result;
+    return 0;
+}
+
 /* Returns 1 when `function` is one of these entries (*rc set), else 0. */
 static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
@@ -102,6 +216,25 @@ static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
         EmArea00World w = {.call = rv_world_worker, .ctx = r, .sp = c->sp};
         *rc = em_area00_world_view_001B0CD0(&w, bytes, r, a0, a1);
         if (*rc < 0) *rc = fail(r, w.fault_address ? w.fault_address : c->function);
+        return 1;
+    }
+    case 0x001BAC00u: /* script op14's placement (script 0x82AD90, group 0x82A900) */
+        *rc = rv_001BAC00(r, c);
+        return 1;
+    case 0x001C8140u: { /* a 0x270E placement entry's node (em_area01_revisit_spawn) */
+        if (c->na < 3 || c->nf) { *rc = fail(r, c->function); return 1; }
+        const EmArea01RuntimeHost host = {r, bytes, rv_place_worker};
+        uint32_t f = 0;
+        *rc = em_area01_revisit_spawn_001C8140(&host, c->sp, a0, (int16_t)c->a[1], (uint32_t)c->a[2], &c->v0, &f);
+        if (*rc < 0) *rc = fail(r, f ? f : c->function);
+        return 1;
+    }
+    case 0x001C7EB0u: { /* that node's behaviour (em_area01_revisit_spawn) */
+        if (c->na < 1 || c->nf) { *rc = fail(r, c->function); return 1; }
+        const EmArea01RuntimeHost host = {r, bytes, rv_place_worker};
+        uint32_t f = 0;
+        *rc = em_area01_revisit_spawn_001C7EB0(&host, c->sp, a0, &f);
+        if (*rc < 0) *rc = fail(r, f ? f : c->function);
         return 1;
     }
     default:

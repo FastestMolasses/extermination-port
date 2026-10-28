@@ -5,6 +5,8 @@
 #include "game/em_area01_light_owner.h"
 #include "game/em_area00_world.h"
 #include "game/em_area00_fx.h"
+#include "game/em_area01_revisit_spawn.h"
+#include "game/em_script_door_fan.h"
 #include "game/em_ee_float.h"
 #include <string.h>
 

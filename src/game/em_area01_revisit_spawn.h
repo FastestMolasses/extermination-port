@@ -11,8 +11,10 @@
  * by its original address. They own no state. A refused byte or a failing
  * callee stops the routine there: -1 with *fault = the address.
  *
- * UNWIRED (2026-10-28): no run reaches a01r_01 f1139 yet; checked against
- * the original instructions by tools/test_area01_revisit_spawn_reference.py.
+ * Bound in em_area01_runtime's revisit dispatch (001BAC00's 0x270E entries
+ * and the nodes' +0x10); checked against the original instructions by
+ * tools/test_area01_revisit_spawn_reference.py and, through the runtime, by
+ * tools/test_area01_revisit_runtime_reference.py.
  */
 #ifndef EM_AREA01_REVISIT_SPAWN_H
 #define EM_AREA01_REVISIT_SPAWN_H
