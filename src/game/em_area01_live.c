@@ -195,6 +195,15 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return block && contains(a,n,0x002821B0u,(uint32_t)sizeof *block)
             ? (uint8_t *)(void *)block+a-0x002821B0u : NULL;
     }
+    if(overlaps(a,n,0x00281F30u,(uint32_t)sizeof(int32_t[EM_SLG_CUES][4]))) {
+        /* D_00281F30: the ten cue records {delay, cue, gain L, gain R} of
+         * em_stream_live (001FB100's storage; step H's 001FC6E0 plays from
+         * them). 001FC580 (em_area00_low, the creatures' and boxes' cue
+         * request) reads and writes the record its id selects. */
+        int32_t (*cues)[4]=em_stream_live_d281F30();
+        return cues && contains(a,n,0x00281F30u,(uint32_t)sizeof(int32_t[EM_SLG_CUES][4]))
+            ? (uint8_t *)cues+(a-0x00281F30u) : NULL;
+    }
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
         return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
     if(overlaps(a,n,0x00275C00u,4))

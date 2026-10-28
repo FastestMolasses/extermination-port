@@ -42,19 +42,46 @@ static int fx_worker(void *ctx, uint32_t fn, uint32_t sp, const EmArea00FxRegs *
     int rc=forward(f,&c); *v0=c.v0; *f0=c.f0; return rc;
 }
 int em_area01_light_handles(uint32_t fn)
-{ return fn==0x001F5490u || fn==0x001C5050u || fn==0x001F5F60u; }
+{
+    return fn==0x001F5490u || fn==0x001C5050u || fn==0x001F5F60u ||
+           fn==0x001C24D0u || fn==0x0021BD60u;
+}
 int em_area01_light_call(const EmArea01RuntimeHost *host, EmArea01Call *c, uint32_t *fault)
 {
     if (!host || !host->bytes || !host->worker || !c || !fault) return -1;
     if (*fault) return -1;
-    unsigned na=c->function==0x001F5F60u ? 4u : 1u;
+    unsigned na=c->function==0x001F5F60u ? 4u : c->function==0x001C24D0u ? 3u : 1u;
     unsigned nf=c->function==0x001C5050u ? 1u : 0u;
-    uint32_t frame=c->function==0x001F5F60u ? 0xA0u : c->function==0x001C5050u ? 0x40u : 0x20u;
+    uint32_t frame=c->function==0x001F5F60u ? 0xA0u : c->function==0x001C5050u ? 0x40u :
+                   c->function==0x0021BD60u ? 0u : 0x20u;
     if (!em_area01_light_handles(c->function) || c->na!=na || c->nf!=nf || c->sp<frame) {
         *fault=c->function; return -1;
     }
     Frame f={.host=host}; int rc;
-    if (c->function==0x001C5050u) {
+    if (c->function==0x0021BD60u) {
+        /* 0021BD60 (decomp C byte-matched; em_area00_world's translation):
+         * a leaf over its record's bytes +0x00..+0x236 (0012E0B0, the
+         * creatures' grab test, passes the player record 0x008102B0). */
+        const uint32_t p=(uint32_t)c->a[0];
+        EmArea00WorldRegion record={p,0x237,memory(&f,p,0x237,0)};
+        EmArea00World w={.regions=&record,.region_count=1,.call=world_worker,.ctx=&f,.sp=c->sp};
+        int32_t result=0;
+        rc=f.fault ? -1 : em_area00_world_0021BD60(&w,p,&result);
+        if (rc==0) c->v0=(uint64_t)(int64_t)result;
+        if (rc<0 && !f.fault) fail(&f,w.fault_address);
+    } else if (c->function==0x001C24D0u) {
+        /* 001C24D0 (decomp C byte-matched; em_area00_world's translation,
+         * test_area00_world_reference.py) touches memory only through its
+         * three callees 001026A0, 001028B8 and 0019AD00, each forwarded to
+         * the host worker; it holds no region of its own. Its v0 is
+         * 0019AD00's whole v0, passed through because nothing after that
+         * last call writes v0 (the original register state); its callers
+         * 0012B970 / 0012BE20 / 0012C490 ignore it. */
+        static const EmArea00WorldRegion none={0,0,NULL};
+        EmArea00World w={.regions=&none,.region_count=0,.call=world_worker,.ctx=&f,.sp=c->sp};
+        rc=em_area00_world_001C24D0(&w,(uint32_t)c->a[0],(uint32_t)c->a[1],(uint32_t)c->a[2],&c->v0);
+        if (rc<0 && !f.fault) fail(&f,w.fault_address);
+    } else if (c->function==0x001C5050u) {
         /* This owner's only direct memory access is its local vector's w.
          * The stack storage remains stable across nested native boundaries. */
         EmArea00WorldRegion local={c->sp-4u,4,memory(&f,c->sp-4u,4,1)};

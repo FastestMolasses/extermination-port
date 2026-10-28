@@ -172,6 +172,104 @@ def run(lib,elf,path,entry,variant):
         assert triangles>=0 and unit.ntris(out,triangles)==want,('light VU triangles',triangles,len(want))
     return len(seen),u32(got,CTX+0x1C)-DL if entry==0x1F5F60 else 0,triangles
 
+# 001C24D0 (byte-matched decomp C), the 0012A5D0 sub-states' probe, bound in
+# the live composition through this adapter (2026-10-21): the original runs
+# over a capture with its callees 001026A0 / 001028B8 as original code and
+# 0019AD00 scripted (its v0, all 64 bits, is 001C24D0's result); the adapter
+# must make the same calls (callee, stack pointer, arguments) with the same
+# record and scratchpad bytes at each, end with equal memory and return the
+# scripted v0 unchanged.
+V24D0=(0,1,2,4,1<<32,MASK,0xFFFFFFFF00000000)
+def run_24d0(lib,elf,path,node,v0,vector):
+    ram=bytearray((path/'eeMemory.bin').read_bytes());spr=bytearray((path/'scratchpad.bin').read_bytes())
+    struct.pack_into('<4f',spr,0x38B0,*vector,1.)
+    native=(C.c_uint8*len(ram)).from_buffer_copy(ram)
+    scratch=(C.c_uint8*len(spr)).from_buffer_copy(spr)
+    stack=(C.c_uint8*0x100000)()
+    lib.al_seed(native,scratch)
+    o=EE(elf,ram=ram,spad=bytes(spr));expected=[]
+    specs={0x1026A0:3,0x1028B8:3,0x19AD00:3}
+    def snap(read):return read(node,0x2F0),read(0x700038A0,0x60)
+    def hook(fn):
+        def call(ee):
+            if ee.r[29]==STACK_TOP-0x20:
+                expected.append(((fn,ee.r[29],tuple(ee.r[4+i]&MASK for i in range(specs[fn]))),snap(ee.read)))
+            if fn==0x19AD00:ee.r[2]=v0;return
+            save=ee.r[31];del ee.hooks[fn];ee.r[31]=RETURN
+            try:ee.run(fn)
+            finally:ee.hooks[fn]=call;ee.r[31]=save
+        return call
+    o.hooks={fn:hook(fn) for fn in specs}
+    for i,a in enumerate((node,0x700038B0,node+0xD0)):o.r[4+i]=a
+    o.r[29]=STACK_TOP;o.r[31]=RETURN;o.run(0x1C24D0)
+    seen=[];errors=[]
+    @View
+    def view(_ctx,a,n,write):
+        for base,buf in ((0,native),(0x70000000,scratch),(0x7F000000,stack)):
+            if n and base<=a and n<=len(buf) and a-base<=len(buf)-n:return C.addressof(buf)+a-base
+        return None
+    def nread(a,n):
+        return C.string_at(C.addressof(scratch)+a-0x70000000,n) if a>=0x70000000 else C.string_at(C.addressof(native)+a,n)
+    @Worker
+    def worker(_ctx,cp):
+        try:
+            c=cp.contents;sig=(c.function,c.sp,tuple(c.a[:c.na]))
+            want,state=expected[len(seen)]
+            assert sig==want,(sig,want)
+            assert snap(nread)==state,('worker-entry state',hex(c.function))
+            seen.append(sig)
+            if c.function==0x19AD00:c.v0=v0;return 0
+            return lib.al_sdk(C.byref(host),cp)
+        except BaseException as error:errors.append(repr(error));return -1
+    host=Host(None,view,worker)
+    c=Call(function=0x1C24D0,sp=STACK_TOP,na=3,nf=0)
+    for i,a in enumerate((node,0x700038B0,node+0xD0)):c.a[i]=a
+    fault=C.c_uint32()
+    rc=lib.al_call(C.byref(host),C.byref(c),C.byref(fault))
+    assert rc==0 and not errors and len(seen)==len(expected)==3,(path.name,hex(node),errors,hex(fault.value),len(seen))
+    assert bytes(native)==bytes(o.mem),(path.name,'1C24D0 RAM')
+    assert bytes(scratch)==bytes(o.spad),(path.name,'1C24D0 scratch')
+    assert c.v0==o.r[2]&MASK==v0,('1C24D0 v0',hex(c.v0),hex(o.r[2]&MASK),hex(v0))
+    return len(seen)
+
+# 0021BD60 (byte-matched decomp C), the creatures' grab test 0012E0B0 calls
+# on the player record: the original leaf over a capture with the record's
+# state bytes set to each tested value, against the adapter's result.
+PLAYER=0x8102B0
+IMAGES={}
+def run_21bd60(lib,elf,path,edits):
+    if path not in IMAGES:IMAGES[path]=((path/'eeMemory.bin').read_bytes(),(path/'scratchpad.bin').read_bytes())
+    ram=bytearray(IMAGES[path][0]);spr=IMAGES[path][1]
+    for off,v in edits:ram[PLAYER+off]=v
+    native=(C.c_uint8*len(ram)).from_buffer_copy(ram)
+    scratch=(C.c_uint8*len(spr)).from_buffer_copy(spr)
+    lib.al_seed(native,scratch)
+    o=EE(elf,ram=ram,spad=spr);o.hooks={}
+    o.r[4]=PLAYER;o.r[29]=STACK_TOP;o.r[31]=RETURN;o.run(0x21BD60)
+    @View
+    def view(_ctx,a,n,write):
+        if write:return None
+        for base,buf in ((0,native),(0x70000000,scratch)):
+            if n and base<=a and n<=len(buf) and a-base<=len(buf)-n:return C.addressof(buf)+a-base
+        return None
+    @Worker
+    def worker(_ctx,cp):return -1
+    host=Host(None,view,worker)
+    c=Call(function=0x21BD60,sp=STACK_TOP,na=1,nf=0);c.a[0]=PLAYER
+    fault=C.c_uint32()
+    assert lib.al_call(C.byref(host),C.byref(c),C.byref(fault))==0,(path.name,edits,hex(fault.value))
+    assert bytes(native)==bytes(o.mem) and bytes(scratch)==bytes(o.spad),(path.name,'21BD60 memory')
+    assert c.v0==o.r[2]&MASK,('21BD60 v0',edits,hex(c.v0),hex(o.r[2]&MASK))
+    return c.v0
+
+def creatures(path):
+    ram=(path/'eeMemory.bin').read_bytes()
+    out=[]
+    for i in range(0x100):
+        a=0x7A5640+0x2F0*i
+        if ram[a] and u32(ram,a+0x10) in (0x128C10,0x12A5D0):out.append(a)
+    return out
+
 def contracts(lib):
     accesses=[];calls=[]
     @View
@@ -220,8 +318,29 @@ def main():
         for fn in (0x1F5490,0x1C5050,0x1F5F60,0x1D80B0):
             for variant in range(4):
                 n,b,t=run(lib,elf,path,fn,variant);cases+=1;boundaries+=n;packets+=b;triangles+=t
+    import random
+    rng=random.Random(0x24D0);probes=probe_calls=0
+    probe_paths=paths+[p.parent for p in sorted(refs.capture('s87/route_a00').glob('a00_0*/eeMemory.bin'))][:None if mode.FULL else 1]
+    for path in probe_paths:
+        nodes=creatures(path)
+        for k,node in enumerate(nodes if mode.FULL else nodes[:3]):
+            for v0 in (V24D0 if mode.FULL else V24D0[k%len(V24D0):k%len(V24D0)+3]):
+                vector=tuple(rng.uniform(-6,6) for _ in range(3))
+                probe_calls+=run_24d0(lib,elf,path,node,v0,vector);probes+=1
+    assert probes,'no 001C24D0 case'
+    grab=set();grab_cases=0
+    for path in probe_paths[:None if mode.FULL else 1]:
+        for b236 in (0,1):
+            for b0 in (0,2):
+                for f0 in (0x3B,0):
+                    for st,subs in ((1,(0,1,0x1D,0x1E,0x21,0x22,0x23,5)),(2,(0x0B,0x0A)),(0,(0,))):
+                        for sub in subs:
+                            for f1 in ((0,1) if sub in (0x1D,0x1E) else (0,)):
+                                grab.add(run_21bd60(lib,elf,path,((0x236,b236),(0,b0),(0x1F0,f0),(4,st),(5,sub),(0x1F1,f1))))
+                                grab_cases+=1
+    assert grab=={0,1},('0021BD60 outcomes',grab)
     refusals=contracts(lib)
-    result=dict(status='PASS',mode=mode.MODE,captures=len(paths),cases=cases,
+    result=dict(status='PASS',mode=mode.MODE,captures=len(paths),cases=cases,probe_1c24d0_cases=probes,probe_1c24d0_calls=probe_calls,grab_21bd60_cases=grab_cases,
                 worker_boundaries=boundaries,packet_bytes=packets,vu_triangles=triangles,
                 refusal_contracts=refusals,parser_refusals=len(paths)*4*9,
                 seconds=round(time.monotonic()-started,2))

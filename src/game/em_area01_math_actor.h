@@ -10,7 +10,9 @@
  *             against the node's bytes +0x9D / +0x9E (0 when D_008104E0 is
  *             0x11)
  *   001C25E0  two vectors built in SPR 0x700038B0..DF with 001026A0 /
- *             001028B8, then 0019B4C0(node, 0x700038C0, 0x700038D0, 6)
+ *             001028B8, then 0019B4C0(node, 0x700038C0, 0x700038D0, 6);
+ *             0019B4C0's v0 is still in v0 at the return, and the callers
+ *             (00128C10, 0012A5D0's sub-states) test it
  *   001C2770  per-frame state machine on a state block (+0xE4: phase and
  *             sub-state): phase 0 runs 001C39F0 and 001C2540 / 001C2690 /
  *             0019AB20 calls whose hit record (SPR word 0x700031D0) flags
@@ -46,7 +48,7 @@ extern "C" {
 
 int em_area01_math_001B13F0(EmA01Math *m, uint32_t a0, uint32_t a1, uint32_t f12, uint32_t *v0);
 int em_area01_math_001B2140(EmA01Math *m, uint32_t node, uint32_t *v0);
-int em_area01_math_001C25E0(EmA01Math *m, uint32_t node, uint32_t a1);
+int em_area01_math_001C25E0(EmA01Math *m, uint32_t node, uint32_t a1, uint32_t *v0);
 int em_area01_math_001C2770(EmA01Math *m, uint32_t node, uint32_t state, uint32_t flags, uint32_t *v0);
 int em_area01_math_001C39F0(EmA01Math *m, uint32_t node, uint32_t state, uint32_t f12);
 int em_area01_math_001C3BE0(EmA01Math *m, uint32_t node, uint32_t state);

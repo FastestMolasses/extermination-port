@@ -1,4 +1,5 @@
-/* Existing flicker-light workers over the canonical AREA01 address view. */
+/* Existing flicker-light workers (and the creatures' 001C24D0 probe and
+ * 0021BD60 grab test) over the canonical AREA01 address view. */
 #ifndef EM_AREA01_LIGHT_LIVE_H
 #define EM_AREA01_LIGHT_LIVE_H
 #include "game/em_area01_runtime.h"

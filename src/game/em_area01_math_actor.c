@@ -267,15 +267,22 @@ int em_area01_math_001B2140(M *m, uint32_t node, uint32_t *v0)
  * SPR 0x700038B0 = (0, -4.0, 0, 1.0); 001026A0(0x700038C0, node + 0xD0, a1);
  * 001028B8(0x700038C0, 0x700038C0, node + 0xB0);
  * 001026A0(0x700038D0, node + 0xD0, 0x700038B0);
- * 0019B4C0(node, 0x700038C0, 0x700038D0, 6). */
-int em_area01_math_001C25E0(M *m, uint32_t node, uint32_t a1)
+ * 0019B4C0(node, 0x700038C0, 0x700038D0, 6). The decomp's C declares the
+ * routine void, but nothing after that last call writes v0: the original
+ * returns 0019B4C0's v0 (its hit mode, 0 for no hit), which 00128C10 and
+ * the 0012A5D0 sub-states test (tools/test_area01_math_reference.py
+ * compares it against the original instructions). */
+int em_area01_math_001C25E0(M *m, uint32_t node, uint32_t a1, uint32_t *v0)
 {
+    uint32_t r;
     st4(m, SPR(0x38B0), 0, K_M_FOUR, 0, K_ONE);
     call3(m, F_001026A0, SPR(0x38C0), node + 0xD0u, a1);
     call3(m, F_001028B8, SPR(0x38C0), SPR(0x38C0), node + 0xB0u);
     call3(m, F_001026A0, SPR(0x38D0), node + 0xD0u, SPR(0x38B0));
-    call4r(m, F_0019B4C0, node, SPR(0x38C0), SPR(0x38D0), 6);
-    return done(m);
+    r = call4r(m, F_0019B4C0, node, SPR(0x38C0), SPR(0x38D0), 6);
+    if (em_a01m_faulted(m)) return -1;
+    if (v0) *v0 = r;
+    return 0;
 }
 
 /* ---- 001C39F0 -------------------------------------------------------------

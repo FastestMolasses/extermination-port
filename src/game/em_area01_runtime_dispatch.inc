@@ -9,7 +9,7 @@
         break;
     case 0x001C25E0u:
         if (c->na < 2) return fail(r, c->function);
-        rc = em_area01_math_001C25E0(&r->math, (uint32_t)c->a[0], (uint32_t)c->a[1]);
+        rc = em_area01_math_001C25E0(&r->math, (uint32_t)c->a[0], (uint32_t)c->a[1], &u32); if (rc == 0) c->v0 = (uint64_t)(int64_t)(int32_t)u32;
         break;
     case 0x001C2770u:
         if (c->na < 3) return fail(r, c->function);

@@ -2139,6 +2139,22 @@ recording's player is attacked (state 11) and the native's is not. The
 first-level smokes' tick, RNG and present logs are byte-identical to port
 main bb4f5e9's (receipts in ignored
 `build/frontier2_i13_20261021_001202/`).
+Since the creatures' ground probe (2026-10-21, iteration 14;
+LEVEL3_BINDING.md "Current state": `001C25E0` returns 0019B4C0's v0 as the
+original does, so visible creatures no longer fall into sub-state 8 and
+drift; `001C24D0`, `0021BD60` and the cue records D_00281F30 are bound)
+`--run --until a00_10` plays a00_00..a00_03 and 143 rows of a00_04, every
+compared row exact apart from `lock_r54` (no longer `progress`), and
+fault-stops at a00_04 frame 6540 on the effect spawn `001EFFD0`. The
+first-level smokes' tick logs equal port main 74e6c04's except the AREA01
+arrival's last 59 lines, which differ in `owner_units` and `snd`. The AREA01
+creatures now stay in sub-state 0 and draw, as in the original's snapshots.
+74e6c04's drifting creatures ran 001C2770's not-grabbable cue
+001FBD50(e, 0x1AC), which keyed four extra voices (8..11) and later a
+fifth. A fork replay of route 15 with inline log probes on 001FBD50 and
+001C2770 shows that the original makes no 0x1AC call there, calls 001C2770
+only with flags 0 and keeps those creatures in sub-state 0 / 1 (LEVEL3_BINDING.md "Current state", iteration 14). RNG and
+present logs are identical (receipts in ignored `build/frontier2_i14_20261021_0300/`).
 
 
 **Harness verified; native arrival blocked by the 32-view owner table.**

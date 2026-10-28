@@ -14,6 +14,104 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-21, iteration 14 (port main 74e6c04 plus the creatures' ground
+probe): the C side plays a00_00..a00_03 and 143 rows of a00_04, and stops
+at a00_04 frame 6540 on the unbound effect spawn `001EFFD0`.** Not a
+capture pass. Ignoring `lock_r54` only (no longer `progress`), every
+compared row of a00_00..a00_04 is exact. Before this change the run reached
+a00_09; the earlier stop now comes from creatures that behave as the
+original's do, which reach workers the drifting ones never did.
+
+- **The cause of the AREA00 creature divergences (the taken bits 0x65 in
+  a00_05 and 0x71 / 0x72 in a00_09, and the row-462 attack): `001C25E0`
+  dropped its result.** A fork replay of the a00_05 and a00_09 beats from
+  their recorded source states with the recorded inputs (0 row
+  differences, disposable probe, receipts below) dumped the pool every
+  frame: the original's creatures 00128C10 / 0012A5D0 stay in sub-state 0
+  at their placed positions (on the floor at y -59.6, on crates at -38.1,
+  -33.7), while every native one entered sub-state 8 when visible and
+  drifted (it fell off the crates: y -38.1 against -59.6). Sub-state 0 sends
+  a visible creature to 8 when `001C25E0(e, (0, -1.4, 0, 1))` is 0. A
+  native trace of `0019B4C0` showed it returning the original's hit mode
+  (4, the floor face 0x01516DEC, the same scratch words as the original
+  instructions over the fork's a00_00 RAM), but `em_area01_math_001C25E0`
+  never handed it back: the decomp C declares `001C25E0` void, yet nothing
+  after its last call writes v0, and the original returns 0019B4C0's v0
+  (the original instructions return 4 over the same RAM). The translation
+  and the runtime dispatch now return it; `test_area01_math_reference.py`
+  compares it (`v0=True`; a translation returning 0 fails at
+  `unit:a01_07_level_exit:0x7acbc0`, original v0 4). The live hand-back in
+  `em_area01_runtime_dispatch.inc` has its own check:
+  `tools/test_area01_runtime_reference.py` runs 001C25E0 through the
+  runtime over the a01_07 capture (24 cases: 4 creature nodes x 6 probe
+  vectors, hits and misses, every host worker call as original code) and
+  compares RAM, scratchpad and the call's v0 with the original
+  instructions. A dispatch that drops the hand-back fails at node
+  0x7AC2F0, (0, -1.4, 0) (v0 4 expected).
+- **`001C24D0` (byte-matched decomp C), the re-aim probe that 0012B970 /
+  0012BE20 / 0012C490 run,** now bound in the live composition
+  (`em_area01_light_live.c`, over em_area00_world's translation; its three
+  callees forwarded; its v0 is 0019AD00's, passed through because nothing
+  after that last call writes v0, and those callers ignore it): `make test-area01-light-live-reference` runs the original
+  instructions with 001026A0 / 001028B8 as original code and 0019AD00
+  scripted (v0 0, 1, 2, 4, 2^32, -1, the high word only), comparing each
+  call, the record and scratchpad at each, memory after and the result;
+  mutants that drop the v0 or pass a1 for a2 are rejected.
+- **`0021BD60` (byte-matched decomp C), the grab test 0012E0B0 calls on
+  the player record,** bound the same way (one read-only region, the
+  record's bytes +0..+0x236): 104 quick cases (all tested state bytes)
+  against the original leaf; a mutant returning 0 is rejected.
+- **D_00281F30, the ten cue records,** are now in the AREA00 / AREA01
+  runtime's bytes (`em_area01_live.c`, em_stream_live's storage): the
+  creatures' 001FC580 (em_area00_low) reads and writes the record its id
+  selects (0x1AA / 0x1B5: +0x20). This was also iteration 13's stop.
+- **The stop: a00_04 frame 6540**, "owner 0012A5D0 node 007AD490 failed at
+  001EFFD0" (byte-matched C: 001EF9D0(kind, a, 1.0), then node +0xB0 / +0xC0
+  copies, +0x20 = f12, +0x94 = the tag). Its translation is
+  `em_area00_fx_001EFFD0`; binding it needs a home for the effect node's
+  +0x20 word, which `em_effects_live_node_field` does not map (next unit on
+  front B; check which subtype handler reads it first).
+
+The first level is unchanged up to the AREA01 arrival: the first-level
+smokes' tick logs equal 74e6c04's for host 13,754 of 13,813 lines and drive
+14,045 of 14,104, and the RNG traces and present logs are identical. The
+last 59 lines (the AREA01 arrival frames, drive 14045..14103) differ in two
+keys, `owner_units` (59 lines) and `snd` (55 lines), and both come from
+the four AREA01 creatures 0x7A8830 / 0x7A8B20 / 0x7A8E10 / 0x7A9100
+(00128C10):
+  - `owner_units`: they now stay in sub-state 0 and draw (2,128 bytes)
+    instead of drifting in sub-state 8 and drawing nothing.
+  - `snd`: in 74e6c04 the four drifting creatures ran 00128C10's
+    sub-state-8 call 001C2770(e, b, 2), whose not-grabbable branch plays
+    001FBD50(e, 0x1AC, 0, 300.0). A native trace (temporary, env-gated,
+    removed) shows those four calls at sound tick 13919 and a fifth on
+    0x7A8E10 at 13964; no other sound-service call differs between the
+    two builds.
+    They keyed four voices (8..11, tracks 3..6 = sound 0x1AC, serials
+    615..618) and later a fifth; every later `snd` difference is the same
+    sounds on shifted voice slots and serials (cur / ser 587 / 619 against
+    583 / 615). The new build makes none of these calls.
+  - The original makes none either. A hidden fork replay of route 15 from
+    its recorded source state with the recorded inputs (all 809 rows equal
+    to the recording) logged every original call of 001FBD50 and 001C2770
+    (inline log probes on their entries) and dumped the four records.
+    00128C10 calls 001C2770 (return address 0x129520) on each of its six
+    AREA01 creatures 0x7A8250 .. 0x7A9100 once per tick from tick 754 on,
+    always with flags 0, the not-sub-state-8 call; it never passes flags 2.
+    No 001FBD50 call in rows 0..809 has id 0x1AC; the arrival rows are
+    749..809. The four records are 00128C10 creatures whose sub-state +5
+    is 0 at row 749, 1 at 750 and 0 from 753 to 809, never 8. The
+    original's 001FBD50 calls in the arrival window are ids 0x411..0x413
+    (return address 0x1FC4D8) and one 0x19C (0x1556F0). So the new build's
+    arrival sound state is the original's, and 74e6c04's extra voices came
+    from the drift bug. Receipts are in
+    `build/frontier2_i14_20261021_0300/fr_snd/`.
+Both smokes
+and their checker pass, newgame-control 9.599849;
+`tools/test_level_smoke_area01.py --until a01_07` passes 28 live phases
+(403 of 597 drive-replay reads served, as before). Receipts in ignored
+`build/frontier2_i14_20261021_0300/`.
+
 **2026-10-21, iteration 13 (port main bb4f5e9 plus the bug probe and the
 knife strike): the C side plays 472 rows of a00_09 and stops at frame
 13023; rows 0..461 are exact (ignoring `lock_r54` and `progress`), rows

@@ -116,7 +116,7 @@ class Spec:
 SPECS = {
     0x1B13F0: Spec('em_area01_math_001B13F0', 0x7C, 2, 1, v0=True),
     0x1B2140: Spec('em_area01_math_001B2140', 0x9C4, 1, v0=True),
-    0x1C25E0: Spec('em_area01_math_001C25E0', 0xA8, 2),
+    0x1C25E0: Spec('em_area01_math_001C25E0', 0xA8, 2, v0=True),
     0x1C2770: Spec('em_area01_math_001C2770', 0x1278, 3, v0=True, inline=(0x1C39F0, 0x1C3BE0)),
     0x1C39F0: Spec('em_area01_math_001C39F0', 0x1E8, 2, 1),
     0x1C3BE0: Spec('em_area01_math_001C3BE0', 0x180, 2),

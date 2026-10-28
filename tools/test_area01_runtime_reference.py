@@ -132,6 +132,77 @@ def sampler_cases(native, elf):
     return total, boundaries, capture_count, compared
 
 
+def c25e0_dispatch_cases(native, elf, rng):
+    """The runtime dispatch's 001C25E0 entry hands its result back as the
+    call's v0 (the decomp C declares the routine void, but nothing after its
+    last call, 0019B4C0, writes v0). Over the a01_07 capture, for each live
+    00128C10 / 0012A5D0 node and varied probe vectors a1: the original runs
+    001C25E0 with every callee as original code; natively the dispatch runs
+    the translation and the native 0019B4C0 (em_area01_sys), and every host
+    worker call runs as original code on the shared copy. RAM, scratchpad
+    and v0 must match; both a hit (v0 != 0) and a miss (v0 == 0) must
+    occur. A dispatch that drops the hand-back fails the hit cases."""
+    import reference_root as refs
+    beat = refs.capture('s87/route_a01') / 'a01_07_level_exit'
+    ram0, spad0 = (beat / 'eeMemory.bin').read_bytes(), (beat / 'scratchpad.bin').read_bytes()
+    u = lambda a: struct.unpack_from('<I', ram0, a)[0]
+    nodes, a = [], u(0x275BC0)
+    while a and a not in nodes and len(nodes) < 0x200:
+        nodes.append(a); a = u(a + 0x1C)
+    nodes = [n for n in nodes if u(n + 0x10) in (0x128C10, 0x12A5D0)]
+    assert nodes, 'no creature nodes in the a01_07 capture'
+    vector = 0x70003900
+    cases, results = 0, set()
+    vectors = [(0., -1.4, 0.), (0., 1.4, 0.), (0., -60., 0.), (0., 60., 0.)]
+    vectors += [(rng.uniform(-20, 20), rng.uniform(-20, 20), rng.uniform(-20, 20)) for _ in range(2)]
+    for node in nodes[:4]:
+        for vec in vectors:
+            original = FallEE(elf)
+            original.mem[:] = ram0; original.spad[:] = spad0
+            original.write(vector, struct.pack('<4f', *vec, 1.0))
+            baseline, spad_start = bytes(original.mem), bytes(original.spad)
+            original.call(0x1C25E0, (node, vector))
+            want = original.r[2] & MASK
+            ram = (C.c_uint8 * len(baseline)).from_buffer_copy(baseline)
+            spr = (C.c_uint8 * len(spad_start)).from_buffer_copy(spad_start)
+            stack = (C.c_uint8 * 0x100000)()
+            leaves = FallEE(elf)
+            leaves.mem = memoryview(ram).cast('B')
+            leaves.spad = memoryview(spr).cast('B')
+            leaves.stack = memoryview(stack).cast('B')
+            errors = []
+            def resolve(_, address, size, write):
+                for base, data in ((0, ram), (0x70000000, spr), (0x7F000000, stack)):
+                    if size and address >= base and address + size <= base + len(data):
+                        return C.addressof(data) + address - base
+                return None
+            def worker(_, cp):
+                try:
+                    c = cp.contents
+                    for k in range(c.na): leaves.r[4 + k] = c.a[k]
+                    for k in range(c.nf): leaves.f[12 + k] = c.f[k]
+                    leaves.r[29] = c.sp
+                    c.v0, c.f0 = leaves.nested(c.function)
+                    return 0
+                except Exception as error:
+                    errors.append(repr(error)); return -1
+            view, work = View(resolve), Worker(worker)
+            host = Host(None, view, work)
+            assert native.a01rt_bind(C.byref(host)) == 0
+            call = Call(function=0x1C25E0, sp=STACK_TOP, na=2)
+            call.a[0], call.a[1] = node, vector
+            call.v0 = 0x5A5A5A5A
+            where = (hex(node), vec)
+            assert native.a01rt_call(C.byref(call)) == 0, (where, errors, hex(native.a01rt_fault()))
+            assert not errors, (where, errors)
+            assert bytes(ram) == bytes(original.mem), (where, 'RAM differs')
+            assert bytes(spr) == bytes(original.spad), (where, 'scratchpad differs')
+            assert call.v0 == want, ('001C25E0 v0', where, hex(call.v0), hex(want))
+            results.add(want != 0)
+            cases += 1
+    assert results == {False, True}, ('001C25E0 dispatch cases need a hit and a miss', results)
+    return cases
+
 def main():
     start = time.monotonic()
     native = build()
@@ -279,6 +350,7 @@ def main():
             assert (0x18C4B0 in seen)==(state==1) and (0x18C6A0 in seen)==(state==1)
             camera_cases+=1;boundaries+=len(seen)
 
+    c25e0_cases = c25e0_dispatch_cases(native, elf, rng)
     sampler_count, sampler_workers, sampler_captures, sampler_bytes = sampler_cases(native, elf)
     boundaries += sampler_workers
 
@@ -300,7 +372,7 @@ def main():
         call.function = 0x1E7CB0
         assert native.a01rt_call(C.byref(call)) == -1 and native.a01rt_fault() == address
         faults += 1
-    result = dict(cases=count, camera_room_cases=camera_cases, worker_boundaries=boundaries, fault_cases=faults,
+    result = dict(cases=count, camera_room_cases=camera_cases, c25e0_dispatch_cases=c25e0_cases, worker_boundaries=boundaries, fault_cases=faults,
                   sampler_cases=sampler_count, sampler_workers=sampler_workers,
                   sampler_captures=sampler_captures, sampler_export_bytes=sampler_bytes,
                   seconds=round(time.monotonic()-start, 3))
