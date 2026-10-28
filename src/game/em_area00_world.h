@@ -141,6 +141,9 @@ typedef uint8_t *(*EmArea00WorldMemory)(void *, uint32_t, uint32_t, int);
 int em_area00_world_view_0019C6F0(EmArea00World *s, EmArea00WorldMemory view, void *ctx,
                                   uint32_t a0, uint32_t a1, int32_t *out);
 int em_area00_world_001B0CD0(EmArea00World *s, uint32_t a0, uint32_t a1);
+/* The same over canonical live spans (the AREA01 revisit's 0x826010 probe:
+ * the node 001F4F40 returns is not known in advance). */
+int em_area00_world_view_001B0CD0(EmArea00World *s, EmArea00WorldMemory view, void *ctx, uint32_t a0, uint32_t a1);
 int em_area00_world_001B41F0(EmArea00World *s, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t t0,
                              uint32_t t1, int32_t *out);
 int em_area00_world_001C24D0(EmArea00World *s, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *out);

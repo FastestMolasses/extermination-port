@@ -40,7 +40,7 @@ import test_area00_fx_reference as FX
 
 MASK = (1 << 64) - 1
 BOUND = {0x825950, 0x823CD0, 0x824340, 0x824770, 0x824D50, 0x825910, 0x826010,
-         0x8237D0, 0x823900, 0x8239C0}
+         0x8237D0, 0x823900, 0x8239C0, 0x1B0CD0}
 RESULT = {0x825910}
 
 
@@ -239,6 +239,12 @@ def main():
     for count in (5, 11, 179, 180, 185):
         for wait in (0, 1):
             cases.append((beat, 0x826010, (g5,), ((g5 + 0x2A, h16(count)), (g5 + 0x240, b8(wait)))))
+    # 0x826010's probe 001B0CD0 (and its 001F4F40), directly: the event
+    # owner's +0x1C node (pl) and g[5] itself as a0, every a1 & 3.
+    pl = u32(ram, g5 + 0x1C)
+    for node in (pl, g5):
+        for a1 in (0, 1, 2, 3, 7):
+            cases.append((beat, 0x1B0CD0, (node, a1), ()))
     # The group 0x82A900 behaviours, on g[6]'s node as a spare record.
     spare = RV.owners(ram, 0x826CF0)
     assert spare, 'no 0x826CF0 node'

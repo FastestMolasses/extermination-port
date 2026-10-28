@@ -34,9 +34,24 @@ static int revisit_frame(EmArea01Runtime *r, const EmArea01Call *c, unsigned na,
     return 0;
 }
 
+/* --- Boot routines the revisit reaches whose translations are view-based
+ * modules (em_area00_world): their memory is the runtime's bytes, their
+ * callees re-enter the runtime by address. */
+static int rv_world_worker(void *ctx, EmArea00WorldCall *w)
+{
+    EmArea01Call c = {.function = w->fn, .sp = w->sp, .na = w->na, .nf = w->nf};
+    if (w->na > 8 || w->nf > 4) return -1;
+    memcpy(c.a, w->a, sizeof w->a);
+    memcpy(c.f, w->f, sizeof w->f);
+    int rc = em_area01_runtime_call(ctx, &c);
+    w->v0 = c.v0; w->f0 = c.f0;
+    return rc;
+}
+
 /* Returns 1 when `function` is one of these entries (*rc set), else 0. */
 static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
+    if (r->area != 1) return 0;
     const uint32_t a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1];
     int32_t result = 0;
     switch (c->function) {
@@ -82,6 +97,13 @@ static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
         *rc = revisit_frame(r, c, 1, 0x40u) < 0 ? fail(r, c->function)
             : em_area00_return_00826010(&r->ret, a0, c->sp, &r->ret_fault);
         return 1;
+    case 0x001B0CD0u: { /* 0x826010's probe (byte-matched decomp C; em_area00_world) */
+        if (c->na < 2 || c->nf) { *rc = fail(r, c->function); return 1; }
+        EmArea00World w = {.call = rv_world_worker, .ctx = r, .sp = c->sp};
+        *rc = em_area00_world_view_001B0CD0(&w, bytes, r, a0, a1);
+        if (*rc < 0) *rc = fail(r, w.fault_address ? w.fault_address : c->function);
+        return 1;
+    }
     default:
         return 0;
     }
