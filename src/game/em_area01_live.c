@@ -26,6 +26,8 @@
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_world_live.h"
 #include "game/em_aim_fire_runtime.h"
+#include "game/em_area00_fx.h"
+#include "game/em_aim_fire_flash.h"
 #include "game/em_aim_fire_sdk_memory.h"
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
@@ -174,8 +176,12 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if(overlaps(a,n,0x70003B64u,4))
         return !write && contains(a,n,0x70003B64u,4)
             ? (uint8_t *)(void *)em_frame_counter_storage()+((size_t)a-0x70003B64u) : NULL;
-    if(overlaps(a,n,EM_ACTOR_POOL_BASE,EM_ACTOR_RECORD_SIZE*EM_ACTOR_POOL_CAPACITY))
+    if(overlaps(a,n,EM_ACTOR_POOL_BASE,EM_ACTOR_RECORD_SIZE*EM_ACTOR_POOL_CAPACITY)) {
+        /* A muzzle node's +0x28 / +0xD0..+0x10F / +0x230.. are
+         * em_aim_fire_flash's (their one home; a read needs a prior write). */
+        if((p=em_aim_fire_flash_field(a,n,write)))return p;
         return em_area01_actor_view_bytes(&l->actors,a,n,write);
+    }
     if(overlaps(a,n,EM_AREA01_PLAYER_BASE,EM_PLAYER_ACTOR_SIZE))
         return em_area01_player_view_bytes(&l->player,a,n,write);
     if(overlaps(a,n,LOCAL_BASE,sizeof l->locals))
@@ -638,6 +644,45 @@ static int block_copy_00121870(EmArea01Live *l,EmArea01Call *c)
 #undef PIECE
     return 0;
 }
+/* --- AREA01 revisit: 001F4F40(kind) (decomp C; em_area00_fx's translation)
+ * for 0x826010's 001B0CD0. Its 001AFA90(0xC) allocates in this pool; the
+ * record is then adopted by em_aim_fire_runtime, so the muzzle node's
+ * bytes are em_aim_fire_flash's and its 001F5040 is bound there when the
+ * +0x10 store commits (area01_rebind). */
+static int nested(void *ctx,EmArea01Call *c);
+static uint8_t *muzzle_view(void *ctx,uint32_t a,uint32_t n,int write)
+{ return em_area01_live_bytes(ctx,a,n,write); }
+static int muzzle_worker(void *ctx,uint32_t fn,uint32_t sp,const EmArea00FxRegs *in,uint64_t *v0,uint32_t *f0)
+{
+    EmArea01Live *l=ctx;
+    if(fn!=0x001AFA90u || in->imask!=(1u<<4) || in->fmask)return -1;
+    EmArea01Call c={.function=fn,.sp=sp,.a={in->r[4]},.na=1};
+    if(nested(l,&c)<0)return -1;
+    *v0=c.v0;*f0=c.f0;
+    if(!c.v0)return 0;
+    EmActor *a=actor(l,(uint32_t)c.v0);
+    if(!a || em_area01_live_suspend(l)<0)return -1;
+    int rc=em_aim_fire_runtime_adopt_flash(a);
+    if(em_area01_live_resume(l)<0)return -1;
+    return rc;
+}
+static int muzzle_001F4F40(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<1 || c->nf)return worker_result(l,-1,c->function);
+    EmArea00Fx x;memset(&x,0,sizeof x);
+    x.core.world.view=muzzle_view;x.core.world.view_ctx=l;x.call=muzzle_worker;x.ctx=l;x.sp=c->sp;
+    int rc=em_area00_fx_001F4F40(&x,c->a[0],&c->v0);
+    if(rc<0)return worker_result(l,rc,x.core.fault.detail ? x.core.fault.detail : x.core.fault.address);
+    if(!c->v0)return 0;
+    /* A reused record keeps its +0x10 (001AFA90 leaves it, 001AFC10 too):
+     * when it already held 001F5040 the store commits no change and no
+     * rebind runs, so the adopted node is bound here once committed. */
+    EmActor *a=actor(l,(uint32_t)c->v0);
+    if(!a || em_area01_live_suspend(l)<0)return -1;
+    rc=a->behavior ? 0 : em_aim_fire_runtime_bind_flash(a);
+    if(em_area01_live_resume(l)<0)return -1;
+    return worker_result(l,rc,c->function);
+}
 static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
@@ -655,6 +700,7 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_transition_call(&host,c,&fault);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x001F4F40u)return muzzle_001F4F40(l,c);
     if(c->function==0x00121870u)return block_copy_00121870(l,c);
     if(c->function==0x001B0C60u) {
         if(c->na!=3 || c->nf)return worker_result(l,-1,c->function);

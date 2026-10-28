@@ -24,6 +24,11 @@ void em_aim_fire_runtime_set_bind(int (*bind)(EmActor *));
 /* The pool behaviour of such a record: 0018ABA0 (em_aim_fire_marker)
  * through the binding. 1 ran, -1 fault. */
 int em_aim_fire_runtime_tick(EmActor *actor);
+/* A muzzle node another composition allocated (class 0xC, 001F4F40): adopt
+ * the record (its bytes become em_aim_fire_flash's), then, once its +0x10
+ * holds 001F5040, bind it to its behaviour. 0, or -1. */
+int em_aim_fire_runtime_adopt_flash(EmActor *actor);
+int em_aim_fire_runtime_bind_flash(EmActor *actor);
 /* The tick log's view of a record the composition allocated: its +0x28
  * halfword once written (the marker's countdown, the muzzle node's frame).
  * 1, or 0 (none). */

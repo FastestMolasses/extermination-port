@@ -84,7 +84,7 @@ typedef uint32_t u32;
 #define D_253490_SIZE 0xA0u       /* 001DFE70's corners, 001E0380's quadword */
 #define D_26E810    0x0026E810u   /* .data: 001DDB70's four colour quadwords */
 #define D_26E810_SIZE 0x40u
-#define VIEWS_MAX   40u
+#define VIEWS_MAX   EM_RCL_VIEWS_MAX
 
 static uint32_t s_arena_words[(ARENA_END - ARENA_BASE) / 4];
 static uint32_t s_ctx_words[(CTX_END - CTX_BASE) / 4];

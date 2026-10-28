@@ -242,9 +242,13 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         /* The render context's storage (the muzzle node's lines read the
          * context, the clip matrix 001CD370 names and the scratchpad
          * view-projection; 001CB5F0 / 001CB6B0 / 001CB900 write the arena). */
-        uint32_t address[32],size[32];uint8_t *bytes[32];int writable[32];
-        unsigned n=em_rcl_views(address,size,bytes,writable,32);
-        if (n>32) return -1;
+        uint32_t address[EM_RCL_VIEWS_MAX],size[EM_RCL_VIEWS_MAX];
+        uint8_t *bytes[EM_RCL_VIEWS_MAX];int writable[EM_RCL_VIEWS_MAX];
+        unsigned n=em_rcl_views(address,size,bytes,writable,EM_RCL_VIEWS_MAX);
+        if (n>EM_RCL_VIEWS_MAX) {
+            fprintf(stderr,"aim/fire runtime: %u render-context views\n",n);
+            return -1;
+        }
         for (unsigned k=0;k<n;++k) TRY(append(out,capacity,count,address[k],size[k],bytes[k],writable[k]));
     }
     for (unsigned i=0;i<EM_ACTOR_POOL_CAPACITY;++i) {
@@ -615,6 +619,29 @@ static int settle(void *context)
     return rc;
 }
 void em_aim_fire_runtime_set_bind(int (*bind)(EmActor *)) { R.bind=bind; }
+/* A muzzle node (001F4F40's class 0xC record running 001F5040) that another
+ * composition allocated (the AREA01 revisit's 0x826010 -> 001B0CD0): this
+ * runtime adopts the record as 001AFA90 here would, its bytes become
+ * em_aim_fire_flash's, and once its +0x10 holds 001F5040 it is bound to
+ * its behaviour through the same binder. */
+int em_aim_fire_runtime_adopt_flash(EmActor *a)
+{
+    if (!R.pool || !a || a<R.pool->records || a>=R.pool->records+EM_ACTOR_POOL_CAPACITY || !a->allocated)
+        return -1;
+    unsigned i=(unsigned)(a-R.pool->records);
+    memset(&R.rec[i],0,sizeof R.rec[i]);
+    R.rec[i].generation=a->generation;
+    return em_aim_fire_flash_claim(a);
+}
+int em_aim_fire_runtime_bind_flash(EmActor *a)
+{
+    if (!R.pool || !a || a<R.pool->records || a>=R.pool->records+EM_ACTOR_POOL_CAPACITY) return -1;
+    unsigned i=(unsigned)(a-R.pool->records);
+    if (!a->allocated || R.rec[i].generation!=a->generation || !em_aim_fire_flash_owns(a) ||
+        a->callback!=EM_AIM_FIRE_FLASH_CALLBACK || !R.bind || R.bind(a)<0) return -1;
+    R.rec[i].bound=1;
+    return 0;
+}
 int em_aim_fire_runtime_h28(const EmActor *actor,uint16_t *value)
 {
     if (!R.pool || !actor || !value || actor<R.pool->records || actor>=R.pool->records+EM_ACTOR_POOL_CAPACITY)

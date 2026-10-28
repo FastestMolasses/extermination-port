@@ -114,6 +114,7 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_runtime.h"
+#include "game/em_aim_fire_flash.h"
 #include "game/em_aim_fire_tables.h"
 #include "game/em_equipment_live.h"
 #include "game/em_weapon.h"
@@ -3355,6 +3356,15 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         default:
             return -1;
         }
+    }
+    /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
+     * 001B0CD0): em_aim_fire_runtime adopted it at the allocation; its
+     * behaviour 001F5040 is bound there (em_aim_fire_flash). */
+    if (s_state.d810700 == 1 && fn == 0x001F5040u) {
+        if (!em_aim_fire_flash_owns(a))
+            return -1;
+        a->callback = fn;
+        return em_aim_fire_runtime_bind_flash(a);
     }
     /* A missing nested worker still faults at its original address. */
     switch (fn) {
