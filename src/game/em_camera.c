@@ -22,6 +22,9 @@
 #include "game/em_collision_world.h"
 
 #include "game/em_game_internal.h"
+#include "game/em_ee_float.h"
+
+#include <string.h>
 
 /* Legacy door approximation, pending the original script adapter. The old
  * claim that CBD0 proves this +11 height was based on incorrect NEARMISS C.
@@ -812,10 +815,26 @@ float cam_dot3(const float a[3], const float b[3])
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-void cam_norm3(float v[3])               /* func_00102760 */
+/* func_00102760 (byte-matched VU0 leaf): d.xyz = v * v; d.x += d.y;
+ * d.x += d.z; Q = sqrt(d.x); d.x = 0 + Q; Q = 1.0 / d.x; v.xyz *= Q, all
+ * in the VU0 float model. There is no small-length guard: a zero vector
+ * stays zero (zero times the clamped reciprocal). The w lane (0 in the
+ * original) is not part of this three-float helper. */
+void cam_norm3(float v[3])
 {
-    float l = sqrtf(cam_dot3(v, v));
-    if (l > 1e-6f) { v[0] /= l; v[1] /= l; v[2] /= l; }
+    static const float vf0[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float in[4] = {v[0], v[1], v[2], 0.0f}, d[4], r[4] = {0.0f, 0.0f, 0.0f, 0.0f}, q;
+    memcpy(d, in, sizeof d);
+    if (em_vu_vec(EM_VU_MUL, 14, EM_VU_NO_BC, in, in, 0.0f, NULL, d) ||
+        em_vu_vec(EM_VU_ADDBC, 8, 1, d, d, 0.0f, NULL, d) ||
+        em_vu_vec(EM_VU_ADDBC, 8, 2, d, d, 0.0f, NULL, d))
+        return;
+    q = em_vu_sqrt(d[0]);
+    if (em_vu_vec(EM_VU_ADDQ, 8, EM_VU_NO_BC, vf0, NULL, q, NULL, d) ||
+        em_vu_div(vf0[3], d[0], 3, 0, &q) ||
+        em_vu_vec(EM_VU_MULQ, 14, EM_VU_NO_BC, in, NULL, q, NULL, r))
+        return;
+    v[0] = r[0]; v[1] = r[1]; v[2] = r[2];
 }
 
 float cam_wrap_pi(float a)               /* func_001B1470 */

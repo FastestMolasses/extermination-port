@@ -104,11 +104,21 @@ static float dot(const float a[3],const float b[3])
 
 static void normalize(float vector[3])
 {
-    /* 00102760 uses VU sqrt and division, both truncating, unlike the
-     * scalar SDK sqrt and EE DIV.S used elsewhere in this module. */
-    float length=em_effect_float32(sqrt((double)dot(vector,vector)));
-    float inverse=length ? em_effect_float32(1.0/(double)length) : FLT_MAX;
-    for (unsigned i=0;i<3;++i) vector[i]=vu_mul(vector[i],inverse);
+    /* 00102760 (byte-matched VU0 leaf) in the shared VU0 model: d.xyz =
+     * v * v; d.x += d.y; d.x += d.z; Q = sqrt(d.x); d.x = 0 + Q; Q = 1.0 /
+     * d.x; v.xyz *= Q. A zero vector stays zero (zero times the clamped
+     * reciprocal). */
+    static const float vf0[4]={0.0f,0.0f,0.0f,1.0f};
+    float in[4]={vector[0],vector[1],vector[2],0.0f},d[4],r[4]={0.0f,0.0f,0.0f,0.0f},q;
+    memcpy(d,in,sizeof d);
+    if (em_vu_vec(EM_VU_MUL,14,EM_VU_NO_BC,in,in,0.0f,NULL,d) ||
+        em_vu_vec(EM_VU_ADDBC,8,1,d,d,0.0f,NULL,d) ||
+        em_vu_vec(EM_VU_ADDBC,8,2,d,d,0.0f,NULL,d)) return;
+    q=em_vu_sqrt(d[0]);
+    if (em_vu_vec(EM_VU_ADDQ,8,EM_VU_NO_BC,vf0,NULL,q,NULL,d) ||
+        em_vu_div(vf0[3],d[0],3,0,&q) ||
+        em_vu_vec(EM_VU_MULQ,14,EM_VU_NO_BC,in,NULL,q,NULL,r)) return;
+    for (unsigned i=0;i<3;++i) vector[i]=r[i];
 }
 
 static float sdk_atan(const EmInteractionMath *m,float x)
