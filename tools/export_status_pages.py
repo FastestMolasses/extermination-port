@@ -56,6 +56,13 @@ DATA_WINDOWS = [
     (0x0026EC50, 0x0026EC60),   # 001FCBD0's token set D_0026EC50
     (0x00273320, 0x00273330),   # 00201F70's labels D_00273320 / 28
     (0x00275828, 0x00275830),   # D_00275828's boot value (the binder's storage starts from it)
+    # the card screen past the slot choice and the save / load code below it
+    # (docs/SAVE_GAME.md sections 2, 4 and 6)
+    (0x00266B30, 0x00266EF4),   # the icon.sys image D_00266B30 (0x3C4 bytes)
+    (0x00266F00, 0x002671B8),   # the directory and file names D_00266F00 / F20 / D_00267060, the
+                                #   slot rows' line config D_002671A0
+    (0x002738E0, 0x002739D0),   # the card paths, the header title and the sprintf formats D_002738E0..B0
+    (0x00275890, 0x002758A0),   # the icon file's name D_00275890 and the glyph style D_00275898
 ]
 # The boot bank module 0 (001FF1E0(0) loads its resident region at 0xB00000
 # and sets D_0028A490[slot] = 0xB00000 + the slot's entry offset,

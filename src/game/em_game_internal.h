@@ -1369,13 +1369,11 @@ typedef struct {
 
     /* gameplay-frame state */
     int        frame_no;         /* gameplay frames run */
-    uint8_t    opening_complete; /* D_00810811 (event flag 0xB9): the
-                                  * AREA11 opening controller 00823E80
-                                  * stores 0xFF here when its script
-                                  * 0x828FC0 ends (0x00823F74..80), next
-                                  * to +0x2E = 0xFFFF and 001C4760(0,1).
-                                  * Captured 0 mid-opening, 0xFF at the
-                                  * handoff before any battery exists. */
+    /* D_00810811 (event flag 0xB9, the AREA11 opening controller 00823E80's
+     * 0xFF when its script 0x828FC0 ends, 0x00823F74..80, next to +0x2E =
+     * 0xFFFF and 001C4760(0,1); captured 0 mid-opening, 0xFF at the handoff
+     * before any battery exists) is the progress block's d810811 since
+     * save2 round 2 (em_scene_state.h). */
 
     /* animation clips + idle<->locomotion crossfade */
     int        clip_idle;        /* clip indices into model.clips */
@@ -1518,7 +1516,7 @@ typedef struct {
     EmPlayerStatus status;
 
     /* PLAYER DAMAGE (see the PD_* constants block). The vitals below
-     * (with status.health / status.infection) are the port's storage of
+     * (with D_00810858 / D_0081085C in the progress block) are the port's storage of
      * the player record fields in the comments; the original stage reads
      * and writes them through em_player.c's per-stage view (census L01).
      * pd_state / pd_sub / pd_phase / pd_hold belong to the legacy
@@ -1817,21 +1815,20 @@ typedef struct {
 
 /* func_001AF2C0 (src/func_001AF2C0.c; reached by 001ACEC0 route 1 ->
  * 001AD230 for BOTH the title's New Game and the game-over prompt's
- * option 0) — the part of the new-game reset that EmGameState mirrors.
- * The 0x640-byte memset of D_00810700 clears D_00810791 and D_00810811
- * here (the canonical D_00810813, D_0081084C (D_00810841[11]) and
- * D_00810CC3 are cleared by em_scene_progress_reset_001AF2C0); then health
- * D_00810858 = 100.0, D_0081085C = 0, battery D_00810CB2/CB7 = 0, and
- * (after 001C40B0(0x10,2)) magazine D_00810C62 = 30, reserve
- * D_00810CB4 = 60. health_max/mag_max are port display constants. The
- * inventory part is em_pickup_reset(). Instruction-checked by
- * tools/test_continue_reset_reference.py. */
+ * option 0): its effect on the progress block D_00810700 (the memset and
+ * every store, health D_00810858 = 100.0, the magazine D_00810C62 = 30 and
+ * the reserve D_00810CB4 = 60 among them) is em_pickup_reset's
+ * (em_scene_progress_reset_001AF2C0 and the item stores), checked byte for
+ * byte against the executed original by
+ * tools/test_continue_reset_reference.py. EmGameState keeps only the HUD's
+ * display copy g.status, set here to the same values (health_max and
+ * mag_max are port display constants; the state-0 fixture's em_weapon_reset
+ * reads mag / reserve from it). */
 static inline void game_state_new_game(EmGameState *s)
 {
     s->status = (EmPlayerStatus){ .health = 100.0f, .health_max = 100.0f,
         .infection = 0.0f, .mag = 30, .mag_max = 30, .reserve = 60,
         .battery = 0, .battery_max = 0 };
-    s->opening_complete      = 0;
 }
 
 /* Compose a loaded palette with a placement transform: T(pos) * R_y(yaw).

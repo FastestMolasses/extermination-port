@@ -1,0 +1,2000 @@
+diff --git a/Makefile b/Makefile
+index c13e549..1d4503d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1474,6 +1474,14 @@ test-load-reference:
+ test-card-screen-reference:
+ 	python3 tools/test_card_screen_reference.py
+ 
++# The options binding (em_options_live) on the card screen past the slot
++# choice against the original code, both over the host memory card
++# and its draw and cue calls (docs/SAVE_GAME.md section 6.1; about 9 s
++# warm, 30 to 50 s on a first run, which builds the fixture).
++.PHONY: test-options-card-live
++test-options-card-live:
++	python3 tools/test_options_card_live.py
++
+ # The host memory card's file commands (em_memcard) under the original save
+ # writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
+ # EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).
+diff --git a/docs/FIDELITY_FEATURES.md b/docs/FIDELITY_FEATURES.md
+index a2869f7..a43832e 100644
+--- a/docs/FIDELITY_FEATURES.md
++++ b/docs/FIDELITY_FEATURES.md
+@@ -1918,7 +1918,13 @@ layout.
+ - How: the screens are translated from the original instructions
+   (em_options_original, `OPTIONS.md`) and run over the port's one storage at
+   the original addresses (em_options_live); the card I/O is the platform
+-  boundary em_memcard (GetInfo and Sync over data/memcard/slot1 / slot2).
++  boundary em_memcard (GetInfo, Sync and the card's file commands over
++  data/memcard/slot1 / slot2); since the save lane's binding the card
++  screen past the slot choice runs too (em_card_original through
++  em_options_live, `SAVE_GAME.md` section 6.1): the card check, the saved
++  slots listed with their places and play times, the cursor and the
++  confirmation, up to LOAD GAME's read, which stops the game (the progress
++  block is not yet one storage).
+ - Evidence: `make test-options-reference`: the original routines executed
+   over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
+   arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
+@@ -1927,16 +1933,23 @@ layout.
+   test-level-smoke-damage`): the nine OPTIONS recordings and dmg_05
+   replayed, every state from the open equal to the recording's and lasting
+   its rows (`LEVEL_SMOKE.md` "The OPTIONS side runs"), both PASS on
+-  2026-10-08; `make test-area11-sfx-reference` pass M (the mono arms).
++  2026-10-08; `make test-area11-sfx-reference` pass M (the mono arms);
++  `make test-options-card-live` (2026-10-20): 30 whole card screens past
++  the slot choice, the original code and the binding over the host card,
++  every frame's card state equal and every frame's draw and cue calls
++  (the slot rows' text, styles and configs, the page draws, the cues) equal
++  to the original's arguments.
+ - Status: **PARTIAL**. Proven: the state above relative to the PCSX2
+   recordings. Not proven or not covered: the screen modules 0x2A / 0x2B
+   load at host speed (about 10 ticks against the recordings' 23 rows); the
+   screen position moves the picture since 2026-10-09 (the entry "Each field
+   shown at its interlaced height"), in the direction the register meaning
+-  gives, which no recording shows; choosing a memory-card slot, loading,
+-  saving (the first level has no save point) and quitting with Yes are not
+-  recorded and stop the game or are untested; pixels and sounds are not
+-  compared.
++  gives, which no recording shows; choosing a memory-card slot is checked
++  against the original code only (no recording chooses one); loading stops
++  at LOAD GAME's read; saving (the first level has no save point) and
++  quitting with Yes are not recorded and stop the game or are untested; the
++  host card's format word (1) follows the code's test, its free count is
++  unanswered (no recording); pixels and sounds are not compared.
+ 
+ **Off the main route in the first level: the optional pickups, the other ladders, breaking boxes, the elevator back up, declining the panel and talking to Roger, as in the original**
+ 
+@@ -2719,4 +2732,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
+ - No disassembly, game text or game data in this file
+   (`python3 tools/check_no_disassembly.py`).
+ 
+-Last updated: 2026-10-16 (the sound-bank DMA step: the load veil entry with the switch runs the PS2's 258 frames (the SIF DMA pending at its first query, user decision 2026-10-15), its evidence and status; the frame-order entry's switch windows one tick later; no new claim at host speed). Before, 2026-10-15 (the specialized span loops step, PERFORMANCE.md "Progress" P14: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-15 (the decoded texture cache step, PERFORMANCE.md "Progress" P13: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-12 (the early Z test step, PERFORMANCE.md "Progress" P12: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-10 (the like-for-like fb2 step: the GS-frame entry's status (each point against the same-phase original; point 10 95.47 %), no new claim. Before, the fork switch's second stage: the GS model entry's evidence names part G, the half-pixel scissor edge against the fork, no new claim. Before, 2026-10-09, the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
++Last updated: 2026-10-20 (the save lane's card-screen binding, not merged yet: the options entry's card screen past the slot choice, its evidence and status). Before, 2026-10-16 (the sound-bank DMA step: the load veil entry with the switch runs the PS2's 258 frames (the SIF DMA pending at its first query, user decision 2026-10-15), its evidence and status; the frame-order entry's switch windows one tick later; no new claim at host speed). Before, 2026-10-15 (the specialized span loops step, PERFORMANCE.md "Progress" P14: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-15 (the decoded texture cache step, PERFORMANCE.md "Progress" P13: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-12 (the early Z test step, PERFORMANCE.md "Progress" P12: the GS-frame entry's frame cost, the same bytes, no new claim). Before, 2026-10-10 (the like-for-like fb2 step: the GS-frame entry's status (each point against the same-phase original; point 10 95.47 %), no new claim. Before, the fork switch's second stage: the GS model entry's evidence names part G, the half-pixel scissor edge against the fork, no new claim. Before, 2026-10-09, the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+diff --git a/docs/OPTIONS.md b/docs/OPTIONS.md
+index 3dc9cc4..2aec762 100644
+--- a/docs/OPTIONS.md
++++ b/docs/OPTIONS.md
+@@ -21,11 +21,11 @@ original's; no instruction of the original is reproduced here.
+ | Brightness | 00202BA0 (the calibration picture, screen module 0x2B) | live | test-options-reference; opt_04 |
+ | Button config | 00202D10, then 001AF470 over the masks 0x70003B74..83 | live (the masks are canonical; the player reads them there) | test-options-reference, test-startup-load-gaps-reference (001AF470); opt_05 |
+ | Default | 00201C50 | live | test-options-reference; opt_06 |
+-| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice; a chosen card faults (00227300; translated, not wired: SAVE_GAME.md section 6) | test-options-reference; opt_07 |
++| Load row | 001AF6F0, then the memory-card screen 00225AC0(0) (section 5) | live up to the slot choice (opt_07); past it, the card screen 00227300 is live through the save lane's binding (the card check, the load enumeration of the host card, the slot rows, the cursor, the confirmation; SAVE_GAME.md section 6.1); LOAD GAME's read fail-stops (the progress block is not one storage yet) | test-options-reference; opt_07; test-options-card-live |
+ | Quit | 0022B420 (No: back; Yes: r == 3, 001AD140 as the death does) | live; Yes is bound but no recording plays it | test-options-reference; opt_08 |
+ | Closing | r == 1: 001AF1C0 (the settings into the progress block, 001AF470), the cue 0xD, 001FAE70(0) | live | test-options-reference; opt_00..08 |
+ | The title's LOAD GAME after a death | 001AC070 state 2's 00225A00 and D_00275BE0 = 1, state 5's 00225AC0(0) every tick | live (section 4.3); the boot's title faults (no AREA11 binding) | test-title-menu-reference, test-options-reference; dmg_load |
+-| Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated, not wired (SAVE_GAME.md) | decomp save_scan.json; test-save-reference |
++| Saving | 00225AC0(1) from 0020CDC0 (request 6) and 001AD740 | unreachable in AREA11 (section 7); the writer below the card screen is translated and dispatched, but its callers are not wired and its save mode stops at the free count, Format, the New Game block and the full-block Write (SAVE_GAME.md section 6.1) | decomp save_scan.json; test-save-reference |
+ 
+ ## 2. Opening and closing
+ 
+@@ -40,8 +40,9 @@ message and its test cases are deleted.
+ Every frame of state 2 runs 0022A650 through the binding (w_0022A650) and
+ draws its stream in the same tick; the world is frozen (no 001D1EA0 runs),
+ as on the game-over screen. Its result: 1 closes (001AF1C0, the cue 0xD,
+-001FAE70(0)); 2 (a game loaded) is reached only through 00227300, which
+-faults first; 3 (quit, Yes) runs 001AD140.
++001FAE70(0)); 2 (a game loaded) is reached only through 00227300's LOAD
++GAME, whose read of the slot into D_00810700 fail-stops first (SAVE_GAME.md
++section 6.1); 3 (quit, Yes) runs 001AD140.
+ 
+ ## 3. The translations and their oracle
+ 
+@@ -102,6 +103,16 @@ step (d810118, spad3B74, spad3B94 / 96); their earlier copies are gone:
+ 
+ The boot's 001AB430 (em_scene_settings_001AB430) stores the defaults.
+ 
++The card screen past the slot choice (the save lane's binding, SAVE_GAME.md
++section 6.1) adds: the binding's own storage for the card code's .bss /
++.sbss buffers (GetDir's table D_00821500, the header D_00821980, the staging
++blocks D_008219D0 / D_00822050 / D_00822690, the slot path D_00822010; zero
++at the binding's creation, as the boot leaves .bss; nothing else reads them),
++the slot rows' text D_00275C94..9F (one 12-byte buffer: the play time's text
++runs past D_00275C94's 4 bytes into D_00275C98, see section 7), read-only
++per-call copies of em_area_title's place names D_002671C0, their strings and
++D_00289B40, and the card code's .data windows in the EMSP.
++
+ ### 4.2 Callees
+ 
+ Every callee is dispatched by its original address: the 2D layer 00207D00 /
+@@ -116,12 +127,17 @@ views, the cues 0020CD40 / 60 / A0 to the host's 001FB9F0, the loader
+ D_00275BD8 at its 0x63 step; tools/export_module_loader.py exports 0x2A and
+ 0x2B), 00200970(1) to em_status_runtime_restore, the fades, 001FBC50,
+ 001FABB0, 001D2830 and 001B61C0 to the interaction host's workers, and the
+-card SDK to em_memcard (section 5). 002267A0 (00226070's step 1: the two
+-ports polled in turn for a card) and 00227300 (the card screen past the
+-slot choice) fault; both are translated since the save lane's round 4
+-(em_card_original, docs/SAVE_GAME.md section 6), not wired yet. A missing
+-view, a refused draw or a failing worker latches the call's fault and the
+-coordinator stops.
++card SDK (GetInfo, Sync and the file commands) to em_memcard_call over the
++views (section 5). Since the save lane's binding, 002267A0 (00226070's step
++1: the two ports polled in turn for a card) and 00227300 (the card screen
++past the slot choice) are dispatched to their translations
++(em_card_original) on the binding's state, with sprintf 00122D10 (the
++conversions d and s), strcmp 00123020, the slot rows' text (001CC1E0 with the
++style 0 or D_00275898, 001FC770 with the config 0 or D_002671A0) and the card
++code's buffers (section 4.1) under them; the save mode's Format 00114D18,
++block copy 00121870 and New Game block 001AF2C0 fault (docs/SAVE_GAME.md
++section 6.1). A missing view, a refused draw or a failing worker latches
++the call's fault and the coordinator stops.
+ 
+ ### 4.3 The title's load screen
+ 
+@@ -133,8 +149,8 @@ EM_STARTUP_LOAD_GAME request; em_frontend load_begin). State 5 then calls
+ through the options binding the AREA11 interaction host keeps after the
+ death; its draw stream is drawn over the title's black frame. The result 1
+ (the screen's exit) completes the request in the same tick and the flow is
+-back in state 2 (the menu loads again); 2 cannot occur (00227300 faults
+-first). The title flow also does what 001AC070 does at every entry that the
++back in state 2 (the menu loads again); 2 cannot occur yet (00227300's
++LOAD GAME fail-stops at its read of D_00810700, SAVE_GAME.md section 6.1). The title flow also does what 001AC070 does at every entry that the
+ screen reads: 0x70003B90 = 0 (the game task writes 2) and the pad words
+ D_00810E74 / E70 / E50 from the frame's step C (em_frame_scene_input). The
+ boot's title has no AREA11 world and no binding: LOAD GAME there fails the
+@@ -164,13 +180,18 @@ formatted PS2 card) for a slot whose directory exists; its result is 0 once
+ the port has been asked since the boot, else -1. The boot's card check
+ (em_frontend's stand-in for 001AB9D0 state 3) creates both directories and
+ asks both ports, as the original's boot check 0022A460 does: the
+-recordings' GetInfo results in the load row are 0 on both ports. A free or
+-format pointer, a slot other than 0, a port other than 0 / 1 or a missing
+-directory faults (no recording shows what the card server returns then).
+-The card helpers' globals (D_00275C58..6F, D_00264E30..3B, D_00275840..47)
+-have one storage there. The card's file commands (Open, Mkdir, Close, Write,
+-Read, GetDir) are answered there too since the save lane's round 2
+-(docs/SAVE_GAME.md section 5); no first-level path reaches them.
++recordings' GetInfo results in the load row are 0 on both ports. The format
++word, when the card check asks it, is 1 (the host card is formatted; a
++fresh, unformatted card in the fork answers 0, SAVE_GAME.md section 6.2). A
++free-count pointer, a slot other than 0, a port other than 0 / 1 or a
++missing directory faults (no recording shows what the card server returns
++then). The card helpers' globals (D_00275C58..6F, D_00264E30..3B,
++D_00275840..47) have one storage there. The card's file commands (Open,
++Mkdir, Close, Write, Read, GetDir) are answered there too since the save
++lane's round 2 (docs/SAVE_GAME.md section 5); the card-screen binding
++routes all eight through em_memcard_call. The first level's recordings
++never choose a card (the load row's slot choice is left with Triangle), so
++its side runs reach none of the file commands.
+ 
+ ## 6. The side runs
+ 
+@@ -211,11 +232,23 @@ stand-in and leaves zeros. Nothing reads the record before 001AF6F0 /
+   (`build/c10/options/save_scan.json`). The save writer that the card
+   screen runs in save mode (00228A90 and its steps) and the card layout it
+   writes: SAVE_GAME.md.
+-- **A chosen slot and a load** (002267A0, 00227300; r == 2): no recording
+-  chooses a slot; both fault. The card screen past the slot choice and the
+-  load code below it (the load enumeration 002283B0 and LOAD GAME's read
+-  00228B60 of the slot into the progress block) are translated, not wired
+-  (SAVE_GAME.md sections 4 and 6).
++- **A chosen slot and a load** (002267A0, 00227300; r == 2): no first-level
++  recording chooses a slot. Since the save lane's binding the card screen
++  past the slot choice runs live (checked against the original by
++  test-options-card-live, SAVE_GAME.md section 6.1) up to LOAD GAME's read
++  00228B60, which fail-stops: it reads the slot into the whole progress
++  block D_00810700, which the port does not hold in one storage yet.
++  002267A0 is dispatched but unreachable on the host card (it runs only
++  when GetInfo stops reporting a PS2 card).
++- **The row text and the timeline clock** (open question): the slot rows'
++  play time (002293B0's `%02d:%02d:%02d` into D_00275C94, the 4 bytes
++  before D_00275C98, which the code addresses with byte stores only) always
++  runs on into D_00275C98, the timeline playback's start clock: 9 bytes
++  with the NUL under 100 hours, 10 for 100 to 999 hours, 11 from 1000
++  hours.
++  The binding keeps those bytes in its own buffer, apart from the script
++  host's clock; the two agree if no timeline plays while the card screen
++  runs, which no recording shows (SAVE_GAME.md section 6.1).
+ - **Quit, Yes** (r == 3 -> 001AD140): bound, not recorded.
+ - **The title's OPTIONS entry** (00200A40) and LOAD GAME on the boot's title.
+ 
+@@ -229,5 +262,6 @@ and, since the byte after it is not '7'..'9', draws nothing for the line
+ 
+ ## 9. Re-exports
+ 
+-    python3 tools/export_status_pages.py     # + the options' windows, the help container, modules 0x2A / 0x2B
++    python3 tools/export_status_pages.py     # + the options' windows, the help container, modules 0x2A / 0x2B,
++                                             #   and (the save lane's binding) the card code's .data windows
+     python3 tools/export_module_loader.py    # + screen modules 0x2A and 0x2B
+diff --git a/docs/SAVE_GAME.md b/docs/SAVE_GAME.md
+index 94963cb..fc53394 100644
+--- a/docs/SAVE_GAME.md
++++ b/docs/SAVE_GAME.md
+@@ -14,10 +14,11 @@ instruction of the original is reproduced here.
+ |---|---|---|---|
+ | The save writer | 00228A90 and its steps 00228530, 002285A0, 002288A0, 00229640, 00229680, 002284F0, 001AF220 | translated (em_save_original), not wired | test-save-reference |
+ | The card file commands | 001FE6B0 (one file), 001FE9E0 Open, 001FEB90 Write, 001FEA70 Close, 001FEDD0 Mkdir, 001FEC20 GetDir | translated (em_save_original), not wired | test-save-reference |
+-| The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original), not wired: the options binding still faults at 002267A0 / 00227300 (docs/OPTIONS.md section 4.2) | test-card-screen-reference |
++| The card screen past the slot choice | 00227300 and the routines below it (002280F0, 00228320, 002293B0, 00229170, 00227980, 00227010, 00227160, 00226E90, 00227C60, 00227DE0, 00228070, 001FED40, 00227270, 00226B90, 002267A0, 00226D50; section 6) | translated (em_card_original); wired into the options binding (section 6.1): live in load mode up to LOAD GAME's read, which fail-stops (the progress block is not one storage yet) | test-card-screen-reference, test-options-card-live |
+ | The load side | 002283B0 (the load enumeration), 00228EB0 (the five slots read), 00228B60 (LOAD GAME's read), 00228C90, 00228C50, 001FE7C0 / 001FEB00 (read) | translated (em_save_original), not wired (section 4) | test-load-reference |
+ | LOAD GAME after the read | what the callers of the card screen (0022A650 in the options, 001AC070 on the title) do with its result 2, the restore and the area entry | not translated | - |
+-| The host card | em_memcard: GetInfo, Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; not wired into a live binder yet (the card screen faults) | test-memcard-host |
++| The host card | em_memcard: GetInfo (the type, and the format word 1; the free count faults), Sync, and the file commands Open 00114360, Mkdir 00114448, Close 00114480, Write 00114708, Read 00114630, GetDir 00114AC0 (section 5) | answered at host speed on data/memcard/slotN; the options binding routes all eight through em_memcard_call | test-memcard-host, test-options-card-live |
++| The fork recording on a card | the save terminal's Yes and the card screen in save mode on the emulator's own fresh cards (section 6.2) | recorded once: the fresh cards are unformatted and the game's Format fails on them, so no save was written | the lane's build/side-save-r5/card_rec/summary.json |
+ | Start-point saves | the save writer 00228A90 over each area's arrival state, read back by 002283B0 and 00228B60 (section 7) | built by `tools/build_start_saves.py` into the ignored build/start_saves/ (round 6) | test-start-saves |
+ | `EM_START_AT` | the title's LOAD GAME (001AC070) on a start-point save | not built (section 8) | - |
+ 
+@@ -254,7 +255,8 @@ a size outside 0..8 MiB, and memory outside the caller's. The bytes Write is
+ handed are read, and the bytes Read and GetDir store are written, when the
+ command is issued; nothing reads them before the Sync that completes it.
+ `em_memcard_call(target, registers, ...)` answers any of the eight entries
+-by address, for the binder the card screen will use.
++by address; the options binding (em_options_live) routes the card screen's
++calls through it (section 6.1).
+ 
+ What is a claim and what is checked. `make test-memcard-host`
+ (`tools/test_memcard_host.py`) runs the ORIGINAL save writer 00228A90
+@@ -278,7 +280,8 @@ count, the dots, Mkdir's result, the Write offset, the first descriptor)
+ all fail it. The server's own answers (the descriptor numbers, GetDir's
+ entry order and its first 0x20 bytes, the result on a fresh card) are
+ what the original EE code accepts, not yet what the IOP was recorded
+-answering: that is section 6's first step.
++answering: section 6.2's recording wrote no save, so that is still a next
++step (section 8).
+ 
+ ## 6. The card screen past the slot choice
+ 
+@@ -393,6 +396,163 @@ the minutes' divisor, the load-mode Cross test, the Yes test, the done
+ message's 45 frames, the battery's 4, 002267A0's turn, 00227DE0's verdict,
+ 001FED40's phase): all fail the quick run.
+ 
++### 6.1 The live binding
++
++The options binding `src/game/em_options_live.c` (docs/OPTIONS.md section
++4) runs the card screen in the game. 00225D20's call of 00227300 and
++00226070's call of 002267A0 (both by address through EmArea01Ui.call) are
++dispatched to em_card_00227300 / em_card_002267A0 on the binding's own
++state; under them:
++
++- the eight libmc entries go to `em_memcard_call` over the binding's views
++  (a range may span views, a store is made only when every byte is a
++  view's): GetInfo, Sync, Open, Mkdir, Close, Write, Read, GetDir;
++- sprintf 00122D10 for the three formats the code passes (D_00273998,
++  D_002739A0, D_00273960: flags '-' / '0', a width, the conversions d and s;
++  any other conversion faults) and strcmp 00123020 (00228C90's name check,
++  which tests 0) over the views;
++- the slot rows' text: 001CC1E0 with the style 0 or D_00275898, 001FC770
++  with the config 0 (em_message_live then draws with the D_00264BF0
++  template) or D_002671A0;
++- the card code's .bss / .sbss buffers are the binding's own storage
++  (GetDir's table D_00821500, the header D_00821980, the staging blocks
++  D_008219D0 / D_00822050 / D_00822690, the slot path D_00822010, the row
++  text D_00275C94..9F, zero at start as the boot leaves .bss); the place
++  names D_002671C0 and the strings they name and D_00289B40 (built by
++  001B0BA0) are em_area_title's (em_area_title_regions); the names, paths,
++  formats, the line config, the style and the icon.sys image are .data
++  windows the status pages' EMSP now carries (tools/export_status_pages.py,
++  section 9).
++
++**The row text overflows into D_00275C98.** 002293B0 formats the play time
++`%02d:%02d:%02d` into D_00275C94, the 4 bytes before D_00275C98 (the
++code addresses D_00275C94 with byte stores only; the decomp's one-byte
++extern type is a label, not evidence), and D_00275C98 is the timeline
++playback's eight-byte start clock (0022EC30 stores it when a timeline
++starts, 0022EEF0 reads it while one plays): every saved row writes at least
++nine bytes there with the NUL, so the clock's low bytes hold the row's text
++afterwards (nine bytes for a play time under 100 hours, ten for 100 to 999
++hours, eleven for 1000 hours or more; the longest, 9942 hours from a time
++of 0x7FFFFFFF frames, ends at D_00275C9E). The binding holds D_00275C94..9F as
++one 12-byte buffer of its own; the timeline's clock in the port is the
++script host's (em_area11_script_host, em_area01_timeline). The two agree
++whenever the clock is rewritten before it is read again, which holds if no
++timeline plays while the card screen runs (not shown by a recording; listed
++as an open question in docs/OPTIONS.md section 7). A play time whose text
++passes D_00275C9F (a negative or corrupted time word) faults.
++
++What runs live: in load mode (the options' load row and the title's LOAD
++GAME after a death) the card check, the load enumeration (the slot files
++read from data/memcard/slotN into the staging block, the name check, the
++check byte), the slot rows with place names and play times, the cursor, the
++confirmation, Circle / Triangle out, a card without the game's directory and
++a card the enumeration refuses. **LOAD GAME's read fail-stops**: 00228B60
++reads the slot's 0x640 bytes straight into the progress block D_00810700,
++of which the port holds only the canonical ranges in one storage
++(em_scene_state.h, em_scene_progress_canonical); the binding refuses the
++Read before any byte is stored (em_memcard: "a card Read into bytes outside
++the caller's memory") and the coordinator stops. A save has the same wall
++(the Write of the live block reads all 0x640 bytes) and others before it:
++the save mode is reached only from the save terminal's Yes (0020CDC0
++request 6) and 001AD740, neither wired; its card check asks the free count
++(em_memcard faults: no recording), its Format 00114D18, the New Game block
++001AF2C0 and block_copy 00121870 are unbound (fault), and the icon file's
++source, the icon container *D_0028A4A0 (the boot bank module 0's slot 4),
++is not a window yet. 002267A0 is dispatched but unreachable on the host
++card (it runs only when GetInfo stops reporting a PS2 card, and em_memcard
++faults on a missing card).
++
++`make test-options-card-live` (`tools/test_options_card_live.py`, fixture
++`tests/options_card_live_fixture.c`, linked from the interaction host test's
++module list) runs 30 whole card screens frame by frame on both sides: the
++ORIGINAL 00225AC0(0) (the card screen's state 1 with the slot screen in its
++state 2, so 00227300 runs every frame) in the reference interpreter over the
++opt_07 and dmg_05 recordings' RAM, every callee original code except the
++seven draw and cue leaves (0020A7A0, 00207D00 / 00207E40 / 00207F80,
++001CC1E0, 001FC770, 001FB9F0: each recorded with the values the original
++passes and answered 0; all seven are void or their result is discarded at
++these call sites), the libmc SDK answered by em_memcard on a host folder of
++its own; and the game's binding (em_options_live_00225AC0 over the same
++bytes, the EMSP, the message data and the area-title export) on a second
++folder with the same files. Same pad words each frame (made on the original
++alone, test-card-screen-reference's policy). After every frame 00225AC0's
++result, the card record (0xD4 bytes), the card helpers' globals, the
++progress block's canonical bytes and the binding's card buffers (D_00821500,
++the header D_00821980, the staging blocks D_008219D0 / D_00822050 /
++D_00822690, D_00822010, D_00275C94..9F) must equal the original's, and at
++the end the two host folders. Each frame's draw and cue calls must also
++equal, in order, what the binding hands on: the page draws 00207D00 /
++00207E40 / 00207F80 / 0020A7A0 with their arguments, 001CC1E0's slot, x, y,
++w, h, its text up to the NUL and the 8 style bytes (the original's at its
++style pointer, the binding's as it decoded them), or no style, 001FC770's
++x, y, text and its config's 5 words and style (or config 0), and the cues
++as 0020CD40 / 60 / A0 pass them to 001FB9F0 (the wrappers run as original
++code). Where the native side's log is taken matters: each draw is logged
++inside a thin wrapper of the binding (em_options_live_set_trace, a
++test-only log) from the very parameters it then forwards unchanged to
++em_page_draw / em_message_live, so a wrong argument in a dispatcher's call
++line reaches the log; the cues are logged by the fixture's host sound
++callback, where they arrive. The wrappers' forward lines pass their own
++parameters verbatim; what em_page_draw and em_message_live then make of
++them (the packets) is their own tests'. The test asserts that the flows
++compared 001CC1E0 with no style and with D_00275898, 001FC770 with the
++configs D_00264CB0, D_002671A0 and 0, every page draw and the cues.
++001CC170 (the text width) runs as original code on the oracle but is not
++called on the card screen (only 001FCE30 calls it). Flows: LOAD GAME of
++each slot on both ports (each must stop on the very frame the original
++issues the Read of D_00810700, with that Read's bytes the slot file), a
++declined confirmation then Triangle, Circle and Triangle on the list, no
++directory, a refused card (icon.sys missing) with Cross and with Triangle,
++a card missing one save file (EX_DATA.03, which exercises strcmp 00123020
++past a shared prefix), rows with saves 0 and 3 on port 1. The rows' play
++times include 0, 59 frames, 3:59:30, 99:59:59 and 0x7FFFFFFF frames (9942
++hours: the longest text). Run 2026-10-20: PASS, 30 flows, 1,266 frames
++equal (16 end at the read, 8 with 2, 6 with 1), 20,110 draw and cue calls
++equal (104 cues); about 9 s warm on an idle machine (15 s measured under
++load), 30 to 50 s on a first run (it builds the fixture). Mutants
++(sprintf's flags dropped, its arguments shifted, strcmp never equal,
++00227300's result lost, the row text cut to 4 bytes, the card's stores
++dropped; the glyph and flag bytes swapped for every style but D_00275828,
++config 0 given D_00264CB0's config, the config's style dropped, its words
++shifted, 001CC1E0's style always none, the style's colour low byte lost, a
++cue id changed in 0020CDA0, strcmp equal after a shared 3-byte prefix; and
++one on each call line: 00207D00's two arguments swapped, 00207E40's w and h
++swapped, 00207F80's y0 + 1, 0020A7A0's tex0 low bit flipped, 001CC1E0's x
++and y swapped, 001FC770's y + 1, the cue's second volume + 1 and its id's
++low bit flipped in the sound forward): all fail it. Two equivalent mutants
++survive by construction: the cue's first and second volumes swapped (every
++cue passes 0x1000 for all three) and the style colour's high byte dropped
++(zero in both styles the card screen uses).
++
++### 6.2 The fork recording on a card
++
++The user's decisions of 2026-10-09 (HANDOFF item 9: a separate card file,
++never the user's own). The fork's launcher gives every session two fresh
++8 MB card files (`Mcd001.ps2`, `Mcd002.ps2` in the session's scratch
++folder), which the emulator creates unformatted. One recording (save lane
++round 5), from the route state 15_level_exit: the east room, the save
++terminal [20], the battery prompt's Yes (Left moves its cursor to Yes: the
++game's pad word 0x8000), then the card screen in save mode (the lane's
++`build/side-save-r5/card_rec/summary.json`, the card record and the libmc
++words each frame):
++
++- GetInfo on a fresh card: result 0, type 2, free 0, format 0 (the card
++  check's seven tries, then error screen 0: the format prompt). So the
++  format word of an unformatted PS2 card is 0, and the card check's test
++  for 1 is the formatted case; em_memcard answers 1 (the host card is a
++  formatted card), the one value on which the card check moves on.
++- The game's Format 00114D18 (Yes on the prompt) took 133 frames on each
++  card and ended with result -2: the format failed (00227270's message),
++  and the card then answered type 3 on some GetInfo calls and 2 on others.
++  Retried on port 1: the same. No save was written, so the free count, the
++  descriptors, GetDir's table and the card files the IOP writes are still
++  unrecorded. Whether -2 is the emulator's card or the original's server
++  is open (a card formatted another way, such as the BIOS browser's, is the
++  next attempt).
++- The battery charge D_00810CB2 stayed 8: the save mode takes its 4
++  half-units at the confirmation's Yes or after a successful format
++  (section 6), and neither was reached.
++
+ ## 7. Start-point saves (round 6)
+ 
+ What `EM_START_AT` is to load (not wired yet, section 8): one memory card
+@@ -469,32 +629,30 @@ both are 0 in every arrival block.
+ 
+ ## 8. Next steps
+ 
+-In order: wire the card screen into the game: em_options_live's 002267A0 /
+-00227300 dispatched to em_card_*, the libmc file commands through
+-`em_memcard_call`, em_memcard answering GetInfo's format word (today it
+-faults on the free and format words: no recording shows the server's
+-values; a round-5 attempt at this wiring was set aside unmerged); the
+-progress block D_00810700 as one storage (LOAD GAME's read writes all 0x640
+-bytes; the port holds only its canonical ranges, em_scene_state.h); what the
+-card screen's callers do with its result 2 (0022A650's r == 2, 001AC070's
+-title load: the restore and the area entry); `EM_START_AT=<name>`
+-(docs/STARTUP.md "Developer switches"): em_memcard on
+-`build/start_saves/<name>` and the title's LOAD GAME on slot 0 of port 0,
+-off by default, refusing an unknown name or a card that is not built; the
+-save terminal's Yes path (0020CDC0, request 6) and the save mode's leaves
+-(GetInfo's free count, Format 00114D18, 001AF2C0, block_copy 00121870, the
+-icon container *D_0028A4A0 as a window); a fork recording of a save at
+-AREA01's save terminal on a separate, formatted card file (the user's
+-decisions of 2026-10-09, HANDOFF item 9: never the user's own card), whose
+-libmc results check em_memcard's answers and whose files check section 2
+-against the card the IOP wrote. The lane's round-5 attempt on the
+-emulator's fresh card files found them unformatted (GetInfo's format word
+-0) and the game's Format failing with -2 on both ports, so nothing was
+-written (receipt: the lane's build/side-save-r5/card_rec/summary.json).
++In order: the progress block D_00810700 as one storage (LOAD GAME's read
++writes all 0x640 bytes and every save reads them; the port holds only its
++canonical ranges, em_scene_state.h); what the card screen's callers do with
++its result 2 (0022A650's r == 2, 001AC070's title load: the restore and the
++area entry); `EM_START_AT=<name>` (docs/STARTUP.md "Developer switches"):
++em_memcard on `build/start_saves/<name>` and the title's LOAD GAME on slot
++0 of port 0, off by default, refusing an unknown name or a card that is not
++built; the save terminal's Yes path (0020CDC0, request 6) and the save
++mode's leaves (GetInfo's free count, Format 00114D18, 001AF2C0, block_copy
++00121870, the icon container *D_0028A4A0 as a window); a fork recording of
++a save at AREA01's save terminal on a separate, formatted card file (the
++user's decisions of 2026-10-09, HANDOFF item 9: never the user's own card;
++the BIOS browser's format on a bios-only session, then that card file
++passed to the game session), whose libmc results check em_memcard's
++answers and whose files check section 2 against the card the IOP wrote
++(section 6.2's attempt on the emulator's fresh card files wrote nothing).
+ 
+ ## 9. Re-exports
+ 
+-`python3 tools/build_start_saves.py` after the fork recordings or the save
++`python3 tools/export_status_pages.py` after merging section 6.1: the
++status pages' EMSP carries the card code's .data windows (the icon.sys
++image, the names and paths, the formats, the slot rows' line config and
++style); an EMSP without them makes the card screen fault at its first read
++of one. `python3 tools/build_start_saves.py` after the fork recordings or the save
+ code change (test-start-saves fails on a stale `build/start_saves`).
+ Otherwise none: the save code is in the boot ELF, and the tests read the
+ recordings in the reference `tools/reference_root.py` selects.
+diff --git a/src/game/em_area_title.c b/src/game/em_area_title.c
+index 4b7585d..d492d67 100644
+--- a/src/game/em_area_title.c
++++ b/src/game/em_area_title.c
+@@ -97,6 +97,16 @@ int em_area_title_load(void)
+     return 0;
+ }
+ 
++unsigned em_area_title_regions(EmAreaTitleRegion *out, unsigned max)
++{
++    if (em_area_title_load() < 0 || !out) return 0;
++    unsigned n = 0;
++    for (unsigned k = 0; k < S.blocks && n < max; ++k)
++        out[n++] = (EmAreaTitleRegion){S.block[k].base, S.block[k].size, S.block[k].bytes};
++    if (n < max) out[n++] = (EmAreaTitleRegion){D_00289B40, (uint32_t)sizeof S.d289B40, S.d289B40};
++    return n;
++}
++
+ /* The bytes of `address` inside an exported block (its text up to the
+  * block's end), or NULL. */
+ static const uint8_t *exported(u32 address, u32 *avail)
+diff --git a/src/game/em_area_title.h b/src/game/em_area_title.h
+index f24dd4a..7739deb 100644
+--- a/src/game/em_area_title.h
++++ b/src/game/em_area_title.h
+@@ -54,6 +54,20 @@ typedef struct {
+ } EmAreaTitleRecord;
+ int em_area_title_record(const EmActor *node, EmAreaTitleRecord *out);
+ 
++/* The original bytes this module holds by address, for a binder that
++ * reads them where the original does (the card screen's slot rows read
++ * the place names D_002671C0[D_00289B40[area] + place], em_options_live):
++ * the export's blocks (D_0024A850, the pointer tables D_002671C0 /
++ * D_0026726C, the strings they name, D_00265520) and D_00289B40 as
++ * 001B0BA0 built it. Loads the export first (em_area_title_load). Up to
++ * `max` regions into `out`; returns how many, 0 when the export is
++ * missing. Nothing writes them after the load. */
++typedef struct {
++    uint32_t address, size;
++    const uint8_t *bytes;
++} EmAreaTitleRegion;
++unsigned em_area_title_regions(EmAreaTitleRegion *out, unsigned max);
++
+ uint32_t em_area_title_fault(void);
+ /* The 001CC1E0 lines drawn since start-up (the tick log). */
+ uint32_t em_area_title_lines(void);
+diff --git a/src/game/em_card_original.h b/src/game/em_card_original.h
+index f0a03f2..bcbdf83 100644
+--- a/src/game/em_card_original.h
++++ b/src/game/em_card_original.h
+@@ -2,8 +2,8 @@
+  * card check, the slot list, the confirmation, the save or load it runs
+  * and the card's error screens, translated from the original instructions
+  * (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md section 6. Prefix
+- * em_card_. Not wired yet: the options binding (em_options_live) still
+- * faults at 002267A0 and 00227300.
++ * em_card_. The options binding (em_options_live) dispatches 00225D20's
++ * 00227300 and 00226070's 002267A0 here (docs/SAVE_GAME.md section 6.1).
+  *
+  * The record is the card screen's, D_00810040 (docs/OPTIONS.md, SAVE_GAME.md
+  * section 2.2): +1 the screen (0 the card check, 1 the load enumeration, 2
+diff --git a/src/game/em_frontend.c b/src/game/em_frontend.c
+index 5e49ad2..6981633 100644
+--- a/src/game/em_frontend.c
++++ b/src/game/em_frontend.c
+@@ -391,8 +391,8 @@ static int boot_resources(void)
+  * the options binding the AREA11 interaction host keeps (em_options_live,
+  * the card screen's module 0x2A in the status pages' GS memory, the card
+  * I/O em_memcard): 1 (the screen's exit) goes back to the menu, 2 (a game
+- * loaded) is reached only through 00227300, which faults (beyond the first
+- * level's recordings). The boot's title has no AREA11 binding yet: the
++ * loaded) is reached only through 00227300's LOAD GAME, whose read of the
++ * slot into D_00810700 fail-stops first (docs/SAVE_GAME.md section 6.1). The boot's title has no AREA11 binding yet: the
+  * load entry there faults (no recording; the first level reaches the load
+  * screen from the title after a death, decomp CAPTURES_C10.md dmg_05). */
+ static void load_begin(uint32_t serial)
+diff --git a/src/game/em_memcard.c b/src/game/em_memcard.c
+index bfc14b7..3b2cbf2 100644
+--- a/src/game/em_memcard.c
++++ b/src/game/em_memcard.c
+@@ -117,7 +117,11 @@ uint8_t *em_memcard_globals(uint32_t address, uint32_t size)
+ /* 00114988: D_00241D68 nonzero returns it; the RPC is bound since the
+  * boot's sceMcInit (D_0027B0C0 + 0x24 nonzero), so -100 is not returned;
+  * the call is issued and D_00241D68 = 1. The end callback 00114930 stores
+- * the type, free and format words through the pointers given. */
++ * the type, free and format words through the pointers given: the type 2
++ * and, when asked, the format word 1 (the host card is a formatted card:
++ * the card check 002280F0 moves on only on 1, and the fork's fresh,
++ * unformatted cards answer 0, docs/SAVE_GAME.md section 6.2). The free count
++ * still faults: no recording shows a formatted card's answer. */
+ int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free_words, uint32_t format,
+                         int32_t *v0, EmMemcardStore stores[3], unsigned *n)
+ {
+@@ -131,8 +135,8 @@ int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free
+     }
+     if (port < 0 || port > 1 || slot != 0)
+         return fail("00114988 on a port other than 0 / 1 or a slot other than 0 (no recording)");
+-    if (free_words || format)
+-        return fail("00114988 asked for the free or format words (no recording shows them)");
++    if (free_words)
++        return fail("00114988 asked for the free count (no recording shows a formatted card's answer)");
+     if (!present(port))
+         return fail("00114988 on a slot whose directory data/memcard/slotN is missing (no recording "
+                     "shows a missing card)");
+@@ -140,6 +144,7 @@ int em_memcard_00114988(int32_t port, int32_t slot, uint32_t type, uint32_t free
+     M.known[port] = 1;
+     M.pending = 1;
+     if (type) stores[(*n)++] = (EmMemcardStore){type, 2};
++    if (format) stores[(*n)++] = (EmMemcardStore){format, 1};
+     *v0 = 0;
+     return 0;
+ }
+diff --git a/src/game/em_memcard.h b/src/game/em_memcard.h
+index 931a52b..f663b15 100644
+--- a/src/game/em_memcard.h
++++ b/src/game/em_memcard.h
+@@ -24,11 +24,15 @@
+  * the port). The boot's card check (the startup's 001AB9D0 state 3, the
+  * native stand-in em_frontend's) creates both directories and asks both
+  * ports, as the original's boot check 0022A460 does: the recordings' GetInfo
+- * results in the options' load row are 0 on both ports. A free or format
+- * pointer (no first-level caller passes one), a slot other than 0, a port
+- * other than 0 / 1 or a missing directory faults: no recording shows what
+- * the card server returns then. The store of a result goes to the caller
+- * (the binder writes the words at the addresses the original passes).
++ * results in the options' load row are 0 on both ports. The format word,
++ * when asked (the card check 002280F0), is 1: the host card is a formatted
++ * card, the only value on which the card check moves on (a fresh,
++ * unformatted card in the fork answers 0, docs/SAVE_GAME.md section 6.2). A
++ * free-count pointer (only the save mode's card check passes one, on a card
++ * without the game's directory), a slot other than 0, a port other than
++ * 0 / 1 or a missing directory faults: no recording shows what the card
++ * server returns then. The store of a result goes to the caller (the binder
++ * writes the words at the addresses the original passes).
+  *
+  * One storage for the card helpers' globals 001FE9A0 / 001FECB0 / 001FE920
+  * / 001FE8D0 read and write: D_00275C58..D_00275C6F, D_00264E30..D_00264E3B
+@@ -77,7 +81,8 @@ extern "C" {
+  * open, a Write on a read-only one or a Read on a write-only one, and a
+  * GetDir with mode != 0 or of a directory that is missing. A descriptor is
+  * the lowest free of 0..2 (the server's handle table; the recording that
+- * checks it is docs/SAVE_GAME.md section 8's next step). Open does not
++ * checks it is docs/SAVE_GAME.md section 8's next step: section 6.2's
++ * wrote no save). Open does not
+  * truncate; Write and Read move the descriptor's offset.
+  *
+  * GetDir: a name without a wildcard stores its one entry when it exists
+diff --git a/src/game/em_message_live.c b/src/game/em_message_live.c
+index da54b3f..5e1a144 100644
+--- a/src/game/em_message_live.c
++++ b/src/game/em_message_live.c
+@@ -533,7 +533,7 @@ int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t av
+                           const EmMessageDrawConfig *cfg)
+ {
+     if (!ready()) { report(); return -1; }
+-    if (!text || !cfg || !memchr(text, 0, avail) ||
++    if (!text || !memchr(text, 0, avail) ||
+         em_message_draw_fc770(&s.draw, x, y, text, cfg) < 0 || s.fault) {
+         fail("001FC770");
+         report();
+diff --git a/src/game/em_message_live.h b/src/game/em_message_live.h
+index aa5041d..c478ae4 100644
+--- a/src/game/em_message_live.h
++++ b/src/game/em_message_live.h
+@@ -128,9 +128,11 @@ int em_message_live_cc1e0(int32_t slot, int32_t x, int32_t y, int32_t unused, in
+                           uint32_t avail, const EmMessageTextStyle *style);
+ /* 001FC770(x, y, text, cfg) on the service's draw module, for a caller
+  * outside step F that draws its own line with its own config (the options
+- * screen's 001FCBD0 / 001FCE30 with D_00264CB0): `text` points at `avail`
+- * readable bytes holding its NUL. Its glyph run is drawn at this frame's
+- * step-F render. 0 ok, -1 fault. */
++ * screen's 001FCBD0 / 001FCE30 with D_00264CB0, the card screen's slot rows
++ * with D_002671A0 or none): `text` points at `avail` readable bytes holding
++ * its NUL; cfg NULL is the original's 0 (001FC770 then draws with a copy of
++ * the template D_00264BF0). Its glyph run is drawn at this frame's step-F
++ * render. 0 ok, -1 fault. */
+ int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t avail,
+                           const EmMessageDrawConfig *cfg);
+ /* 001FC9B0. 0 ok, -1 when the data is missing. */
+diff --git a/src/game/em_options_live.c b/src/game/em_options_live.c
+index e48e2a7..08aea8e 100644
+--- a/src/game/em_options_live.c
++++ b/src/game/em_options_live.c
+@@ -6,6 +6,8 @@
+ #include <string.h>
+ 
+ #include "game/em_area01_ui.h"
++#include "game/em_area_title.h"
++#include "game/em_card_original.h"
+ #include "game/em_memcard.h"
+ #include "game/em_message_draw_original.h"
+ #include "game/em_message_live.h"
+@@ -24,6 +26,20 @@ enum { MAX_VIEWS = 160, STACK_BASE = 0x01FF0000u, STACK_SIZE = 0x10000u, CALLS =
+ #define STRING_SIZE 0x40u
+ #define NUMBER_BASE 0x008111D0u /* 001C5FB0's buffer */
+ #define NUMBER_SIZE 0x10u
++/* The card screen past the slot choice and the save / load code below it
++ * (em_card_original, em_save_original; docs/SAVE_GAME.md): their .bss and
++ * .sbss buffers, held here (nothing else reads them). */
++#define D_00821500 0x00821500u /* GetDir's table, 0x12 entries of 0x40 */
++#define D_00821980 0x00821980u /* the header file's 0x48 bytes */
++#define D_008219D0 0x008219D0u /* a slot's staging copy (a new directory) */
++#define D_00822010 0x00822010u /* the slot path the load enumeration builds */
++#define D_00822050 0x00822050u /* the enumeration's slot staging block */
++#define D_00822690 0x00822690u /* 00229680's staging copy */
++#define D_00275C94 0x00275C94u /* the slot rows' text, 4 bytes, then D_00275C98 */
++#define CARD_TEXT_SIZE 12u     /* D_00275C94..D_00275C9F (see docs/OPTIONS.md 4.1) */
++#define D_002671A0 0x002671A0u /* the slot rows' 001FC770 config */
++#define BLOCK_SIZE 0x640u
++#define TITLE_REGIONS 8u
+ 
+ struct EmOptionsLive {
+     EmOptionsHost host;
+@@ -38,13 +54,22 @@ struct EmOptionsLive {
+     /* binder-owned storage of originals no other port module holds */
+     uint8_t style[8];   /* D_00275828..2F: +0 colour, +4 glyph, +5 flag */
+     uint8_t string[STRING_SIZE], number[NUMBER_SIZE];
++    uint8_t getdir[0x480], header[0x48], name[0x40], card_text[CARD_TEXT_SIZE];
++    uint8_t stage_load[BLOCK_SIZE], stage_save[BLOCK_SIZE], stage_new[BLOCK_SIZE];
+     uint8_t stack[STACK_SIZE];
++    /* the area-title module's bytes (the place names and D_00289B40),
++     * copied per call and compared after it */
++    EmAreaTitleRegion titles[TITLE_REGIONS];
++    unsigned title_count;
++    uint8_t *title_copy;
+     /* per-call copies of read-only originals (compared after the call) */
+     uint8_t slot[4], pads[3][2], pad_mode[2], pad_phase, phase, fade[2], b90, b93;
+     uint32_t callees[CALLS][2];
+     unsigned callee_count;
+     uint32_t entry;
+     EmSulWorkers sul;
++    EmOptionsTrace trace; /* tests only (em_options_live_set_trace) */
++    void *trace_context;
+ };
+ 
+ static uint32_t get32(const uint8_t *p)
+@@ -138,6 +163,19 @@ static void build_views(EmOptionsLive *l, const EmOptionsFrame *f)
+     view(l, 0x00275C58u, 0x18, em_memcard_globals(0x00275C58u, 0x18));
+     view(l, 0x00264E30u, 0x0C, em_memcard_globals(0x00264E30u, 0x0C));
+     view(l, 0x00275840u, 0x08, em_memcard_globals(0x00275840u, 0x08));
++    view(l, D_00821500, sizeof l->getdir, l->getdir);
++    view(l, D_00821980, sizeof l->header, l->header);
++    view(l, D_008219D0, BLOCK_SIZE, l->stage_save);
++    view(l, D_00822010, sizeof l->name, l->name);
++    view(l, D_00822050, BLOCK_SIZE, l->stage_load);
++    view(l, D_00822690, BLOCK_SIZE, l->stage_new);
++    view(l, D_00275C94, CARD_TEXT_SIZE, l->card_text);
++    uint32_t toff = 0;
++    for (unsigned i = 0; i < l->title_count; ++i) {
++        memcpy(l->title_copy + toff, l->titles[i].bytes, l->titles[i].size);
++        view(l, l->titles[i].address, l->titles[i].size, l->title_copy + toff);
++        toff += l->titles[i].size;
++    }
+     const EmGsDataWindow *w;
+     const unsigned n = em_gs_texture_windows(l->gs, &w);
+     uint32_t off = 0;
+@@ -162,6 +200,12 @@ static int check_readonly(EmOptionsLive *l, const EmOptionsFrame *f)
+             return report(l, w[i].address, "stored into a read-only .data window");
+         off += w[i].size;
+     }
++    uint32_t toff = 0;
++    for (unsigned i = 0; i < l->title_count; ++i) {
++        if (memcmp(l->title_copy + toff, l->titles[i].bytes, l->titles[i].size))
++            return report(l, l->titles[i].address, "stored into the area-title module's read-only bytes");
++        toff += l->titles[i].size;
++    }
+     uint8_t want[4];
+     put32(want, f->task_address);
+     if (memcmp(l->slot, want, 4) || l->phase != f->read_phase || l->pad_phase != f->pad_phase ||
+@@ -178,28 +222,282 @@ static int check_readonly(EmOptionsLive *l, const EmOptionsFrame *f)
+ 
+ /* ---- the text --------------------------------------------------------- */
+ 
++/* A style record by its address: D_00275828 (the binder's storage, which
++ * 001FCBD0 / 001FCE30 set) or another one in a view (the card screen's
++ * D_00275898, a .data window). */
+ static int text_style(EmOptionsLive *l, uint32_t address, EmMessageTextStyle *out)
+ {
+-    if (address != D_00275828) return 0;
+-    out->color = (int32_t)get32(l->style);
+-    out->glyph = l->style[4];
+-    out->flag = l->style[5];
+-    out->pad[0] = l->style[6];
+-    out->pad[1] = l->style[7];
++    const uint8_t *p = address == D_00275828 ? l->style : at(l, address, 8);
++    if (!p) return 0;
++    out->color = (int32_t)get32(p);
++    out->glyph = p[4];
++    out->flag = p[5];
++    out->pad[0] = p[6];
++    out->pad[1] = p[7];
+     return 1;
+ }
+ 
+-/* D_00264CB0 (the window) with its style pointer, which must be
+- * D_00275828. */
+-static int line_config(EmOptionsLive *l, uint32_t address, EmMessageDrawConfig *cfg, EmMessageTextStyle *style)
++/* 001FC770's config: D_00264CB0 (001FCBD0 / 001FCE30) or D_002671A0 (the
++ * card screen's slot rows), each a .data window, with its style pointer
++ * (+0x14) a style record text_style reads, or 0. *cfg_out is NULL for the
++ * original's 0 (001FC770 then copies its template). */
++static int line_config(EmOptionsLive *l, uint32_t address, EmMessageDrawConfig *cfg, EmMessageTextStyle *style,
++                       const EmMessageDrawConfig **cfg_out)
+ {
++    if (address == 0) {
++        *cfg_out = NULL;
++        return 1;
++    }
+     const uint8_t *p = at(l, address, 0x18);
+-    if (address != D_00264CB0 || !p || !text_style(l, get32(p + 0x14), style)) return 0;
++    if ((address != D_00264CB0 && address != D_002671A0) || !p) return 0;
++    const uint32_t style_at = get32(p + 0x14);
++    if (style_at && !text_style(l, style_at, style)) return 0;
+     for (unsigned k = 0; k < 5; ++k) cfg->word[k] = (int32_t)get32(p + 4 * k);
+-    cfg->style = style;
++    cfg->style = style_at ? style : NULL;
++    *cfg_out = cfg;
+     return 1;
+ }
+ 
++/* ---- EE memory as the card server and the leaves reach it -------------- */
++
++/* Every byte of [address, address + size) in a view (a range may span
++ * views: the progress block's canonical ranges are views of their own). */
++static int mem_check(EmOptionsLive *l, uint32_t address, uint32_t size)
++{
++    for (uint32_t i = 0; i < size;) {
++        uint8_t *p;
++        const uint32_t n = room(l, address + i, &p);
++        if (!p) return 0;
++        i += n < size - i ? n : size - i;
++    }
++    return 1;
++}
++
++static int mem_read(void *ctx, uint32_t address, void *dst, uint32_t size)
++{
++    EmOptionsLive *l = ctx;
++    if (!mem_check(l, address, size)) return -1;
++    for (uint32_t i = 0; i < size;) {
++        uint8_t *p;
++        uint32_t n = room(l, address + i, &p);
++        if (n > size - i) n = size - i;
++        memcpy((uint8_t *)dst + i, p, n);
++        i += n;
++    }
++    return 0;
++}
++
++static int mem_write(void *ctx, uint32_t address, const void *src, uint32_t size)
++{
++    EmOptionsLive *l = ctx;
++    if (!mem_check(l, address, size)) return -1; /* nothing stored unless every byte is a view's */
++    for (uint32_t i = 0; i < size;) {
++        uint8_t *p;
++        uint32_t n = room(l, address + i, &p);
++        if (n > size - i) n = size - i;
++        memcpy(p, (const uint8_t *)src + i, n);
++        i += n;
++    }
++    return 0;
++}
++
++/* sprintf 00122D10(dst, format, ...) (the SDK's, no length limit) for the
++ * formats the card screen and the load enumeration pass (D_00273998 "%02d"
++ * style, D_002739A0, D_00273960): flags '-' and '0', a width, and the
++ * conversions d and s (a string in a view); any other conversion faults.
++ * The integer arguments are the 32-bit images the registers hold; the NUL
++ * is stored at the end. *v0 the count (no caller reads it). */
++static int sprintf_00122D10(EmOptionsLive *l, const uint64_t *a, unsigned na, uint64_t *v0)
++{
++    uint8_t *fmt;
++    const uint32_t nf = room(l, (uint32_t)a[1], &fmt);
++    const uint8_t *z = fmt ? memchr(fmt, 0, nf) : NULL;
++    if (!z) return report(l, 0x00122D10u, "has its format outside the views");
++    char out[256];
++    size_t len = 0;
++    unsigned arg = 2;
++    for (const uint8_t *c = fmt; c < z;) {
++        if (*c != '%') {
++            if (len + 1 >= sizeof out) return report(l, 0x00122D10u, "formats more than the binding holds");
++            out[len++] = (char)*c++;
++            continue;
++        }
++        char spec[16];
++        size_t k = 0;
++        spec[k++] = (char)*c++;
++        while (c < z && (*c == '-' || *c == '0') && k < 4) spec[k++] = (char)*c++;
++        while (c < z && *c >= '0' && *c <= '9' && k < 8) spec[k++] = (char)*c++;
++        if (c >= z || (*c != 'd' && *c != 's'))
++            return report(l, 0x00122D10u, "with a conversion the binding does not implement");
++        const char conv = (char)*c++;
++        spec[k++] = conv;
++        spec[k] = 0;
++        if (arg >= na) return report(l, 0x00122D10u, "with more conversions than argument registers");
++        char piece[128];
++        int n;
++        if (conv == 'd') {
++            n = snprintf(piece, sizeof piece, spec, (int)(int32_t)(uint32_t)a[arg++]);
++        } else {
++            uint8_t *sp;
++            const uint32_t ns = room(l, (uint32_t)a[arg++], &sp);
++            const uint8_t *sz = sp ? memchr(sp, 0, ns) : NULL;
++            if (!sz) return report(l, 0x00122D10u, "has a %s argument outside the views");
++            char text[96];
++            if ((size_t)(sz - sp) >= sizeof text) return report(l, 0x00122D10u, "has a long %s argument");
++            memcpy(text, sp, (size_t)(sz - sp) + 1);
++            n = snprintf(piece, sizeof piece, spec, text);
++        }
++        if (n < 0 || (size_t)n >= sizeof piece || len + (size_t)n >= sizeof out)
++            return report(l, 0x00122D10u, "formats more than the binding holds");
++        memcpy(out + len, piece, (size_t)n);
++        len += (size_t)n;
++    }
++    out[len] = 0;
++    if (mem_write(l, (uint32_t)a[0], out, (uint32_t)len + 1u) < 0)
++        return report(l, 0x00122D10u, "writes outside the views");
++    *v0 = (uint64_t)len;
++    return 0;
++}
++
++/* ---- the test log (em_options_live_set_trace) -------------------------- */
++
++typedef struct {
++    uint8_t b[512];
++    uint32_t n;
++    int full;
++} Record;
++
++static void rec_bytes(Record *r, const void *p, uint32_t n)
++{
++    if (r->n + n > sizeof r->b) {
++        r->full = 1;
++        return;
++    }
++    memcpy(r->b + r->n, p, n);
++    r->n += n;
++}
++
++static void rec_word(Record *r, uint32_t v)
++{
++    uint8_t w[4];
++    put32(w, v);
++    rec_bytes(r, w, 4);
++}
++
++static void rec_dword(Record *r, uint64_t v)
++{
++    rec_word(r, (uint32_t)v);
++    rec_word(r, (uint32_t)(v >> 32));
++}
++
++static void rec_text(Record *r, const uint8_t *p, uint32_t n)
++{
++    const uint8_t *z = memchr(p, 0, n);
++    const uint32_t len = z ? (uint32_t)(z - p) : n;
++    rec_word(r, len);
++    rec_bytes(r, p, len);
++}
++
++static void rec_style(Record *r, const EmMessageTextStyle *s)
++{
++    const uint8_t present = s != NULL;
++    rec_bytes(r, &present, 1);
++    if (!s) return;
++    rec_word(r, (uint32_t)s->color);
++    const uint8_t b[4] = {s->glyph, s->flag, s->pad[0], s->pad[1]};
++    rec_bytes(r, b, 4);
++}
++
++static void emit(EmOptionsLive *l, uint32_t callee, Record *r)
++{
++    if (l->trace) l->trace(l->trace_context, callee, r->full ? NULL : r->b, r->full ? 0 : r->n);
++}
++
++/* The traced calls. Each takes the values the dispatcher hands on as its
++ * own parameters, logs exactly those parameters and forwards them
++ * unchanged, so the log is what the callee receives: a wrong argument in a
++ * dispatcher's call line reaches the log too. */
++static int out_blend(EmOptionsLive *l, int32_t slot, int32_t mode)
++{
++    if (l->trace) {
++        Record r = {.n = 0};
++        rec_word(&r, (uint32_t)slot);
++        rec_word(&r, (uint32_t)mode);
++        emit(l, 0x00207D00u, &r);
++    }
++    return em_page_draw_blend(l->draw, slot, mode);
++}
++
++static int out_sprite(EmOptionsLive *l, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
++                      uint32_t rgba, uint64_t tex0)
++{
++    if (l->trace) {
++        Record r = {.n = 0};
++        const int32_t v[5] = {slot, x, y, w, h};
++        for (unsigned i = 0; i < 5; ++i) rec_word(&r, (uint32_t)v[i]);
++        rec_word(&r, rgba);
++        rec_dword(&r, tex0);
++        emit(l, 0x00207E40u, &r);
++    }
++    return em_page_draw_sprite(l->draw, slot, x, y, w, h, rgba, tex0);
++}
++
++static int out_rectangle(EmOptionsLive *l, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
++                         uint32_t rgba)
++{
++    if (l->trace) {
++        Record r = {.n = 0};
++        const int32_t v[5] = {slot, x0, y0, x1, y1};
++        for (unsigned i = 0; i < 5; ++i) rec_word(&r, (uint32_t)v[i]);
++        rec_word(&r, rgba);
++        emit(l, 0x00207F80u, &r);
++    }
++    return em_page_draw_rectangle(l->draw, slot, x0, y0, x1, y1, rgba);
++}
++
++static int out_background(EmOptionsLive *l, uint64_t tex0)
++{
++    if (l->trace) {
++        Record r = {.n = 0};
++        rec_dword(&r, tex0);
++        emit(l, 0x0020A7A0u, &r);
++    }
++    return em_page_draw_background(l->draw, tex0);
++}
++
++static int out_cc1e0(EmOptionsLive *l, int32_t slot, int32_t x, int32_t y, int32_t unused, int32_t h,
++                     const uint8_t *text, uint32_t avail, const EmMessageTextStyle *style)
++{
++    if (l->trace) {
++        Record r = {.n = 0};
++        const int32_t v[5] = {slot, x, y, unused, h};
++        for (unsigned i = 0; i < 5; ++i) rec_word(&r, (uint32_t)v[i]);
++        rec_text(&r, text, avail);
++        rec_style(&r, style);
++        emit(l, 0x001CC1E0u, &r);
++    }
++    return em_message_live_cc1e0(slot, x, y, unused, h, text, avail, style);
++}
++
++static int out_fc770(EmOptionsLive *l, int32_t x, int32_t y, const uint8_t *text, uint32_t avail,
++                     const EmMessageDrawConfig *cfg)
++{
++    if (l->trace) {
++        Record r = {.n = 0};
++        rec_word(&r, (uint32_t)x);
++        rec_word(&r, (uint32_t)y);
++        rec_text(&r, text, avail);
++        const uint8_t present = cfg != NULL;
++        rec_bytes(&r, &present, 1);
++        if (cfg) {
++            for (unsigned k = 0; k < 5; ++k) rec_word(&r, (uint32_t)cfg->word[k]);
++            rec_style(&r, cfg->style);
++        }
++        emit(l, 0x001FC770u, &r);
++    }
++    return em_message_live_fc770(x, y, text, avail, cfg);
++}
++
+ /* ---- the dispatcher ---------------------------------------------------- */
+ 
+ static void count(EmOptionsLive *l, uint32_t callee)
+@@ -217,16 +515,8 @@ static void count(EmOptionsLive *l, uint32_t callee)
+ 
+ static int ok0(int accepted) { return accepted ? 0 : -1; }
+ 
+-static int store_words(EmOptionsLive *l, const EmMemcardStore *stores, unsigned n)
+-{
+-    for (unsigned i = 0; i < n; ++i) {
+-        uint8_t *p = at(l, stores[i].address, 4);
+-        if (!p) return -1;
+-        put32(p, (uint32_t)stores[i].value);
+-    }
+-    return 0;
+-}
+-
++/* 001FB9F0 as 0020CD40 / 60 / A0 call it: the host's sound. Not logged
++ * here: a test logs the cue in its own host.sound, where it arrives. */
+ static int sul_sound(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3)
+ {
+     EmOptionsLive *l = c;
+@@ -247,13 +537,13 @@ static int dispatch(void *ctx, uint32_t target, uint32_t sp, const uint64_t *a,
+ #define U(i) ((uint32_t)A(i))
+     switch (target) {
+     case 0x00207D00u:
+-        return ok0(em_page_draw_blend(l->draw, I(0), I(1)));
++        return ok0(out_blend(l, I(0), I(1)));
+     case 0x00207E40u:
+-        return ok0(em_page_draw_sprite(l->draw, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
++        return ok0(out_sprite(l, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
+     case 0x00207F80u:
+-        return ok0(em_page_draw_rectangle(l->draw, I(0), I(1), I(2), I(3), I(4), U(5)));
++        return ok0(out_rectangle(l, I(0), I(1), I(2), I(3), I(4), U(5)));
+     case 0x0020A7A0u:
+-        return ok0(em_page_draw_background(l->draw, A(0)));
++        return ok0(out_background(l, A(0)));
+     case 0x001281C0u:
+         if (nf < 1) return -1;
+         *v0 = (uint64_t)(int64_t)em_player_float_to_int(f[0]);
+@@ -380,42 +670,54 @@ static int dispatch(void *ctx, uint32_t target, uint32_t sp, const uint64_t *a,
+         uint8_t *p;
+         const uint32_t n = room(l, U(5), &p);
+         EmMessageTextStyle style;
+-        if (!p || !text_style(l, U(6), &style)) return report(l, target, "has no text or style D_00275828");
+-        return em_message_live_cc1e0(I(0), I(1), I(2), I(3), I(4), p, n, &style) < 0 ? -1 : 0;
++        if (!p || (U(6) && !text_style(l, U(6), &style)))
++            return report(l, target, "has no text or a style outside the views");
++        const EmMessageTextStyle *use = U(6) ? &style : NULL;
++        return out_cc1e0(l, I(0), I(1), I(2), I(3), I(4), p, n, use) < 0 ? -1 : 0;
+     }
+     case 0x001FC770u: {
+         uint8_t *p;
+         const uint32_t n = room(l, U(2), &p);
+         EmMessageDrawConfig cfg;
+         EmMessageTextStyle style;
+-        if (!p || !line_config(l, U(3), &cfg, &style))
+-            return report(l, target, "has no text or a config other than D_00264CB0");
+-        return em_message_live_fc770(I(0), I(1), p, n, &cfg) < 0 ? -1 : 0;
+-    }
+-    /* the memory card */
+-    case 0x00114988u: {
+-        EmMemcardStore stores[3];
+-        unsigned n = 0;
+-        int32_t r = 0;
+-        if (em_memcard_00114988(I(0), I(1), U(2), U(3), U(4), &r, stores, &n) < 0 ||
+-            store_words(l, stores, n) < 0)
+-            return -1;
+-        *v0 = (uint64_t)(int64_t)r;
+-        return 0;
++        const EmMessageDrawConfig *use = NULL;
++        if (!p || !line_config(l, U(3), &cfg, &style, &use))
++            return report(l, target, "has no text or a config other than D_00264CB0 / D_002671A0 / 0");
++        return out_fc770(l, I(0), I(1), p, n, use) < 0 ? -1 : 0;
+     }
+-    case 0x00114848u: {
+-        EmMemcardStore stores[2];
+-        unsigned n = 0;
+-        int32_t r = 0;
+-        if (em_memcard_00114848(I(0), U(1), U(2), &r, stores, &n) < 0 || store_words(l, stores, n) < 0)
+-            return -1;
+-        *v0 = (uint64_t)(int64_t)r;
+-        return 0;
++    /* the memory card: the eight libmc entries em_memcard answers (GetInfo,
++     * Sync and the file commands), over the views */
++    case 0x00114988u: case 0x00114848u: case 0x00114360u: case 0x00114448u:
++    case 0x00114480u: case 0x00114708u: case 0x00114630u: case 0x00114AC0u: {
++        const EmMemcardMemory mem = {l, mem_read, mem_write};
++        return em_memcard_call(target, a, na, &mem, v0) < 0 ? -1 : 0;
+     }
++    case 0x00114D18u:
++        return report(l, target, "(libmc Format, the save mode's unformatted card): no recording shows the "
++                                 "card server's answer (docs/SAVE_GAME.md section 6.2)");
++    /* the card screen past the slot choice (em_card_original): 00226070's
++     * card poll 002267A0 and 00225D20's 00227300 */
+     case 0x002267A0u:
+-    case 0x00227300u:
+-        return report(l, target, "the card screen past the slot choice, which the first level's recordings "
+-                                 "do not reach (docs/OPTIONS.md section 5): not translated");
++    case 0x00227300u: {
++        uint32_t r = 0;
++        const int rc = target == 0x002267A0u ? em_card_002267A0(&l->s, U(0), &r) : em_card_00227300(&l->s, U(0), &r);
++        if (rc < 0) return -1;
++        *v0 = (uint64_t)(int64_t)(int32_t)r;
++        return 0;
++    }
++    case 0x00122D10u:
++        return sprintf_00122D10(l, a, na, v0);
++    case 0x00123020u: { /* strcmp(a, b): the first differing bytes' difference (00228C90 tests 0) */
++        uint8_t *p, *q;
++        const uint32_t np = room(l, U(0), &p), nq = room(l, U(1), &q);
++        for (uint32_t i = 0;; ++i) {
++            if (i >= np || i >= nq) return report(l, target, "reads outside the views");
++            if (p[i] != q[i] || !p[i]) {
++                *v0 = (uint64_t)(int64_t)((int32_t)p[i] - (int32_t)q[i]);
++                return 0;
++            }
++        }
++    }
+     default:
+         return report(l, target, "which is not bound");
+     }
+@@ -460,6 +762,27 @@ EmOptionsLive *em_options_live_create(EmGsTexture *gs, const EmOptionsHost *host
+         return NULL;
+     }
+     memcpy(l->style, init, sizeof l->style);
++    /* the place names the card screen's slot rows read (em_area_title); a
++     * region the EMSP already carries as a window (the style D_00265520) is
++     * read there */
++    EmAreaTitleRegion all[TITLE_REGIONS];
++    const unsigned got = em_area_title_regions(all, TITLE_REGIONS);
++    for (unsigned i = 0; i < got; ++i) {
++        int inside = 0;
++        for (unsigned k = 0; k < n; ++k)
++            if (all[i].address >= w[k].address && (uint64_t)all[i].address + all[i].size <=
++                                                       (uint64_t)w[k].address + w[k].size)
++                inside = 1;
++        if (!inside) l->titles[l->title_count++] = all[i];
++    }
++    size_t tsize = 0;
++    for (unsigned i = 0; i < l->title_count; ++i) tsize += l->titles[i].size;
++    if (!l->title_count || !(l->title_copy = malloc(tsize))) {
++        fprintf(stderr, "options: the area-title export (the card screen's place names) is missing "
++                        "(python3 tools/export_area_title.py)\n");
++        em_options_live_free(l);
++        return NULL;
++    }
+     memset(&l->sul, 0, sizeof l->sul);
+     l->sul.context = l;
+     l->sul.sound = sul_sound;
+@@ -471,6 +794,7 @@ void em_options_live_free(EmOptionsLive *l)
+     if (!l) return;
+     em_page_draw_free(l->draw);
+     free(l->data);
++    free(l->title_copy);
+     free(l);
+ }
+ 
+@@ -554,6 +878,43 @@ void em_options_live_deactivate(EmOptionsLive *l)
+     if (l) em_page_draw_deactivate(l->draw);
+ }
+ 
++static uint8_t *card_buffer(const EmOptionsLive *cl, uint32_t address, uint32_t size)
++{
++    EmOptionsLive *l = (EmOptionsLive *)cl;
++    const struct { uint32_t base, size; uint8_t *bytes; } own[] = {
++        {D_00821500, sizeof l->getdir, l->getdir}, {D_00821980, sizeof l->header, l->header},
++        {D_008219D0, BLOCK_SIZE, l->stage_save}, {D_00822010, sizeof l->name, l->name},
++        {D_00822050, BLOCK_SIZE, l->stage_load}, {D_00822690, BLOCK_SIZE, l->stage_new},
++        {D_00275C94, CARD_TEXT_SIZE, l->card_text}};
++    for (unsigned i = 0; i < sizeof own / sizeof own[0]; ++i)
++        if (address >= own[i].base && (uint64_t)address + size <= (uint64_t)own[i].base + own[i].size)
++            return own[i].bytes + (address - own[i].base);
++    return NULL;
++}
++
++int em_options_live_card_bytes(const EmOptionsLive *l, uint32_t address, void *dst, uint32_t size)
++{
++    const uint8_t *p = l && dst ? card_buffer(l, address, size) : NULL;
++    if (!p) return -1;
++    memcpy(dst, p, size);
++    return 0;
++}
++
++int em_options_live_card_seed(EmOptionsLive *l, uint32_t address, const void *src, uint32_t size)
++{
++    uint8_t *p = l && src ? card_buffer(l, address, size) : NULL;
++    if (!p) return -1;
++    memcpy(p, src, size);
++    return 0;
++}
++
++void em_options_live_set_trace(EmOptionsLive *l, EmOptionsTrace trace, void *context)
++{
++    if (!l) return;
++    l->trace = trace;
++    l->trace_context = context;
++}
++
+ unsigned em_options_live_calls(const EmOptionsLive *l, uint32_t callee)
+ {
+     if (!l) return 0;
+diff --git a/src/game/em_options_live.h b/src/game/em_options_live.h
+index ba5c6a9..7c8154c 100644
+--- a/src/game/em_options_live.h
++++ b/src/game/em_options_live.h
+@@ -18,12 +18,24 @@
+  *                         strncpy) over the views
+  *   001281C0              em_player_float_to_int
+  *   0020CD40 / 60 / A0    the cues (em_sul_*, the host's 001FB9F0)
+- *   00114988 / 00114848   em_memcard (the card I/O boundary)
++ *   00114988 / 00114848 / 00114360 / 00114448 / 00114480 / 00114708 /
++ *   00114630 / 00114AC0   em_memcard_call (the card I/O boundary: GetInfo,
++ *                         Sync, Open, Mkdir, Close, Write, Read, GetDir)
++ *                         over the views
+  *   001D2830, 00200970, 001AEE10 / 001AEDE0, 001FBC50, 001FABB0, 001FF080,
+  *   001B61C0              the host's workers
+- *   002267A0 / 00227300   fault: the card screens past the first level's
+- *                         recordings (translated in em_card_original,
+- *                         docs/SAVE_GAME.md section 6; not wired yet)
++ *   002267A0 / 00227300   em_card_002267A0 / em_card_00227300 (the card
++ *                         screen past the slot choice, docs/SAVE_GAME.md
++ *                         section 6) on this binding's state
++ *   00122D10, 00123020    sprintf (the conversions d and s) and strcmp
++ *                         over the views
++ *   00114D18, 00121870, 001AF2C0   fault: the save mode's Format, block
++ *                         copy and New Game block (docs/OPTIONS.md 4.2)
++ *
++ * Its own storage for the card code's buffers (GetDir's table
++ * D_00821500, the header D_00821980, the staging blocks D_008219D0 /
++ * D_00822050 / D_00822690, the slot path D_00822010, the row text
++ * D_00275C94..9F) and views of em_area_title's place names and D_00289B40.
+  *
+  * Fail-stop: a missing view, a refused draw or a failing worker latches
+  * the call's fault (reported); the caller stops the game. */
+@@ -96,5 +108,31 @@ int em_options_live_render(EmOptionsLive *live, EmGfx *gfx);
+ void em_options_live_deactivate(EmOptionsLive *live);
+ /* For tests and logs: the calls the last call made to `callee`. */
+ unsigned em_options_live_calls(const EmOptionsLive *live, uint32_t callee);
++/* For tests: `size` bytes at `address` of the binding's own card buffers
++ * (D_00821500, D_00821980, D_008219D0, D_00822010, D_00822050, D_00822690,
++ * D_00275C94..9F). 0, or -1 outside them. */
++int em_options_live_card_bytes(const EmOptionsLive *live, uint32_t address, void *dst, uint32_t size);
++/* For tests: start those buffers from a recording's bytes (the game starts
++ * them zero, as the boot leaves the original's .bss). 0, or -1. */
++int em_options_live_card_seed(EmOptionsLive *live, uint32_t address, const void *src, uint32_t size);
++/* For tests: a log of the draw and cue calls the binding makes (NULL, the
++ * default, logs nothing). Each record is taken inside a thin wrapper from
++ * the very parameters it then forwards to the callee (em_page_draw_*,
++ * em_message_live_cc1e0 / fc770), so it holds what the
++ * callee receives. `record` is the call's values in this little-endian
++ * layout (every word 4 bytes):
++ *   00207D00  slot, mode
++ *   00207E40  slot, x, y, w, h, rgba, then tex0 (8 bytes)
++ *   00207F80  slot, x0, y0, x1, y1, rgba
++ *   0020A7A0  the argument (8 bytes)
++ *   001CC1E0  slot, x, y, w, h, the text (a length word, then its bytes up
++ *             to the NUL), the style (a present byte, then 8 bytes: colour
++ *             word, glyph, flag, pad, pad)
++ *   001FC770  x, y, the text as above, the config (a present byte, then
++ *             its 5 words and the style as above)
++ * The cues (001FB9F0, as 0020CD40 / 60 / A0 pass them) reach the host's
++ * sound callback (EmOptionsHost), where a test logs them itself. */
++typedef void (*EmOptionsTrace)(void *context, uint32_t callee, const uint8_t *record, uint32_t size);
++void em_options_live_set_trace(EmOptionsLive *live, EmOptionsTrace trace, void *context);
+ 
+ #endif /* EM_OPTIONS_LIVE_H */
+diff --git a/src/game/em_save_original.h b/src/game/em_save_original.h
+index 3f5af52..ee6c501 100644
+--- a/src/game/em_save_original.h
++++ b/src/game/em_save_original.h
+@@ -2,11 +2,11 @@
+  * routines that write a saved game to the card and read it back,
+  * translated from the original
+  * instructions (boot ELF SCUS-97112). Docs: docs/SAVE_GAME.md. Prefix
+- * em_save_. Not wired yet (docs/SAVE_GAME.md section 8): the card screen
+- * 00227300 that runs it is translated (em_card_original) but the options
+- * binding still faults there. Its libmc callees are answered by
+- * em_memcard (em_memcard_call; docs/SAVE_GAME.md section 5) once a binder
+- * routes them there.
++ * em_save_. The card screen 00227300 (em_card_original) runs it, wired
++ * into the options binding em_options_live (docs/SAVE_GAME.md section
++ * 6.1), which answers its libmc callees through em_memcard_call
++ * (docs/SAVE_GAME.md section 5): live in load mode up to LOAD GAME's read
++ * (00228B60), which fail-stops; the save mode is not reachable live.
+  *
+  * The record is the card screen's, D_00810040 (docs/OPTIONS.md): +3 the
+  * writer's state, +4 its step, +5, +0xA the save slot (0..4, the file
+@@ -47,7 +47,7 @@
+  *                 00114708 / 00114480 / 00114448 / 00114AC0 / 00114630),
+  *                 the next takes the result 001FE9A0 kept in D_00275C64
+  *
+- * The load side (the card screen's; not wired either):
++ * The load side (the card screen's):
+  *
+  *   002283B0(e)   the load enumeration on e[2]: GetDir of the game's
+  *                 directory (none: 1 with no slot present), then 00228EB0
+diff --git a/tools/export_status_pages.py b/tools/export_status_pages.py
+index 145a876..e55d1bf 100644
+--- a/tools/export_status_pages.py
++++ b/tools/export_status_pages.py
+@@ -56,6 +56,13 @@ DATA_WINDOWS = [
+     (0x0026EC50, 0x0026EC60),   # 001FCBD0's token set D_0026EC50
+     (0x00273320, 0x00273330),   # 00201F70's labels D_00273320 / 28
+     (0x00275828, 0x00275830),   # D_00275828's boot value (the binder's storage starts from it)
++    # the card screen past the slot choice and the save / load code below it
++    # (docs/SAVE_GAME.md sections 2, 4 and 6)
++    (0x00266B30, 0x00266EF4),   # the icon.sys image D_00266B30 (0x3C4 bytes)
++    (0x00266F00, 0x002671B8),   # the directory and file names D_00266F00 / F20 / D_00267060, the
++                                #   slot rows' line config D_002671A0
++    (0x002738E0, 0x002739D0),   # the card paths, the header title and the sprintf formats D_002738E0..B0
++    (0x00275890, 0x002758A0),   # the icon file's name D_00275890 and the glyph style D_00275898
+ ]
+ # The boot bank module 0 (001FF1E0(0) loads its resident region at 0xB00000
+ # and sets D_0028A490[slot] = 0xB00000 + the slot's entry offset,
+diff --git a/tools/test_area11_interaction_host.py b/tools/test_area11_interaction_host.py
+index c1948e1..2436982 100644
+--- a/tools/test_area11_interaction_host.py
++++ b/tools/test_area11_interaction_host.py
+@@ -32,6 +32,9 @@ MODULES = (
+     # 001B61C0 (em_pad_actuator over em_player_ladder_entry's translation; the
+     # pad itself is the headless placeholder backend) and em_pickup_reset's 001AF470.
+     'em_options_live em_options_original em_memcard em_pad_actuator em_player_ladder_entry em_startup_load_gaps '
++    # The card screen past the slot choice it dispatches to, the save / load
++    # code under it and the place names its slot rows read (docs/SAVE_GAME.md).
++    'em_card_original em_save_original em_area_title '
+     'em_script em_frame em_fade em_random em_task em_face_slot em_roger_actor_original em_opening_face '
+     'em_collision_world em_actor_collision em_actor_pool em_coll_probe_original em_coll_grid_hull em_coll_segment_walkers '
+     'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original '
+diff --git a/tools/test_memcard_host.py b/tools/test_memcard_host.py
+index 03a45f4..366af39 100644
+--- a/tools/test_memcard_host.py
++++ b/tools/test_memcard_host.py
+@@ -31,7 +31,8 @@ docs/SAVE_GAME.md section 5. Two parts:
+ The card server is the IOP's, not EE code: what em_memcard answers (a
+ descriptor 0..2, GetDir's entries, the counts) is checked here against what
+ the original EE code accepts and reads back, not against a recording of the
+-server; that recording is docs/SAVE_GAME.md section 8's next step.
++server; that recording is docs/SAVE_GAME.md section 8's next step (section
++6.2's fork recording wrote no save: the game's Format failed on the fresh card).
+ 
+ Host folders live in a temporary directory removed at the end. Quick by
+ default (a covering set of saves); EM_TEST_FULL=1 runs every slot and port
+@@ -351,6 +352,7 @@ class Mem:
+ 
+ 
+ NAME, BUF, TABLE, CMD, RES, TYPE = 0x100, 0x1000, 0x4000, 0x80, 0x84, 0x88
++FREE_WORD, FORMAT_WORD = 0x8C, 0x90
+ 
+ 
+ def unit(tmp):
+@@ -435,6 +437,11 @@ def unit(tmp):
+     assert do(MKDIR, 1, 0, name(DIR)) == 0 and sync() == (0xB, 0) and (root / 'slot2' / DIR).is_dir()
+     # GetInfo / Sync through em_memcard_call: type 2, result 0 (a card the port knows)
+     assert do(GETINFO, 0, 0, TYPE, 0, 0) == 0 and m.word(TYPE) == 2 and sync() == (1, 0)
++    # the card check's GetInfo: the format word 1 (a formatted card), type 2
++    m.put(TYPE, b'\xEE' * 4)
++    m.put(FORMAT_WORD, b'\xEE' * 4)
++    assert do(GETINFO, 0, 0, TYPE, 0, FORMAT_WORD) == 0 and sync() == (1, 0)
++    assert m.word(TYPE) == 2 and m.word(FORMAT_WORD) == 1
+     # refusals (each on a fresh card; the fault latches)
+     mk = lambda r: (r / 'slot1' / DIR).mkdir()      # noqa: E731
+     for text in ('../x', '/' + DIR, DIR + '/../x', DIR + '//x', 'a b', 'x' * 32, DIR + '/./x', ''):
+@@ -474,6 +481,7 @@ def unit(tmp):
+     refused(WRITE, (0, 0xFFF0, 0x100), 'outside the caller', write_only)
+     refused(OPEN, (0, 0, 0xFFFFFF00, 0x203), 'outside the caller')
+     refused(0x114510, (0, 0, 0), 'not a libmc entry')
++    refused(GETINFO, (0, 0, TYPE, FREE_WORD, FORMAT_WORD), 'free count')
+     LIB.em_memcard_reset()
+     return n[0]
+ 
+diff --git a/tests/options_card_live_fixture.c b/tests/options_card_live_fixture.c
+new file mode 100644
+index 0000000..ea58da6
+--- /dev/null
++++ b/tests/options_card_live_fixture.c
+@@ -0,0 +1,167 @@
++/* options_card_live_fixture.c - the options binding (em_options_live) on
++ * the card screen past the slot choice, for tools/test_options_card_live.py
++ * (docs/SAVE_GAME.md section 6, docs/OPTIONS.md section 4).
++ *
++ * A shared library the test loads with ctypes: the status pages' EMSP (the
++ * GS memory with the card screen's module 0x2A applied and the .data
++ * windows), the message service's data and the area-title export are the
++ * assets the game loads; the host workers accept every call (the fades and
++ * the loader are outside this test). The binding's draw calls (logged
++ * where it hands them to em_page_draw / em_message_live:
++ * em_options_live_set_trace) and the cues this host's sound receives are
++ * logged for the test to compare with the original's. Each frame is one em_options_live_00225AC0
++ * call over storage the test owns. */
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++
++#include "game/em_gs_texture.h"
++#include "game/em_hud.h"
++#include "game/em_memcard.h"
++#include "game/em_message_live.h"
++#include "game/em_message_service.h"
++#include "game/em_options_live.h"
++#include "game/em_scene_state.h"
++
++/* The boundaries a game build supplies from em_hud / em_scene_bindings
++ * (the glyph strips are drawn by the game; nothing here renders). */
++EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
++void em_hud_decor_invalidate(void) {}
++int em_hud_tall_glyph_cell(uint32_t index, EmHudGlyphCell *cell) { (void)index; (void)cell; return 1; }
++void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *flush) { (void)gfx; (void)flush; }
++
++static EmGsTexture *gs;
++static EmOptionsLive *live;
++static EmMessageBlock block;
++static unsigned cues, fades;
++
++/* The frame's draw and cue log: the binding's draw records
++ * (em_options_live_set_trace) and the cues this host's sound receives, in
++ * call order; per entry a callee word, a size word and the record; a NULL
++ * record (the binding's record overflowed) is logged with size 0xFFFFFFFF. */
++static uint8_t trace_buf[1u << 16];
++static uint32_t trace_len;
++static int trace_full;
++
++static void trace_put(const void *p, uint32_t n)
++{
++    if (trace_len + n > sizeof trace_buf) {
++        trace_full = 1;
++        return;
++    }
++    memcpy(trace_buf + trace_len, p, n);
++    trace_len += n;
++}
++
++static void trace(void *c, uint32_t callee, const uint8_t *record, uint32_t size)
++{
++    (void)c;
++    const uint32_t head[2] = {callee, record ? size : 0xFFFFFFFFu};
++    trace_put(head, sizeof head);
++    if (record) trace_put(record, size);
++}
++
++/* The host's sound (001FB9F0 as 0020CD40 / 60 / A0 call it): logged here,
++ * where the cue arrives, as callee 001FB9F0 with id, a1, a2, a3. */
++static int sound(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3)
++{
++    (void)c;
++    const uint32_t head[2] = {0x001FB9F0u, 16u};
++    const int32_t cue[4] = {id, a1, a2, a3};
++    trace_put(head, sizeof head);
++    trace_put(cue, sizeof cue);
++    ++cues;
++    return 0;
++}
++static int one(void *c) { (void)c; return 1; }
++static int module_load(void *c, uint32_t m) { (void)c; (void)m; return 1; }
++static int fade(void *c, int out, int32_t a0, int32_t a1) { (void)c; (void)out; (void)a0; (void)a1; ++fades; return 1; }
++static int draw_context(void *c, int32_t a0, int32_t a1) { (void)c; (void)a0; (void)a1; return 1; }
++static int rumble(void *c, int32_t a, int32_t b, int32_t d, int32_t f) { (void)c; (void)a; (void)b; (void)d; (void)f; return 1; }
++
++/* 1 ready, 0 an asset is missing. */
++int fx_init(const char *emsp, const char *message)
++{
++    if (live) return 1;
++    gs = em_gs_texture_load(emsp);
++    if (!gs || em_gs_texture_apply(gs, 0x2A) != 1) {
++        fprintf(stderr, "fixture: %s (module 0x2A)\n", emsp);
++        return 0;
++    }
++    if (em_message_live_install(message) != 1) return 0;
++    static const EmOptionsHost host = {NULL, sound, module_load, one, fade, one, one, draw_context, rumble};
++    live = em_options_live_create(gs, &host);
++    if (live) em_options_live_set_trace(live, trace, NULL);
++    return live != NULL;
++}
++
++unsigned fx_message_size(void) { return (unsigned)sizeof(EmMessageBlock); }
++
++/* The card's host folder and the card helpers' globals as the image holds
++ * them (the 0x18 + 0x0C + 0x08 bytes of D_00275C58, D_00264E30, D_00275840). */
++int fx_card(const char *root, const uint8_t *c58, const uint8_t *e30, const uint8_t *s840)
++{
++    em_memcard_reset();
++    em_memcard_set_root(root);
++    if (em_memcard_boot_check() != 1) return 0;
++    memcpy(em_memcard_globals(0x00275C58u, 0x18), c58, 0x18);
++    memcpy(em_memcard_globals(0x00264E30u, 0x0C), e30, 0x0C);
++    memcpy(em_memcard_globals(0x00275840u, 0x08), s840, 0x08);
++    return 1;
++}
++
++int fx_globals(uint8_t *c58, uint8_t *e30, uint8_t *s840)
++{
++    memcpy(c58, em_memcard_globals(0x00275C58u, 0x18), 0x18);
++    memcpy(e30, em_memcard_globals(0x00264E30u, 0x0C), 0x0C);
++    memcpy(s840, em_memcard_globals(0x00275840u, 0x08), 0x08);
++    return 1;
++}
++
++const char *fx_memcard_fault(void) { return em_memcard_fault(); }
++
++/* One frame: 00225AC0(mode) over the test's storage. `message` holds
++ * sizeof(EmMessageBlock) bytes (copied in and out). 0 and *result, or -1
++ * on a fault. */
++int fx_frame(uint8_t *settings, uint32_t task_address, uint8_t *task, uint8_t *mc, uint8_t *progress,
++             uint8_t *message, uint8_t *busy, uint16_t *masks, int16_t *offset, uint8_t read_phase,
++             int16_t fade_word, uint16_t held, uint16_t pressed, uint16_t repeat, uint16_t pad_mode,
++             uint8_t pad_phase, uint8_t b90, uint8_t b93, uint32_t mode, uint32_t *result)
++{
++    memcpy(&block, message, sizeof block);
++    trace_len = 0;
++    trace_full = 0;
++    EmOptionsFrame f = {
++        .settings = settings, .task_address = task_address, .task = task, .mc = mc, .progress = progress,
++        .message = &block, .busy = busy, .masks = masks, .offset = offset, .read_phase = read_phase,
++        .fade = fade_word, .held = held, .pressed = pressed, .repeat = repeat, .pad_mode = pad_mode,
++        .pad_phase = pad_phase, .spad3B90 = b90, .spad3B93 = b93,
++    };
++    const int rc = em_options_live_00225AC0(live, &f, mode, result);
++    memcpy(message, &block, sizeof block);
++    em_message_live_render(NULL); /* the frame's glyph passes (drawn by the game at step F) */
++    return rc;
++}
++
++/* The binding's own card buffers by original address (docs/OPTIONS.md 4.1). */
++int fx_read(uint32_t address, uint8_t *dst, uint32_t size)
++{
++    return em_options_live_card_bytes(live, address, dst, size);
++}
++
++int fx_seed(uint32_t address, const uint8_t *src, uint32_t size)
++{
++    return em_options_live_card_seed(live, address, src, size);
++}
++
++unsigned fx_calls(uint32_t callee) { return em_options_live_calls(live, callee); }
++unsigned fx_cues(void) { return cues; }
++
++/* The last frame's draw and cue log (see trace): its length, or -1 when it
++ * did not fit (the fixture's or the caller's buffer). */
++int fx_trace(uint8_t *dst, uint32_t cap)
++{
++    if (trace_full || trace_len > cap) return -1;
++    memcpy(dst, trace_buf, trace_len);
++    return (int)trace_len;
++}
+diff --git a/tools/test_options_card_live.py b/tools/test_options_card_live.py
+new file mode 100644
+index 0000000..52d9fed
+--- /dev/null
++++ b/tools/test_options_card_live.py
+@@ -0,0 +1,416 @@
++#!/usr/bin/env python3
++"""The options binding (em_options_live) on the card screen past the slot
++choice, against the ORIGINAL code, both over the host memory card.
++
++docs/SAVE_GAME.md section 6 and docs/OPTIONS.md section 4. The card screen
++00227300 and the code below it are translated in em_card_original /
++em_save_original and checked routine by routine by
++tools/test_card_screen_reference.py; this test checks the live binding
++that runs them in the game: 00225D20's call of 00227300 dispatched to the
++translation, the libmc SDK answered by em_memcard over the binding's views,
++sprintf 00122D10 and strcmp 00123020 over the views, the slot rows' text
++styles and line configs, the card code's buffers held by the binding, and
++the place names read from the area-title module.
++
++Both sides run whole card screens frame by frame from the fork recordings'
++RAM (c10 opt_07 and dmg_05, the card screen's load row): the ORIGINAL
++00225AC0(0) (its card screen state 1, the slot screen 00225D20 in its state
++2, so every frame runs 00227300) in the reference interpreter, every callee
++original code except the seven draw and cue leaves (0020A7A0, 00207D00 /
++00207E40 / 00207F80, 001CC1E0, 001FC770, 001FB9F0: each recorded with the
++values the original passes and answered 0; all seven are void or their
++result is discarded at these call sites), the libmc SDK answered by
++em_memcard (tools/test_memcard_host's own build) on a host card folder of
++its own; and the game's binding
++(tests/options_card_live_fixture.c: em_options_live_00225AC0 over the same
++bytes) on a second folder holding the same files. Each frame both get the
++same pad words, made on the original alone from the screen's state
++(test_card_screen_reference.policy). After every frame these must be equal:
++00225AC0's result, the card record D_00810040 (0xD4 bytes), the card
++helpers' globals, the progress block's canonical bytes, the binding's own
++card buffers (GetDir's table D_00821500, the header D_00821980, the staging
++blocks D_008219D0 / D_00822050 / D_00822690, the slot path D_00822010, the
++row text D_00275C94..9F), the frame's draw and cue calls in order (the
++original's arguments, its text and style bytes, against what the binding
++hands to its draw and sound callees: em_options_live_set_trace, logged
++inside wrappers from the parameters they forward) and, at the end, the two
++host folders.
++
++LOAD GAME's read (00228B60) writes the whole progress block D_00810700,
++which the port does not yet hold in one storage (em_scene_state.h: only its
++canonical ranges): there the binding must fail-stop on the very frame the
++original issues that Read, with every frame before it equal.
++
++Every flow on both recordings, about 9 s warm, 30 to 50 s on a first run (it
++builds the fixture); no EM_TEST_FULL variant.
++"""
++import ctypes as C
++import hashlib
++import os
++import re
++import struct
++import subprocess
++import sys
++import tempfile
++import time
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'tools'))
++os.environ.setdefault('EM_LANE', 'card')
++import test_card_screen_reference as CS  # noqa: E402
++import test_memcard_host as MH  # noqa: E402
++import test_save_reference as S  # noqa: E402
++import test_area01_render_reference as R  # noqa: E402
++import test_area11_interaction_host as IH  # noqa: E402
++from test_player_slide_reference import RETURN, STACK_TOP  # noqa: E402
++
++MASK = 0xFFFFFFFF
++MC = 0x810040
++OUT = ROOT / 'build' / 'options_card_live'
++EMSP = ROOT / 'assets/status_pages/status_pages.emsp'
++EMMD = ROOT / 'assets/message/message_data.emmd'
++DIR = 'BASCUS-97112-DS00-00'
++E70, E74, E78 = 0x810E70, 0x810E74, 0x810E78
++PACKET = CS.PACKET
++OWN = ((0x821500, 0x480), (0x821980, 0x48), (0x8219D0, 0x640), (0x822010, 0x40), (0x822050, 0x640),
++       (0x822690, 0x640), (0x275C94, 12))
++GLOBALS = ((0x275C58, 0x18), (0x264E30, 0x0C), (0x275840, 0x08))
++READ = 0x114630
++FRAMES = 600
++CFLAGS = ['-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-Isrc']
++MODULES = IH.MODULES        # the interaction host's options binding and everything it links
++EXPORTS = ['init', 'message_size', 'card', 'globals', 'memcard_fault', 'frame', 'read', 'seed', 'calls',
++           'trace']
++
++
++def build_fixture():
++    obj = OUT / 'obj'
++    obj.mkdir(parents=True, exist_ok=True)
++    sources = ['src/game/%s.c' % m for m in MODULES] + ['src/em_model.c', 'src/em_input.c',
++                                                         'src/platform/linux/em_gamepad_linux.c',
++                                                         'tests/options_card_live_fixture.c']
++    headers = sorted(str(p.relative_to(ROOT)) for p in (ROOT / 'src').rglob('*.h'))
++    hh = hashlib.sha256(repr(CFLAGS).encode())
++    for h in headers:
++        hh.update(h.encode())
++        hh.update((ROOT / h).read_bytes())
++    objs = []
++    for src in sources:
++        o = obj / (Path(src).stem + '.o')
++        stamp = o.with_suffix('.sha256')
++        key = hashlib.sha256(hh.digest() + (ROOT / src).read_bytes()).hexdigest()
++        if not (o.exists() and stamp.exists() and stamp.read_text() == key):
++            subprocess.run(['cc'] + CFLAGS + ['-c', src, '-o', str(o)], cwd=ROOT, check=True)
++            stamp.write_text(key)
++        objs.append(str(o))
++    lib = OUT / 'fixture.dylib'
++    exports = OUT / 'exports.txt'
++    exports.write_text(''.join('_fx_%s\n' % n for n in EXPORTS))
++    subprocess.run(['cc', '-shared', '-Wl,-dead_strip', '-Wl,-exported_symbols_list,' + str(exports),
++                    '-o', str(lib), *objs, '-lm'], cwd=ROOT, check=True)
++    fx = C.CDLL(str(lib))
++    P8, P16 = C.POINTER(C.c_uint8), C.POINTER(C.c_uint16)
++    fx.fx_init.argtypes = [C.c_char_p, C.c_char_p]
++    fx.fx_card.argtypes = [C.c_char_p, P8, P8, P8]
++    fx.fx_globals.argtypes = [P8, P8, P8]
++    fx.fx_memcard_fault.restype = C.c_char_p
++    fx.fx_frame.argtypes = [P8, C.c_uint32, P8, P8, P8, P8, P8, P16, C.POINTER(C.c_int16), C.c_uint8,
++                            C.c_int16, C.c_uint16, C.c_uint16, C.c_uint16, C.c_uint16, C.c_uint8,
++                            C.c_uint8, C.c_uint8, C.c_uint32, C.POINTER(C.c_uint32)]
++    fx.fx_read.argtypes = [C.c_uint32, P8, C.c_uint32]
++    fx.fx_seed.argtypes = [C.c_uint32, P8, C.c_uint32]
++    fx.fx_calls.argtypes = [C.c_uint32]
++    fx.fx_calls.restype = C.c_uint
++    fx.fx_trace.argtypes = [P8, C.c_uint32]
++    fx.fx_trace.restype = C.c_int
++    return fx
++
++
++def canonical_ranges():
++    """em_scene_progress_canonical's table (the progress block's bytes the
++    port holds in one storage), read from the header the binding compiles."""
++    text = (ROOT / 'src/game/em_scene_state.h').read_text()
++    body = text[text.index('em_scene_progress_canonical'):]
++    body = body[:body.index('};')]
++    return [(int(a, 16), int(b, 16)) for a, b in re.findall(r'\{0x([0-9A-Fa-f]+)u,\s*0x([0-9A-Fa-f]+)u\}', body)]
++
++
++# The draw and cue calls the binding passes on (em_options_live_set_trace's
++# layout, em_options_live.h): on the oracle's side each is answered 0 and
++# recorded with the values the original passes (the text up to its NUL, the
++# style record's 8 bytes at its pointer, 001FC770's config words), so each
++# frame's sequence must equal what the binding decodes and hands to
++# em_page_draw / em_message_live / the host's sound. The packets and sounds
++# themselves are those modules' own tests'. 001CC170 (the text width, which
++# places text) and the cue wrappers 0020CD40 / 60 / A0 run as original code;
++# the cue is their 001FB9F0(id, a1, a2, a3).
++MASK64 = (1 << 64) - 1
++WORDS = {0x207D00: 2, 0x207E40: 6, 0x207F80: 6, 0x1FB9F0: 4}
++TEXT_MAX = 256
++
++
++def text_bytes(e, address):
++    out = bytearray()
++    while len(out) < TEXT_MAX:
++        b = e.load(address + len(out), 1)
++        if not b:
++            break
++        out.append(b)
++    return struct.pack('<I', len(out)) + bytes(out)
++
++
++def style_bytes(e, address):
++    if not address:
++        return b'\0'
++    return b'\1' + bytes(e.load(address + i, 1) for i in range(8))
++
++
++def recorder(callee):
++    def hook(e):
++        a = [e.r[4 + i] for i in range(8)]
++        if callee == 0x20A7A0:
++            rec = struct.pack('<Q', a[0] & MASK64)
++        elif callee in WORDS:
++            rec = struct.pack('<%dI' % WORDS[callee], *(x & MASK for x in a[:WORDS[callee]]))
++            if callee == 0x207E40:
++                rec += struct.pack('<Q', a[6] & MASK64)
++        elif callee == 0x1CC1E0:
++            rec = struct.pack('<5I', *(x & MASK for x in a[:5])) + text_bytes(e, a[5] & MASK)
++            rec += style_bytes(e, a[6] & MASK)
++        else:                          # 0x1FC770(x, y, text, cfg)
++            rec = struct.pack('<2I', a[0] & MASK, a[1] & MASK) + text_bytes(e, a[2] & MASK)
++            cfg = a[3] & MASK
++            if cfg:
++                rec += b'\1' + struct.pack('<5I', *(e.load(cfg + 4 * k, 4) for k in range(5)))
++                rec += style_bytes(e, e.load(cfg + 0x14, 4))
++            else:
++                rec += b'\0'
++        e.trace.append((callee, rec))
++        key = {0x1CC1E0: a[6] & MASK, 0x1FC770: a[3] & MASK}.get(callee, 0)
++        COVER[(callee, key)] = COVER.get((callee, key), 0) + 1
++        e.r[2] = 0
++    return hook
++
++
++DRAWS = (0x20A7A0, 0x207D00, 0x207E40, 0x207F80, 0x1CC1E0, 0x1FC770, 0x1FB9F0)
++COVER = {}                             # (callee, style or config address) -> calls compared
++
++
++def live_trace(fx):
++    buf = (C.c_uint8 * (1 << 16))()
++    n = fx.fx_trace(buf, len(buf))
++    assert n >= 0, 'the binding\'s draw log overflowed'
++    raw, out, i = bytes(buf[:n]), [], 0
++    while i < n:
++        callee, size = struct.unpack_from('<2I', raw, i)
++        i += 8
++        assert size != 0xFFFFFFFF, ('a draw record overflowed', hex(callee))
++        out.append((callee, raw[i:i + size]))
++        i += size
++    return out
++
++
++def arr(data):
++    return (C.c_uint8 * len(data)).from_buffer(bytearray(data))
++
++
++class Live:
++    """The binding's storage for one flow, from the image."""
++
++    def __init__(self, fx, ram, spad):
++        self.fx = fx
++        sp = lambda a, n: bytes(spad[a - 0x70000000:a - 0x70000000 + n])  # noqa: E731
++        self.task_address = struct.unpack('<I', sp(0x70003B6C, 4))[0]
++        self.settings = bytearray(ram[0x810118:0x810128])
++        self.task = bytearray(ram[self.task_address + 8:self.task_address + 0x20])
++        self.mc = bytearray(ram[MC:MC + 0xD4])
++        self.progress = bytearray(ram[0x810700:0x810D40])
++        self.message = bytearray(ram[0x2821B0:0x2821B0 + fx.fx_message_size()])
++        self.busy = bytearray(ram[0x275BD8:0x275BD9])
++        self.masks = (C.c_uint16 * 8)(*struct.unpack('<8H', sp(0x70003B74, 16)))
++        self.offset = (C.c_int16 * 2)(*struct.unpack('<2h', sp(0x70003B94, 4)))
++        self.read_phase = ram[0x282157]
++        self.fade = struct.unpack_from('<h', ram, 0x28A9A0)[0]
++        self.held = struct.unpack_from('<H', ram, E70)[0]
++        self.pad_mode = struct.unpack_from('<H', ram, 0x810E6A)[0]
++        self.pad_phase = ram[0x810E50]
++        self.b90, self.b93 = sp(0x70003B90, 1)[0], sp(0x70003B93, 1)[0]
++        self.bufs = [self.settings, self.task, self.mc, self.progress, self.message, self.busy]
++        self.ptrs = [(C.c_uint8 * len(b)).from_buffer(b) for b in self.bufs]
++
++    def frame(self, e74, e78):
++        r = C.c_uint32(0)
++        p = self.ptrs
++        rc = self.fx.fx_frame(p[0], self.task_address, p[1], p[2], p[3], p[4], p[5], self.masks, self.offset,
++                              self.read_phase, self.fade, self.held, e74, e78, self.pad_mode, self.pad_phase,
++                              self.b90, self.b93, 0, C.byref(r))
++        return rc, r.value
++
++    def own(self, address, size):
++        out = (C.c_uint8 * size)()
++        assert self.fx.fx_read(address, out, size) == 0, hex(address)
++        return bytes(out)
++
++    def globals(self):
++        bufs = [(C.c_uint8 * n)() for _a, n in GLOBALS]
++        self.fx.fx_globals(*bufs)
++        return [bytes(b) for b in bufs]
++
++
++def write_card(root, port, files):
++    for p in (0, 1):
++        (Path(root) / ('slot%d' % (p + 1))).mkdir(parents=True, exist_ok=True)
++    for name, data in (files or {}).items():
++        path = Path(root) / ('slot%d' % (port + 1)) / name
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_bytes(data)
++
++
++def flows():
++    """(beat, knobs): the load-mode whole screens of test_card_screen_reference
++    the host card can serve (its card always reports a formatted PS2 card;
++    a failing or missing card is not something em_memcard answers)."""
++    out = []
++    for beat in ('o7', 'd5'):
++        def add(end, **k):
++            out.append((beat, dict(k, end=end)))
++        for slot in range(5):
++            for port in (0, 1):
++                if port and slot not in (1, 4):
++                    continue
++                add('read', port=port, present=(0, 1, 2, 3, 4), goal={'slot': slot})
++        add(2, present=(1, 3), goal={'slot': 1, 'yes': False, 'then': 0x10})      # No, then Triangle
++        add(1, present=(2,), goal={'slot': 0, 'pick': 0x20})                       # Circle on the list
++        add(2, present=(2,), goal={'slot': 0, 'pick': 0x10})                       # Triangle on the list
++        add(2, present=None, goal={'slot': 0, 'pick': 0x10})                       # no directory
++        add(1, present=(2,), drop=('icon.sys',), goal={'err': 0x40})               # the card refused
++        add(2, present=(2,), drop=('icon.sys',), goal={'err': 0x10})
++        add(1, present=(2,), drop=('EX_DATA.03',), goal={'err': 0x40})             # one save file missing
++        add('read', port=1, present=(0, 3), goal={'slot': 3})                      # rows with saves 0 and 3
++    return out
++
++
++def run_flow(fx, tmp, tag, beat, knobs, ranges, stats):
++    port, present = knobs.get('port', 0), knobs['present']
++    files = None if present is None else CS.card_files(beat, set(present), knobs.get('drop', ()))
++    roots = [Path(tmp) / tag / side for side in ('oracle', 'live')]
++    for r in roots:
++        write_card(r, port, files)
++    b = CS.rec(2, port) + CS.helpers() + CS.records(beat, ()) + [(MC, 1, 1), (MC + 0x16, 0, 1)]
++    ram = bytearray(R.IMAGES[beat][0])
++    for at, v, size in b:
++        ram[at:at + size] = (v & ((1 << 8 * size) - 1)).to_bytes(size, 'little')
++    spad = bytes(R.IMAGES[beat][1])
++    ee = MH.original_ee(bytes(ram), spad, roots[0])
++    for a in DRAWS:
++        ee.hooks[a] = recorder(a)
++    ee.trace = []
++    live = Live(fx, ram, spad)
++    g = [arr(bytes(ram[a:a + n])) for a, n in GLOBALS]
++    assert fx.fx_card(str(roots[1]).encode(), *g) == 1, tag
++    for a, n in OWN:                   # the binding's buffers start as the recording holds them
++        assert fx.fx_seed(a, arr(bytes(ram[a:a + n])), n) == 0, hex(a)
++    packet = ee.load(PACKET)
++    goal = knobs['goal']
++    then, confirming, reads = None, False, 0
++    for frame in range(FRAMES):
++        e74, e78 = CS.policy(ee, goal, frame)
++        if then is not None:
++            e74, e78 = (0, 0) if frame & 1 else (then, 0)
++        for at, v, n in ((E74, e74, 2), (E78, e78, 2), (PACKET, packet, 4)):
++            ee.save(at, v, n)
++        ee.r[4], ee.r[29], ee.r[31] = 0, STACK_TOP, RETURN
++        calls0 = len(ee.calls)
++        ee.trace = []
++        ee.run(0x225AC0)
++        want = ee.r[2] & MASK
++        read_now = [c for c in ee.calls[calls0:] if c[0] == READ and c[1][1] == 0x810700]
++        rc, got = live.frame(e74, e78)
++        if read_now:
++            # LOAD GAME's read of the slot into D_00810700: the binding stops here
++            fault = fx.fx_memcard_fault()
++            assert knobs['end'] == 'read', (tag, 'LOAD GAME read on a flow that should not read', frame)
++            assert rc == -1 and fault and b'outside the caller' in fault, (tag, frame, rc, fault)
++            assert bytes(ee.mem[0x810700:0x810D40]) == files[DIR + '/EX_DATA.%02d' % goal['slot']], tag
++            reads += 1
++            return frame + 1, 'read'
++        assert rc == 0, (tag, 'the binding faulted', frame, fx.fx_memcard_fault())
++        assert got == want, (tag, frame, 'result', got, want)
++        drawn = live_trace(fx)
++        if drawn != ee.trace:
++            k = next((i for i, (x, y) in enumerate(zip(drawn, ee.trace)) if x != y), min(len(drawn), len(ee.trace)))
++            raise AssertionError((tag, frame, 'draw / cue call %d differs' % k, len(drawn), len(ee.trace),
++                                  [(hex(c), r.hex()) for c, r in drawn[k:k + 1]],
++                                  [(hex(c), r.hex()) for c, r in ee.trace[k:k + 1]]))
++        stats['draws'] += len(drawn)
++        stats['cues'] += sum(1 for c, _r in drawn if c == 0x1FB9F0)
++        mc = bytes(ee.mem[MC:MC + 0xD4])
++        assert bytes(live.mc) == mc, (tag, frame, 'D_00810040', [(hex(i), live.mc[i], mc[i])
++                                                                  for i in range(0xD4) if live.mc[i] != mc[i]][:8])
++        for (a, n), got_g in zip(GLOBALS, live.globals()):
++            assert got_g == bytes(ee.mem[a:a + n]), (tag, frame, hex(a), got_g.hex(), bytes(ee.mem[a:a + n]).hex())
++        for a, n in OWN:
++            assert live.own(a, n) == bytes(ee.mem[a:a + n]), (tag, frame, 'buffer', hex(a))
++        for lo, hi in ranges:
++            assert bytes(live.progress[lo - 0x810700:hi - 0x810700]) == bytes(ee.mem[lo:hi]), (tag, frame, hex(lo))
++        # the declined confirmation, back on the cursor: the goal's exit press
++        on_list = ee.load(MC + 1, 1) == 2
++        if on_list and ee.load(MC + 2, 1) == 1:
++            confirming = True
++        elif on_list and ee.load(MC + 2, 1) == 0 and confirming and goal.get('yes') is False:
++            then = goal.get('then', 0x10)
++        if ee.load(MC + 0x15, 1) != 2 or want:
++            # 00227300 returned: 1 -> the slot screen's card choice, 2 -> out
++            ended = 1 if ee.load(MC + 0x15, 1) == 1 else 2
++            assert ended == knobs['end'], (tag, frame, 'ended with', ended, 'not', knobs['end'])
++            o, n = MH.card_files(roots[0], port), MH.card_files(roots[1], port)
++            assert o == n, (tag, 'the host cards differ')
++            return frame + 1, ended
++    raise AssertionError((tag, 'no end in %d frames' % FRAMES))
++
++
++def main():
++    t0 = time.time()
++    for asset in (EMSP, EMMD, ROOT / 'assets/area_title.emat'):
++        if not asset.exists():
++            raise SystemExit(f'{asset} is missing (run the exporters: docs/OPTIONS.md section 9)')
++    MH.LIB = MH.build_lib()
++    CS.install()
++    S.ELF = R.ELF = S.read_elf()
++    import test_area01_ui_reference as U
++    U.ELF = S.ELF
++    S.load_images()
++    fx = build_fixture()
++    cwd = os.getcwd()
++    os.chdir(ROOT)                     # the binding opens assets/area_title.emat relative to it
++    try:
++        assert fx.fx_init(str(EMSP).encode(), str(EMMD).encode()) == 1, 'the fixture did not start'
++    finally:
++        os.chdir(cwd)
++    items = flows()
++    chosen = items                     # all of them
++    ranges = canonical_ranges()
++    frames, ends, stats = 0, {}, {'draws': 0, 'cues': 0}
++    with tempfile.TemporaryDirectory(prefix='em_options_card_') as tmp:
++        for i, (beat, knobs) in enumerate(chosen):
++            t1 = time.time()
++            n, how = run_flow(fx, tmp, 'flow%d' % i, beat, knobs, ranges, stats)
++            print('  flow %d %s %s: %d frames, %s (%.1f s)' % (i, beat, knobs['goal'], n, how, time.time() - t1),
++                  flush=True)
++            frames += n
++            ends[how] = ends.get(how, 0) + 1
++    # every draw variant the binding decodes was compared: the slot rows'
++    # style D_00275898 (a .data window) and no style, 001FC770's configs
++    # D_00264CB0, D_002671A0 and 0, the page draws and the cues
++    for key in ((0x1CC1E0, 0), (0x1CC1E0, 0x275898), (0x1FC770, 0), (0x1FC770, 0x264CB0),
++                (0x1FC770, 0x2671A0), (0x207D00, 0), (0x207E40, 0), (0x207F80, 0), (0x20A7A0, 0), (0x1FB9F0, 0)):
++        assert COVER.get(key), ('no flow compared', hex(key[0]), hex(key[1]))
++    print(f'{len(chosen)} whole card screens on both sides ({frames} frames equal; ends {ends}; '
++          f'{stats["draws"]} draw and cue calls equal, {stats["cues"]} of them cues)')
++    print('elapsed %.1f s' % (time.time() - t0))
++    print('options card live: PASS')
++
++
++if __name__ == '__main__':
++    main()

@@ -206,6 +206,12 @@ void em_game_new_game_reset_001AF2C0(void);
  * record, D_00275BE0 = 0. 0, or -1. */
 int em_game_reinstall_new_001AC070(void);
 
+/* The same handoff for a loaded game (the title's LOAD GAME after a death:
+ * 001AC070 state 5's result 2, D_00275BE0 = 1): 001AB790(001ACEC0) with a
+ * cleared record, D_00275BE0 left 1, no New Game reset and no opening. 0,
+ * or -1 (D_00275BE0 is not 1). */
+int em_game_reinstall_loaded_001AC070(void);
+
 /* Head of a world-frame variant (cutscene != 0: 001AE6B0, else 001AE5E0):
  * test instrumentation only (its status/game-over frozen frame was retired
  * by S11b). */

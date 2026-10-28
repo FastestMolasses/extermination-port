@@ -818,21 +818,17 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         fprintf(f, ", %u]", a->callback);
     }
     uint32_t hp;
-    memcpy(&hp, &g.status.health, 4);
+    memcpy(&hp, &em_scene_state()->d810858, 4);
     fprintf(f, "}, \"hp\": %u, \"progress\": [", hp);
-    /* Each byte from its one port owner: the canonical progress region,
-     * or the named mirror g.opening_complete (D_00810811, not migrated).
-     * A byte with neither has no port storage: live code reaches the
-     * region only through em_scene_progress_at (which refuses it) or a
-     * named mirror, so it keeps 001AF2C0's reset value 0 (the region's
-     * memset). */
+    /* Each byte from its one storage, the progress block (whole since
+     * save2 round 2). */
     static const uint32_t windows[][2] = {{0x8107D8, 64}, {0x810758, 8}, {0x810860, 64}, {0x810D00, 32}};
     for (unsigned i = 0; i < 4; ++i) {
         uint8_t bytes[64];
         for (uint32_t k = 0; k < windows[i][1]; ++k) {
             const uint32_t at = windows[i][0] + k;
             const uint8_t *p = em_scene_progress_at(&s_state, at, 1);
-            bytes[k] = p ? *p : at == 0x00810811u ? g.opening_complete : 0;
+            bytes[k] = p ? *p : 0;
         }
         if (i)
             fputs(", ", f);
@@ -846,12 +842,8 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
             uint8_t bytes[8];
             for (unsigned k = 0; k < sizeof bytes; ++k) {
                 const uint32_t at = starts[i] + k;
-                const uint8_t *p = at == 0x00810C61u ? em_weapon_fire_mode_byte() :
-                                   at == 0x00810C62u ? em_weapon_mag_byte() :
-                                   em_scene_progress_at(&s_state, at, 1);
-                /* The weapon owns C61/C62. Remaining unmigrated bytes
-                 * retain the original reset, as the windows above. */
-                bytes[k] = p ? *p : 0;
+                const uint8_t *p = em_scene_progress_at(&s_state, at, 1);
+                bytes[k] = p ? *p : 0; /* the weapon's C61 / C62 are block bytes */
             }
             fprintf(f, ", \"%s\": ", names[i]);
             log_hex(f, bytes, sizeof bytes);
@@ -1172,9 +1164,9 @@ static void log_tick_end(int rc)
          * +0x04, +0x0D]. */
         {
             uint32_t hp, pend, inf, pend_inf;
-            memcpy(&hp, &g.status.health, 4);
+            memcpy(&hp, &em_scene_state()->d810858, 4);
             memcpy(&pend, &g.pd_pend_hp, 4);
-            memcpy(&inf, &g.status.infection, 4);
+            memcpy(&inf, &em_scene_state()->d81085C, 4);
             memcpy(&pend_inf, &g.pd_pend_inf, 4);
             const uint8_t *pad = em_pad_actuator_block();
             fprintf(f, ", \"dmg\": [%u, %u, %u, %u, %u, %u, %d, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, [", hp, pend,
@@ -2492,6 +2484,13 @@ static int state0_001D0660(void *ctx)
     return 0;
 }
 
+/* The scene pool's original record address of `actor` (0: not a record). */
+static uint32_t arrival_pool_address(void *context, const EmActor *actor)
+{
+    (void)context;
+    return em_actor_pool_address(&s_pool, actor);
+}
+
 /* 0x1AE040 state 0, first callee: 001AFCA0 (em_slg_001AFCA0, since chain
  * step GLUE): 001AF5C0 (the player wipe), 001AF690, 001AF710, 001AF8E0
  * (the pool reset), 001D0660, then spad 31F4 = 0 (design 2.3). Before it,
@@ -2535,6 +2534,16 @@ static int w_001AFCA0(void *ctx)
                                     s_state.d810700 == 0 ? AREA00_CELLS_PATH : AREA01_CELLS_PATH,
                                     EM_COLLISION_WORLD_SDK_PATH) != 0)
             return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
+        /* The list words 001AAD00's passes read are the listed records'
+         * pool addresses (001B1B70 pushes the record's address). On the
+         * route from AREA11 its Roger binding serves them and stays bound
+         * (em_area11_roger.c ready()); an area entered without AREA11 (a
+         * LOAD GAME from the boot's title, docs/SAVE_GAME.md section 6.4)
+         * has none, and every list slot would read as unbound. */
+        if (!em_collision_world_owners()->address_of) {
+            static const EmCollisionWorldOwners owners = {NULL, NULL, arrival_pool_address, NULL};
+            em_collision_world_bind_owners(&owners);
+        }
         /* 001FB9F0 pages its area ids by D_00810700/701: the registry scope
          * of the arrival (the interaction host's clear above left none). */
         em_sfx_set_area(s_state.d810700, s_state.d810701);
@@ -2683,9 +2692,9 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     the same record position to both)
  *   +0xC4 heading     g.yaw (+0xC0/+0xC8 are written 0; the port has no
  *                     pitch or roll)
- *   +0x220/+0x228     g.status.health/infection, which are also the port's
- *                     only copy of D_00810858/D_0081085C, so 001B07C0's copy
- *                     is an identity here
+ *   +0x220/+0x228     the progress block's D_00810858 / D_0081085C: the
+ *                     port holds +0x220 / +0x228 in those words, so
+ *                     001B07C0's copy is an identity here
  *   +0x234/+0x235     g.pd_infected/g.pd_low (the record's view). Their
  *                     sources D_00810707 / D_00810706 are canonical progress
  *                     (HK / GLUE), stored by 0015CF90 at every player stage
@@ -2715,9 +2724,11 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     held ends there without 00182DF0
  *                     (player_pose_takeover_restated)
  * arg0 is 0 in state 0 and 1 in state 4 (S12b, "the room move" below); any
- * other pairing is refused (fault), as is D_00275BE0 == 1 (the load-game
- * pose D_00810710..72F now has canonical storage for terminal 00159B90's
- * copies, but the load-game reader in 0x1AE040 state 2 remains unported).
+ * other pairing is refused (fault), as is D_00275BE0 == 1 with arg0 1
+ * (001B0460 clears the flag at the state-0 placement). A loaded game (the
+ * title's LOAD GAME, D_00275BE0 == 1 at state 0) is placed from the load
+ * pose D_00810710..72F, the block's words the slot read brought (terminal
+ * 00159B90's copies), and 001B0460 clears D_00275BE0.
  * After the state-0 placement the port's
  * placement-dependent fixtures run (em_game_legacy_state0_fixtures).
  * A scene without an original roster keeps its manifest spawn (001AFCA0). */
@@ -2747,8 +2758,8 @@ static void spawn_commit(const EmSpawnIo *io)
     g.pos[1] = io->player.f0B0[1];
     g.pos[2] = io->player.f0B0[2];
     g.yaw = io->player.f0C0[1];
-    g.status.health = io->player.f220;
-    g.status.infection = io->player.f228;
+    em_scene_state()->d810858 = io->player.f220;
+    em_scene_state()->d81085C = io->player.f228;
     g.pd_infected = io->player.b234;
     g.pd_low = io->player.b235;
     g.pd_pend_hp = io->player.f224;
@@ -2883,7 +2894,7 @@ static int w_001B07C0(void *ctx, int a0)
     if (!world_scene())
         return unmirrored(UM_001B07C0_LEGACY_WORLD);
     if (a0 != (s_entry_state == 4 ? 1 : 0) || (s_entry_state != 0 && s_entry_state != 4) ||
-        s_state.d275BE0 == 1)
+        (s_state.d275BE0 == 1 && a0 != 0))
         return -1;
     if (!s_spawn_table_loaded) {
         if (em_spawn_table_load(&s_spawn_table, EM_SPAWN_TABLE_PATH) != 0) {
@@ -2904,13 +2915,22 @@ static int w_001B07C0(void *ctx, int a0)
     io.d810701 = s_state.d810701;
     io.d810702 = s_state.d810702;
     io.d275BE0 = s_state.d275BE0;
+    /* The load pose (a loaded game, D_00275BE0 == 1): the block's
+     * D_00810710..718 and D_00810720..728, which LOAD GAME's read brought
+     * from the slot (00159B90 copies the player's +0xA0 / +0xC0 there). */
+    const uint8_t *pose = em_scene_progress_at(&s_state, 0x00810710u, 0x1C);
+    if (!pose)
+        return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
+    memcpy(io.d810710, pose, sizeof io.d810710);
+    memcpy(io.d810720, pose + 0x10, sizeof io.d810720);
+    const int loaded = io.d275BE0 == 1;
     uint8_t *e706 = em_scene_progress_at(&s_state, 0x00810706u, 1);
     if (!e706 || !e707)
         return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
     io.d810706 = *e706;
     io.d810707 = *e707;
-    io.d810858 = g.status.health;
-    io.d81085C = g.status.infection;
+    io.d810858 = em_scene_state()->d810858;
+    io.d81085C = em_scene_state()->d81085C;
     io.d810788 = e788 ? *e788 : 0;
     io.d810C7D = items[0x19];
     io.d810C7E = items[0x1A];
@@ -2922,9 +2942,9 @@ static int w_001B07C0(void *ctx, int a0)
     io.player.f0A0[1] = io.player.f0B0[1] = g.pos[1];
     io.player.f0A0[2] = io.player.f0B0[2] = g.pos[2];
     io.player.f0C0[1] = g.yaw;
-    io.player.f220 = g.status.health;
+    io.player.f220 = em_scene_state()->d810858;
     io.player.f224 = g.pd_pend_hp;
-    io.player.f228 = g.status.infection;
+    io.player.f228 = em_scene_state()->d81085C;
     io.player.f22C = g.pd_pend_inf;
     io.player.b234 = (uint8_t)g.pd_infected;
     io.player.b235 = (uint8_t)g.pd_low;
@@ -2940,8 +2960,10 @@ static int w_001B07C0(void *ctx, int a0)
     *e706 = io.d810706;   /* 001B07C0: D_00810706 &= 1 */
     if (a0 == 0) {
         /* The port's New Game fixtures (the weapon context); the level
-         * exit's arrival keeps AREA11's state, as the original does. */
-        if (!arrival_scene())
+         * exit's arrival keeps AREA11's state, as the original does, and so
+         * does a loaded game (its weapon bytes C61 / C62 / CB4 / D3C are
+         * the block's). */
+        if (!arrival_scene() && !loaded)
             em_game_legacy_state0_fixtures();
         return 0;
     }
@@ -4534,9 +4556,11 @@ static int w_001AEBA0(void *ctx, int16_t a0)
  * and the screen offset; its draw stream is drawn in the same tick (the
  * world is frozen; no 001D1EA0 runs), as the game-over screen's. r == 1
  * closes: 001AF1C0 (the settings into the progress block, 001AF470), the
- * cue 0xD and 001FAE70(0). r == 2 (a game loaded) is reached only through
- * 00227300, which faults first (not translated); r == 3 (quit, Yes) runs
- * 001AD140 as the death does. */
+ * cue 0xD and 001FAE70(0). r == 2 (a game loaded: LOAD GAME through
+ * 00227300, its read of the slot into the progress block) runs 001AEBA0
+ * and 001AF150, then faults at 001D2610 (not bound: loading a game is the
+ * save lane's next step, docs/SAVE_GAME.md section 8); r == 3 (quit, Yes)
+ * runs 001AD140 as the death does. */
 static int options_frame(EmOptionsFrame *f)
 {
     if (!s_user) return -1;

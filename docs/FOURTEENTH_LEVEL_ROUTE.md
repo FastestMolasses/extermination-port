@@ -588,3 +588,16 @@ These supplemental recordings use the original game on the project fork. They ar
 | `a19d_20_door50` | `a19d_19_flights` | 9955 | `build/fork_refs/levels-recordings-20261018-19/s87/route_a19d/a19d_20_door50` |
 
 These are fork recording and resume results. They do not certify native gameplay, replace the legacy reference path, or constitute a new instruction census. 6 indexed boundary receipts capture 13 otherwise missing ticks and match every endpoint field. 0 ticks between these supplemental beats still lack boundary receipts. Missing legacy counters remain labelled as such.
+
+
+## Shared-entry audit status (2026-10-20)
+
+All 68 U rows for this level in the checked-in readiness map were audited:
+56 have passing original/native function tests at their stated boundaries,
+11 remain intentional hardware adapters, and `0015BCF0` is a confirmed
+protected-owner mismatch with a strict failing oracle. Where relevant, passing counts include the new unwired initialization
+candidates; their existing live bindings retain partial scope. No assertion was weakened and `LEVEL_READINESS.md` was not regenerated.
+See `LEVEL_ORACLE_AUDIT.md` for the per-entry evidence, defect causes, exact
+proposal for main, and the four level-15 source blockers. The native application
+is unchanged: New Game PASS 9.599849 and both smoke tick logs byte-identical.
+This does not certify a native replay of this route.

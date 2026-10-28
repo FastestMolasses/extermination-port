@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "game/em_area01_ui.h"
+#include "game/em_area_title.h"
+#include "game/em_card_original.h"
 #include "game/em_memcard.h"
 #include "game/em_message_draw_original.h"
 #include "game/em_message_live.h"
@@ -24,6 +26,32 @@ enum { MAX_VIEWS = 160, STACK_BASE = 0x01FF0000u, STACK_SIZE = 0x10000u, CALLS =
 #define STRING_SIZE 0x40u
 #define NUMBER_BASE 0x008111D0u /* 001C5FB0's buffer */
 #define NUMBER_SIZE 0x10u
+/* The card screen past the slot choice and the save / load code below it
+ * (em_card_original, em_save_original; docs/SAVE_GAME.md): their .bss and
+ * .sbss buffers, held here once per process (card_bss below; nothing else
+ * reads them). */
+#define D_00821500 0x00821500u /* GetDir's table, 0x12 entries of 0x40 */
+#define D_00821980 0x00821980u /* the header file's 0x48 bytes */
+#define D_008219D0 0x008219D0u /* a slot's staging copy (a new directory) */
+#define D_00822010 0x00822010u /* the slot path the load enumeration builds */
+#define D_00822050 0x00822050u /* the enumeration's slot staging block */
+#define D_00822690 0x00822690u /* 00229680's staging copy */
+#define D_00275C94 0x00275C94u /* the slot rows' text, 4 bytes, then D_00275C98 */
+#define CARD_TEXT_SIZE 12u     /* D_00275C94..D_00275C9F (see docs/OPTIONS.md 4.1) */
+#define D_002671A0 0x002671A0u /* the slot rows' 001FC770 config */
+#define BLOCK_SIZE 0x640u
+#define TITLE_REGIONS 8u
+
+/* The card buffers above (D_00821500..D_00822690 in .bss, D_00275C94..9F
+ * in .sbss): ONE copy for the whole process, as the original has one, so
+ * their contents last across the card screen's entries and are the same
+ * for every binding (the boot title's and the AREA11 host's, em_frontend.c
+ * s_card and em_area11_interaction_host.c). Zero at process start, as the
+ * original's .bss is at boot; no instance clears or frees them. */
+static struct {
+    uint8_t getdir[0x480], header[0x48], name[0x40], card_text[CARD_TEXT_SIZE];
+    uint8_t stage_load[BLOCK_SIZE], stage_save[BLOCK_SIZE], stage_new[BLOCK_SIZE];
+} card_bss;
 
 struct EmOptionsLive {
     EmOptionsHost host;
@@ -39,12 +67,19 @@ struct EmOptionsLive {
     uint8_t style[8];   /* D_00275828..2F: +0 colour, +4 glyph, +5 flag */
     uint8_t string[STRING_SIZE], number[NUMBER_SIZE];
     uint8_t stack[STACK_SIZE];
+    /* the area-title module's bytes (the place names and D_00289B40),
+     * copied per call and compared after it */
+    EmAreaTitleRegion titles[TITLE_REGIONS];
+    unsigned title_count;
+    uint8_t *title_copy;
     /* per-call copies of read-only originals (compared after the call) */
     uint8_t slot[4], pads[3][2], pad_mode[2], pad_phase, phase, fade[2], b90, b93;
     uint32_t callees[CALLS][2];
     unsigned callee_count;
     uint32_t entry;
     EmSulWorkers sul;
+    EmOptionsTrace trace; /* tests only (em_options_live_set_trace) */
+    void *trace_context;
 };
 
 static uint32_t get32(const uint8_t *p)
@@ -138,6 +173,19 @@ static void build_views(EmOptionsLive *l, const EmOptionsFrame *f)
     view(l, 0x00275C58u, 0x18, em_memcard_globals(0x00275C58u, 0x18));
     view(l, 0x00264E30u, 0x0C, em_memcard_globals(0x00264E30u, 0x0C));
     view(l, 0x00275840u, 0x08, em_memcard_globals(0x00275840u, 0x08));
+    view(l, D_00821500, sizeof card_bss.getdir, card_bss.getdir);
+    view(l, D_00821980, sizeof card_bss.header, card_bss.header);
+    view(l, D_008219D0, BLOCK_SIZE, card_bss.stage_save);
+    view(l, D_00822010, sizeof card_bss.name, card_bss.name);
+    view(l, D_00822050, BLOCK_SIZE, card_bss.stage_load);
+    view(l, D_00822690, BLOCK_SIZE, card_bss.stage_new);
+    view(l, D_00275C94, CARD_TEXT_SIZE, card_bss.card_text);
+    uint32_t toff = 0;
+    for (unsigned i = 0; i < l->title_count; ++i) {
+        memcpy(l->title_copy + toff, l->titles[i].bytes, l->titles[i].size);
+        view(l, l->titles[i].address, l->titles[i].size, l->title_copy + toff);
+        toff += l->titles[i].size;
+    }
     const EmGsDataWindow *w;
     const unsigned n = em_gs_texture_windows(l->gs, &w);
     uint32_t off = 0;
@@ -162,6 +210,12 @@ static int check_readonly(EmOptionsLive *l, const EmOptionsFrame *f)
             return report(l, w[i].address, "stored into a read-only .data window");
         off += w[i].size;
     }
+    uint32_t toff = 0;
+    for (unsigned i = 0; i < l->title_count; ++i) {
+        if (memcmp(l->title_copy + toff, l->titles[i].bytes, l->titles[i].size))
+            return report(l, l->titles[i].address, "stored into the area-title module's read-only bytes");
+        toff += l->titles[i].size;
+    }
     uint8_t want[4];
     put32(want, f->task_address);
     if (memcmp(l->slot, want, 4) || l->phase != f->read_phase || l->pad_phase != f->pad_phase ||
@@ -178,26 +232,280 @@ static int check_readonly(EmOptionsLive *l, const EmOptionsFrame *f)
 
 /* ---- the text --------------------------------------------------------- */
 
+/* A style record by its address: D_00275828 (the binder's storage, which
+ * 001FCBD0 / 001FCE30 set) or another one in a view (the card screen's
+ * D_00275898, a .data window). */
 static int text_style(EmOptionsLive *l, uint32_t address, EmMessageTextStyle *out)
 {
-    if (address != D_00275828) return 0;
-    out->color = (int32_t)get32(l->style);
-    out->glyph = l->style[4];
-    out->flag = l->style[5];
-    out->pad[0] = l->style[6];
-    out->pad[1] = l->style[7];
+    const uint8_t *p = address == D_00275828 ? l->style : at(l, address, 8);
+    if (!p) return 0;
+    out->color = (int32_t)get32(p);
+    out->glyph = p[4];
+    out->flag = p[5];
+    out->pad[0] = p[6];
+    out->pad[1] = p[7];
     return 1;
 }
 
-/* D_00264CB0 (the window) with its style pointer, which must be
- * D_00275828. */
-static int line_config(EmOptionsLive *l, uint32_t address, EmMessageDrawConfig *cfg, EmMessageTextStyle *style)
+/* 001FC770's config: D_00264CB0 (001FCBD0 / 001FCE30) or D_002671A0 (the
+ * card screen's slot rows), each a .data window, with its style pointer
+ * (+0x14) a style record text_style reads, or 0. *cfg_out is NULL for the
+ * original's 0 (001FC770 then copies its template). */
+static int line_config(EmOptionsLive *l, uint32_t address, EmMessageDrawConfig *cfg, EmMessageTextStyle *style,
+                       const EmMessageDrawConfig **cfg_out)
 {
+    if (address == 0) {
+        *cfg_out = NULL;
+        return 1;
+    }
     const uint8_t *p = at(l, address, 0x18);
-    if (address != D_00264CB0 || !p || !text_style(l, get32(p + 0x14), style)) return 0;
+    if ((address != D_00264CB0 && address != D_002671A0) || !p) return 0;
+    const uint32_t style_at = get32(p + 0x14);
+    if (style_at && !text_style(l, style_at, style)) return 0;
     for (unsigned k = 0; k < 5; ++k) cfg->word[k] = (int32_t)get32(p + 4 * k);
-    cfg->style = style;
+    cfg->style = style_at ? style : NULL;
+    *cfg_out = cfg;
     return 1;
+}
+
+/* ---- EE memory as the card server and the leaves reach it -------------- */
+
+/* Every byte of [address, address + size) in a view (a range may span
+ * views). */
+static int mem_check(EmOptionsLive *l, uint32_t address, uint32_t size)
+{
+    for (uint32_t i = 0; i < size;) {
+        uint8_t *p;
+        const uint32_t n = room(l, address + i, &p);
+        if (!p) return 0;
+        i += n < size - i ? n : size - i;
+    }
+    return 1;
+}
+
+static int mem_read(void *ctx, uint32_t address, void *dst, uint32_t size)
+{
+    EmOptionsLive *l = ctx;
+    if (!mem_check(l, address, size)) return -1;
+    for (uint32_t i = 0; i < size;) {
+        uint8_t *p;
+        uint32_t n = room(l, address + i, &p);
+        if (n > size - i) n = size - i;
+        memcpy((uint8_t *)dst + i, p, n);
+        i += n;
+    }
+    return 0;
+}
+
+static int mem_write(void *ctx, uint32_t address, const void *src, uint32_t size)
+{
+    EmOptionsLive *l = ctx;
+    if (!mem_check(l, address, size)) return -1; /* nothing stored unless every byte is a view's */
+    for (uint32_t i = 0; i < size;) {
+        uint8_t *p;
+        uint32_t n = room(l, address + i, &p);
+        if (n > size - i) n = size - i;
+        memcpy(p, (const uint8_t *)src + i, n);
+        i += n;
+    }
+    return 0;
+}
+
+/* sprintf 00122D10(dst, format, ...) (the SDK's, no length limit) for the
+ * formats the card screen and the load enumeration pass (D_00273998 "%02d"
+ * style, D_002739A0, D_00273960): flags '-' and '0', a width, and the
+ * conversions d and s (a string in a view); any other conversion faults.
+ * The integer arguments are the 32-bit images the registers hold; the NUL
+ * is stored at the end. *v0 the count (no caller reads it). */
+static int sprintf_00122D10(EmOptionsLive *l, const uint64_t *a, unsigned na, uint64_t *v0)
+{
+    uint8_t *fmt;
+    const uint32_t nf = room(l, (uint32_t)a[1], &fmt);
+    const uint8_t *z = fmt ? memchr(fmt, 0, nf) : NULL;
+    if (!z) return report(l, 0x00122D10u, "has its format outside the views");
+    char out[256];
+    size_t len = 0;
+    unsigned arg = 2;
+    for (const uint8_t *c = fmt; c < z;) {
+        if (*c != '%') {
+            if (len + 1 >= sizeof out) return report(l, 0x00122D10u, "formats more than the binding holds");
+            out[len++] = (char)*c++;
+            continue;
+        }
+        char spec[16];
+        size_t k = 0;
+        spec[k++] = (char)*c++;
+        while (c < z && (*c == '-' || *c == '0') && k < 4) spec[k++] = (char)*c++;
+        while (c < z && *c >= '0' && *c <= '9' && k < 8) spec[k++] = (char)*c++;
+        if (c >= z || (*c != 'd' && *c != 's'))
+            return report(l, 0x00122D10u, "with a conversion the binding does not implement");
+        const char conv = (char)*c++;
+        spec[k++] = conv;
+        spec[k] = 0;
+        if (arg >= na) return report(l, 0x00122D10u, "with more conversions than argument registers");
+        char piece[128];
+        int n;
+        if (conv == 'd') {
+            n = snprintf(piece, sizeof piece, spec, (int)(int32_t)(uint32_t)a[arg++]);
+        } else {
+            uint8_t *sp;
+            const uint32_t ns = room(l, (uint32_t)a[arg++], &sp);
+            const uint8_t *sz = sp ? memchr(sp, 0, ns) : NULL;
+            if (!sz) return report(l, 0x00122D10u, "has a %s argument outside the views");
+            char text[96];
+            if ((size_t)(sz - sp) >= sizeof text) return report(l, 0x00122D10u, "has a long %s argument");
+            memcpy(text, sp, (size_t)(sz - sp) + 1);
+            n = snprintf(piece, sizeof piece, spec, text);
+        }
+        if (n < 0 || (size_t)n >= sizeof piece || len + (size_t)n >= sizeof out)
+            return report(l, 0x00122D10u, "formats more than the binding holds");
+        memcpy(out + len, piece, (size_t)n);
+        len += (size_t)n;
+    }
+    out[len] = 0;
+    if (mem_write(l, (uint32_t)a[0], out, (uint32_t)len + 1u) < 0)
+        return report(l, 0x00122D10u, "writes outside the views");
+    *v0 = (uint64_t)len;
+    return 0;
+}
+
+/* ---- the test log (em_options_live_set_trace) -------------------------- */
+
+typedef struct {
+    uint8_t b[512];
+    uint32_t n;
+    int full;
+} Record;
+
+static void rec_bytes(Record *r, const void *p, uint32_t n)
+{
+    if (r->n + n > sizeof r->b) {
+        r->full = 1;
+        return;
+    }
+    memcpy(r->b + r->n, p, n);
+    r->n += n;
+}
+
+static void rec_word(Record *r, uint32_t v)
+{
+    uint8_t w[4];
+    put32(w, v);
+    rec_bytes(r, w, 4);
+}
+
+static void rec_dword(Record *r, uint64_t v)
+{
+    rec_word(r, (uint32_t)v);
+    rec_word(r, (uint32_t)(v >> 32));
+}
+
+static void rec_text(Record *r, const uint8_t *p, uint32_t n)
+{
+    const uint8_t *z = memchr(p, 0, n);
+    const uint32_t len = z ? (uint32_t)(z - p) : n;
+    rec_word(r, len);
+    rec_bytes(r, p, len);
+}
+
+static void rec_style(Record *r, const EmMessageTextStyle *s)
+{
+    const uint8_t present = s != NULL;
+    rec_bytes(r, &present, 1);
+    if (!s) return;
+    rec_word(r, (uint32_t)s->color);
+    const uint8_t b[4] = {s->glyph, s->flag, s->pad[0], s->pad[1]};
+    rec_bytes(r, b, 4);
+}
+
+static void emit(EmOptionsLive *l, uint32_t callee, Record *r)
+{
+    if (l->trace) l->trace(l->trace_context, callee, r->full ? NULL : r->b, r->full ? 0 : r->n);
+}
+
+/* The traced calls. Each takes the values the dispatcher hands on as its
+ * own parameters, logs exactly those parameters and forwards them
+ * unchanged, so the log is what the callee receives: a wrong argument in a
+ * dispatcher's call line reaches the log too. */
+static int out_blend(EmOptionsLive *l, int32_t slot, int32_t mode)
+{
+    if (l->trace) {
+        Record r = {.n = 0};
+        rec_word(&r, (uint32_t)slot);
+        rec_word(&r, (uint32_t)mode);
+        emit(l, 0x00207D00u, &r);
+    }
+    return em_page_draw_blend(l->draw, slot, mode);
+}
+
+static int out_sprite(EmOptionsLive *l, int32_t slot, int32_t x, int32_t y, int32_t w, int32_t h,
+                      uint32_t rgba, uint64_t tex0)
+{
+    if (l->trace) {
+        Record r = {.n = 0};
+        const int32_t v[5] = {slot, x, y, w, h};
+        for (unsigned i = 0; i < 5; ++i) rec_word(&r, (uint32_t)v[i]);
+        rec_word(&r, rgba);
+        rec_dword(&r, tex0);
+        emit(l, 0x00207E40u, &r);
+    }
+    return em_page_draw_sprite(l->draw, slot, x, y, w, h, rgba, tex0);
+}
+
+static int out_rectangle(EmOptionsLive *l, int32_t slot, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                         uint32_t rgba)
+{
+    if (l->trace) {
+        Record r = {.n = 0};
+        const int32_t v[5] = {slot, x0, y0, x1, y1};
+        for (unsigned i = 0; i < 5; ++i) rec_word(&r, (uint32_t)v[i]);
+        rec_word(&r, rgba);
+        emit(l, 0x00207F80u, &r);
+    }
+    return em_page_draw_rectangle(l->draw, slot, x0, y0, x1, y1, rgba);
+}
+
+static int out_background(EmOptionsLive *l, uint64_t tex0)
+{
+    if (l->trace) {
+        Record r = {.n = 0};
+        rec_dword(&r, tex0);
+        emit(l, 0x0020A7A0u, &r);
+    }
+    return em_page_draw_background(l->draw, tex0);
+}
+
+static int out_cc1e0(EmOptionsLive *l, int32_t slot, int32_t x, int32_t y, int32_t unused, int32_t h,
+                     const uint8_t *text, uint32_t avail, const EmMessageTextStyle *style)
+{
+    if (l->trace) {
+        Record r = {.n = 0};
+        const int32_t v[5] = {slot, x, y, unused, h};
+        for (unsigned i = 0; i < 5; ++i) rec_word(&r, (uint32_t)v[i]);
+        rec_text(&r, text, avail);
+        rec_style(&r, style);
+        emit(l, 0x001CC1E0u, &r);
+    }
+    return em_message_live_cc1e0(slot, x, y, unused, h, text, avail, style);
+}
+
+static int out_fc770(EmOptionsLive *l, int32_t x, int32_t y, const uint8_t *text, uint32_t avail,
+                     const EmMessageDrawConfig *cfg)
+{
+    if (l->trace) {
+        Record r = {.n = 0};
+        rec_word(&r, (uint32_t)x);
+        rec_word(&r, (uint32_t)y);
+        rec_text(&r, text, avail);
+        const uint8_t present = cfg != NULL;
+        rec_bytes(&r, &present, 1);
+        if (cfg) {
+            for (unsigned k = 0; k < 5; ++k) rec_word(&r, (uint32_t)cfg->word[k]);
+            rec_style(&r, cfg->style);
+        }
+        emit(l, 0x001FC770u, &r);
+    }
+    return em_message_live_fc770(x, y, text, avail, cfg);
 }
 
 /* ---- the dispatcher ---------------------------------------------------- */
@@ -217,16 +525,8 @@ static void count(EmOptionsLive *l, uint32_t callee)
 
 static int ok0(int accepted) { return accepted ? 0 : -1; }
 
-static int store_words(EmOptionsLive *l, const EmMemcardStore *stores, unsigned n)
-{
-    for (unsigned i = 0; i < n; ++i) {
-        uint8_t *p = at(l, stores[i].address, 4);
-        if (!p) return -1;
-        put32(p, (uint32_t)stores[i].value);
-    }
-    return 0;
-}
-
+/* 001FB9F0 as 0020CD40 / 60 / A0 call it: the host's sound. Not logged
+ * here: a test logs the cue in its own host.sound, where it arrives. */
 static int sul_sound(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3)
 {
     EmOptionsLive *l = c;
@@ -247,13 +547,13 @@ static int dispatch(void *ctx, uint32_t target, uint32_t sp, const uint64_t *a, 
 #define U(i) ((uint32_t)A(i))
     switch (target) {
     case 0x00207D00u:
-        return ok0(em_page_draw_blend(l->draw, I(0), I(1)));
+        return ok0(out_blend(l, I(0), I(1)));
     case 0x00207E40u:
-        return ok0(em_page_draw_sprite(l->draw, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
+        return ok0(out_sprite(l, I(0), I(1), I(2), I(3), I(4), U(5), A(6)));
     case 0x00207F80u:
-        return ok0(em_page_draw_rectangle(l->draw, I(0), I(1), I(2), I(3), I(4), U(5)));
+        return ok0(out_rectangle(l, I(0), I(1), I(2), I(3), I(4), U(5)));
     case 0x0020A7A0u:
-        return ok0(em_page_draw_background(l->draw, A(0)));
+        return ok0(out_background(l, A(0)));
     case 0x001281C0u:
         if (nf < 1) return -1;
         *v0 = (uint64_t)(int64_t)em_player_float_to_int(f[0]);
@@ -388,42 +688,54 @@ static int dispatch(void *ctx, uint32_t target, uint32_t sp, const uint64_t *a, 
         uint8_t *p;
         const uint32_t n = room(l, U(5), &p);
         EmMessageTextStyle style;
-        if (!p || !text_style(l, U(6), &style)) return report(l, target, "has no text or style D_00275828");
-        return em_message_live_cc1e0(I(0), I(1), I(2), I(3), I(4), p, n, &style) < 0 ? -1 : 0;
+        if (!p || (U(6) && !text_style(l, U(6), &style)))
+            return report(l, target, "has no text or a style outside the views");
+        const EmMessageTextStyle *use = U(6) ? &style : NULL;
+        return out_cc1e0(l, I(0), I(1), I(2), I(3), I(4), p, n, use) < 0 ? -1 : 0;
     }
     case 0x001FC770u: {
         uint8_t *p;
         const uint32_t n = room(l, U(2), &p);
         EmMessageDrawConfig cfg;
         EmMessageTextStyle style;
-        if (!p || !line_config(l, U(3), &cfg, &style))
-            return report(l, target, "has no text or a config other than D_00264CB0");
-        return em_message_live_fc770(I(0), I(1), p, n, &cfg) < 0 ? -1 : 0;
+        const EmMessageDrawConfig *use = NULL;
+        if (!p || !line_config(l, U(3), &cfg, &style, &use))
+            return report(l, target, "has no text or a config other than D_00264CB0 / D_002671A0 / 0");
+        return out_fc770(l, I(0), I(1), p, n, use) < 0 ? -1 : 0;
     }
-    /* the memory card */
-    case 0x00114988u: {
-        EmMemcardStore stores[3];
-        unsigned n = 0;
-        int32_t r = 0;
-        if (em_memcard_00114988(I(0), I(1), U(2), U(3), U(4), &r, stores, &n) < 0 ||
-            store_words(l, stores, n) < 0)
-            return -1;
-        *v0 = (uint64_t)(int64_t)r;
-        return 0;
+    /* the memory card: the eight libmc entries em_memcard answers (GetInfo,
+     * Sync and the file commands), over the views */
+    case 0x00114988u: case 0x00114848u: case 0x00114360u: case 0x00114448u:
+    case 0x00114480u: case 0x00114708u: case 0x00114630u: case 0x00114AC0u: {
+        const EmMemcardMemory mem = {l, mem_read, mem_write};
+        return em_memcard_call(target, a, na, &mem, v0) < 0 ? -1 : 0;
     }
-    case 0x00114848u: {
-        EmMemcardStore stores[2];
-        unsigned n = 0;
-        int32_t r = 0;
-        if (em_memcard_00114848(I(0), U(1), U(2), &r, stores, &n) < 0 || store_words(l, stores, n) < 0)
-            return -1;
-        *v0 = (uint64_t)(int64_t)r;
-        return 0;
-    }
+    case 0x00114D18u:
+        return report(l, target, "(libmc Format, the save mode's unformatted card): no recording shows the "
+                                 "card server's answer (docs/SAVE_GAME.md section 6.2)");
+    /* the card screen past the slot choice (em_card_original): 00226070's
+     * card poll 002267A0 and 00225D20's 00227300 */
     case 0x002267A0u:
-    case 0x00227300u:
-        return report(l, target, "the card screen past the slot choice, which the first level's recordings "
-                                 "do not reach (docs/OPTIONS.md section 5): not translated");
+    case 0x00227300u: {
+        uint32_t r = 0;
+        const int rc = target == 0x002267A0u ? em_card_002267A0(&l->s, U(0), &r) : em_card_00227300(&l->s, U(0), &r);
+        if (rc < 0) return -1;
+        *v0 = (uint64_t)(int64_t)(int32_t)r;
+        return 0;
+    }
+    case 0x00122D10u:
+        return sprintf_00122D10(l, a, na, v0);
+    case 0x00123020u: { /* strcmp(a, b): the first differing bytes' difference (00228C90 tests 0) */
+        uint8_t *p, *q;
+        const uint32_t np = room(l, U(0), &p), nq = room(l, U(1), &q);
+        for (uint32_t i = 0;; ++i) {
+            if (i >= np || i >= nq) return report(l, target, "reads outside the views");
+            if (p[i] != q[i] || !p[i]) {
+                *v0 = (uint64_t)(int64_t)((int32_t)p[i] - (int32_t)q[i]);
+                return 0;
+            }
+        }
+    }
     default:
         return report(l, target, "which is not bound");
     }
@@ -468,6 +780,27 @@ EmOptionsLive *em_options_live_create(EmGsTexture *gs, const EmOptionsHost *host
         return NULL;
     }
     memcpy(l->style, init, sizeof l->style);
+    /* the place names the card screen's slot rows read (em_area_title); a
+     * region the EMSP already carries as a window (the style D_00265520) is
+     * read there */
+    EmAreaTitleRegion all[TITLE_REGIONS];
+    const unsigned got = em_area_title_regions(all, TITLE_REGIONS);
+    for (unsigned i = 0; i < got; ++i) {
+        int inside = 0;
+        for (unsigned k = 0; k < n; ++k)
+            if (all[i].address >= w[k].address && (uint64_t)all[i].address + all[i].size <=
+                                                       (uint64_t)w[k].address + w[k].size)
+                inside = 1;
+        if (!inside) l->titles[l->title_count++] = all[i];
+    }
+    size_t tsize = 0;
+    for (unsigned i = 0; i < l->title_count; ++i) tsize += l->titles[i].size;
+    if (!l->title_count || !(l->title_copy = malloc(tsize))) {
+        fprintf(stderr, "options: the area-title export (the card screen's place names) is missing "
+                        "(python3 tools/export_area_title.py)\n");
+        em_options_live_free(l);
+        return NULL;
+    }
     memset(&l->sul, 0, sizeof l->sul);
     l->sul.context = l;
     l->sul.sound = sul_sound;
@@ -479,6 +812,7 @@ void em_options_live_free(EmOptionsLive *l)
     if (!l) return;
     em_page_draw_free(l->draw);
     free(l->data);
+    free(l->title_copy);
     free(l);
 }
 
@@ -560,6 +894,44 @@ int em_options_live_render(EmOptionsLive *l, EmGfx *gfx)
 void em_options_live_deactivate(EmOptionsLive *l)
 {
     if (l) em_page_draw_deactivate(l->draw);
+}
+
+static uint8_t *card_buffer(const EmOptionsLive *l, uint32_t address, uint32_t size)
+{
+    (void)l;
+    const struct { uint32_t base, size; uint8_t *bytes; } own[] = {
+        {D_00821500, sizeof card_bss.getdir, card_bss.getdir},
+        {D_00821980, sizeof card_bss.header, card_bss.header},
+        {D_008219D0, BLOCK_SIZE, card_bss.stage_save}, {D_00822010, sizeof card_bss.name, card_bss.name},
+        {D_00822050, BLOCK_SIZE, card_bss.stage_load}, {D_00822690, BLOCK_SIZE, card_bss.stage_new},
+        {D_00275C94, CARD_TEXT_SIZE, card_bss.card_text}};
+    for (unsigned i = 0; i < sizeof own / sizeof own[0]; ++i)
+        if (address >= own[i].base && (uint64_t)address + size <= (uint64_t)own[i].base + own[i].size)
+            return own[i].bytes + (address - own[i].base);
+    return NULL;
+}
+
+int em_options_live_card_bytes(const EmOptionsLive *l, uint32_t address, void *dst, uint32_t size)
+{
+    const uint8_t *p = l && dst ? card_buffer(l, address, size) : NULL;
+    if (!p) return -1;
+    memcpy(dst, p, size);
+    return 0;
+}
+
+int em_options_live_card_seed(EmOptionsLive *l, uint32_t address, const void *src, uint32_t size)
+{
+    uint8_t *p = l && src ? card_buffer(l, address, size) : NULL;
+    if (!p) return -1;
+    memcpy(p, src, size);
+    return 0;
+}
+
+void em_options_live_set_trace(EmOptionsLive *l, EmOptionsTrace trace, void *context)
+{
+    if (!l) return;
+    l->trace = trace;
+    l->trace_context = context;
 }
 
 unsigned em_options_live_calls(const EmOptionsLive *l, uint32_t callee)

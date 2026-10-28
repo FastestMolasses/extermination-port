@@ -231,17 +231,21 @@ def result_of(spec, v0, f0):
     return None if spec[2] is None else (v0 & MASK if spec[2] == 'v0' else f0 & MASK)
 
 
-# Oracle-side memo of 0020A7A0 (quick mode only): a call whose entry (stack
-# pointer, argument) and every value it read on a recorded run (first reads
-# of addresses it had not yet written, instruction fetches included) are
-# unchanged makes the same stores and returns the same v0 / f0, so the
-# recorded stores are replayed into the journal instead of re-executing.
+# Oracle-side memo of 0020A7A0, 00213A00 and 001FCF30 (quick mode only): a
+# call whose entry (stack pointer and every argument register WSPEC gives
+# the callee: the integer ones from a0, the float ones from f12) and every
+# value it read on a recorded run (first reads of addresses it had not yet
+# written, instruction fetches included) are unchanged makes the same stores
+# and returns the same v0 / f0, so the recorded stores are replayed into the
+# journal instead of re-executing. Register arguments are not memory reads,
+# so the key must hold all of them: keyed on a0 alone, a call differing only
+# in a1 / a2 would replay another call's stores on both sides.
 MEMO_ON = set() if (RM.FULL or os.environ.get('EM_A01UI_RUNALL', '') not in ('', '0')) else {0x20A7A0, 0x213A00, 0x1FCF30}
 MEMO = {}
 
 
 def memo_run(e, address):
-    key = (address, e.r[29] & MASK, e.r[4] & MASK64)
+    key = entry_of(e, address, WSPEC[address])
     for reads, writes, v0, f0 in MEMO.get(key, ()):
         if all(e.load(a, n) == v for (a, n), v in reads):
             for is_spad, at, data in writes:

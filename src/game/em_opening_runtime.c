@@ -2,6 +2,7 @@
 
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
+#include "game/em_scene_bindings.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -56,7 +57,7 @@ void em_opening_runtime_complete(void)
     if (!s.requested || s.finished) return;
     s.finished = 1;
     fprintf(stderr, "opening: complete frame=%d pos=(%.6f,%.6f,%.6f) yaw=%.8f eventB9=%u\n", g.frame_no,
-            g.pos[0], g.pos[1], g.pos[2], g.yaw, g.opening_complete);
+            g.pos[0], g.pos[1], g.pos[2], g.yaw, em_scene_state()->d810811);
 }
 
 const EmCinematicCamera *em_opening_runtime_track(void)

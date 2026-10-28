@@ -33,6 +33,9 @@ RECORD_POSE = ('em_player_record_pose', 'em_pose_host_workers', 'em_player_stage
 BRIDGE = r'''
 #include "game/em_player_pose_host.c"
 EmGameState g;
+/* The progress block (D_00810858, the health) lives in the scene state the
+ * game's em_scene_bindings.c owns; this bridge provides its own. */
+EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 static EmTransitionFade fade;
 const EmTransitionFade *em_frame_transition(void) { return &fade; }
 void em_frame_request_quit(void) { abort(); }
@@ -45,7 +48,7 @@ static EmPlayerStageScene stage_scene = { .d8106F1 = &d8106F1 };
 static EmPlayerStageGlobals stage_globals = { .d810707 = &d810707 };
 int load(const char *bank, const char *row0) {
     g.model.bone_count = 22;
-    g.status.health = 100;
+    em_scene_state()->d810858 = 100;
     return player_pose_load(bank, row0) && player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals) &&
            player_pose_record_displayed();
 }
@@ -108,7 +111,7 @@ static int accepted_use(void *context) {
 }
 int legacy_cycle(float health, unsigned *out) {
     seed(2, 10); /* a jog source */
-    g.status.health = health;
+    em_scene_state()->d810858 = health;
     g.loco_mode = 1; g.loco_tier = 2;
     player_pose_legacy_hold("oracle stand-in");
     int released = player_pose_legacy_release();
@@ -116,7 +119,7 @@ int legacy_cycle(float health, unsigned *out) {
     out[0] = released;
     player_pose_source(out + 1, (float *)(out + 2), NULL, (int *)(out + 3));
     out[4] = g.loco_mode; out[5] = source.idle_phase; out[6] = source.idle_count;
-    g.status.health = 100;
+    em_scene_state()->d810858 = 100;
     player_pose_legacy_release();
     return released;
 }

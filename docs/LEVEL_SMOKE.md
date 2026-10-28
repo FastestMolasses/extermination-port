@@ -76,7 +76,7 @@ make test-level-smoke                  # first_control, status, battery (about 1
 make test-level-smoke-full             # the whole route through the exit and the AREA01 arrival idle (a01_arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage, test-level-smoke-branch, test-level-smoke-options and test-level-smoke-audio
-make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall, dmg_fan (EM_DAMAGE_SIDES=a,b runs only those)
+make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_load, dmg_load_game, dmg_crevice_fall, dmg_pit_fall, dmg_fan (EM_DAMAGE_SIDES=a,b runs only those)
 make test-level-smoke-damage-fan       # dmg_fan alone (fan r2's hit and the reaction 0021E9C0, dmg_08 row for row)
 make test-level-smoke-branch           # the BRANCH side runs side by side: br_ledge_ammo, br_map_item, br_elevator_up, br_panel_decline, br_crate_stack, br_west_ledge, br_yard_ammo, br_cage_key, br_plateau, br_roger_talk (EM_BRANCH_SIDES=a,b runs only those; 7 min 5 s for the ten with their checks, measured 2026-10-03)
 make test-level-smoke-audio            # the AUDIO side runs side by side: aud_walk_outdoor, aud_walk_room, aud_flame (about 5 min; EM_AUDIO_SIDES=a,b runs only those)
@@ -1396,11 +1396,14 @@ a module): SPR4's module 0x2C 28 rows (f50..f77), the SELECTOR's 0x31 18
 rows (f82..f99) and the SPR4 reload 23 rows (f154..f176); the port's at
 host speed 11, 10 and 11 rows (LAUNCHER_OPTIONS.md, the drive switch).
 
-### The DAMAGE side runs (dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall, dmg_fan)
+### The DAMAGE side runs (dmg_flame, dmg_load, dmg_load_game, dmg_crevice_fall, dmg_pit_fall, dmg_fan)
 
-Side phases (DAMAGE.md section 8): dmg_flame, dmg_load and dmg_crevice_fall
-after crevice_prompt, dmg_pit_fall after truck_preview, dmg_fan after roger
-(dmg_load: "The OPTIONS side runs" below). Each but dmg_fan plays the
+Side phases (DAMAGE.md section 8): dmg_flame, dmg_load, dmg_load_game and
+dmg_crevice_fall after crevice_prompt, dmg_pit_fall after truck_preview,
+dmg_fan after roger (dmg_load: "The OPTIONS side runs" below;
+dmg_load_game, LOAD GAME of a start-point card into its area on the card
+copy build/level_smoke_damage/dmg_load_game_card given as the run's
+EM_TEST_MEMCARD_ROOT: SAVE_GAME.md section 6.3). Each but dmg_fan plays the
 capture lane DAMAGE's own closed-loop policies (decomp route_capture.py
 `dmg_beat_*`) as a program of steps (em_level_smoke_test.c "damage":
 idle, hits to a health, retreat, the death to the game over, the title,

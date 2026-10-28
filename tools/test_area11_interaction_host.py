@@ -32,6 +32,9 @@ MODULES = (
     # 001B61C0 (em_pad_actuator over em_player_ladder_entry's translation; the
     # pad itself is the headless placeholder backend) and em_pickup_reset's 001AF470.
     'em_options_live em_options_original em_memcard em_pad_actuator em_player_ladder_entry em_startup_load_gaps '
+    # The card screen past the slot choice it dispatches to, the save / load
+    # code under it and the place names its slot rows read (docs/SAVE_GAME.md).
+    'em_card_original em_save_original em_area_title '
     'em_script em_frame em_fade em_random em_task em_face_slot em_roger_actor_original em_opening_face '
     'em_collision_world em_actor_collision em_actor_pool em_coll_probe_original em_coll_grid_hull em_coll_segment_walkers '
     'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original '

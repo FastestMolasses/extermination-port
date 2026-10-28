@@ -516,7 +516,7 @@ static void reset(void)
     for (int i = 0; i < 4; ++i) model_clips[i] = (EmModelClip){ids[i], 0, lengths[i], 60.0f};
     g.model.clips = model_clips; g.model.clip_count = 4; g.model.bone_count = 22;
     g.clip_walk = 1; g.clip_jog = 2; g.clip_run = 3; g.clip_idle = 0;
-    g.status.health = 100;
+    em_scene_state()->d810858 = 100;
     g.cam.fwd[2] = 1.0f;
     g.pos[0] = 2; g.pos[1] = 10; g.pos[2] = 2;
     input.lx = pad.lx = input.ly = pad.ly = 128; pad.gait = 0;
@@ -844,7 +844,7 @@ int main(void)
            em_live_u8(a, 0) == 0 && stage_calls[SC_FADE] == 0);
     /* The vitals view: +220 = 0 is the port's health after the stage (the
      * B9 test of 0015CF90 and the status pages read it there). */
-    assert(g.status.health == 0.0f);
+    assert(em_scene_state()->d810858 == 0.0f);
     tick();
     assert(em_live_u8(a, 5) == 2 && stage_calls[SC_FADE] == 1 && fade_args[0] == 4 &&
            fade_args[1] == 0 && stage_calls[SC_ADVANCE] == 0 && quit_requests == 0);
@@ -994,10 +994,10 @@ int main(void)
      *     damage the port's producers left reaches the stage's 0021C440 as
      *     +224, and what the stage leaves is the port's value after it. */
     g.pd_pend_hp = 7.0f;
-    g.status.health = 90.0f;
+    em_scene_state()->d810858 = 90.0f;
     g.pd_iframes = 2;
     player_states_stage();
-    assert(g.status.health == 90.0f && g.pd_pend_hp == 7.0f);   /* the fake 0021C440 keeps them */
+    assert(em_scene_state()->d810858 == 90.0f && g.pd_pend_hp == 7.0f);   /* the fake 0021C440 keeps them */
     assert(em_live_f32(a, 0x224) == 7.0f && em_live_f32(a, 0x220) == 90.0f);
     assert(g.pd_iframes == 1 && em_live_u16(a, 0x20E) == 1);    /* 0015B130's countdown */
     assert(quit_requests == 0);

@@ -30,7 +30,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_movie_field.c src/game/em_movie_sound.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
-           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
+           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c src/game/em_start_at.c \
            src/game/em_opening_face.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
@@ -38,7 +38,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
-           src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
+           src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_spu2_dsp.c src/game/em_spu2_reverb.c src/game/em_spu2_effects.c src/game/em_spu2_output.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
            src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
@@ -50,7 +50,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
            src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
-           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c \
+           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c src/game/em_save_original.c src/game/em_card_original.c \
            src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
            src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
@@ -1447,6 +1447,81 @@ test-status-page-reference:
 test-options-reference:
 	python3 tools/test_options_reference.py
 
+# The memory-card save writer (docs/SAVE_GAME.md section 3): the
+# translations em_save_original against the original instructions over the
+# opt_07 and a01_s4 recordings' RAM, the card layout read back from the
+# original's own writes, every reachable branch outcome (under 1 s;
+# EM_TEST_FULL=1 the exhaustive sweep, about 10 s).
+.PHONY: test-save-reference
+test-save-reference:
+	python3 tools/test_save_reference.py
+
+# The memory-card load side (docs/SAVE_GAME.md section 4): the load
+# enumeration 002283B0 / 00228EB0, LOAD GAME's read 00228B60 and their
+# helpers, em_save_original against the original instructions over the
+# same two recordings, every reachable branch outcome (about 1 s;
+# EM_TEST_FULL=1 the exhaustive sweep, about 6 s).
+.PHONY: test-load-reference
+test-load-reference:
+	python3 tools/test_load_reference.py
+
+# The memory-card screen past the slot choice (docs/SAVE_GAME.md section 6):
+# em_card_original against the original instructions over the opt_07 and
+# dmg_05 recordings' RAM, single calls and whole card screens (loads, saves,
+# the error screens), every reachable branch outcome (about 20 s; EM_TEST_FULL=1 the
+# exhaustive sweep, about 19 min).
+.PHONY: test-card-screen-reference
+test-card-screen-reference:
+	python3 tools/test_card_screen_reference.py
+
+# The options binding (em_options_live) on the card screen past the slot
+# choice against the original code, both over the host memory card
+# and its draw and cue calls (docs/SAVE_GAME.md section 6.1; about 9 s
+# warm, 30 to 50 s on a first run, which builds the fixture).
+.PHONY: test-options-card-live
+test-options-card-live:
+	python3 tools/test_options_card_live.py
+
+# The host memory card's file commands (em_memcard) under the original save
+# writer and load enumeration (docs/SAVE_GAME.md section 5; about 4 s,
+# EM_TEST_FULL=1 every slot and port on both recordings, about 18 s).
+.PHONY: test-memcard-host
+test-memcard-host:
+	python3 tools/test_memcard_host.py
+
+# The start-point saves EM_START_AT is to load (docs/SAVE_GAME.md section 7):
+# the original save writer over each area's arrival in the fork recordings,
+# read back by the original load code, into the ignored build/start_saves/
+# (disc-derived). start-saves builds them (about 12 s); test-start-saves
+# builds them into a temporary folder and checks them (3 s warm, about 7 s
+# when it builds its libraries).
+.PHONY: start-saves test-start-saves
+start-saves:
+	python3 tools/build_start_saves.py
+
+test-start-saves:
+	python3 tools/test_start_saves.py
+
+# LOAD GAME on the boot's title (docs/SAVE_GAME.md section 6.4): boot,
+# LOAD GAME, the card screen on a copy of the area01 start-point card
+# (start-saves), into control in AREA01, checked against the slot (the
+# whole 0x640-byte progress block); the same run on an empty card must not
+# hand off a game (about 3 s).
+.PHONY: test-title-load-game
+test-title-load-game: $(BIN)
+	python3 tools/test_title_load_game.py
+
+# EM_START_AT=<name>, the developer switch (docs/STARTUP.md "Developer
+# switches"): area01 through the boot title's LOAD GAME on the start-point
+# card itself (read-only) into control in AREA01, checked as
+# test-title-load-game checks its copy; the switch alone headless; the card
+# unchanged; the refusals (unknown name, other switches, missing, stale or
+# changed cards). Needs start-saves. EM_TEST_FULL=1 also reports how far
+# area00 and area01-revisit get (about 11 s).
+.PHONY: test-start-at
+test-start-at: $(BIN)
+	python3 tools/test_start_at.py
+
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model
 # bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against
@@ -2138,3 +2213,56 @@ test-level-texture-registry:
 	@mkdir -p build/levels/texture-registry
 	clang -O2 -Wall -Wextra -Werror -Isrc -Wl,-dead_strip tests/level_texture_registry_test.m -framework Cocoa -framework Metal -framework QuartzCore -o build/levels/texture-registry/test
 	EM_HEADLESS=1 build/levels/texture-registry/test
+
+# SPU2 output experiments: synthetic arithmetic tests are fast; waveform
+# comparison is opt-in and requires an explicit private capture manifest.
+.PHONY: test-spu2-output test-spu2-output-compare
+test-spu2-output:
+	python3 tools/test_spu2_output_unit.py
+	python3 tools/test_spu2_reverb.py
+	python3 tools/test_spu2_effects_export.py
+	python3 tools/test_spu2_output_compare_unit.py
+
+test-spu2-output-compare:
+	@test -n "$(SPU2_COMPARE_MANIFEST)" || { echo "set SPU2_COMPARE_MANIFEST to a private capture manifest"; exit 2; }
+	python3 tools/test_spu2_output_compare.py --manifest "$(SPU2_COMPARE_MANIFEST)" --report build/spu2-output/compare-report.json
+
+# Later-route shared entries remain unwired; these original-entry audits are opt-in.
+.PHONY: test-level5-state-reference test-level5-shared-audio-reference
+test-level5-state-reference:
+	python3 tools/test_level5_state_reference.py
+	python3 tools/test_level5_state_mutations.py
+
+test-level5-shared-audio-reference:
+	python3 tools/test_level5_shared_audio_reference.py
+
+.PHONY: test-level15-shared-services-reference
+test-level15-shared-services-reference:
+	python3 tools/test_level15_shared_services_reference.py
+
+.PHONY: test-level14-shared-player-reference test-level14-player-frame-reference test-level14-player-frame-strict
+test-level14-shared-player-reference:
+	python3 tools/test_level14_shared_player_reference.py --suite closure
+	python3 tools/test_level14_shared_player_reference.py --suite ladder
+	python3 tools/test_level14_shared_player_reference.py --suite major2
+	python3 tools/test_level14_shared_player_reference.py --suite heal
+
+# Expected-failure check: passes only while the strict 0015BCF0 oracle rejects
+# the unfixed production owner with exactly the pinned failure signature
+# (per-signature case counts plus a per-case digest over all 1,384 cases); any
+# new owner regression, partial fix or full match fails it. It then runs two
+# sensitivity controls (an injected owner regression must be rejected; the
+# private proposal, when present, must be rejected as matching). The strict
+# oracle itself (exits nonzero until main applies the proposal) is opt-in and
+# in no aggregate.
+test-level14-player-frame-reference:
+	python3 tools/test_level14_player_frame_expected_failure.py
+test-level14-player-frame-strict:
+	python3 tools/test_level14_player_frame_reference.py
+
+# Explicit offline comparison tooling checks; no device/emulator is started.
+.PHONY: test-spu2-a2-tools
+test-spu2-a2-tools:
+	python3 tools/test_spu2_alignment.py
+	python3 tools/test_spu2_observer.py
+	python3 tools/test_spu2_stage_compare.py

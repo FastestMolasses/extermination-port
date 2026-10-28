@@ -97,6 +97,16 @@ int em_area_title_load(void)
     return 0;
 }
 
+unsigned em_area_title_regions(EmAreaTitleRegion *out, unsigned max)
+{
+    if (em_area_title_load() < 0 || !out) return 0;
+    unsigned n = 0;
+    for (unsigned k = 0; k < S.blocks && n < max; ++k)
+        out[n++] = (EmAreaTitleRegion){S.block[k].base, S.block[k].size, S.block[k].bytes};
+    if (n < max) out[n++] = (EmAreaTitleRegion){D_00289B40, (uint32_t)sizeof S.d289B40, S.d289B40};
+    return n;
+}
+
 /* The bytes of `address` inside an exported block (its text up to the
  * block's end), or NULL. */
 static const uint8_t *exported(u32 address, u32 *avail)

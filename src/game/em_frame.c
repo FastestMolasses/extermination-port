@@ -77,6 +77,7 @@ static struct {
     EmFrameSoundService sound;        /* the field and step H 001FB100 */
     bool         pace_initialized;
     bool         uncapped;
+    bool         unpaced;   /* em_frame_set_unpaced (EM_START_AT's boot) */
     struct timespec next_deadline;
     /* EM_INPUT_TEST bookkeeping */
     bool         input_test;
@@ -271,6 +272,13 @@ const void *em_frame_host_pacing(size_t *size)
     *size = (size_t)((const char *)(&s_frame.next_deadline + 1) - (const char *)&s_frame.pace_initialized);
     return &s_frame.pace_initialized;
 }
+void em_frame_set_unpaced(int on)
+{
+    if (s_frame.unpaced && !on && s_frame.pace_initialized)
+        clock_gettime(CLOCK_MONOTONIC, &s_frame.next_deadline);   /* no catch-up burst */
+    s_frame.unpaced = on != 0;
+}
+
 /* The low two bytes of the (little-endian) parity word are the halfword
  * D_00810E80 (0 or 1). */
 uint8_t  *em_frame_d810E80(void)        { return (uint8_t *)&s_frame.parity; }
@@ -497,7 +505,7 @@ static void frame_pace_ntsc(void)
         s_frame.pace_initialized = true;
         clock_gettime(CLOCK_MONOTONIC, next);
     }
-    if (s_frame.uncapped) return;
+    if (s_frame.uncapped || s_frame.unpaced) return;
     next->tv_nsec += period_ns;
     while (next->tv_nsec >= 1000000000L) { next->tv_nsec -= 1000000000L; next->tv_sec++; }
     struct timespec now;

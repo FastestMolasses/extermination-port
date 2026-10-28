@@ -64,6 +64,11 @@ int em_frame_step(void);
 /* Ask the loop to stop after the current frame completes. */
 void em_frame_request_quit(void);
 
+/* Host pacing only: 1 runs the frames without the NTSC wait (as
+ * EM_UNCAPPED=1 does), 0 paces them again from now. EM_START_AT's boot
+ * (em_start_at.h) up to the loaded area's control. */
+void em_frame_set_unpaced(int on);
+
 /* The current frame's input block (updated at step C each frame). */
 const EmFrameInput *em_frame_input(void);
 

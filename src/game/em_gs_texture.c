@@ -208,6 +208,16 @@ void em_gs_texture_reset(EmGsTexture *gs)
     ++gs->generation;
 }
 
+void em_gs_texture_clear(EmGsTexture *gs)
+{
+    if (!gs)
+        return;
+    memset(gs->lm, 0, LOCALMEM);
+    memset(gs->covered, 0, sizeof gs->covered);
+    memset(gs->words, 0, sizeof gs->words);
+    ++gs->generation;
+}
+
 int em_gs_texture_apply(EmGsTexture *gs, unsigned step)
 {
     if (!gs)
