@@ -113,7 +113,13 @@ DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # through 001C6120(D_0028A56C, 6)): AREA00 a00_09's first bug, killed by
 # the knife (effect node 001F2BA0). It precedes 0x07 in file order, so the
 # span grows by that one model and the region count stays 16.
-EQUIPMENT_SPANS = ((0x06, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x7A))
+# The AREA01 revisit's group 0x82A900 (script 0x82AD90's op14, a01r_01
+# f1139) binds 0x67 (its command-5 node: 001C5C90 state 0's 001B1020(self,
+# 0x67, -1, -1) through D_0028A56C); its command-2 models 0x6C and 0x4F
+# (001BAD40's 001C6120(D_0028A56C, id)) are in the last span and in
+# export_area00_library.py's 0x4D..0x4F extension. 0x67..0x69 precede 0x6A
+# in file order, so the last span grows and the region count stays 16.
+EQUIPMENT_SPANS = ((0x06, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x67, 0x7A))
 # The shot's spans carry the region header's word +0x0C = 1: library model
 # spans no pose host reads (em_area11_roger_regions leaves them out, so the
 # record pose hosts that map the other regions keep their count).
