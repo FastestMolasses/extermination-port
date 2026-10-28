@@ -27,6 +27,58 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### 2026-10-28, later (branch `revisit` with port main b4a4147 and drawbridge 5486de5 merged)
+
+**`EM_START_AT=area01-revisit` now reaches control and runs the revisit's
+owners; it stops within the first frames on workers outside this lane.**
+The loaded game is the start-point save's, not a route recording's (RNG,
+timers), so these runs find missing workers; they are not compared row by
+row. Discovery runs: `EM_START_AT=area01-revisit EM_START_AT_PAD=<the a01r_00..02
+pads in one EMA1 script> EM_HEADLESS=1 EM_UNCAPPED=1 build/extermination`
+(docs/STARTUP.md; a progress line every 300 frames).
+
+Bound on the way, each found by such a run (commits on `revisit`):
+- 0x823CD0's start delays D_002758C8 and 0019C6F0's D_0024D7C0 /
+  D_002758D0: read-only ELF windows (export_effect_tables.py).
+- 0019AA80 and the player's hull lock 001A7280 for 0x8282F0:
+  em_coll_segment_0019AA80, one translation shared with drawbridge's
+  hazard path; the hull bytes' one home is assets/player_hull.emom
+  (tools/export_player_hull.py). Compared with the original in
+  test_area01_collision_view_reference.py.
+- 001E2BA0, 0x8282F0's beam (em_aim_fire_runtime_beam_borrow through
+  em_area01_flame_services) and its 00102870 (em_area00_low's translation).
+- 001C6960 (model worker, compared in test_area01_model_live_reference.py)
+  and 0012DE90 (em_area00_low) for the creatures.
+- em_area01_math_core: the composition's stack window 0x7F000000.. goes to
+  the view (001C50B0 state 1, which the revisit reaches because D_0081075D is
+  0xFF); compared in test_area01_revisit_runtime_reference.py.
+
+Where it stops now:
+1. **The frames slow to more than a second each once 0x8282F0's beam is
+   drawn** (one beam call in 25 s; the time is in the GS head,
+   em_gfx_gs_head / em_gs_head_probe drawing). The beam's inputs look sane
+   (start (21.4, 11.4, -1020.0), end (-13.7, -25.8, -1019.4), colour (0.8,
+   0, 0, 2)). Not found yet: whether the borrowed beam leaves the shared
+   VU / packet state wrong for later draws, or its own packet is malformed
+   (a "chain page cannot be walked" line precedes it). EM_START_AT=area01
+   runs 2,700 frames in 60 s, so it is specific to the revisit.
+2. With the beam skipped (local diagnostic only), 0x825BE0's 0x826010 probe
+   reaches **001B0CD0 / 001F4F40** about six frames after control: the a00_10
+   return tail's functions, the AREA00 lane's (no AREA01 worker; it needs a
+   view entry in em_area00_world and the effect allocator).
+3. With that skipped too (local diagnostic only), an effect node fails at
+   **0022BBC0** in em_effects_live ("refresh failed (30 views)"): the
+   effects lane's.
+
+Not yet bound (a01r_01 f1139 onwards, no run reaches them): 001BAC00 for
+AREA01 (op14 of 0x82AD90: five 001BB0E0 script actors and three 001C8140
+class-0xC nodes whose 001C7EB0 runs the 0x8237D0 / 0x823900 / 0x8239C0
+behaviours through +0x2EC), 001BB0E0 and its 001BAD40 / 001F9660, 001C8140
+and 001C7EB0 (byte-matched decomp C, no port translation yet), 001F4010
+(em_area02_misc's translation exists; its 001F2F90 / 001F3340 are bound only
+in the aim/fire world) and 001EDAF0 (decomp census: first run a01r_01
+f1682).
+
 ### 2026-10-28 (branch `revisit`, from `drawbridge` 2033e06)
 
 **Bound, with a route harness; the revisit still cannot be played natively,
