@@ -376,10 +376,15 @@ dirty-page tracker) and builds under `build/area01/ui/`.
   page cases. In the default run the native side replays the oracle's
   journaled stores of those calls (after the entry check proved identical
   memory and arguments) instead of running them, and the oracle memoises
-  them: a call whose stack pointer, argument and every value it read on a
-  recorded run (first reads, instruction fetches included) are unchanged
-  replays the recorded stores. EM_TEST_FULL=1 (and EM_A01UI_RUNALL=1)
-  turn both off; the full run passes with every callee run on both sides.
+  them: a call whose stack pointer, every argument register it is passed
+  (its WSPEC integer registers from a0, float registers from f12) and every
+  value it read on a recorded run (first reads, instruction fetches
+  included) are unchanged replays the recorded stores. (Until 2026-10-20 the
+  key held a0 alone: in the serial quick run four 00213A00 calls with
+  a1 = 0x400 replayed a record made with a1 = 0. Run as original code they
+  make the same stores and v0, so no earlier quick run was wrong.)
+  EM_TEST_FULL=1 (and EM_A01UI_RUNALL=1) turn both off; the full run passes
+  with every callee run on both sides.
 - **Only executions the EE completes** (the render lane's rule); an
   integer division by zero inside the lane's routines (0022BBC0 op 1) is
   refused on the oracle side and must fault (code 6) natively: one case.
