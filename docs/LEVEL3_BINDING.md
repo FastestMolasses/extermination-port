@@ -42,7 +42,19 @@ iteration 20.
   `001CB760` (the veil module's builders over the context's channels), the
   ramp data D_0026E860 / D_0026E970 (exported) and a private stack view for
   001DF180's 0x10F0-byte frame (0x7E000000..0x7E0013FF, not game RAM).
-  What the chain page refuses is the next unit.
+  What the chain page refuses is the next unit: 001DF5A0 registers its
+  channel-9 list (the grid pass, 0x00564000 in the run) as a slot-0xFFF
+  CALL through 001CB760 (`em_rcl_001CB760` records it as the frame's
+  four-sprite call), and the page walks it as plain packets, faulting on
+  its FRAME_1 write (A+D register 0x4C at +0x1C): the page knows one
+  slot-0xFFF pass (001DDE10's depth-of-field) and has no drawing for this
+  one yet (drawing, not gameplay; receipts `build/frontier/r15`, `r16`).
+- **Clean-up of the measurement:** every run of this iteration used the
+  harness defaults (drive replay with the arrival anchor, the newest rand()
+  table). Not run: the first-level smokes and EM_TEST_FULL (as instructed);
+  New Game control 9.599849; quick tests: aim-fire-world-live,
+  aim-fire-effects-live, aim-fire-sdk-memory reference, area01 runtime
+  reference, area01 light live reference.
 
 **2026-10-28, iteration 20: the AREA00 arrival and a00_00..a00_08 are exact
 row for row, and a00_09 is exact through row 460; the run stops at a00_09
