@@ -99,7 +99,9 @@ int em_cinematic_camera_sample(const EmCinematicCamera *camera, float time,
         frame->eye[i] = interpolate(a[i], b[i], fraction);
         frame->target[i] = interpolate(a[i + 3], b[i + 3], fraction);
     }
-    frame->roll_degrees = a[6];
+    /* 001C7C00 starts lane 6 at 0.0 and adds the key's lane 6 (COP1), so
+     * the held roll is 0 + a[6]: a -0.0 or denormal key comes out +0.0. */
+    frame->roll_degrees = em_ee_add(0.0f, a[6]);
     frame->fov_degrees = interpolate(fabsf(a[7]), fabsf(b[7]), fraction);
     return active;
 }
