@@ -338,6 +338,19 @@ static int w_001837A0(void *c, EmPlayerLiveActor *a)
 }
 
 /* 00183240 (byte-matched, src/func_00183240.c): an empty leaf. */
+/* 0015B610 (+4 = 5). Under a frame selector other than 0 / 4 with
+ * 00182B30 at 0 it hands the player to the takeover itself (+4 = 4, +5 =
+ * 0 or 0xC, 00182D70): the AREA00 arrival's entry stance meets the
+ * arrival script that way (route a01_07 row 542). The source is then the
+ * takeover's until 0015B530's 00182DF0, as when 0015B130's prelude admits
+ * it (em_player.c live_major1). */
+static int w_0015B610(void *c, EmPlayerLiveActor *a)
+{
+    if (em_player_stage_0015B610(c, a) < 0) return -1;
+    if (em_live_u8(a, 4) == 4)
+        (void)player_pose_takeover_admitted();   /* 0: no source, or already held */
+    return 0;
+}
 static int w_00183240(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
@@ -510,7 +523,7 @@ int em_player_stage_live_bind(void)
     b.stage.advance = w_advance;
     b.stage.major[4] = em_player_stage_0015B530;
     b.stage.major_context[4] = &live.major4;
-    b.stage.major[5] = em_player_stage_0015B610;
+    b.stage.major[5] = w_0015B610;
     b.stage.major_context[5] = &live.major5;
     b.stage.major[6] = em_player_stage_0015D460;
     b.stage.major_context[6] = &live.fade;

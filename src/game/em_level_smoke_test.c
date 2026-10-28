@@ -18,6 +18,7 @@
  * (EM_AREA_CHANGE_LOG) in tools/test_level_smoke.py; the runner prints the
  * join key it needs (D_00810750 at first control). */
 #include "game/em_level_smoke_test.h"
+#include "game/em_random.h"
 #include "em_input.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_boxes.h"
@@ -5296,6 +5297,43 @@ static void a01_route_begin(void)
     if(!valid) { fail("truncated or malformed AREA01 pad script");return; }
     t.frames=-(int)gap;
 }
+/* Comparison-only rand() replay (test instrumentation, never a default):
+ * EM_RAND_REPLAY=<file> holds lines "<phase> <state hex>", the original's
+ * rand() state word (*D_0024295C + 0x58) at that phase's recorded row 0,
+ * measured on the fork (tools/record_rand_replay.py). The first level's
+ * phases are navigated, not replayed from the route's pads, so the stream
+ * position at the AREA01 phases differs from the recording's; this puts
+ * the recording's state in place at the phase's aligned row 0 (the end of
+ * that tick), so the replayed phases draw the recording's values. */
+static void rand_replay_anchor(const char *phase);
+void em_level_smoke_test_area_entry(unsigned area)
+{
+    char key[16];
+    snprintf(key, sizeof key, "entry%02u", area & 0xFFu);
+    rand_replay_anchor(key);
+}
+static void rand_replay_anchor(const char *phase)
+{
+    const char *path = getenv("EM_RAND_REPLAY");
+    if (!path || !*path)
+        return;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fail("EM_RAND_REPLAY cannot be opened");
+        return;
+    }
+    char name[64];
+    unsigned state;
+    while (fscanf(f, "%63s %x", name, &state) == 2) {
+        if (strcmp(name, phase))
+            continue;
+        em_random_seed((uint32_t)state);
+        fprintf(stderr, "rand replay: %s: state %08x at the run's counter %u (comparison only)\n", phase, state,
+                em_frame_counter());
+        break;
+    }
+    fclose(f);
+}
 static int a01_route_frame(void)
 {
 #ifdef EM_AREA01_EXPLORATION_TEST_H
@@ -5308,6 +5346,7 @@ static int a01_route_frame(void)
                 k_phases[t.current].name,em_frame_counter());
         /* the comparison-only drive replay's anchor (EM_PS2_DRIVE_REPLAY) */
         em_stream_live_drive_replay_anchor(k_phases[t.current].name,em_frame_counter());
+        rand_replay_anchor(k_phases[t.current].name);
     }
     if(!strcmp(k_phases[t.current].name,"a01_07")) {
         const EmSceneState *s=em_scene_state();
