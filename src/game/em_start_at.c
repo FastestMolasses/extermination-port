@@ -4,6 +4,7 @@
 #include "em_input.h"
 
 #include <dirent.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,11 +38,19 @@ static struct {
  * rows in frame order) played from control as the whole pad. */
 enum { PAD_MAX = 4096 };
 typedef struct { int f; uint16_t buttons; uint8_t lx, ly; } PadRow;
+enum { PATH_MAX_ROWS = 20000 };
 static struct {
     int loaded, active, done;
     unsigned count, last, start;
     PadRow row[PAD_MAX];
     EmPadState now;
+    /* EM_START_AT_PATH=<file>: the recording's player x, z per frame; the
+     * stick then steers toward the recorded position a few frames ahead
+     * (camera-relative, at the recorded stick's magnitude), so the route
+     * survives a loaded camera that differs from the recording's. */
+    unsigned path_count, hold;
+    int t;                     /* the script's clock (frames since control) */
+    float path[PATH_MAX_ROWS][2];
 } pad;
 
 static int refuse(const char *why, const char *detail)
@@ -400,6 +409,22 @@ int em_start_at_check(void)
         if (!ok) return refuse("EM_START_AT_PAD: not an EMA1 pad script", script);
         pad.last = (unsigned)last;
         pad.loaded = 1;
+        const char *path = getenv("EM_START_AT_PATH");
+        if (path && path[0]) {
+            FILE *g = fopen(path, "r");
+            if (!g) return refuse("EM_START_AT_PATH: no such file", path);
+            float x, z;
+            int fr;
+            while (pad.path_count < PATH_MAX_ROWS && fscanf(g, "%d %f %f", &fr, &x, &z) == 3 &&
+                   fr == (int)pad.path_count) {
+                pad.path[pad.path_count][0] = x;
+                pad.path[pad.path_count][1] = z;
+                pad.path_count++;
+            }
+            const int good = feof(g) && pad.path_count;
+            fclose(g);
+            if (!good) return refuse("EM_START_AT_PATH: not a frame-ordered x z path", path);
+        }
     }
     s.on = 1;
     printf("startup: EM_START_AT=%s: the boot title's LOAD GAME of slot 1 on the start-point card %s "
@@ -423,18 +448,32 @@ void em_start_at_pad_control(unsigned counter)
     if (!s.on || !pad.loaded || pad.active || pad.done) return;
     pad.active = 1;
     pad.start = counter;
+    pad.t = 0;
+    pad.hold = 0;
     pad.now = (EmPadState){0};
     em_input_set_filter(pad_filter, NULL);
     printf("startup: EM_START_AT_PAD: %u rows over %u frames from control at engine frame %u\n", pad.count,
            pad.last, counter);
 }
 
-int em_start_at_pad_frame(unsigned counter)
+int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3])
 {
     if (!pad.active) return 0;
     /* The level smoke's rule: a recorded command is submitted two frames
-     * after its row (the native pad reaches the next task tick). */
-    const int t = (int)(counter - pad.start);
+     * after its row (the native pad reaches the next task tick). With a
+     * path the script's clock waits (up to 300 frames at a time) while the
+     * player is more than 2.5 units behind the recorded position, so the
+     * presses stay where the recording made them. */
+    (void)counter;
+    const int t = pad.t;
+    if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u) {
+        const float hx = pad.path[t][0] - pos[0], hz = pad.path[t][1] - pos[2];
+        if (hx * hx + hz * hz > 2.5f * 2.5f) pad.hold++;
+        else { pad.hold = 0; pad.t++; }
+    } else {
+        pad.hold = 0;
+        pad.t++;
+    }
     if (t > (int)pad.last + 2) {
         pad.active = 0;
         pad.done = 1;
@@ -445,10 +484,29 @@ int em_start_at_pad_frame(unsigned counter)
     for (unsigned i = 0; i < pad.count && pad.row[i].f <= t - 2; ++i)
         pad.now = (EmPadState){pad.row[i].buttons, (pad.row[i].lx - 128) / 128.0f,
                                (pad.row[i].ly - 128) / 128.0f, 0, 0};
+    const float m = sqrtf(pad.now.lx * pad.now.lx + pad.now.ly * pad.now.ly);
+    if (pad.path_count && pos && fwd && m > 0.1f && t >= 0) {
+        unsigned k = (unsigned)t + 8u;
+        if (k >= pad.path_count) k = pad.path_count - 1u;
+        const float dx = pad.path[k][0] - pos[0], dz = pad.path[k][1] - pos[2];
+        const float d = sqrtf(dx * dx + dz * dz);
+        float fx = fwd[0], fz = fwd[2];
+        const float n = sqrtf(fx * fx + fz * fz);
+        if (d > 0.25f && n > 0.0f) {
+            fx /= n;
+            fz /= n;
+            const float mag = m > 1.0f ? 1.0f : m;
+            pad.now.lx = mag * (-dx * fz + dz * fx) / d;
+            pad.now.ly = -mag * (dx * fx + dz * fz) / d;
+        }
+    }
     return 0;
 }
 
 int em_start_at_pad_progress(unsigned counter)
 {
-    return pad.active && counter > pad.start && (counter - pad.start) % 300u == 0;
+    (void)counter;
+    return pad.active && pad.t > 0 && pad.t % 300 == 0 && !pad.hold;
 }
+
+int em_start_at_pad_clock(void) { return pad.t; }

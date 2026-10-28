@@ -929,7 +929,7 @@ static void start_at_give_up(const char *why)
 
 void em_frontend_load_test_before_frame(void)
 {
-    if (f.start_at && lt.phase == 6 && em_start_at_pad_frame(em_frame_counter()) == 0 &&
+    if (f.start_at && lt.phase == 6 && em_start_at_pad_frame(em_frame_counter(), g.pos, g.cam.fwd) == 0 &&
         em_start_at_pad_progress(em_frame_counter())) {
         /* EM_START_AT_PAD's progress line every 300 frames: where the player
          * is and the AREA01 revisit's story bytes (D_008107DF event stage,
@@ -937,8 +937,8 @@ void em_frontend_load_test_before_frame(void)
         EmSceneState *sc = (EmSceneState *)em_scene_state();
         const uint8_t *df = em_scene_progress_at(sc, 0x008107DFu, 2);
         const uint8_t *e5f = em_scene_progress_at(sc, 0x0081075Fu, 2);
-        printf("%s: pad frame %u at (%.2f,%.2f,%.2f) area %02X %02X 3B8D %u DF %02X E0 %02X 75F %02X 760 %02X\n",
-               load_prefix(), em_frame_counter() - lt.control_counter, g.pos[0], g.pos[1], g.pos[2], sc->d810700,
+        printf("%s: pad frame %d at (%.2f,%.2f,%.2f) area %02X %02X 3B8D %u DF %02X E0 %02X 75F %02X 760 %02X\n",
+               load_prefix(), em_start_at_pad_clock(), g.pos[0], g.pos[1], g.pos[2], sc->d810700,
                sc->d810701, sc->spad3B8D, df ? df[0] : 0xEEu, df ? df[1] : 0xEEu, e5f ? e5f[0] : 0xEEu,
                e5f ? e5f[1] : 0xEEu);
         fflush(stdout);

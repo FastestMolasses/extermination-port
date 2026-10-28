@@ -53,8 +53,12 @@ int em_start_at_report(void);
  * (em_start_at_pad_frame: 1 on the frame the script ends, then the pad is
  * neutral). Without the variable both do nothing. */
 void em_start_at_pad_control(unsigned counter);
-int em_start_at_pad_frame(unsigned counter);
+/* pos / fwd: the player's position and the camera's forward (with
+ * EM_START_AT_PATH the stick steers toward the recorded path). */
+int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3]);
 /* 1 on every 300th frame of a running pad script (its progress line). */
 int em_start_at_pad_progress(unsigned counter);
+/* The pad script's clock (its frame; it waits for a lagging player). */
+int em_start_at_pad_clock(void);
 
 #endif
