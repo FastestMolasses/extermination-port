@@ -168,6 +168,8 @@ REACHERS = {
         "game/em_status_pages_item.c": "002160B0's read (HEALING page, phase B15, not bound yet): the byte "
                                        "caps health at 60 when 1; the module reads original memory through its "
                                        "EE view, which the binding maps onto the canonical byte",
+        "game/em_collision_world.c": "001A8840's read (em_coll_list_001A8840's gate): the close-out loads "
+                                     "EmCollListGlobals.d810707 from the canonical byte before every 001AAD00",
         "game/em_area01_sys.c": "001A8840's read (AREA01 level-2 lane, not bound): the module reads original "
                                 "memory through its own EE view; the AREA01 binding (phase 3) maps that view "
                                 "onto the canonical byte",
@@ -413,6 +415,11 @@ ALLOWED = [
      "reason": "EmCollListGlobals: the list passes' per-call view of 3B8D, read only by the 001A8BE0 / "
                "001A9F60 gates; em_collision_world_close_out_001AAD00 fills it from em_scene_state() "
                "before every 001AAD00 (census L08) and never stores it back",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_coll_list_passes.h", "name": "d810707",
+     "reason": "EmCollListGlobals: 001A8840's per-call view of D_00810707 (its gate), filled from the "
+               "canonical progress byte by em_collision_world_close_out_001AAD00 before every 001AAD00 "
+               "and never stored back",
      "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_hang.h", "name": "scripted",
      "reason": "EmPlayerHangScene: 001647D0's per-call input, read once at entry through its scene "

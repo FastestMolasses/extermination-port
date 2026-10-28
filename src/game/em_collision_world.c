@@ -158,21 +158,24 @@ static int area_pair(EmCollListPasses *passes, uint32_t function, uint32_t a0, u
     passes->globals->s3B88 = w.state.span_hi;
     return rc;
 }
+/* 001A8840, 001A9E00 and 001AA000: an area that binds its own SYS owners
+ * (AREA01, em_collision_world_bind_area_passes) keeps them; otherwise the
+ * translations in em_coll_list_passes.c run over the passes' memory. */
 static int area_001A8840(void *context, EmCollListPasses *passes, uint32_t a0, uint32_t a1)
 {
-    (void)context;
+    if (!s_area_passes.pair) return em_coll_list_passes_001A8840(context, passes, a0, a1);
     return area_pair(passes, 0x001A8840u, a0, a1, 0, 0);
 }
 static int area_001A9E00(void *context, EmCollListPasses *passes, uint32_t a0, uint32_t a1)
 {
-    (void)context;
+    if (!s_area_passes.pair) return em_coll_list_passes_001A9E00(context, passes, a0, a1);
     return area_pair(passes, 0x001A9E00u, a0, a1, 0, 0);
 }
 /* 001AA140's pair call (0x1AA23C): 001AA000(a, b, a + 0x1F0, b + 0x1F0). */
 static int area_001AA000(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b, uint32_t a1f0,
                          uint32_t b1f0)
 {
-    (void)context;
+    if (!s_area_passes.pair) return em_coll_list_passes_001AA000(context, passes, a, b, a1f0, b1f0);
     return area_pair(passes, 0x001AA000u, a, b, a1f0, b1f0);
 }
 
@@ -326,19 +329,20 @@ static void bind_passes(void)
     w.passes.math = &w.math;
     EmCollListWorkers *k = &w.passes.workers;
     /* AREA01 supplies its existing SYS owners for the three pair calls
-     * below (001A8840, 001A9E00 and 001AA000). Without that binding they
-     * retain the first-level fail-stop.
-     * The other callers remain unavailable (COLL_LIST_PASSES.md). */
+     * below (001A8840, 001A9E00 and 001AA000); without that binding the
+     * translations in em_coll_list_passes.c run. Every pair callee is
+     * translated from the byte-matched C (COLL_LIST_PASSES.md); 001A8970
+     * still faults on the path that reads its caller's f20 (0x1A8AC4). */
     k->w_001A8840 = area_001A8840;
-    k->w_001A8970 = em_coll_list_passes_unported;
+    k->w_001A8970 = em_coll_list_passes_001A8970;
     /* 001A8DA0's pair callee, translated (first reached in AREA01 by a
      * shot near a floor field; COLL_LIST_PASSES.md). */
     k->w_001A8CE0 = em_coll_list_passes_001A8CE0;
-    k->w_001A8E80 = em_coll_list_passes_unported;
-    k->w_001A8F40 = em_coll_list_passes_unported;
-    k->w_001A9360 = em_coll_list_passes_unported;
-    k->w_001A96F0 = em_coll_list_passes_unported;
-    k->w_001A9480 = em_coll_list_passes_unported;
+    k->w_001A8E80 = em_coll_list_passes_001A8E80;
+    k->w_001A8F40 = em_coll_list_passes_001A8F40;
+    k->w_001A9360 = em_coll_list_passes_001A9360;
+    k->w_001A96F0 = em_coll_list_passes_001A96F0;
+    k->w_001A9480 = em_coll_list_passes_001A9480;
     /* 001A9B10's pair callee, translated from the byte-matched C (a class-2
      * entry carried round a spinning class-4 type-7 entry;
      * COLL_LIST_PASSES.md). */
@@ -348,7 +352,8 @@ static void bind_passes(void)
     /* 001A9D20's pair callee, translated (first reached by the AIM capture
      * aim_04's impact markers; COLL_LIST_PASSES.md). */
     k->w_001A9C40 = em_coll_list_passes_001A9C40;
-    k->w_0021BD10 = em_coll_list_passes_unported_0021BD10;
+    /* 001A8660's and 001A8970's 0021BD10 over the player record. */
+    k->w_0021BD10 = em_coll_list_passes_0021BD10;
     /* The +0x34 behaviour of a class-0xD type-1 entry: the binder's
      * (em_collision_world_bind_behaviour; AREA11's is the flame's
      * 0x00823580). Unbound, it faults at 0x1A8734. */
@@ -515,9 +520,17 @@ int em_collision_world_close_out_001AAD00(const EmSceneState *scene, int16_t d28
     /* D_0081070A, the canonical progress byte (em_scene_state.h): 001A8660
      * picks its knock-back table by it (0x1A877C). */
     g->d81070A = scene->progress.bytes[0x0081070Au - EM_SCENE_PROGRESS_BASE];
-    /* 0x700038A0..AC: written by 001A8660's knock-back only, all four
-     * lanes (001028D0, then +0xC = 1.0) before its one read. */
+    /* D_00810707 (the infected-latch copy, canonical progress byte):
+     * 001A8840's gate. */
+    g->d810707 = scene->progress.bytes[0x00810707u - EM_SCENE_PROGRESS_BASE];
+    /* 0x700038A0..AC: every pass writes all four lanes (001028D0, then
+     * +0xC) before reading them. 0x700038B0..BC: 00183C40 writes x/y/z
+     * (type 18 also w) before 001028D0 reads the quadword; the stale w
+     * lane only reaches 0x700038AC, which is overwritten before any read.
+     * 0x70003A20 / 0x70003A24: written before each read. */
     memset(g->s38A0, 0, sizeof g->s38A0);
+    memset(g->s38B0, 0, sizeof g->s38B0);
+    g->s3A20 = g->s3A24 = 0;
     w.passes.fault = 0;
     list_words_build();
     int result = em_coll_list_passes_001AAD00_hooks(&w.passes, EM_COLL_LIST_PLAYER);

@@ -20,11 +20,17 @@ Original code executed (from the captured RAM, checked against the ELF):
             0011DE90 / 0011E2A8 and 001B1470), with 0011E748,
             00128350 (001278C0 / 00127728 / 00126AB8), 001000C0 (001274B0 /
             00126BE8 / 00127398), 001028D0 and 00102760
+  pair callees (2026-10-28, each on its own over staged records)
+            001A8840 (with 00187EC0), 001A8970, 001A8E80, 001A8F40,
+            001A9360 (with 00183C40, 001026A0, 001A91C0), 001A96F0,
+            001A9480 (with 00102948), 001A9E00, 001AA000 (with 0011E620),
+            0021BD10 (with 0021BB00) and 00102738
 Hooked boundaries (recorded, scripted, compared call by call with the
 native workers): 001A8840, 001A8970, 001A8CE0, 001A8E80, 001A8F40,
-001A9360, 001A96F0, 001A9480, 001A99E0, 001A9C40 (these three inside the
-passes; each executed and compared on its own as well), 001A9E00, 001AA000, 0021BD10
-and the entry's +0x34 behaviour of 001A8660. None of them ran on the
+001A9360, 001A96F0, 001A9480, 001A99E0, 001A9C40, 001A9E00, 001AA000,
+0021BD10 (inside the passes; every one but the +0x34 behaviour also executed
+and compared on its own) and the entry's +0x34 behaviour of 001A8660 and
+001A8970. None of them ran on the
 census route (001A9C40 first ran in the AIM capture aim_04); the scripts make some of them shorten the scratchpad walks
 (0x70003B86 / 0x70003B88), as 001A9360 and 001A99E0 do.
 
@@ -33,8 +39,8 @@ Walkers: every case compares the whole scratchpad state (0x70003190..
 0x70003254, the ranks, 0x70003B86/88), 0019F330's four output words and the
 return value, and asserts the original wrote nothing else.
 Passes: every case compares every byte of the pool arena, the player record,
-the list arrays, the synthetic records and the globals, the scratchpad words
-0x70003B86/88 and 0x700038A0..AC, the worker call log and the return value,
+the list arrays, the synthetic records and the globals (D_00810707 too), the scratchpad words
+0x70003B86/88, 0x700038A0..BC and 0x70003A20/24, the worker call log and the return value,
 and asserts the original wrote nothing else; each world ends with a
 whole-RAM comparison.
 
@@ -95,9 +101,15 @@ P9D20, P8DA0, P9F60, PA140, P7870, P8BE0, P8660, P9000, P97B0, P9B10 = (
 P9C40 = 0x1A9C40      # 001A9D20's pair callee: hooked for the passes, executed on its own
 P8CE0 = 0x1A8CE0      # 001A8DA0's pair callee: the same
 P99E0 = 0x1A99E0      # 001A9B10's pair callee: the same
+# The other pair callees and 0021BD10 (port-stub translations 2026-10-28):
+# hooked for the passes, executed on their own.
+P8840, P8970, P8E80, P8F40, P9360, P96F0, P9480, P9E00, PA000, PBD10 = (
+    0x1A8840, 0x1A8970, 0x1A8E80, 0x1A8F40, 0x1A9360, 0x1A96F0, 0x1A9480, 0x1A9E00, 0x1AA000, 0x21BD10)
+EXEC = (P9C40, P8CE0, P99E0, P8840, P8970, P8E80, P8F40, P9360, P96F0, P9480, P9E00, PA000, PBD10)
 HOOK_ORDER = (P9D20, P8DA0, P9F60, PA140, P7870, P8BE0, P9000, P97B0, P9B10)   # 001AAD00
 WHICH = {P9D20: 0, P8DA0: 1, P9F60: 2, PA140: 3, P7870: 4, P8BE0: 5, P9000: 6, P97B0: 7, P9B10: 8,
-         'hooks': 10, P8660: 9, P9C40: 11, P8CE0: 12, P99E0: 13}
+         'hooks': 10, P8660: 9, P9C40: 11, P8CE0: 12, P99E0: 13, P8840: 14, P8970: 15, P8E80: 16,
+         P8F40: 17, P9360: 18, P96F0: 19, P9480: 20, P9E00: 21, PA000: 22, PBD10: 23}
 PAIR_WORKERS = (0x1A8840, 0x1A8970, 0x1A8CE0, 0x1A8E80, 0x1A8F40, 0x1A9360, 0x1A96F0, 0x1A9480,
                 0x1A99E0, 0x1A9C40, 0x1A9E00)
 QUAD_WORKER, BD10 = 0x1AA000, 0x21BD10
@@ -111,7 +123,7 @@ FAKE_FN = 0x1F10000             # a behaviour address no code occupies (hooked)
 REGIONS = ((POOL, POOL_END), (PLAYER, PLAYER + 0x320), (0x28AAB0, 0x28B024), (0x275B50, 0x275BC0),
            (0x28A9A0, 0x28A9A4), (0x810700, 0x810710), (SYN, SYN + 0x10000))
 WRITABLE = ((POOL, POOL_END), (PLAYER, PLAYER + 0x320), (SYN, SYN + 0x10000))
-SPAD_WORDS = ((0x70003B86, 4), (0x700038A0, 16))
+SPAD_WORDS = ((0x70003B86, 4), (0x700038A0, 32), (0x70003A20, 8))
 WALK_SPAN = cp.STATE_SPAN + [(0x70003684, 0x70003688)]
 CODE = [(0x100000, 0x130000)] + [(0x26DAE0, 0x90), (0x24A740, 0x80), (0x26C5D8, 0x80)]
 EXTRA_SOURCES = ['src/game/em_coll_list_passes.c', 'src/game/em_coll_list_passes_walkers.c',
@@ -434,9 +446,13 @@ int lp_bound(LBridge *b) { return em_coll_list_passes_bound(&b->passes); }
 
 /* which: 0..8 the nine hooks (001AAD00 order), 9 001A8660(player, entry),
  * 10 the whole hook sequence, 11 001A9C40(player, entry) (any two records), 12 001A8CE0(outer, inner),
- * 13 001A99E0(outer, inner); drop (fault cases): 1 unbinds 001A9C40, 2 the
- * normalize worker; 3..6 bind the unported variants for 001A8840, 001AA000,
- * 0021BD10 and the +0x34 behaviour. */
+ * 13 001A99E0(outer, inner), 14..21 001A8840, 001A8970, 001A8E80, 001A8F40,
+ * 001A9360, 001A96F0, 001A9480, 001A9E00 (player = the first record, entry
+ * the second), 22 001AA000(player, entry, player + 0x1F0, entry + 0x1F0),
+ * 23 0021BD10 (its result as the return value); drop (fault cases): 1
+ * unbinds 001A9C40, 2 the normalize worker; 3..6 bind the unported
+ * variants for 001A8840, 001AA000, 0021BD10 and the +0x34 behaviour; 7
+ * changes nothing (a native-only run). */
 int lp_run(LBridge *b, int which, EmCollListGlobals *g, uint32_t player, uint32_t entry, int drop)
 {
     EmCollListPasses *p = &b->passes;
@@ -466,6 +482,16 @@ int lp_run(LBridge *b, int which, EmCollListGlobals *g, uint32_t player, uint32_
     case 11: r = em_coll_list_001A9C40(p, player, entry); break;
     case 12: r = em_coll_list_001A8CE0(p, player, entry); break;
     case 13: r = em_coll_list_001A99E0(p, player, entry); break;
+    case 14: r = em_coll_list_001A8840(p, player, entry); break;
+    case 15: r = em_coll_list_001A8970(p, player, entry); break;
+    case 16: r = em_coll_list_001A8E80(p, player, entry); break;
+    case 17: r = em_coll_list_001A8F40(p, player, entry); break;
+    case 18: r = em_coll_list_001A9360(p, player, entry); break;
+    case 19: r = em_coll_list_001A96F0(p, player, entry); break;
+    case 20: r = em_coll_list_001A9480(p, player, entry); break;
+    case 21: r = em_coll_list_001A9E00(p, player, entry); break;
+    case 22: r = em_coll_list_001AA000(p, player, entry, player + 0x1F0, entry + 0x1F0); break;
+    case 23: { int v = -1; r = em_coll_list_0021BD10(p, &v); if (r == 0) r = v; break; }
     default: r = -9;
     }
     p->workers = saved;
@@ -482,7 +508,8 @@ class Globals(C.Structure):
     _fields_ = [('d275BB0', C.c_uint32), ('d275BB8', C.c_int16), ('d275BA0', C.c_uint32), ('d275BA8', C.c_int16),
                 ('d275B90', C.c_uint32), ('d275B98', C.c_int16), ('d275B80', C.c_uint32), ('d275B88', C.c_int16),
                 ('s3B86', C.c_int16), ('s3B88', C.c_int16), ('s3B8D', C.c_uint8), ('d28A9A0', C.c_int16),
-                ('d810700', C.c_uint8), ('d810702', C.c_uint8), ('d81070A', C.c_uint8), ('s38A0', C.c_uint32 * 4)]
+                ('d810700', C.c_uint8), ('d810702', C.c_uint8), ('d81070A', C.c_uint8), ('s38A0', C.c_uint32 * 4),
+                ('d810707', C.c_uint8), ('s38B0', C.c_uint32 * 4), ('s3A20', C.c_uint32), ('s3A24', C.c_uint32)]
 
 
 LISTS = (('d275BB0', 'd275BB8', 0x275BB0, 0x275BB8), ('d275BA0', 'd275BA8', 0x275BA0, 0x275BA8),
@@ -1560,6 +1587,9 @@ class ListWorld:
         g.d810700, g.d810702, g.d81070A = ee.load(0x810700, 1), ee.load(0x810702, 1), ee.load(0x81070A, 1)
         for k in range(4):
             g.s38A0[k] = ee.load(0x700038A0 + 4 * k)
+            g.s38B0[k] = ee.load(0x700038B0 + 4 * k)
+        g.d810707 = ee.load(0x810707, 1)
+        g.s3A20, g.s3A24 = ee.load(0x70003A20), ee.load(0x70003A24)
         return g
 
     def behaviour_fns(self):
@@ -1568,13 +1598,13 @@ class ListWorld:
         cursor, count = ee.load(0x275BA0), cp.sx16(ee.load(0x275BA8, 2))
         return {ee.load(ee.load(cursor + 4 * j) + 0x34) for j in range(max(0, count))} | {FAKE_FN}
 
-    def run(self, where, which, player=PLAYER, entry=0, script=None, bd10=0, drop=0):
+    def run(self, where, which, player=PLAYER, entry=0, script=None, bd10=0, drop=0, peek=None):
         """Run `which` (a pass address, P8660 or 'hooks') on both sides from
         the current (patched) RAM; compare; restore."""
         ee = self.ee
         self.script, self.bd10, self.calls = dict(script or {}), bd10, []
         self.hooks(self.behaviour_fns())
-        if which in (P9C40, P8CE0, P99E0):
+        if which in EXEC:
             del self.ee.hooks[which]     # executed, not a boundary
         g = self.globals()
         if drop:     # a fail-stop case: the native side alone
@@ -1595,7 +1625,11 @@ class ListWorld:
             if which == 'hooks':
                 for entry_addr in HOOK_ORDER:
                     ee.call(entry_addr, (player,) if entry_addr in (P9F60, P8BE0) else ())
-            elif which in (P8660, P9C40, P8CE0, P99E0):
+            elif which == PA000:
+                ee.call(which, (player, entry, player + 0x1F0, entry + 0x1F0))
+            elif which == PBD10:
+                ee.call(which, ())
+            elif which == P8660 or which in EXEC:
                 ee.call(which, (player, entry))
             else:
                 ee.call(which, (player,) if which in (P9F60, P8BE0) else ())
@@ -1618,6 +1652,9 @@ class ListWorld:
                               (C.c_int16 * max(1, n))(*[cp.sx16(v & 0xFFFF) for _, _, v in flat]), bd10)
         code = WHICH[which]
         r = self.native.lp_run(self.b, code, C.byref(g), player, entry, 0)
+        if which == PBD10:
+            assert r == ee.r[2], (self.beat, where, '0021BD10 result', r, ee.r[2])
+            r = 0
         assert r == 0, (self.beat, where, 'native fault', r, hex(self.native.lp_fault(self.b)))
         calls = (LCall * 512)()
         count = self.native.lp_calls(self.b, calls)
@@ -1630,6 +1667,8 @@ class ListWorld:
         assert (cp.sx16(ee.load(0x70003B86, 2)), cp.sx16(ee.load(0x70003B88, 2))) == (g.s3B86, g.s3B88), \
             (self.beat, where, 'counters', ee.load(0x70003B86, 2), ee.load(0x70003B88, 2), g.s3B86, g.s3B88)
         assert [ee.load(0x700038A0 + 4 * k) for k in range(4)] == list(g.s38A0), (self.beat, where, '0x700038A0')
+        assert [ee.load(0x700038B0 + 4 * k) for k in range(4)] == list(g.s38B0), (self.beat, where, '0x700038B0')
+        assert (ee.load(0x70003A20), ee.load(0x70003A24)) == (g.s3A20, g.s3A24), (self.beat, where, '0x70003A20')
         spad_after = bytes(ee.spad)
         for i in range(len(spad_after)):
             if spad_after[i] != spad_before[i]:
@@ -1639,6 +1678,7 @@ class ListWorld:
             assert (getattr(g, cursor), getattr(g, count_name)) == (ee.load(ca), cp.sx16(ee.load(cc, 2))), \
                 (self.beat, where, 'list globals')
         out = len(self.calls)
+        self.peeked = peek(ee) if peek else None
         self.nruns += 1
         for c in self.calls:
             self.seen[c[0]] = self.seen.get(c[0], 0) + 1
@@ -1693,6 +1733,261 @@ def run_route_lists(beat):
 
 def f4(v):
     return struct.pack('<f', v)
+
+
+def stage_pair_callees(w, rng, e1, e2):
+    """The pair callees translated on 2026-10-28 (001A8840, 001A8970,
+    001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480, 001A9E00, 001AA000)
+    and 0021BD10, each executed on its own over staged records: every gate
+    at equality and one ulp beyond, the branch bytes each value reaches, the
+    walk counters preset (cleared only on a hit). The quick run takes a
+    seeded sample of each grid plus its boundary rows; EM_TEST_FULL=1 runs
+    every row. Returns {name: (runs, [outcome 0, outcome 1])}."""
+    full = reference_mode.FULL
+    out = {}
+
+    def pick(rows, k, keep=()):
+        rows = list(rows)
+        if full or len(rows) <= k:
+            return rows
+        return list(keep) + rng.sample(rows, k)
+
+    def spad16(addr, v):
+        w.ee.spad[addr - 0x70000000:addr - 0x70000000 + 2] = struct.pack('<h', v)
+
+    def tally(name, which, rows, stage, a, b, hit):
+        n0, seen = w.nruns, [0, 0]
+        for row in rows:
+            extra = stage(row) or {}
+            w.run(f'staged {name} {row}', which, player=a, entry=b, peek=hit, **extra)
+            seen[int(bool(w.peeked))] += 1
+        out[name] = (w.nruns - n0, seen)
+
+    s86 = lambda ee: ee.load(0x70003B86, 2) == 0
+    s88 = lambda ee: ee.load(0x70003B88, 2) == 0
+
+    def axis_rows(reach, inside):
+        rows = list(inside)
+        for axis in range(3):
+            for sign in (1.0, -1.0):
+                for v in (reach[axis], ulps(reach[axis], 1)):
+                    d = [0.0, 0.0, 0.0]
+                    d[axis] = sign * v
+                    rows.append(tuple(d))
+        return rows
+
+    base = (0.0, 0.0, 0.0)      # the origin: every staged difference is exact
+    box, rec0, rec1 = SYN + 0x300, SYN + 0x320, SYN + 0x340
+
+    # 001A8840(player, e1): the player's +0xA0 point in e1's box (3, 5, 7):
+    # reach x 3, y 1.5 + 5, z 7; e1's +0xD, +0xB, D_00810707, player +0.
+    deltas = axis_rows((3.0, 6.5, 7.0), [(0.0, 0.0, 0.0), (1.0, -2.0, 3.0)])
+    grid = [(d, t, armed, latch, st) for d in deltas for t in (0, 1, 2) for armed in (0, 1)
+            for latch in (0, 1) for st in (1, 2)]
+
+    def st8840(row):
+        d, t, armed, latch, st = row
+        w.poke(box, struct.pack('<3f', 3.0, 5.0, 7.0))
+        w.poke(e1 + 0x30, struct.pack('<I', box))
+        w.poke(PLAYER + 0xA0, struct.pack('<3f', *base))
+        w.poke(e1 + 0xB0, struct.pack('<3f', *[f32(base[j] - d[j]) for j in range(3)]))
+        w.poke(e1 + 0xD, bytes([t])); w.poke(e1 + 0xB, bytes([armed])); w.poke(e1 + 0x56, bytes([0x22]))
+        w.poke(e1 + 0xA, bytes([0])); w.poke(0x810707, bytes([latch])); w.poke(PLAYER, bytes([st]))
+        spad16(0x70003B86, 5)
+    tally('001A8840', P8840, pick(grid, 24, [(d, 0, 1, 0, 1) for d in deltas]), st8840, PLAYER, e1, s86)
+
+    # 001A8970(player, e1): x / z gates against e1's record (3, 5, 7), the
+    # height gate |player +0xA4 + 4 - e1.y| <= 4 + 5 (player height 8); the
+    # reaction byte after the behaviour, the player's +0, D_0081070A, 0021BD10.
+    deltas = axis_rows((3.0, 9.0, 7.0), [(0.0, 0.0, 0.0), (1.0, -2.0, 3.0)])
+    grid = [(d, react, st, table, bd) for d in deltas for react in (5, 0, 3, 8, 9, 0xC, 0xD, 0xE, 0xB, 0x14)
+            for st in (1, 0, 3) for table in (0, 1) for bd in (0, 1)]
+
+    def st8970(row):
+        d, react, st, table, bd = row
+        w.poke(box, struct.pack('<3f', 3.0, 5.0, 7.0))
+        w.poke(rec0, struct.pack('<2f', 2.0, 8.0))
+        w.poke(e1 + 0x30, struct.pack('<I', box)); w.poke(PLAYER + 0x30, struct.pack('<I', rec0))
+        w.poke(e1 + 0x34, struct.pack('<I', FAKE_FN))
+        w.poke(PLAYER + 0xA0, struct.pack('<3f', *base)); w.poke(PLAYER + 0xB0, struct.pack('<3f', *base))
+        w.poke(e1 + 0xB0, struct.pack('<3f', f32(base[0] - d[0]), f32(base[1] + 4.0 - d[1]), f32(base[2] - d[2])))
+        w.poke(PLAYER + 0x220, f4(1.25)); w.poke(e1 + 0xD, bytes([react])); w.poke(PLAYER, bytes([st]))
+        w.poke(0x81070A, bytes([table]))
+        spad16(0x70003B86, 5)
+        return {'bd10': bd}
+    keep = [((0.0, 0.0, 0.0), react, 1, 0, 1) for react in (5, 8, 9, 0xC, 0xE, 0x14)] + \
+        [(d, 0, 1, 1, 0) for d in deltas]
+    tally('001A8970', P8970, pick(grid, 30, keep), st8970, PLAYER, e1, s86)
+    # The reaction 6 / 7 path reads the caller's f20: the native side faults.
+    for react in (6, 7):
+        st8970(((0.0, 0.0, 0.0), react, 1, 0, 0))
+        r, fault = w.run(f'staged 001A8970 f20 path {react}', P8970, player=PLAYER, entry=e1, drop=7)
+        assert r == -1 and fault == 0x1A8AC4, ('001A8970 must fault on the f20 path', react, r, hex(fault))
+        w.restore()
+
+    # 001A8E80(e1, e2): sqrt(dx dx + dz dz) <= 7 + r ((36, 77) = 85 with
+    # r 78), |6 + e2.y - e1.y| <= 8 (e2.y 2 or -14 with e1.y 0).
+    fpos = (12.5, 0.0, -40.25)
+    geo = [((36.0, 0.0, 77.0), 78.0), ((36.0, 0.0, ulps(77.0, 1)), 78.0), ((-36.0, 2.0, -77.0), 78.0),
+           ((3.0, 2.0, 4.0), 0.0), ((3.0, ulps(2.0, 1), 4.0), 0.0), ((3.0, -14.0, 4.0), 0.0),
+           ((3.0, -ulps(14.0, 1), 4.0), 0.0), ((0.0, 0.0, 0.0), 0.0), ((70.0, 0.0, 0.0), 2.5)]
+
+    def pair_geo(row, a, b):
+        (d, r), counter = row
+        w.poke(rec0, struct.pack('<2f', r, 0.0))
+        w.poke(a + 0x30, struct.pack('<I', rec0))
+        w.poke(a + 0xB0, struct.pack('<3f', *fpos))
+        w.poke(b + 0xB0, struct.pack('<3f', *[f32(fpos[j] + d[j]) for j in range(3)]))
+        w.poke(b + 0x36, struct.pack('<H', 0x1111))
+        spad16(0x70003B88, counter)
+    tally('001A8E80', P8E80, pick([(g, c) for g in geo for c in (0, 5)], 18), lambda row: pair_geo(row, e1, e2),
+          e1, e2, lambda ee: ee.load(e2 + 0x36, 2) == 0x14)
+
+    # 001A8F40(e1, e2): |e2 - e1|^2 (the VU0 dot) <= (3 + r)^2: (2, 3, 6)
+    # = 49 against r 4, one ulp of r below, far and coincident.
+    geo = [((2.0, 3.0, 6.0), 4.0), ((2.0, 3.0, 6.0), ulps(4.0, -1)), ((-2.0, -3.0, 6.0), 4.0),
+           ((0.0, 0.0, 0.0), 0.0), ((30.0, 1.0, 1.0), 5.0), ((1.0, 1.0, 1.0), -2.0)]
+    tally('001A8F40', P8F40, [(g, c) for g in geo for c in (0, 5)], lambda row: pair_geo(row, e1, e2),
+          e1, e2, lambda ee: ee.load(e2 + 0x36, 2) == 0x2014)
+
+    # 001A96F0(e1, e2): e2's point in e1's box (3, 5, 7): reach x 3,
+    # y 1.0 + 5, z 7.
+    deltas = axis_rows((3.0, 6.0, 7.0), [(0.0, 0.0, 0.0), (-1.0, 2.0, -3.0)])
+
+    def st96F0(row):
+        d, counter = row
+        w.poke(box, struct.pack('<3f', 3.0, 5.0, 7.0))
+        w.poke(e1 + 0x30, struct.pack('<I', box))
+        w.poke(e1 + 0xB0, struct.pack('<3f', *base))
+        w.poke(e2 + 0xB0, struct.pack('<3f', *[f32(base[j] + d[j]) for j in range(3)]))
+        w.poke(e2 + 0x54, struct.pack('<H', 7))
+        spad16(0x70003B86, counter)
+    tally('001A96F0', P96F0, [(d, c) for d in deltas for c in (0, 5)], st96F0, e1, e2,
+          lambda ee: ee.load(e2 + 0x54, 2) == 1)
+
+    # 00183C40's anchor of e2 (001A9360, 001A9480): class byte (+2 & 0x1F),
+    # type byte +3, the node words +0x114.. +0x14C (one node per slot, its
+    # +0xC0 point q + (0, 0, slot / 4096) so a wrong slot shows in
+    # 0x700038B0), the type-18 matrix at (+0x110) + 0x90 (identity with q -
+    # (0, 6, 0) as its last row), type 16 (e2's point with y + 6).
+    node, mat = SYN + 0x2000, SYN + 0x500
+
+    def anchor(q, cls, typ):
+        w.poke(e2 + 2, bytes([cls])); w.poke(e2 + 3, bytes([typ]))
+        for slot in range(0x114, 0x150, 4):
+            at = node + 0x100 * (slot - 0x114) // 4
+            w.poke(at + 0xC0, struct.pack('<4f', q[0], q[1], f32(q[2] + slot / 4096.0), 1.0))
+            w.poke(e2 + slot, struct.pack('<I', at))
+        w.poke(e2 + 0x110, struct.pack('<I', mat - 0x90))
+        w.poke(mat, struct.pack('<16f', 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, q[0], q[1] - 6.0, q[2], 1))
+        w.poke(e2 + 0xB0, struct.pack('<4f', q[0], f32(q[1] - 6.0) if typ == 16 else q[1], q[2], 1.0))
+
+    # 001A9360(e1, e2): the anchor's squared distance from e1 against
+    # (r0 + r1)^2 and 001A91C0 by e1's +0xD (t = the distance, < 10 or
+    # not; e1's +0x94 for +0xD 7).
+    offs = ((3.0, 4.0, 0.0), (6.0, 8.0, 0.0), (0.0, 0.0, 12.0), (0.0, 13.0, 0.0), (20.0, 0.0, 0.0))
+    grid = [(off, cls, typ, kind, h94) for off in offs for cls in (2, 0x22, 4) for typ in tuple(range(20))
+            for kind in tuple(range(16)) for h94 in (0, 1, 2)]
+
+    def st9360(row):
+        off, cls, typ, kind, h94 = row
+        w.poke(rec0, struct.pack('<f', 6.0)); w.poke(rec1, struct.pack('<f', 7.0))
+        w.poke(e1 + 0x30, struct.pack('<I', rec0)); w.poke(e2 + 0x30, struct.pack('<I', rec1))
+        w.poke(e1 + 0xB0, struct.pack('<4f', *base, 1.0))
+        anchor(tuple(f32(base[j] + off[j]) for j in range(3)), cls, typ)
+        w.poke(e1 + 0xD, bytes([kind])); w.poke(e1 + 0x94, struct.pack('<h', h94))
+        w.poke(e2 + 0x36, struct.pack('<H', 0x0101))
+        spad16(0x70003B88, 5)
+    keep = [((3.0, 4.0, 0.0), 2, 0, kind, kind % 3) for kind in range(16)] + \
+        [((6.0, 8.0, 0.0), 2, typ, 7, 1) for typ in range(20)] + [((20.0, 0.0, 0.0), 4, 0, 0, 0)]
+    tally('001A9360', P9360, pick(grid, 30, keep), st9360, e1, e2, s88)
+
+    # 001A9480(e1, e2): the same first test (r0 + r1 = 13); for type 0xB the
+    # twelve D_0024A840 nodes against 6 + r0 (6 + 6 = 12): node k of the
+    # scan placed inside, or none.
+    order = list(w.ram0[0x24A840:0x24A84C])
+    nodes = SYN + 0x600
+
+    def st9480(row):
+        typ, first_in, k = row
+        w.poke(rec0, struct.pack('<f', 6.0)); w.poke(rec1, struct.pack('<f', 7.0))
+        w.poke(e1 + 0x30, struct.pack('<I', rec0)); w.poke(e2 + 0x30, struct.pack('<I', rec1))
+        w.poke(e1 + 0xB0, struct.pack('<4f', *base, 1.0))
+        w.poke(e1 + 0xC0, struct.pack('<4f', 1.5, -2.5, 3.5, 1.0))
+
+        def scan_nodes():
+            for i, index in enumerate(order):
+                at = nodes + 0x100 * i
+                far = (0.0, 0.0, 12.0) if i == k else (0.0, ulps(12.0, 1) if i == k + 1 else 30.0, 0.0)
+                w.poke(at + 0xC0, struct.pack('<4f', *[f32(base[j] + far[j]) for j in range(3)], 1.0))
+                w.poke(e2 + 0x110 + 4 * index, struct.pack('<I', at))
+        # Type 3's anchor slot +0x118 is also scan index 2: the anchor wins
+        # there; type 0xB's +0x148 is no scan index.
+        scan_nodes()
+        anchor(tuple(f32(base[j] + o) for j, o in enumerate((3.0, 4.0, 0.0) if first_in else (13.0, 0.0, 1.0))),
+               2, typ)
+        if typ == 0xB:
+            scan_nodes()
+        w.poke(e2 + 0x36, struct.pack('<H', 0x0202))
+        spad16(0x70003B88, 5)
+    grid = [(typ, first_in, k) for typ in (0xB, 3) for first_in in (1, 0) for k in tuple(range(12)) + (99,)]
+    keep = [(0xB, 0, k) for k in (0, 11, 99)] + [(3, 1, 99), (3, 0, 99), (0xB, 1, 99)]
+    tally('001A9480', P9480, pick(grid, 8, keep), st9480, e1, e2, s88)
+
+    # (001A9E00 and 001AA000 never stage coincident x / z points: atan2f(0, 0)
+    # takes 0011E620's error path, whose errno store the bridge does not
+    # bind; tools/test_sdk_math_original_reference.py covers that path.)
+    # 001A9E00(player, e1): sqrt(dx dx + dz dz) <= r0 + r1 (85 = 40 + 45),
+    # |player +0xA4 + 4 - e1.y| <= 4 + 5 (heights 8 / 10), e1's +3, the
+    # player's +0 bit 2.
+    deltas = [(36.0, 0.0, 77.0), (36.0, 0.0, ulps(77.0, 1)), (-36.0, 9.0, -77.0), (0.0, -9.0, 1.0),
+              (0.0, ulps(9.0, 1), 1.0), (0.0, -ulps(9.0, 1), 1.0), (3.0, 1.0, 4.0), (0.0, 0.0, 0.5)]
+
+    staged_x = [0]
+
+    def st9E00(row):
+        d, busy, st = row
+        staged_x[0] = bits(f32(base[0] - d[0]))
+        w.poke(rec0, struct.pack('<2f', 40.0, 8.0)); w.poke(rec1, struct.pack('<2f', 45.0, 10.0))
+        w.poke(PLAYER + 0x30, struct.pack('<I', rec0)); w.poke(e1 + 0x30, struct.pack('<I', rec1))
+        w.poke(PLAYER + 0xA0, struct.pack('<3f', *base))
+        w.poke(e1 + 0xB0, struct.pack('<3f', f32(base[0] - d[0]), f32(base[1] + 4.0 - d[1]), f32(base[2] - d[2])))
+        w.poke(e1 + 3, bytes([busy])); w.poke(PLAYER, bytes([st])); w.poke(e1 + 0xB, bytes([0]))
+    grid = [(d, busy, st) for d in deltas for busy in (0, 1) for st in (1, 5)]
+    tally('001A9E00', P9E00, pick(grid, 12, [(d, 0, 1) for d in deltas]), st9E00, PLAYER, e1,
+          lambda ee: ee.load(e1 + 0xB, 1) == 1 or ee.load(e1 + 0xB0) != staged_x[0])
+
+    # 001AA000(e1, e2, e1 + 0x1F0, e2 + 0x1F0): the +0x2D4 words equal,
+    # 0x200 or different; sqrt(dx dx + dz dz) <= 40 + 45, sqrt(dy dy) <= 3 + 4.
+    deltas = [(36.0, 0.0, 77.0), (36.0, 0.0, ulps(77.0, 1)), (3.0, 7.0, 4.0), (3.0, ulps(7.0, 1), 4.0),
+              (-3.0, -7.0, -4.0), (0.5, 0.0, 0.0)]
+
+    def stA000(row):
+        d, words, counter = row
+        w.poke(rec0, struct.pack('<2f', 40.0, 3.0)); w.poke(rec1, struct.pack('<2f', 45.0, 4.0))
+        w.poke(e1 + 0x30, struct.pack('<I', rec0)); w.poke(e2 + 0x30, struct.pack('<I', rec1))
+        w.poke(e2 + 0xB0, struct.pack('<3f', *base))
+        w.poke(e1 + 0xB0, struct.pack('<3f', *[f32(base[j] + d[j]) for j in range(3)]))
+        w.poke(e1 + 0x2D4, struct.pack('<I', words[0])); w.poke(e2 + 0x2D4, struct.pack('<I', words[1]))
+        spad16(0x70003B86, counter)
+    grid = [(d, words, c) for d in deltas for words in ((0x100, 0x100), (0x200, 0x200), (0x100, 0x300))
+            for c in (0, 5)]
+    tally('001AA000', PA000, pick(grid, 12, [(d, (0x100, 0x100), 5) for d in deltas]), stA000, e1, e2, s86)
+
+    # 0021BD10(): the player's +0 and 0021BB00's +0x1F0 byte (every value
+    # 0..0x30; 0x2C with +0xD 2 / other; 0xF with +4 / +5 / +6).
+    grid = [(st, k, dd, b4, b5, b6) for st in (1, 0, 3) for k in range(0x31) for dd in (2, 1)
+            for b4, b5, b6 in ((1, 8, 2), (1, 8, 4), (1, 8, 5), (1, 8, 3), (0, 8, 2), (1, 7, 2))]
+
+    def stBD10(row):
+        st, k, dd, b4, b5, b6 = row
+        w.poke(PLAYER, bytes([st])); w.poke(PLAYER + 0x1F0, bytes([k])); w.poke(PLAYER + 0xD, bytes([dd]))
+        w.poke(PLAYER + 4, bytes([b4, b5, b6]))
+    keep = [(1, k, 1, 1, 8, 3) for k in range(0x31)] + [(1, 0x2C, 2, 1, 8, 3)] + \
+        [(1, 0xF, 1, b4, b5, b6) for b4, b5, b6 in ((1, 8, 2), (1, 8, 4), (1, 8, 5), (0, 8, 2), (1, 7, 2))]
+    tally('0021BD10', PBD10, pick(grid, 10, keep), stBD10, 0, 0, lambda ee: ee.r[2] == 1)
+    w.restore()
+    return out
 
 
 def run_synthetic_lists(item):
@@ -2152,6 +2447,11 @@ def run_synthetic_lists(item):
         w.restore()
     out['c99e0'] = (w.nruns - staged0, carried)
     out['runs'] += w.nruns - staged0
+    staged0 = w.nruns
+    # The quick run stages them in every third world (each with its own
+    # sample); EM_TEST_FULL=1 in every world.
+    out['pairs'] = stage_pair_callees(w, rng, e1, e2) if reference_mode.FULL or seed % 3 == 2 else {}
+    out['runs'] += w.nruns - staged0
     # Fail-stop: an unbound worker faults before any write; an explicitly
     # unported worker faults when reached.
     r, fault = w.run('drop 001A9C40', P9D20, drop=1)
@@ -2286,6 +2586,13 @@ def main():
     c99e0 = sum(o['c99e0'][0] for o in syn)
     c99e0_carried = [sum(o['c99e0'][1][k] for o in syn) for k in (0, 1)]
     assert c99e0 > 0 and all(c99e0_carried), ('coverage: 001A99E0 carried and not', c99e0, c99e0_carried)
+    pairs = {}
+    for o in syn:
+        for name, (n, seen) in o['pairs'].items():
+            old = pairs.get(name, (0, [0, 0]))
+            pairs[name] = (old[0] + n, [old[1][0] + seen[0], old[1][1] + seen[1]])
+    for name, (n, seen) in sorted(pairs.items()):
+        assert n > 0 and all(seen), ('coverage: both outcomes of the staged pair callee', name, n, seen)
     pushes, tiny, knock = (sum(o[k] for o in syn) for k in ('pushes', 'tiny', 'knock'))
     wanted = set(PAIR_WORKERS) | {QUAD_WORKER, BD10, -1}
     assert set(by_id) == wanted, ('coverage: workers never reached', sorted(hex(x) for x in wanted - set(by_id)))
@@ -2326,6 +2633,9 @@ def main():
     print(f'001A99E0 executed: {c99e0} staged runs (the 67 + r and |dy| <= 8 tests at equality and one ulp '
           f'beyond, spins of both signs, headings at the 001B1470 wrap, the 0x70003B88 counter), outcomes '
           f'carried / not {c99e0_carried[1]} / {c99e0_carried[0]} PASS')
+    print('pair callees executed (staged runs, outcomes hit / not): ' +
+          ', '.join(f'{name} {n} ({seen[1]} / {seen[0]})' for name, (n, seen) in sorted(pairs.items())) +
+          '; 001A8970\'s f20 path faults natively PASS')
     reference_mode.banner(reference_mode.part(picked_rows, total_rows, 'route rows'),
                           f'{wcases} walker cases', f'{rruns + sruns} list-pass runs')
 
