@@ -3,10 +3,10 @@
  *
  * Every routine names the original it translates; comments cite the
  * original address of each branch and store. The comparisons, their
- * directions and the operation order follow the .s (the readable C of the
- * NEARMISS files is not trusted: 001A2AE0's C inverts both kind gates and
- * sends 0x8000 prims to 001A44B0 in pass 1, and 0019DF10's C swaps the
- * masks of its first 0019F1A0 pair). */
+ * directions and the operation order follow the .s; the decomp's C for
+ * 001A2AE0, 001A32C0, 0019DF10, 0019E640, 0019C830 and 0019ED80 is now
+ * byte-matched and agrees (audited 2026-10-28; the old NEARMISS C had
+ * inverted 001A2AE0's kind gates and swapped 0019DF10's first mask pair). */
 #include "game/em_coll_probe_original.h"
 
 #include <stdio.h>

@@ -4,7 +4,8 @@
  * Every routine names the original it translates; comments cite the
  * original address of each branch, call and store. 0019E280 and 0019B7D0
  * follow their byte-matched C; 0019E930, 001A3980, 0019BA80 and 0019F330
- * follow the .s. */
+ * were translated from the .s, and the decomp's byte-matched C for
+ * 0019E930, 001A3980 and 0019F330 agrees (audited 2026-10-28). */
 #include "game/em_coll_list_passes_walkers.h"
 
 #include <string.h>
