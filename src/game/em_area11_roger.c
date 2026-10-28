@@ -38,7 +38,7 @@
 
 enum {
     TABLE_WORDS = EM_AREA11_ROGER_TABLE_WORDS,   /* the words 001AB430 clears (EMRS v2) */
-    MAX_REGIONS = 16,   /* includes AREA01 pickup models and retained door bank */
+    MAX_REGIONS = 17,   /* includes AREA01 pickup models, the retained door bank and player hull */
     ROGER_NODES = 21,
     RECORD = EM_ACTOR_RECORD_SIZE
 };
