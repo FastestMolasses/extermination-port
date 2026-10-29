@@ -2183,8 +2183,16 @@ def check_cage_ladders(ticks, run, state):
     assert [rows[k]['f'] for k in route_entries(rows, 0xB)] == [w[0] for w in LADDER_WINDOWS], \
         ('route 10 ladder entries moved', route_entries(rows, 0xB))
     start = max(state.get('cursor', 0), 1)
-    # A BRANCH side run's own ladders come after its side phase starts.
-    entries = state_entries(ticks, 0xB, start, state.get('side_start'))
+    # A BRANCH side run's own ladders come after its side phase starts; a
+    # run that goes on past the first level (the AREA01 / AREA00 / revisit
+    # harnesses) counts only its AREA11 ticks (D_00810700 = 0x0B).
+    end = state.get('side_start')
+    off = tsr.OFFSET[0x810700]
+    left = next((i for i in range(start, len(ticks)) if 'post' in ticks[i]
+                 and bytes.fromhex(ticks[i]['post'])[off] != 0x0B), None)
+    if left is not None and (end is None or left < end):
+        end = left
+    entries = state_entries(ticks, 0xB, start, end)
     assert len(entries) == 2, ('the run entered the ladder other than twice', len(entries))
     notes = [fall_between(ticks, start, entries[0], rows, 'cage_ladders')]
     for e, (f0, f1) in zip(entries, LADDER_WINDOWS):
@@ -2616,7 +2624,10 @@ def check_exit(ticks, run, state):
             p.pop('clock'), o.pop('clock')   # the idle clip's phase: the time since the area load
         assert p == o, (where, {k: (p[k], o[k]) for k in p if p[k] != o[k]})
     movies = re.findall(r'^startup: movie (\d+) \((\S+)\) for the game task', run, re.M)
-    assert movies[-1:] == [('1', 'E001.PSS')] and movies.count(('1', 'E001.PSS')) == 1, ('exit: the departure movie', movies)
+    # the first level's game-task movies end with the departure; a run that
+    # goes on (the AREA01 / AREA00 / revisit harnesses) plays later ones
+    first = movies[:movies.index(('1', 'E001.PSS')) + 1] if ('1', 'E001.PSS') in movies else movies
+    assert first[-1:] == [('1', 'E001.PSS')] and movies.count(('1', 'E001.PSS')) == 1, ('exit: the departure movie', movies)
     # The load.
     il = i0 + rows1[load]['counter'] - base
     arrival = next(i for i in range(il, len(ticks)) if bytes.fromhex(ticks[i]['pre'])[3] == 0 and

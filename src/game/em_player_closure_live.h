@@ -57,6 +57,11 @@ void em_player_closure_live_set_scan(int (*scan)(void *context, EmPlayerLiveActo
  * first; an SDK worker's recorded fault fails it). *result is its return
  * (1: an action took the press). 0, or -1 on a fault. */
 int em_player_closure_live_use_press(EmPlayerLiveActor *actor, int *result);
+/* 001798D0(p) over the live record (em_player_use_001798D0 with the Use
+ * dispatcher's workers: its 00174A50 is the stage's row request): the
+ * reset an area script's handler runs on the player (AREA01's 0x82B0D0 at
+ * a01r_02). 0, or -1 (not bound, or a worker fault). */
+int em_player_closure_live_001798D0(EmPlayerLiveActor *actor);
 /* 0015C750(D_008102B0), the HEALING kind 2 hand-off of the status pages:
  * em_area02_misc_0015C750 over the live player record, `d810707` (the
  * caller's D_00810707 byte), the .data halfwords D_00248A00..0B and

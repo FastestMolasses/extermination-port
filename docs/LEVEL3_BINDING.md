@@ -14,6 +14,34 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 27: from New Game the revisit run plays the whole
+route through a01r_02 ("level smoke: PASS 43 live phases through
+a01r_02"), and every revisit row is the original's: a01r_00 1,382 / 1,382,
+a01r_01 8,122 / 8,122 (the event, the item page, the op0D cinematic with
+the ramp frames), a01r_02 1,024 / 1,024 (over the lowered bridge, script
+0x82B0D0). AREA00 and the first level are as in iterations 23..25.**
+
+- **001798D0 on the player** (0x82B0D0's record handler at a01r_02 row
+  983, through the area script's record call): the AREA01 composition had
+  no worker for it. It is now em_player_use_001798D0 over the live record
+  (`em_player_closure_live_001798D0`: the Use dispatcher's workers, its
+  00174A50 the stage's row request), with the views published around it.
+- **D_0028A580, the player's bank word,** for the script's op0A sub 2 (the
+  same row: +1F2 = 0, +20C = -1, +2F3 = 3, +0x40 = D_0028A580): the AREA01
+  script's resource reader served the module loader's table, which holds
+  only the slots its loads relocate (word 0x3C was 0), so the next stage's
+  00183090 bone_init read an unmapped bank. The reader now serves that
+  word from the export the player stage's 00182DF0 reads
+  (em_area11_roger_table_word; 0xD689C0, as the fork snapshots hold).
+- **The first-level checker's whole-run assumptions** (test_level_smoke.py,
+  which the revisit harness runs after the native run): the ladder count
+  now counts the AREA11 ticks only, and the departure movie check the
+  first level's game-task movies. It then stops at a00_arrival's
+  "missing complete camera observation" (the AREA00 phases' camera-end
+  check needs the live camera's block at that tick); the per-phase row
+  comparison above (the harness's prefix report) is the measure.
+- Receipts: `build/frontier/r07` (run log, ticks, check logs).
+
 **2026-10-28, iteration 26: the revisit run is exact through a01r_00
 (1,382 rows) and all 8,122 rows of a01r_01 (the train-room event, the
 item page, the op0D cinematic and its ramp frames), and a01r_02 through
@@ -43,8 +71,8 @@ failing at 001798D0 (next unit).**
   slot-0xFFF targets, and `test-ramp-pass-reference` checks the model's
   walk of each ramp pass against the C walker and of all of a frame's
   passes in one page.
-- Receipts: `build/frontier/r05d` (a diagnostic build; the same code with a
-  temporary backtrace in the actor view, removed).
+- Receipts: the iteration-27 run `build/frontier/r07` (the same code plus
+  iteration 27's; r05d, a diagnostic build, removed).
 
 **2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
 the revisit harness (`tools/test_level_smoke_area01r.py --run`) runs the

@@ -101,11 +101,6 @@ const uint8_t *em_area11_roger_library_rest(uint32_t address, uint32_t *size);
 /* The retained bootstrap door-animation bank at D_0028A574. Its immutable
  * bytes are exported separately from AREA11's replaceable animation banks. */
 const uint32_t *em_area11_roger_door_bank_word(void);
-/* The retained player animation bank word D_0028A580 (the boot's, kept by
- * every later area; the player stage reads it through
- * em_area11_roger_table_word): the same export word, for the areas whose
- * scripts restore the player's bank (op0A sub 2 / op18's 00182DF0). */
-const uint32_t *em_area11_roger_player_bank_word(void);
 const uint8_t *em_area11_roger_door_bank_rest(uint32_t address, uint32_t *size);
 /* The exported bank region bytes at an EE address (the camera track header
  * the script host's r_track_head reads, 001C6120 over bank 0x96), or NULL. */

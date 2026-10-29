@@ -230,11 +230,6 @@ const uint32_t *em_area11_roger_door_bank_word(void)
     return load_resources()<0 ? NULL : &R.table[0x39];
 }
 
-const uint32_t *em_area11_roger_player_bank_word(void)
-{
-    return load_resources()<0 ? NULL : &R.table[0x3C];
-}
-
 const uint8_t *em_area11_roger_door_bank_rest(uint32_t address,uint32_t *size)
 {
     if (!size || load_resources()<0) return NULL;
