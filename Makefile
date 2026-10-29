@@ -156,7 +156,7 @@ endif
 .PHONY: all clean run test-input
 all: $(BIN)
 
-$(BIN): $(SRC) $(wildcard src/*.h src/game/*.h)
+$(BIN): $(SRC) $(wildcard src/*.h src/game/*.h src/game/*.inc)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o $(BIN)
 

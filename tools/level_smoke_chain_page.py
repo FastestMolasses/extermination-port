@@ -189,10 +189,13 @@ def rewalk(p):
     # last TEX0 and PRIM): the primitives around them are compared
     # (test_object_unit_reference.py runs the units' own triangles).
     units = {u[0]: (u[3] | u[4] << 32, u[5]) for u in (p[22] if len(p) > 22 else [])}
-    if p[33]:      # the pass drawn (the GS frame): walked in the model's pass mode
-        page = M.Page(read, units=units, pass_call=p[3], draw_envs=p[37], draw_env_slot=p[38])
+    # the frame's slot-0xFFF CALLs (p[41], since the multi-pass page; before
+    # it the one CALL p[3])
+    targets = p[41] if len(p) > 41 else ([p[3]] if p[3] else [])
+    if p[33]:      # the passes drawn (the GS frame): walked in the model's pass mode
+        page = M.Page(read, units=units, pass_calls=targets, draw_envs=p[37], draw_env_slot=p[38])
     else:
-        page = M.Page(read, skip_calls=[p[3]] if p[3] else [], units=units)
+        page = M.Page(read, skip_calls=targets, units=units)
     page.run(p[2])
     return page, read
 
@@ -211,7 +214,7 @@ def rewalk_one(p):
     passed = [e for e in page.gs.envs if e is not None]
     again = [a - page.pass_first for a in page.again] if page.passes else []
     pass_view = (page.passes, page.pass_first or 0, len(passed),
-                 M.pass_digest(passed, again) if page.passes else 0, again)
+                 page.pass_view_digest() if page.passes else 0, again)
     return ((digest(page.gs.prims), len(page.gs.prims), len(page.directs), len(page.kicks)),
             (page.mscal_counts.get(M.PROGRAM_SNOW, 0), page.mscal_counts.get(M.PROGRAM_STREAK, 0),
              page.mscal_counts.get(M.PROGRAM_KIND2, 0)), watched, pass_view)
@@ -248,7 +251,7 @@ def check_chain_page(ticks, state):
          _cyc, decal, dig, markers, sample, snow_mscals, weather, overlay_reads, units, _dig_units,
          streak_mscals, streak_prims, flare_sprites, lane_strips, kind2_mscals, kind2_prims, direct_strips,
          _kind6_mscals, _kind6_prims, passed, pass_first, pass_prims, pass_direct, _envs, _slot, _pdig,
-         again) = p
+         again, *_targets) = p
         where = ('chain page', 'tick', t['tick'])
         # 001DDE10's pass: drawn by the GS frame on every page that holds
         # it, walked over (the only CALL) with the GPU renderer

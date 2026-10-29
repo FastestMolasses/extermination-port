@@ -272,6 +272,8 @@ int em_chain_page_live_draw(EmGfx *gfx)
     S.log.pages++;
     S.log.start = start;
     S.log.four_sprite = four;
+    S.log.pass_target_count = npass;
+    memcpy(S.log.pass_targets, targets, sizeof S.log.pass_targets);
     S.log.pass = passes;
     S.log.pass_first = pass_first;
     S.log.pass_prims = pass_prims;

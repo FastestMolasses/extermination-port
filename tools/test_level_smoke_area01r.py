@@ -313,6 +313,9 @@ def main():
         phases += [(p, a01r.MAIN_BEATS[p], a01r.route_capture(p)['first_counter'])
                    for p in a01r.ROUTE_PHASES[:a01r.ROUTE_PHASES.index(until) + 1]]
         traces = {p: a00.capture_path(p) for p in a00_path}
+        # The revisit's bank loads (a01r_01's status page: module 0x23 at
+        # rows 8068..8090) take the recording's loader polls too.
+        traces.update({p: a01r.capture_path(p) for p in a01r.ROUTE_PHASES[:a01r.ROUTE_PHASES.index(until) + 1]})
         # The AREA00 arrival plays inside a01_07's recording; the AREA00
         # load changes the run's counter relation, so its row 0 anchors
         # again (as tools/test_level_smoke_area00.py does).

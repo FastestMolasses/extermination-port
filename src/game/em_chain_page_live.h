@@ -74,6 +74,9 @@ typedef struct {
      * pass's, folded) */
     uint32_t pass, pass_first, pass_prims, again_count, again[EM_CHAIN_PAGE_AGAIN_MAX];
     uint32_t draw_envs, draw_env_slot, pass_digest;
+    /* the frame's slot-0xFFF CALL targets (em_rcl_page's order; walked as
+     * passes or over) */
+    uint32_t pass_targets[EM_CHAIN_PAGE_PASSES_MAX], pass_target_count;
     EmChainPageCounts counts;  /* the last page's                             */
     uint32_t decal_triangles;  /* the last page's decal-TEX0 fan triangles    */
     uint32_t flare_sprites;    /* the last page's gun-lamp flare sprites (00187690's TEX0s) */
