@@ -27,6 +27,16 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### AREA02 host (revisit 6d212fb .. 029fc00)
+
+The AREA02 game-logic host runs in the shared composition (area index 2):
+the overlay entries, em_area02_state, em_area02_math (with 00159210 and
+00157860 added), the 001CAF60 draw method (GS class 1 on the chain page),
+the boxes owner's 001CA5E0 and the Use scan's selector 2 / 5 and 0x2C
+paths. `EM_START_AT=area02` and the a02_00 pad run without a fault; the
+duct entry at a02_00 row 225 does not happen yet. Details, assets and
+tests: docs/AREA02_PRETRANS.md section 2.
+
 ### 2026-10-29 (drawbridge 492d8f7 merged): a01r_02 reached
 
 **`EM_START_AT=area01-revisit` with the a01r pad and path now plays
