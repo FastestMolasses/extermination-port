@@ -104,7 +104,9 @@ the camera and the scripts are the same storages AREA01 and AREA00 use.
 - **Boxes owners**: em_area11_boxes_owner_001CA5E0 (001C4AF0's model
   switch on the canonical +0x44 / +0x4C; 6d212fb).
 - **Use scan** (029fc00): 00183EF0's selector 2 and 5 paths and the 0x2C
-  panel's line of sight; the use descriptors D_00275458..D_00275490.
+  panel's line of sight; the use descriptors D_00275458 and D_00275478 /
+  D_00275480 joined export_effect_tables.py's descriptor windows (the
+  separate use_descriptors.emrg of 029fc00 was folded in).
 - **Scene and assets** (c9b7037, 5804f88; the area read is F2's lane from
   2026-10-28): the arrival scene sub 0 / 1, the module loader areas, the
   start point `EM_START_AT=area02` (sub 1 arrival). Sub 1 has no message
@@ -114,7 +116,9 @@ Assets to export (port root, from the user's disc and ELF):
 `export_module_loader.py`, `export_area02_level.py --sub 1` (and 0),
 `export_area02_sfx.py`, `export_area02_tables.py`,
 `export_area02_world_textures.py`, `export_area02_shadow_receivers.py`,
-`export_sfx_registry.py`, `export_use_descriptors.py`, then
+`export_sfx_registry.py`, `export_effect_tables.py` (then
+`export_area01_water_effects.py` and `export_area00_runtime_tables.py`, as
+STARTUP.md step 50 says), then
 `build_start_saves.py`.
 
 Reference tests: test_area02_runtime_reference.py (the 15 entries through

@@ -152,10 +152,11 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50), (0x0023C990, 0x2B0),
           (0x00267310, 0x1830), (0x002563A0, 0x120), (0x002556B0, 0x120),
           (0x00237450, 0x2D0), (0x00237720, 0x2570),
-          # Immutable boot descriptors reached by AREA01's 00183EF0.
+          # Immutable boot descriptors reached by 00183EF0 (AREA01's, and
+          # AREA02's bed D_00275458 and panels D_00275478 / D_00275480).
           # Preserve original addresses through the existing readonly ELF
           # window provider; no additional mutable owner or live capture.
-          (0x00275460, 0x10), (0x00275470, 8), (0x00275488, 8),
+          (0x00275458, 8), (0x00275460, 0x10), (0x00275470, 8), (0x00275478, 0x10), (0x00275488, 8),
           (0x002755E8, 0x10), (0x00275878, 0x10), (0x002758A8, 0x18),
           # 001C02E0 -> 001BF630 / 001D0D60 and its Use descriptor.
           (0x0024FD50, 0x9F4), (0x00275638, 0x14),

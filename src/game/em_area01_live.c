@@ -74,28 +74,6 @@ static const uint8_t *resource(void *,uint32_t,uint32_t);
 #define D822CF0_BASE 0x00822CF0u
 #define D822CF0_SIZE 0x7D0u
 static uint8_t s_d822CF0[D822CF0_SIZE];
-/* D_00275458..D_00275490 (.sdata): the use owners' descriptor floats,
- * which their +0x30 names and 00183EF0 reads; read-only boot data
- * (tools/export_use_descriptors.py), loaded once. */
-#define USE_DESCRIPTORS_BASE 0x00275458u
-#define USE_DESCRIPTORS_SIZE 0x38u
-#define USE_DESCRIPTORS_PATH "assets/use_descriptors.emrg"
-static uint8_t s_use_descriptors[USE_DESCRIPTORS_SIZE];
-static int s_use_descriptors_state; /* 0 not tried, 1 loaded, -1 missing */
-static const uint8_t *use_descriptors(void)
-{
-    if(!s_use_descriptors_state) {
-        FILE *f=fopen(USE_DESCRIPTORS_PATH,"rb");uint8_t head[16];uint32_t w[3];
-        int ok=f && fread(head,1,16,f)==16 && memcmp(head,"EMRG",4)==0;
-        if(ok){memcpy(w,head+4,12);ok=w[0]==1 && w[1]==USE_DESCRIPTORS_BASE && w[2]==USE_DESCRIPTORS_SIZE &&
-            fread(s_use_descriptors,1,USE_DESCRIPTORS_SIZE,f)==USE_DESCRIPTORS_SIZE && fgetc(f)==EOF;}
-        if(f)fclose(f);
-        s_use_descriptors_state=ok ? 1 : -1;
-        if(!ok)fprintf(stderr,"em_area01: %s is missing or invalid (tools/export_use_descriptors.py)\n",
-                       USE_DESCRIPTORS_PATH);
-    }
-    return s_use_descriptors_state==1 ? s_use_descriptors : NULL;
-}
 static EmActor *actor(EmArea01Live *l,uint32_t a)
 {
     if(a<EM_ACTOR_POOL_BASE)return NULL;
@@ -261,10 +239,6 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if((p=em_area11_interaction_host_scan_memory(a,n)))return p;
     if((p=em_effects_live_scratch_3660(a,n)))return p;
     if((p=em_area01_state_bytes(l->host.area,a,n)))return p;
-    if(overlaps(a,n,USE_DESCRIPTORS_BASE,USE_DESCRIPTORS_SIZE)) {
-        const uint8_t *d=contains(a,n,USE_DESCRIPTORS_BASE,USE_DESCRIPTORS_SIZE) && !write ? use_descriptors() : NULL;
-        return d ? (uint8_t *)(void *)d+a-USE_DESCRIPTORS_BASE : NULL;
-    }
     if(contains(a,n,0x00275B44u,4))return write ? NULL : (uint8_t *)l->host.current_actor+a-0x00275B44u;
     if(contains(a,n,0x00275B48u,4))return write ? NULL : (uint8_t *)l->host.current_actor+a-0x00275B48u;
     if(contains(a,n,0x00275B40u,4))return (uint8_t *)l->model.source.current_bones+a-0x00275B40u;
