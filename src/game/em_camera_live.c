@@ -319,8 +319,8 @@ static void view_publish(void)
 
 /* The camera's view of the player record D_008102B0 at the camera stage:
  * the live record, with the words 0015BCF0's tail leaves that the port keeps
- * elsewhere: +A0 the position (g.pos), +B0 the bone-1 position (the host's
- * hip: the pose host's), +C4 the heading (g.yaw), and 0x70003B50 the
+ * elsewhere: +A0 the position (g.pos), +B0 the record's own (the bone-1
+ * position the stage tail stores, or a placement's), +C4 the heading (g.yaw), and 0x70003B50 the
  * published +C0..+CC (the host's Euler: the pose host's saved Euler, the
  * lanes the retarget reads).
  *
@@ -338,7 +338,13 @@ static void player_refresh(void)
     const float one = 1.0f;
     for (unsigned i = 0; i < 3; ++i) em_live_set_f32(&C.player, 0xA0 + 4 * i, g.pos[i]);
     em_live_set_f32(&C.player, 0xAC, one);
-    if (!C.host.hip(C.host.context, hip)) memcpy(hip, g.pos, sizeof hip);
+    /* With an evaluated pose the record's own +B0 (0015BCF0's tail: the
+     * bone-1 position; 001B07C0's placement stores the new position there,
+     * which 0x1AE040 state 4's 0018D7B0 reads before the next stage) */
+    if (C.host.hip(C.host.context, hip))
+        for (unsigned i = 0; i < 3; ++i) hip[i] = em_live_f32(&C.player, 0xB0 + 4 * i);
+    else
+        memcpy(hip, g.pos, sizeof hip);
     for (unsigned i = 0; i < 3; ++i) em_live_set_f32(&C.player, 0xB0 + 4 * i, hip[i]);
     em_live_set_f32(&C.player, 0xBC, one);
     em_live_set_f32(&C.player, 0xC4, g.yaw);

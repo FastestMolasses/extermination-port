@@ -2802,6 +2802,11 @@ static void spawn_commit(const EmSpawnIo *io)
         /* 001B07C0 also publishes all four rotation lanes. Camera-frame
          * scratch 70003B50 takes +CC from this canonical player record. */
         em_live_set_f32(rec, 0xC0 + 4 * i, io->player.f0C0[i]);
+        /* ... and both position quads +A0 / +B0 (0x1AE040 state 4's camera
+         * snap, 0018D7B0's 0018D330, reads +B0 before the next stage:
+         * a00_04 row 349's overhead probe from the re-placed player) */
+        em_live_set_f32(rec, 0xA0 + 4 * i, io->player.f0A0[i]);
+        em_live_set_f32(rec, 0xB0 + 4 * i, io->player.f0B0[i]);
     }
     /* 001B07C0's +0x0E (the spawn record's +0x14, cleared for a loaded
      * game), which 0015C420 switches on at the next stage

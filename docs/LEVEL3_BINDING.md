@@ -14,6 +14,40 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 28: the player record's +B0 is the original's
+(the hip after the stage, a placement's position after 001B07C0); with it
+the `lock_r54` class is gone and AREA00's arrival and a00_00..a00_04 are
+exact on every row with nothing ignored, and the AREA00 camera-end checks
+(all four camblk blocks against each beat's saved RAM) pass through
+a00_04.**
+
+- **0015BCF0's tail** (byte-matched src/func_0015BCF0.c) ends with +A0 =
+  +B0 and then +B0 = the quadword at +0xC0 of the node in bone slot 1 (the
+  hip's world translation after the animate step). The port kept the feet
+  in +B0. Readers after the stage take the hip: 0018A1F0's knife reach
+  `0019B2C0(D_00810360, ..)` (its segment from the hip to the knife tip
+  crossed the padlock's face at z -1687.316 instead of -1687.104, so the
+  puff 001EA240 that reuses the padlock's slot [54] sat 0.21 off: the
+  `lock_r54` rows; a fork stop at 001EF9D0 in a00_03 row 105 with a watch
+  table of the registers) and the camera's pre-pass 0018D330.
+  `stage_position_publish` now stores the hip (em_player.c). The
+  first-control reference compares +A0 and +B0 with the original (56
+  callbacks; it compared the port's +B0 with the original's +A0 before).
+- **001B07C0's position quads** (+A0 and +B0 = the spawn position) are now
+  stored in the record (`spawn_commit`), and the camera's player view takes
+  the record's +B0 when a pose is evaluated (em_camera_live
+  `player_refresh`; before, the pose host's last hip): 0x1AE040 state 4's
+  0018D7B0 at a00_04 row 349 (the cage door's room move) probed the
+  ceiling from the stale hip and stored -10.000004 at the camera's +0x60
+  (the original -10.0); a fork word watch of a00_04 showed every earlier
+  row equal.
+- **The camera-end checks compare all four camblk blocks** (the camera
+  block, the forward, D_00810690.. and the eye / target / up quads
+  D_008105D0..; the checks wanted exactly three, so every AREA00 phase end
+  read as a missing observation).
+- Checks: first-control, area-load and room-move references; AREA00
+  harness through a00_04 (`build/frontier/i27`).
+
 **2026-10-28, iteration 27: from New Game the revisit run plays the whole
 route through a01r_02 ("level smoke: PASS 43 live phases through
 a01r_02"), and every revisit row is the original's: a01r_00 1,382 / 1,382,
