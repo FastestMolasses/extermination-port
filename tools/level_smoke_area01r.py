@@ -4,6 +4,10 @@ The revisit's main line (FOURTH_LEVEL_ROUTE.md section 4; docs/AREA01_REVISIT.md
 a01r_00 (back to the train room), a01r_01 (the event: D_008107DF 1 .. 0xFF,
 D_0081075F = 0xFF, item 0x20) and a01r_02 (the bridge: D_008107E0 -> 0xFF,
 D_00810760 = 0xFF). a01r_00 starts where AREA00's a00_10 return ends.
+The side beats (FOURTH_LEVEL_ROUTE.md section 4) branch from a main beat's
+end: a01r_s0 (the event's pickup) from a01r_01, a01r_s1 (door [14],
+locked) from a01r_02; a run --until a side plays the main line to its
+source, then only the side.
 Preparation exports pads only. A native route is certified only by the row
 comparisons below; they do not certify rendered pixels.
 """
@@ -19,9 +23,11 @@ import reference_root as refs
 ROUTE_DIR = refs.capture('s87/route_a01r')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16'}
-SIDE_BEATS = {}
-ROUTE_PHASES = tuple(MAIN_BEATS)
-SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02'}
+SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked'}
+# em_level_smoke_test.c's phase order: each side right after its source.
+ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_03')
+SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
+           'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -35,13 +41,19 @@ PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)]}
 def capture_path(phase):
     if phase == 'a00_10':
         return a00.capture_path(phase)
-    return ROUTE_DIR / MAIN_BEATS[phase] / 'trace.json'
+    return ROUTE_DIR / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
+
+
+def revisit_path(until):
+    """The revisit phases a run --until `until` plays: the main line up to
+    it, without the side beats it passes (a side: then only that side)."""
+    assert until in ROUTE_PHASES, ('unknown AREA01 revisit phase', until)
+    return tuple(p for p in ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1] if p not in SIDE_BEATS or p == until)
 
 
 def phase_path(until):
     """The native path: New Game through AREA00's a00_10, then the revisit."""
-    assert until in ROUTE_PHASES, ('unknown AREA01 revisit phase', until)
-    return (*a00.phase_path('a00_10'), *ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1])
+    return (*a00.phase_path('a00_10'), *revisit_path(until))
 
 
 def source_capture(phase):
@@ -94,10 +106,13 @@ def source_gap(phase, capture):
 def command_rows(phase, capture):
     """The recorder's effective pad (level_smoke_area00.command_rows with this
     level's corrections): a late first input yields to a newer command in
-    its window, as the original capture driver does."""
+    its window, as the original capture driver does. A beat whose first
+    input comes later (a01r_s1: f10) holds the pad the session started
+    with until then (route_capture: the pad as the session left it,
+    cleared), which is the C driver's pad before its first command."""
     commands = capture['inputs']
     corrections = PAD_CORRECTIONS.get(phase, [])
-    assert commands and commands[0]['f'] == 0
+    assert commands and (commands[0]['f'] == 0 or not corrections)
     assert all(a['f'] <= b['f'] for a, b in zip(commands, commands[1:])), (phase, 'backward command')
     out, policy, sent, index = [], (0, 127, 127), None, 0
     frames = sorted({r['f'] for r in commands} | {f for _, f, n in corrections} |

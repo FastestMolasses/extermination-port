@@ -3995,7 +3995,8 @@ SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'a
         'br_map_item',
         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
         'br_plateau', 'br_roger_talk', 'aud_walk_outdoor', 'aud_walk_room', 'aud_flame',
-        *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS, *level_smoke_area00.SIDE_BEATS)
+        *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS, *level_smoke_area00.SIDE_BEATS,
+        *level_smoke_area01r.SIDE_BEATS)
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door',
@@ -4017,6 +4018,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('AREA00 main route (opt-in)', tuple(level_smoke_area00.MAIN_BEATS)),
          ('AREA00 side return (opt-in)', tuple(level_smoke_area00.SIDE_BEATS)),
          ('AREA01 revisit (opt-in)', tuple(level_smoke_area01r.MAIN_BEATS)),
+         ('AREA01 revisit sides (opt-in)', tuple(level_smoke_area01r.SIDE_BEATS)),
          ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_load_game', 'dmg_crevice_fall', 'dmg_fan')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),
@@ -5221,7 +5223,7 @@ def main():
         check_taken_and_vitals(ticks, checked)
     if args.rand_trace and 'first_control' in checked:
         check_rand_order(ticks, state, args.rand_trace)
-        level_smoke_area01.check_rng_checkpoints(state, state['rand'])
+        level_smoke_area01.check_rng_checkpoints(state, state['rand'], run)
         check_sway(ticks, state, state['rand'])
         check_marker_colour(ticks, state, state['rand'])
         check_head_sprites(ticks, state, state['rand'])

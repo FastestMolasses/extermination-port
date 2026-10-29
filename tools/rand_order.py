@@ -111,6 +111,26 @@ PORT_FN = {
     'em_area01_sys_0015A2C0': 0x15A2C0,          # the floor fields
     'em_area01_ovl_00826D40': 0x826D40,          # AREA01 overlay 00826D40
     'a01_ovl_826d40': 0x826D40,
+    # AREA00, the AREA01 revisit and the AREA02 arrival (no per-call
+    # capture; each original's byte-matched decomp C calls 00122BB8 itself)
+    'em_area01_exita_0022DCD0': 0x22DCD0,        # the AREA02 sub-1 arrival's 0022DCD0 (a01r_03)
+    'em_area01_light_001C50B0': 0x1C50B0,
+    'f_1DF180': 0x1DF180,                        # em_area00_hud's 001DF180
+    'f_1E2E80': 0x1E2E80,                        # em_area00_hud's 001E2E80
+    'em_area01_revisit_008282F0': 0x8282F0,      # AREA01 overlay 0x8282F0
+    'em_area00_ovl_00823820': 0x823820,          # AREA00 overlay 0x823820 (the puffs)
+    'a00_rand_fraction': 0x823820,               # its rand / 2^31 (a static step of the routine)
+    'f_12AFC0': 0x12AFC0,                        # em_area01_exita's 0012AFC0
+    'f_128600': 0x128600,                        # em_area01_exita's 00128600
+    'em_area00_low_0012B410': 0x12B410,
+    'em_area00_low_001B8AB0': 0x1B8AB0,
+    'em_area00_low_0012D850': 0x12D850,
+    'turn_008240E0': 0x8240E0,                   # AREA01 overlay 0x8240E0 (em_area00_return)
+    'em_area00_return_00826010': 0x826010,       # AREA01 overlay 0x826010
+    'em_area01_sys_00128C10': 0x128C10,
+    'kind_step': 0x128C10,                       # 00128C10's per-kind step (a static step of the routine)
+    'random_heading': 0x128C10,                  # its heading draw (the same)
+    'a01_state1_track': 0x826D40,                # 0x826D40's state 1 (the same)
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -132,7 +152,15 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # runtime's call adapters (sys_call, exitb_call), the overlay's
             # ovl_00122BB8, and dome, the per-cell height rule both lattice
             # set-ups 001E8E80 / 001E9580 share (the caller is the frame above).
-            'invoke', 'random_value', 'random_worker', 'sys_call', 'exitb_call', 'ovl_00122BB8', 'dome',
+            'invoke', 'random_value', 'random_worker', 'sys_call', 'exitb_call', 'exita_call', 'ovl_00122BB8', 'dome',
+            # ... and the call adapters of the AREA00 / revisit compositions
+            # (the flame services' beam_call, the light owner's math_call /
+            # em_a01m_call_i, the aim/fire world's hud_call, debris_worker,
+            # the return runtime's rt_00122BB8, low_call, the generic callv)
+            # and 001EA240's jitter (its 0x1EA758 step; driver_seed is the
+            # frame above)
+            'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
+            'low_call', 'callv', 'jitter',
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

@@ -100,7 +100,7 @@ int main(int argc,char **argv){
     for entry in manifest:
         phase, capture = entry['phase'], a01r.route_capture(entry['phase'])
         path = subprocess.run([str(binary), 'path', phase], capture_output=True, text=True, check=True).stdout.splitlines()
-        assert path == list(a01r.ROUTE_PHASES[:a01r.ROUTE_PHASES.index(phase) + 1]), (phase, 'C branch path', path)
+        assert path == list(a01r.revisit_path(phase)), (phase, 'C branch path', path)
         boundary = -1
         if phase in a00.RETURN_TICKS:
             boundary = next(r['f'] for r in capture['rows'] if r['area4'] == a00.RETURN_AREA[phase] and
@@ -337,12 +337,12 @@ def main():
         phases = [(p, a01.MAIN_BEATS[p], a01.route_capture(p)['first_counter']) for p in a01.MAIN_BEATS]
         a00_path = [p for p in a00.phase_path('a00_10') if p != 'a00_arrival']
         phases += [(p, a00.MAIN_BEATS[p], a00.route_capture(p)['first_counter']) for p in a00_path]
-        phases += [(p, a01r.MAIN_BEATS[p], a01r.route_capture(p)['first_counter'])
-                   for p in a01r.ROUTE_PHASES[:a01r.ROUTE_PHASES.index(until) + 1]]
+        phases += [(p, (a01r.MAIN_BEATS | a01r.SIDE_BEATS)[p], a01r.route_capture(p)['first_counter'])
+                   for p in a01r.revisit_path(until)]
         traces = {p: a00.capture_path(p) for p in a00_path}
         # The revisit's bank loads (a01r_01's status page: module 0x23 at
         # rows 8068..8090) take the recording's loader polls too.
-        traces.update({p: a01r.capture_path(p) for p in a01r.ROUTE_PHASES[:a01r.ROUTE_PHASES.index(until) + 1]})
+        traces.update({p: a01r.capture_path(p) for p in a01r.revisit_path(until)})
         # The AREA00 arrival plays inside a01_07's recording; the AREA00
         # load changes the run's counter relation, so its row 0 anchors
         # again (as tools/test_level_smoke_area00.py does).
