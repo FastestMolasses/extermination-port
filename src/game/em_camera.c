@@ -1377,6 +1377,15 @@ int camera_script_seed_0018CBD0(EmCamera *cam, const float seed_euler[3], float 
     memcpy(cam->seed_euler, seed_euler, sizeof cam->seed_euler);
     cam->seed_w = w;
     em_camera_retarget_seed(g.pos, offset, distance, preset, cam->eye_des, cam->tgt_des);
+    /* The w lanes g.cam does not carry: 0018CBD0 copies the player's whole
+     * +0xA0 quadword to cam+0x20 (its +0xAC) and stores 001026A0's whole
+     * product at cam+0x10 (offset[3]; the three sums touch x / y / z only).
+     * a01r_01 row 8063's retarget leaves +0x1C = 1.0 (a fork memwatch). */
+    uint8_t *eye_w = em_camera_live_bytes(0x008101FCu, 4), *tgt_w = em_camera_live_bytes(0x0081020Cu, 4);
+    const EmPlayerLiveActor *p = player_states_actor();
+    if (!eye_w || !tgt_w || !p) return 0;
+    memcpy(eye_w, &offset[3], 4);
+    memcpy(tgt_w, p->bytes + 0xAC, 4);
     return 1;
 }
 

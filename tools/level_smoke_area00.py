@@ -22,7 +22,10 @@ MAIN_BEATS = dict(zip((f'a00_{i:02}' for i in range(11)), (
 SIDE_BEATS = {'a00_s0': 'a00_s0_shaft_door_back'}
 ROUTE_PHASES = ('a00_s0', *MAIN_BEATS)
 SOURCES = dict(zip(MAIN_BEATS, ('a00_arrival', *tuple(MAIN_BEATS)[:-1]))) | {'a00_s0': 'a00_arrival'}
-RETURN_TICKS = {'a00_10': 116, 'a00_s0': 176}
+RETURN_TICKS = {'a00_10': 116, 'a00_s0': 176, 'a01r_03': 205}
+# The destination's state-0 rows (D_00810700..703): the AREA01 return, and
+# the revisit's door [16] into AREA02 sub 1 (level_smoke_area01r).
+RETURN_AREA = {'a00_10': '01000001', 'a00_s0': '01000001', 'a01r_03': '02010102'}
 OWNERS = dict(shaft_door_r52=0x7B7C00, door_r56=0x7B87C0, door_r51=0x7B7910,
               lock_r54=0x7B81E0, door_r55=0x7B84D0, terminal_r40=0x7B58C0,
               ferry_cab_r47=0x7B6D50, ferry_r48=0x7B7040, r43_825920=0x7B6190,
@@ -155,8 +158,10 @@ def check_camera_end(tick, phase):
     ram = path.with_name('eeMemory.bin').read_bytes()
     assert hashlib.sha256(ram).hexdigest() == snapshot['ee_sha256'], (phase, 'snapshot RAM digest differs')
     blocks = tick.get('camblk')
-    assert blocks and len(blocks) == 3, (phase, 'missing complete camera observation')
-    for (address, size), value in zip((a01.CAMERA_BLOCK, a01.CAMERA_FORWARD, a01.CAMERA_690), blocks):
+    # the camera block, the forward, D_00810690.. and the eye / target / up
+    # quads D_008105D0.. (a01.CAMERA_BLOCKS: the tick log's camblk)
+    assert blocks and len(blocks) == len(a01.CAMERA_BLOCKS), (phase, 'missing complete camera observation')
+    for (address, size), value in zip(a01.CAMERA_BLOCKS, blocks):
         assert bytes.fromhex(value) == ram[address:address + size], (phase, 'ending camera differs', hex(address))
 
 
@@ -251,7 +256,7 @@ def return_alignment(smoke, ticks, run, phase, start, rows):
     assert boundary, (phase, 'missing AREA01 return boundary')
     end = next(i for i, t in enumerate(ticks) if t['counter'] == int(boundary.group(1)))
     load = next(r['f'] for r in rows if r['bd8'] == 1)
-    arrival = next(r['f'] for r in rows if r['area4'] == '01000001' and
+    arrival = next(r['f'] for r in rows if r['area4'] == RETURN_AREA[phase] and
                    bytes.fromhex(r['slots'])[8:12] == bytes((3, 1, 0, 0)))
     assert len(rows) - arrival - 1 == RETURN_TICKS[phase], (phase, 'return endpoint moved')
     assert start + load <= end and end + RETURN_TICKS[phase] + 1 < len(ticks), (phase, 'incomplete return')

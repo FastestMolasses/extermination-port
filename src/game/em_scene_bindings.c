@@ -921,11 +921,15 @@ static void log_area00(FILE *f)
 /* The AREA01 revisit's recorded owners (FOURTH_LEVEL_ROUTE.md section 1.1:
  * doors [12]..[16], [13], the bridge halves [41] / [42], [45], 0x828A00[5],
  * [7], [6] and [0..4]), logged only in AREA01 once D_0081075E is 0xFF (the
- * AREA00 return), so the first visit's tick logs are unchanged. */
+ * AREA00 return), so the first visit's tick logs are unchanged; and on
+ * through door [16]'s AREA02 load (D_00810700 = 2 from a01r_03 row 565),
+ * whose recorded rows keep reading the same addresses (the AREA01 records
+ * until AREA02's state 0 rebuilds the pool), as log_area00 does for the
+ * AREA01 returns. */
 static void log_area01r(FILE *f)
 {
     const uint8_t *returned = em_scene_progress_at(&s_state, 0x0081075Eu, 1);
-    if (s_state.d810700 != 1 || !returned || *returned != 0xFF)
+    if ((s_state.d810700 != 1 && s_state.d810700 != 2) || !returned || *returned != 0xFF)
         return;
     static const uint32_t nodes[] = {0x7ADD60, 0x7AE050, 0x7AE340, 0x7AE630, 0x7AE920, 0x7B3290,
                                      0x7B3580, 0x7B3E50, 0x7A64F0, 0x7A6AD0, 0x7A67E0, 0x7A5640,
@@ -2823,6 +2827,11 @@ static void spawn_commit(const EmSpawnIo *io)
         /* 001B07C0 also publishes all four rotation lanes. Camera-frame
          * scratch 70003B50 takes +CC from this canonical player record. */
         em_live_set_f32(rec, 0xC0 + 4 * i, io->player.f0C0[i]);
+        /* ... and both position quads +A0 / +B0 (0x1AE040 state 4's camera
+         * snap, 0018D7B0's 0018D330, reads +B0 before the next stage:
+         * a00_04 row 349's overhead probe from the re-placed player) */
+        em_live_set_f32(rec, 0xA0 + 4 * i, io->player.f0A0[i]);
+        em_live_set_f32(rec, 0xB0 + 4 * i, io->player.f0B0[i]);
     }
     /* 001B07C0's +0x0E (the spawn record's +0x14, cleared for a loaded
      * game), which 0015C420 switches on at the next stage

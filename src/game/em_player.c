@@ -1176,9 +1176,18 @@ static void stage_position_begin(void)
     em_live_set_u32(&live.a, 0xAC, 0x3F800000u);
     memcpy(live.a.bytes + 0xB0, live.a.bytes + 0xA0, 16);
 }
+/* 0015BCF0's tail: +A0 = +B0 (the stage's new feet), then +B0 = the
+ * quadword at +0xC0 of the node in bone slot 1 (*(D_00275B40 + 4): the
+ * hip's world translation the animate step just evaluated). Readers after
+ * the stage take +B0 as the hip (0018A1F0's knife reach 0019B2C0(D_00810360,
+ * ..)). Without the record's pose (a scene with no original world) +B0
+ * keeps the feet. */
 static void stage_position_publish(void)
 {
     memcpy(live.a.bytes + 0xA0, live.a.bytes + 0xB0, 16);
+    const uint32_t node = em_live_u32(&live.a, 0x110 + 4);
+    const uint8_t *hip = node ? player_pose_record_bytes(node + 0xC0u, 16) : NULL;
+    if (hip) memcpy(live.a.bytes + 0xB0, hip, 16);
 }
 
 void player_states_stage(void)

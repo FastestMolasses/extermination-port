@@ -92,8 +92,12 @@ def main():
         for at, size in FIELDS:
             assert native[at:at + size] == actor[at:at + size], \
                 ('record', tick + 1, hex(at), native[at:at + size].hex(), actor[at:at + size].hex())
-        assert native[0xB0:0xBC] == actor[0xA0:0xAC], \
-            ('feet', tick + 1, native[0xB0:0xBC].hex(), actor[0xA0:0xAC].hex())
+        # 0015BCF0's tail: +A0 the feet, +B0 the hip (bone slot 1's world
+        # translation), both the original's
+        assert native[0xA0:0xAC] == actor[0xA0:0xAC], \
+            ('feet', tick + 1, native[0xA0:0xAC].hex(), actor[0xA0:0xAC].hex())
+        assert native[0xB0:0xBC] == actor[0xB0:0xBC], \
+            ('hip', tick + 1, native[0xB0:0xBC].hex(), actor[0xB0:0xBC].hex())
         offset = struct.unpack_from('<H', native, 0x28)[0] - struct.unpack_from('<H', actor, 0x28)[0]
         counter_offset = offset if counter_offset is None else counter_offset
         assert offset == counter_offset, ('+28 offset', tick + 1, offset, counter_offset)

@@ -144,12 +144,12 @@ def verify_checker():
         """The tick log's camera bytes: the recording's decoded block fields
         on every row, the saved RAM's bytes on a recording's last row."""
         if ram is not None:
-            return [ram[a:a+n].hex() for a,n in (a01.CAMERA_BLOCK,a01.CAMERA_FORWARD,a01.CAMERA_690)]
+            return [ram[a:a+n].hex() for a,n in a01.CAMERA_BLOCKS]
         block=bytearray(0xD0)
         block[4:8]=bytes.fromhex(row['cam_mode'])
         block[0x10:0x1C]=struct.pack('<3f',*row['cam_eye'])
         block[0x20:0x2C]=struct.pack('<3f',*row['cam_tgt'])
-        return [block.hex(),struct.pack('<3fI',*row['fwd'],0).hex(),bytes(20).hex()]
+        return [block.hex(),struct.pack('<3fI',*row['fwd'],0).hex(),bytes(20).hex(),bytes(48).hex()]
 
     def native_row(row, ram=None):
         post=bytearray(smoke.tsr.SNAP)

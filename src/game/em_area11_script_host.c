@@ -3,6 +3,7 @@
  * docs/AREA_SCRIPT.md section 6. */
 #include "game/em_area11_script_host.h"
 #include "game/em_ee_float.h"
+#include "game/em_effect_color.h"
 #include "game/em_render_context_live.h"
 
 #include <stdio.h>
@@ -842,6 +843,19 @@ static int w_00182F90(void *ctx, uint32_t actor, const float target[4])
     float position[3] = {target[0], target[1], target[2]};
     if (view_store() < 0) return -1;
     int rc = player_pose_align(position);
+    if (rc) {
+        /* The w lanes (00182F90's 001028D0 / 001028B8 run on all four): the
+         * delta's w is target.w - +AC, added to +AC, +BC and 0x70003B4C. A
+         * script vector with w 0 leaves +AC 0 until the next stage's tail:
+         * the camera retarget 0018CBD0 then copies it to cam+0x2C (a01r_01
+         * row 8062, a fork word watch). */
+        EmPlayerLiveActor *a = player_states_actor_mut();
+        const float dw = em_effect_float32((double)target[3] - em_live_f32(a, 0xAC));
+        em_live_set_f32(a, 0xAC, em_effect_float32((double)em_live_f32(a, 0xAC) + dw));
+        em_live_set_f32(a, 0xBC, em_effect_float32((double)em_live_f32(a, 0xBC) + dw));
+        float *s3B40 = em_scene_state()->spad3B40;
+        s3B40[3] = em_effect_float32((double)s3B40[3] + dw);
+    }
     view_load();
     return rc ? 0 : report("00182F90: the pose host refused the placement");
 }
