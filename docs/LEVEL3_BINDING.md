@@ -14,6 +14,50 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-29, iteration 30 (revisit 6d212fb merged: R1's AREA02 area
+read): a01r_03 passes the AREA02 load. Under the checker's return
+alignment, all 639 paired rows are exact: rows 0..565, the 19 loader
+states in the original's order (host-speed holds shortened, as for
+a00_10), the AREA02 sub 1 state 0 at row 735 and rows 736..737. The run
+then fail-stops in the first sub-1 owner draw: "em_area01: owner 001C4AF0
+node 007A6200 failed at 001CA7B0" (unbound worker). This is the AREA02
+host's raw-model draw (001C4AF0 -> 001CAF60 / 001CAE40 -> 001CA7B0),
+which belongs to R1's lane.**
+
+- **The area read** is R1's c9b7037 (revisit), merged unchanged. It covers:
+  - `area_read` for area 2, sub 0 and sub 1 (`assets/area02/sub<N>`);
+  - `em_world_textures_live` AREA02 (tools/export_area02_world_textures.py:
+    sub 0 has 417 textures, sub 1 has 311, both equal to the GS freezes);
+  - `em_shadow_live` AREA02 receivers
+    (tools/export_area02_shadow_receivers.py, compared with the fork
+    captures);
+  - the area's roster, cells, world models and SFX scopes, and the
+    001B6660 deferred spawn.
+
+  The drawbridge worktree's private `assets/area02` and `assets/sfx` are
+  now real directories (no longer symlinks into main), exported in R1's
+  order.
+- **The a01r observations through the load.** The tick log's a01r owners
+  were logged only while D_00810700 = 1, so every row from 565 (D_00810700
+  = 2) read "missing AREA01 revisit observations". The recording keeps
+  reading the same addresses: the AREA01 records until AREA02's state 0
+  rebuilds the pool, then zeros. `log_area01r` now also logs in area 2, as
+  `log_area00` does for the AREA01 returns.
+- **The loader states.** (3,5,1,0) runs the area streamer's 19 states in
+  the recording's order; the native holds are host speed (1..8 ticks
+  against 1..34). The veil's (3,5,2,0) takes 46 ticks against 71. a00_10's
+  return is 25 short in the same way. The full checker replays the
+  original veil and loader chain over these ticks (`return_pairs`), and
+  that check still waits for a finished run.
+- **Needed from the AREA02 host (R1):** 001CA7B0 bound in the area-2
+  runtime composition for 001CAE40's call (em_area02_math f_1CAE40). The
+  translation exists as em_owner_draw_live_001CA7B0. The rest of that draw
+  is also needed: 001D8C20, 001C7420, 001D3CE0 / 001D3AC0 and 001CAAC0.
+- Checks: the three harness contracts (AREA00, AREA01, revisit),
+  world-textures, area-load and start-at references, New Game control
+  9.599849. Rows: `build/frontier/tools/return_rows.py <out> a01r_03`.
+  Receipt: `build/frontier/f02`.
+
 **2026-10-29, iteration 29 (port main 897188c merged): every camera-end
 observation of AREA00 and of a01r_00..a01r_02 equals the beats' saved
 RAM, and the revisit harness drives a01r_03 (door [16]): its rows 0..564
@@ -43,7 +87,7 @@ lane).**
 - The checker fixtures give camblk all four blocks.
 - Checks: the three harness contracts (AREA00, AREA01, revisit),
   area-script, script-host-workers, camera-live, first-control and
-  area-load references. Receipts: `build/frontier/r13`.
+  area-load references. Receipts: `build/frontier/f02` (iteration 30's run, later code; r13 removed).
 
 **2026-10-28, iteration 28: the player record's +B0 is the original's
 (the hip after the stage, a placement's position after 001B07C0); with it
@@ -105,8 +149,8 @@ the ramp frames), a01r_02 1,024 / 1,024 (over the lowered bridge, script
   "missing complete camera observation" (the AREA00 phases' camera-end
   check needs the live camera's block at that tick); the per-phase row
   comparison above (the harness's prefix report) is the measure.
-- Receipts: `build/frontier/r13` (iteration 29's run: the same code plus iterations
-  28 and 29; r07 removed).
+- Receipts: `build/frontier/f02` (iteration 30's run: the same code plus iterations
+  28 to 30; r07 removed).
 
 **2026-10-28, iteration 26: the revisit run is exact through a01r_00
 (1,382 rows) and all 8,122 rows of a01r_01 (the train-room event, the
@@ -137,7 +181,7 @@ failing at 001798D0 (next unit).**
   slot-0xFFF targets, and `test-ramp-pass-reference` checks the model's
   walk of each ramp pass against the C walker and of all of a frame's
   passes in one page.
-- Receipts: the iteration-29 run `build/frontier/r13` (the same code plus
+- Receipts: the iteration-30 run `build/frontier/f02` (the same code plus
   iteration 27's; r05d, a diagnostic build, removed).
 
 **2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
@@ -187,7 +231,7 @@ boundary aligns the next phase.** Next: the a00 -> a01r handoff
   001AF800 on such a record now goes to the pool's release
   (`em_area11_boxes_001AF800`: em_roger_actor_001AF800 over the canonical
   slot stack) with the views published around it (em_area01_live).
-- Receipts: `build/frontier/r13` (later code; i25 removed). Quick tests: AREA01 runtime and revisit
+- Receipts: `build/frontier/f02` (later code; i25 and r13 removed). Quick tests: AREA01 runtime and revisit
   runtime references.
 
 **2026-10-28, iteration 23: the AREA00 arrival is exact on all 4,017 rows,
@@ -214,7 +258,7 @@ a00_10 frame 15254, where the owner 008266A0's node 007B9380 fails at
   `build/fork_refs/probes_1028_e007`: 691 pairs, the last 2 after the feed
   loop's end, a 133-vblank stall, gate 686, end 1510; the replayed beat
   equal to the recording on all 1,095 rows).
-- Receipts: the iteration-29 run `build/frontier/r13` (the same code plus
+- Receipts: the iteration-30 run `build/frontier/f02` (the same code plus
   iteration 24's; i24 removed).
 
 **2026-10-28, iteration 22 (`revisit` merged, a fast-forward: R1's single
@@ -254,7 +298,7 @@ still differs).
 - Checks: `test-chain-page` (two passes in one page, a target CALLed twice),
   `test-gs-world`, `test-dof-pass-reference`, `test-ramp-pass-reference`,
   New Game control 9.599849; not run: the first-level smokes and
-  EM_TEST_FULL. Receipts: the iteration-29 run `build/frontier/r13` (the
+  EM_TEST_FULL. Receipts: the iteration-30 run `build/frontier/f02` (the
   same code plus iterations 23 and 24; i23 and i24 removed).
 
 **2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's
