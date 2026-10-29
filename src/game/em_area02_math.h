@@ -42,7 +42,7 @@
  *   001C4960  node behaviour, states 0..3 with 001B1020 (asm, words)
  *   001C4AF0  node behaviour, states 0..3 with 001CA5E0 (asm, words)
  *   001C4CB0  node behaviour emitting 001F4E40 points (byte-matched C)
- *   001C7EB0  node behaviour following the pose D_00275B40 (NEARMISS C)
+ *   001C7EB0  node behaviour following the pose D_00275B40 (byte-matched C)
  *   001C8140  spawn of a class-0x0C node running 001C7EB0 (byte-matched C)
  *   001CAE40  draw method: 001CA7B0 test, 001D3AC0 / 001D3CE0, a display
  *             record, 001CAAC0 (byte-matched C)
@@ -167,7 +167,8 @@ int em_area02_math_001C4960(EmArea02Math *s, uint32_t a0);
 int em_area02_math_001C4AF0(EmArea02Math *s, uint32_t a0);
 int em_area02_math_001C4CB0(EmArea02Math *s, uint32_t a0);
 int em_area02_math_001C7EB0(EmArea02Math *s, uint32_t a0);
-int em_area02_math_001C8140(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2);
+/* *v0 (optional): the whole register the original returns (001AFA90's). */
+int em_area02_math_001C8140(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *v0);
 int em_area02_math_001CAE40(EmArea02Math *s, uint32_t a0, uint32_t a1);
 int em_area02_math_001CAF60(EmArea02Math *s, uint32_t a0);
 int em_area02_math_001CB4F0(EmArea02Math *s, uint32_t a0, uint32_t a1);

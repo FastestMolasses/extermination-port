@@ -140,7 +140,7 @@ ENTRIES = {
     0x158EC0: ('p', None), 0x159210: ('p', None), 0x159620: ('p', None), 0x159970: ('p', None), 0x159E70: ('p', None),
     0x183C40: ('pp', None), 0x1B18F0: ('ppp', 'i'), 0x1BC960: ('p', None), 0x1BD560: ('p', None),
     0x1BDFC0: ('p', None), 0x1C48C0: ('p', None), 0x1C4960: ('p', None), 0x1C4AF0: ('p', None),
-    0x1C4CB0: ('p', None), 0x1C7EB0: ('p', None), 0x1C8140: ('ppp', None), 0x1CAE40: ('pp', None),
+    0x1C4CB0: ('p', None), 0x1C7EB0: ('p', None), 0x1C8140: ('ppp', 'q'), 0x1CAE40: ('pp', None),
     0x1CAF60: ('p', None), 0x1CB4F0: ('pp', None), 0x1CB580: ('p', None),
 }
 
@@ -318,7 +318,7 @@ def log_entry(ee, fn, pol, regs, fregs, sp):
 # ======================================================================
 
 P, U8, U32, I32, U64 = C.POINTER, C.c_uint8, C.c_uint32, C.c_int32, C.c_uint64
-OUT_TYPES = {'i': I32}
+OUT_TYPES = {'i': I32, 'q': C.c_uint64}
 
 
 class Region(C.Structure):
@@ -1681,15 +1681,15 @@ def api_checks():
         return -1 if pc.contents.fn == 0x1AFA90 else 0
     w = WORKER(worker)
     fn = NATIVE.em_area02_math_001C8140
-    assert fn(None, 0x1000, 0, 0) == -1
+    assert fn(None, 0x1000, 0, 0, None) == -1
     s = World(None, 0, w, None, SP, 0, 0, 0)
-    assert fn(C.byref(s), 0x1000, 0, 0) == -1 and s.fault == 1 and s.fault_function == 0x1C8140
+    assert fn(C.byref(s), 0x1000, 0, 0, None) == -1 and s.fault == 1 and s.fault_function == 0x1C8140
     NATIVE.em_area02_math_clear_fault(C.byref(s))
     s = World(regions, 1, WORKER(0), None, SP, 0, 0, 0)
-    assert fn(C.byref(s), 0x1000, 0, 0) == -1 and s.fault == 1 and s.fault_address == 0x1AFA90
+    assert fn(C.byref(s), 0x1000, 0, 0, None) == -1 and s.fault == 1 and s.fault_address == 0x1AFA90
     s = World(regions, 1, w, None, SP, 0, 0, 0)
-    assert fn(C.byref(s), 0x1000, 0, 0) == -1 and s.fault == 2 and s.fault_address == 0x1AFA90
-    assert fn(C.byref(s), 0x1000, 0, 0) == -1 and calls == [0x1AFA90], 'refuses while latched'
+    assert fn(C.byref(s), 0x1000, 0, 0, None) == -1 and s.fault == 2 and s.fault_address == 0x1AFA90
+    assert fn(C.byref(s), 0x1000, 0, 0, None) == -1 and calls == [0x1AFA90], 'refuses while latched'
     NATIVE.em_area02_math_clear_fault(C.byref(s))
     assert s.fault == 0 and s.fault_function == 0 and s.fault_address == 0
     NATIVE.em_area02_math_clear_fault(None)
@@ -1704,14 +1704,14 @@ def api_checks():
         return -1
     wr = WORKER(reenter)
     s = World(regions, 1, wr, None, SP, 0, 0, 0)
-    assert fn(C.byref(s), 0x1000, 0, 0) == -1 and inner == [-1]
+    assert fn(C.byref(s), 0x1000, 0, 0, None) == -1 and inner == [-1]
     assert (s.fault, s.fault_function, s.fault_address) == (3, 0x157F30, 0x8106B0), \
         ('latch', s.fault, hex(s.fault_function), hex(s.fault_address))
     NATIVE.em_area02_math_clear_fault(C.byref(s))
     # an unmapped read is reported at its address and nothing is written:
     # 001C8140 with a new node outside the region faults at its first store
     s = World(regions, 1, WORKER(lambda _, pc: (setattr(pc.contents, 'v0', 0x5000), 0)[1]), None, SP, 0, 0, 0)
-    assert fn(C.byref(s), 0x1000, 0, 0) == -1 and (s.fault, s.fault_address) == (3, 0x5003), \
+    assert fn(C.byref(s), 0x1000, 0, 0, None) == -1 and (s.fault, s.fault_address) == (3, 0x5003), \
         (s.fault, hex(s.fault_address))
     NATIVE.em_area02_math_clear_fault(C.byref(s))
     # an output left alone on a fault

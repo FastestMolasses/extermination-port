@@ -130,5 +130,6 @@ action 0x2C at the snapped point (90.4, 0.047, -175.0)) does not happen
 natively: the player stays at about (90.1, 0.05, -174.5). That is the
 first behaviour divergence, not yet located (row comparison is F2's lane).
 
-Known duplicate: em_area02_math's 001C7EB0 / 001C8140 and
-em_area01_revisit_spawn's; one of each is to be kept.
+001C7EB0 / 001C8140: em_area02_math's are the one translation of each (the
+duplicate em_area01_revisit_spawn and its test were removed; the runtime runs
+em_area02_math's for area 1's placement spawn and for area 2).

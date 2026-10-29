@@ -170,8 +170,8 @@ Done since the entry below (commits on `revisit`):
   phase byte (op1A never advanced). Any worker that suspends the live while
   a caller holds a byte view of a pool record has the same hazard.
 - **op14 group 0x82A900** (9d54ac6, 13fb576, bea6ce8): 001BAC00
-  (em_sdf_001BAC00), 001C8140 / 001C7EB0 (em_area01_revisit_spawn, from the
-  byte-matched C), 001BB0E0 with 001BAD40 (em_slg_001BB0E0 /
+  (em_sdf_001BAC00), 001C8140 / 001C7EB0 (em_area02_math's, the one translation of
+  each since the duplicate em_area01_revisit_spawn was removed), 001BB0E0 with 001BAD40 (em_slg_001BB0E0 /
   em_sdf_001BAD40), 001F9660 and 001F4010 (em_area02_misc) bound in the
   runtime; 001F2F90 / 001F3340 (em_area00_fx_debris) and the particle
   records (em_effects_live's) in the live. 49 designed cases added to
