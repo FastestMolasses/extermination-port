@@ -105,7 +105,8 @@ the ramp frames), a01r_02 1,024 / 1,024 (over the lowered bridge, script
   "missing complete camera observation" (the AREA00 phases' camera-end
   check needs the live camera's block at that tick); the per-phase row
   comparison above (the harness's prefix report) is the measure.
-- Receipts: `build/frontier/r07` (run log, ticks, check logs).
+- Receipts: `build/frontier/r13` (iteration 29's run: the same code plus iterations
+  28 and 29; r07 removed).
 
 **2026-10-28, iteration 26: the revisit run is exact through a01r_00
 (1,382 rows) and all 8,122 rows of a01r_01 (the train-room event, the
@@ -136,7 +137,7 @@ failing at 001798D0 (next unit).**
   slot-0xFFF targets, and `test-ramp-pass-reference` checks the model's
   walk of each ramp pass against the C walker and of all of a frame's
   passes in one page.
-- Receipts: the iteration-27 run `build/frontier/r07` (the same code plus
+- Receipts: the iteration-29 run `build/frontier/r13` (the same code plus
   iteration 27's; r05d, a diagnostic build, removed).
 
 **2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
@@ -186,7 +187,7 @@ boundary aligns the next phase.** Next: the a00 -> a01r handoff
   001AF800 on such a record now goes to the pool's release
   (`em_area11_boxes_001AF800`: em_roger_actor_001AF800 over the canonical
   slot stack) with the views published around it (em_area01_live).
-- Receipts: `build/frontier/i25`. Quick tests: AREA01 runtime and revisit
+- Receipts: `build/frontier/r13` (later code; i25 removed). Quick tests: AREA01 runtime and revisit
   runtime references.
 
 **2026-10-28, iteration 23: the AREA00 arrival is exact on all 4,017 rows,
@@ -213,7 +214,7 @@ a00_10 frame 15254, where the owner 008266A0's node 007B9380 fails at
   `build/fork_refs/probes_1028_e007`: 691 pairs, the last 2 after the feed
   loop's end, a 133-vblank stall, gate 686, end 1510; the replayed beat
   equal to the recording on all 1,095 rows).
-- Receipts: the iteration-24 run `build/frontier/i25` (the same code plus
+- Receipts: the iteration-29 run `build/frontier/r13` (the same code plus
   iteration 24's; i24 removed).
 
 **2026-10-28, iteration 22 (`revisit` merged, a fast-forward: R1's single
