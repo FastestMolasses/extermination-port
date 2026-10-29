@@ -1031,6 +1031,15 @@ typedef const uint8_t *(*EmGfxGsRead)(void *ctx, uint32_t address, uint32_t size
  * 0, or -1 (no memory, or a backend without it). */
 int em_gfx_gs_world_enable(EmGfx *gfx, int on, EmGfxGsRead read, void *read_ctx);
 int em_gfx_gs_world_enabled(EmGfx *gfx);
+/* The headless raster skip (docs/PERFORMANCE.md P18; em_gs_world.h
+ * em_gs_world_create_raster): raster 0, set before the GS frame is first
+ * enabled, makes the model record and parse every frame without drawing
+ * it; a picture read (em_gfx_gs_surface_read, em_gfx_shadow_target_read,
+ * em_gfx_gs_field_read) or a capture of a GS frame then fail-stops. A
+ * backend starts with the raster on; the game's main() sets the switch
+ * (em_gs_world_raster_wanted). 0, or -1 (the model exists with the other
+ * setting). */
+int em_gfx_gs_world_raster(EmGfx *gfx, int raster);
 /* Install the GS memory image of the boot's library upload (the EMGM file
  * of tools/export_gs_memory.py: module 0x1B, which the port's boot does not
  * load) once. 0, or -1 (reported). */

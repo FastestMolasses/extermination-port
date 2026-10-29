@@ -15,6 +15,7 @@
 #else
 #define GSW_THREADS 0
 #endif
+extern char **environ;   /* (em_gs_world_raster_wanted) */
 #if defined(__APPLE__)
 #include <pthread/qos.h>
 #include <sys/sysctl.h>
@@ -169,6 +170,10 @@ struct EmGsWorld {
     gsw_au live;                     /* running, read without the lock (early_parse) */
     /* Parse once (docs/PERFORMANCE.md M4; the Worker comment) */
     int parse_once;                  /* the frame is parsed once (else worker 0 runs it) */
+    /* The headless raster skip (em_gs_world_create_raster(0); docs/
+     * PERFORMANCE.md P18): the frame is recorded and parsed as always (every
+     * check of the recorder and of the parser runs), and no span is drawn. */
+    int no_raster;
     uint32_t bands_per_worker;       /* EM_GS_BANDS */
     EmGs parser;                     /* the parsing model (EmGs.list): registers, span, CLUT */
     Job *parsing;                    /* the job the parser takes (own_drain) */
@@ -601,6 +606,10 @@ static int own_drain(void *ctx)
         em_gs_list_prior(p->list, NULL, NULL, NULL);
     }
 #endif
+    if (w->no_raster) {
+        AU_STORE(p->predrawn, k + 1u);  /* (the raster skip draws no span) */
+        return 1;
+    }
     Worker *d = &w->worker[0];
     const uint32_t from = AU_LOAD(p->predrawn);
     const uint64_t px0 = d->gs.drawn_pixels;
@@ -959,9 +968,27 @@ static void run_tasks(Worker *k)
     k->cpu_ns = cpu_now_ns() - c0;
 }
 
+/* The raster skip's one worker: the frame's parse, quiet (no other worker
+ * waits for its spans), and no band; em_gs_world_wait reads the parse's
+ * outcome as ever. */
+static void run_parse_only(Worker *k)
+{
+    EmGsWorld *w = k->w;
+    const double c0 = cpu_now_ns();
+    k->failed = 0;
+    if (!AU_LOAD(w->run->p.done)) {
+        w->run->p.quiet = 1;
+        parse_ops(w, w->run, 0);
+        w->run->p.quiet = 0;
+    }
+    k->cpu_ns = cpu_now_ns() - c0;
+}
+
 static void run_frame(Worker *k)
 {
-    if (k->w->parse_once)
+    if (k->w->no_raster)
+        run_parse_only(k);
+    else if (k->w->parse_once)
         run_tasks(k);
     else
         run_direct(k);
@@ -1040,7 +1067,9 @@ static uint32_t worker_count(void)
 #endif
 }
 
-EmGsWorld *em_gs_world_create(void)
+EmGsWorld *em_gs_world_create(void) { return em_gs_world_create_raster(1); }
+
+EmGsWorld *em_gs_world_create_raster(int raster)
 {
     EmGsWorld *w = calloc(1, sizeof *w);
     if (!w) return NULL;
@@ -1052,7 +1081,10 @@ EmGsWorld *em_gs_world_create(void)
         free(w);
         return NULL;
     }
-    w->workers = worker_count();
+    w->no_raster = !raster;
+    /* (the raster skip: one worker thread, which parses the frame while the
+     * game builds the next one, as the drawing workers do) */
+    w->workers = w->no_raster ? 1u : worker_count();
     const char *tc = getenv("EM_GS_TEX_COUNTERS");
     if (tc && tc[0]) {
         w->tc_file = fopen(tc, "w");
@@ -1117,13 +1149,13 @@ EmGsWorld *em_gs_world_create(void)
      * early parse runs at every kick, also with no frame being drawn, and
      * parses at most n ops before the workers go on */
     const char *ear = getenv("EM_GS_EARLY_PARSE");
-    w->early = !(ear && ear[0] == '0');
+    w->early = !(ear && ear[0] == '0') && !w->no_raster;
     const char *eops = getenv("EM_GS_EARLY_OPS");
     if (eops && *eops) {
         const long n = strtol(eops, NULL, 10);
         w->early_max = n > 0 ? (size_t)n : 0;
     }
-    if (w->workers > 1 || (lst && lst[0] == '1')) {
+    if (w->workers > 1 || (lst && lst[0] == '1') || w->no_raster) {
         int ok = 1;
         for (int i = 0; i < 2; ++i) {
             w->job[i].p.list = em_gs_list_create();
@@ -1147,10 +1179,14 @@ EmGsWorld *em_gs_world_create(void)
                 w->job[i].p.seg = NULL;
             }
             w->workers = 1;
+            if (w->no_raster) {        /* (no parser: the skip cannot run) */
+                em_gs_world_destroy(w);
+                return NULL;
+            }
         }
     }
 #if GSW_THREADS
-    if (w->workers > 1) {
+    if (w->workers > 1 || w->no_raster) {
         pthread_mutex_init(&w->lock, NULL);
         pthread_cond_init(&w->go, NULL);
         pthread_cond_init(&w->done, NULL);
@@ -1239,6 +1275,28 @@ void em_gs_world_destroy(EmGsWorld *w)
 }
 
 uint32_t em_gs_world_workers(const EmGsWorld *w) { return w ? w->workers : 0; }
+int em_gs_world_raster(const EmGsWorld *w) { return w && !w->no_raster; }
+
+int em_gs_world_raster_wanted(int headless)
+{
+    const char *forced = getenv("EM_HEADLESS_RASTER");
+    if (forced && forced[0]) return forced[0] != '0';
+    if (!headless) return 1;
+    static const char *const picture[] = {"CAPTURE", "PRESENT", "_PX", "DUMP", "DIGEST", "_FB", "GS_", "PIXEL"};
+    for (char **e = environ; e && *e; ++e) {
+        const char *v = *e;
+        if (strncmp(v, "EM_", 3) != 0) continue;
+        const char *eq = strchr(v, '=');
+        const size_t n = eq ? (size_t)(eq - v) : strlen(v);
+        char name[128];
+        if (n >= sizeof name) return 1;
+        memcpy(name, v, n);
+        name[n] = 0;
+        for (size_t i = 0; i < sizeof picture / sizeof picture[0]; ++i)
+            if (strstr(name, picture[i])) return 1;
+    }
+    return 0;
+}
 
 const char *em_gs_world_fault(const EmGsWorld *w) { return w && w->fault[0] ? w->fault : NULL; }
 

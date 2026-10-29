@@ -1610,6 +1610,24 @@ glyphs, the letterbox bars, the screen fade, the status overlay) is drawn
 by the GPU over the presented field, moved with the placed picture; it is
 not part of the GS frame (its draws are not GS packets in the port).
 
+**The headless raster skip** (2026-10-29, PERFORMANCE.md P18; a developer
+switch, LAUNCHER_OPTIONS.md). A headless run that checks and captures no
+picture (no `EM_*` variable naming CAPTURE, PRESENT, _PX, DUMP, DIGEST,
+_FB, GS_ or PIXEL; `EM_HEADLESS_RASTER=1` draws, `=0` skips) creates the
+model with `em_gs_world_create_raster(0)`: every world and list frame is
+recorded and parsed exactly as above (the recorder's residency and order
+checks, the parser's refusals, span faults and malformed packets latch the
+same faults), one worker thread parses while the game builds the next
+frame, and no span is drawn. Uploads and GIF frames (the status pages)
+still write local memory. Nothing the game reads comes from the raster:
+it reads the GS frame's fault, its recording state and whether it is
+enabled. Under the skip a picture read (`em_gfx_gs_surface_read`,
+`em_gfx_shadow_target_read`, `em_gfx_gs_field_read`) or a capture of a GS
+frame fail-stops, and the presenter's check that a frame drawing nothing
+still shows its buffer's picture is not made (no picture to compare).
+Every pixel test (the status pages, fb2, presentation, the video compare)
+sets one of those variables and draws.
+
 **Backends.** Only the Metal backend presents the field
 (`em_gfx_gs_world_enable`); the d3d12 and Vulkan backends refuse it, so on
 them the game does not start in the Original profile (the default) unless

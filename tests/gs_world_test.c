@@ -1311,6 +1311,92 @@ static void gif_frames(void)
     em_gs_world_destroy(w);
 }
 
+/* The headless raster skip (em_gs_world_create_raster(0), docs/
+ * PERFORMANCE.md P18): run()'s frames recorded, kicked and waited for in a
+ * world that draws (2 workers) and in one that skips the raster. The skip
+ * hands over the same fields (buffer, height, draw offset), counts the same
+ * parsed primitives, draws no pixel (local memory stays the loaded image's)
+ * and runs one worker thread; a frame the parser refuses (PRIM type 7)
+ * faults alike in both; and the switch (em_gs_world_raster_wanted) draws in
+ * a windowed run, skips in a headless one, draws again for a picture
+ * variable or EM_HEADLESS_RASTER=1 and skips for EM_HEADLESS_RASTER=0. */
+static unsigned g_skip_prims;
+static void raster_skip(void)
+{
+    static uint8_t loaded[EM_GS_MEM_BYTES];
+    uint64_t meta[2][3][3];
+    uint64_t prims[2][3];
+    for (int skip = 0; skip < 2; ++skip) {
+        setenv("EM_GS_THREADS", "2", 1);
+        EmGsWorld *w = skip ? em_gs_world_create_raster(0) : em_gs_world_create();
+        CHECK(w && em_gs_world_raster(w) == !skip && em_gs_world_workers(w) == (skip ? 1u : 2u));
+        CHECK(em_gs_world_memory_load(w, image_path) == 0);
+        if (skip) memcpy(loaded, em_gs_world_memory(w), sizeof loaded);
+        uint8_t env[512], clr[512];
+        size_t env_n, clr_n;
+        for (unsigned f = 0; f < 3; ++f) {
+            if (f < 2) {
+                record_world(w, 11u + f, f ? 0x38 : 0, f == 0);
+                head(env, &env_n, clr, &clr_n, f ? 0x38 : 0, (int)f);
+                CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+                CHECK(em_gs_world_wait(w) == 0);
+            } else {
+                static Result lr;
+                list_frame(w, &lr);
+            }
+            uint32_t fw = 0, fh = 0;
+            uint64_t frame = 0;
+            CHECK(em_gs_world_field(w, &fw, &fh, &frame));
+            meta[skip][f][0] = frame;
+            meta[skip][f][1] = (uint64_t)fw << 32 | fh;
+            meta[skip][f][2] = em_gs_world_field_xyoffset_known(w) ? em_gs_world_field_xyoffset(w) : ~0ull;
+            EmGsWorldStats st;
+            em_gs_world_stats(w, &st);
+            prims[skip][f] = st.prims;
+            CHECK(skip ? st.pixels == 0 : st.pixels > 0);
+        }
+        if (skip) CHECK(memcmp(em_gs_world_memory(w), loaded, sizeof loaded) == 0);
+        em_gs_world_destroy(w);
+    }
+    CHECK(memcmp(meta[0], meta[1], sizeof meta[0]) == 0);
+    CHECK(memcmp(prims[0], prims[1], sizeof prims[0]) == 0 && prims[0][0] > 0);
+    g_skip_prims = (unsigned)(prims[0][0] + prims[0][1] + prims[0][2]);
+    /* a parser refusal faults alike */
+    char why[2][192];
+    for (int skip = 0; skip < 2; ++skip) {
+        setenv("EM_GS_THREADS", "2", 1);
+        EmGsWorld *w = skip ? em_gs_world_create_raster(0) : em_gs_world_create();
+        CHECK(w && em_gs_world_memory_load(w, image_path) == 0);
+        uint8_t env[512], clr[512];
+        size_t env_n, clr_n;
+        em_gs_world_begin(w);
+        em_gs_world_write(w, EM_GS_PRIM, 7);
+        em_gs_world_write(w, EM_GS_XYZ2, (1800 * 16) | (uint64_t)(1940 * 16) << 16);
+        head(env, &env_n, clr, &clr_n, 0, 0);
+        CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+        CHECK(em_gs_world_wait(w) < 0 && em_gs_world_fault(w));
+        snprintf(why[skip], sizeof why[skip], "%s", em_gs_world_fault(w));
+        em_gs_world_destroy(w);
+    }
+    CHECK(strcmp(why[0], why[1]) == 0 && strstr(why[0], "PRIM type 7"));
+    /* the switch */
+    unsetenv("EM_GS_THREADS");
+    unsetenv("EM_HEADLESS_RASTER");
+    CHECK(em_gs_world_raster_wanted(0) == 1);
+    CHECK(em_gs_world_raster_wanted(1) == 0);
+    setenv("EM_PRESENT_LOG", "x", 1);
+    CHECK(em_gs_world_raster_wanted(1) == 1);
+    unsetenv("EM_PRESENT_LOG");
+    setenv("EM_LEVEL_SMOKE_PAGES_CAPTURE", "x", 1);
+    CHECK(em_gs_world_raster_wanted(1) == 1);
+    unsetenv("EM_LEVEL_SMOKE_PAGES_CAPTURE");
+    setenv("EM_HEADLESS_RASTER", "1", 1);
+    CHECK(em_gs_world_raster_wanted(1) == 1);
+    setenv("EM_HEADLESS_RASTER", "0", 1);
+    CHECK(em_gs_world_raster_wanted(0) == 0);
+    unsetenv("EM_HEADLESS_RASTER");
+}
+
 int main(void)
 {
     (void)system("mkdir -p build/gs_world_test");
@@ -1522,6 +1608,10 @@ int main(void)
     z_reach();
     head_probe();
     gif_frames();
+    raster_skip();
+    printf("gs_world_test: the raster skip: three frames handed over as drawn (the same fields, draw offsets "
+           "and %u parsed primitives), no pixel drawn, one worker; a parser refusal alike; the switch's seven "
+           "cases\n", g_skip_prims);
     printf("gs_world_test: PASS (GIF frames: a transfer and its texture in the stream, the field of one EmGs "
            "(%u pixels drawn), the same fields and memory with 1, 2, 3 and 8 workers, 2 refusals; "
            "1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "

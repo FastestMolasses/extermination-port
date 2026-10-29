@@ -37,6 +37,7 @@
 #include "game/em_status_gs_page.h"
 #include "game/em_background_live.h"
 #include "game/em_display_env_live.h"
+#include "gs/em_gs_world.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -358,6 +359,10 @@ int main(void)
         em_window_destroy(win);
         return 1;
     }
+    /* The headless raster skip (docs/PERFORMANCE.md P18): a headless run
+     * that checks and captures no picture records and parses its GS frames
+     * without drawing them (EM_HEADLESS_RASTER=1 draws, =0 skips). */
+    (void)em_gfx_gs_world_raster(gfx, em_gs_world_raster_wanted(em_headless()));
 
     /* Audio tests: EM_AUDIO_TEST=1 opens the output device with the sine
      * callback above; EM_AUDIO_TEST=2 streams the PCM16 WAV named by
