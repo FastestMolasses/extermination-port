@@ -151,8 +151,15 @@ Discovery ahead (2026-10-29, `EM_START_AT=a02_0N` with the beat's
 recorded pad and path; not row-exact, positions drift from the recording):
 a02_01 and a02_02 run to the pad's end without a fault after the sub-0
 data above; a02_03 ran 600+ of its 830 frames in a 2,400 s limit without a
-fault (about 0.25 frames/s: the actor walk's emulated creature poses and
-the software GS raster dominate a sample). a02_s0 (sub 1, from `area02`)
+fault. That 0.25 frames/s is the pad script's clock, not the engine's
+(P1 lane, 2026-10-29, PERFORMANCE.md P18): the engine ran about 58 frames/s
+headless there (81 since P18). The native player follows the recorded
+path to about its row 130, (193.4, 4.9), where the recording stands still
+until row ~300; from engine frame ~4,100 it stands at (196.3, 0.06, 0.9),
+4.2 units off the path, and does not move again. EM_START_AT_PATH's clock
+holds each pad frame up to 300 engine frames while the player is more than
+2.5 units from the recorded position, so the script then advances one pad
+frame per ~300 engine frames. The divergence itself is not yet located. a02_s0 (sub 1, from `area02`)
 fail-stops at 00184BA0 on the owner 0015AFA0 (node 0x7A5640) near pad
 frame 300+: the Use scan itself or its winner claim refused (not yet
 diagnosed). a02_04 and a02_05 have not been run.
