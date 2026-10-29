@@ -102,7 +102,7 @@ CODE_END = 0x230000
 # Translated routines (address -> size in bytes, from the census).
 FUNCS = {
     0x1575E0: 0xF4, 0x157B30: 0x1B0, 0x157F30: 0x2C, 0x158050: 0x64, 0x1582E0: 0x150, 0x158EC0: 0x348,
-    0x159620: 0x348, 0x159970: 0x214, 0x159E70: 0x144, 0x183C40: 0x2A4, 0x1B18F0: 0x238, 0x1BC960: 0x81C,
+    0x159210: 0x408, 0x159620: 0x348, 0x159970: 0x214, 0x159E70: 0x144, 0x183C40: 0x2A4, 0x1B18F0: 0x238, 0x1BC960: 0x81C,
     0x1BD560: 0x490, 0x1BDFC0: 0x630, 0x1C48C0: 0x9C, 0x1C4960: 0x98, 0x1C4AF0: 0xAC, 0x1C4CB0: 0x2F0,
     0x1C7EB0: 0x28C, 0x1C8140: 0x7C, 0x1CAE40: 0x114, 0x1CAF60: 0x8, 0x1CB4F0: 0x90, 0x1CB580: 0x8,
 }
@@ -136,7 +136,7 @@ INDIRECT = {0x1CAA00, 0x1CAF60}
 # (void), 'i' (int32).
 ENTRIES = {
     0x1575E0: ('p', 'i'), 0x157B30: ('pp', 'i'), 0x157F30: ('p', 'i'), 0x158050: ('p', 'i'), 0x1582E0: ('p', None),
-    0x158EC0: ('p', None), 0x159620: ('p', None), 0x159970: ('p', None), 0x159E70: ('p', None),
+    0x158EC0: ('p', None), 0x159210: ('p', None), 0x159620: ('p', None), 0x159970: ('p', None), 0x159E70: ('p', None),
     0x183C40: ('pp', None), 0x1B18F0: ('ppp', 'i'), 0x1BC960: ('p', None), 0x1BD560: ('p', None),
     0x1BDFC0: ('p', None), 0x1C48C0: ('p', None), 0x1C4960: ('p', None), 0x1C4AF0: ('p', None),
     0x1C4CB0: ('p', None), 0x1C7EB0: ('p', None), 0x1C8140: ('ppp', None), 0x1CAE40: ('pp', None),
@@ -852,6 +852,7 @@ def sw(node, st, sub=None):
 # end-of-beat images, docs/FOURTH_LEVEL_ROUTE.md section 1.1).
 BED, R1, R2 = 0x7A5F10, 0x7A6200, 0x7A64F0                    # 'bed': 00159620, 001C4AF0, 00159970
 LOCK, PANEL, EMIT2 = 0x7AD780, 0x7AE050, 0x7AEF00             # 'a00': 001582E0, 00158EC0, 001C4CB0
+PANEL24 = 0x7A6AD0                                             # 'r03', 'bed': 00159210 (+3 0x2C)
 G4960 = (0x7B23E0, 0x7B26D0, 0x7B29C0)                        # 'a00': 001C4960
 KEYED, PLAIN = 0x7B3290, 0x7B4140                             # 'a05': 001BD560 (+3 0x0B, 0x0D)
 DOOR_A, DOOR_B = 0x7B3870, 0x7B3B60                           # 'a05': 001BC960 (+3 0, 1)
@@ -1004,6 +1005,40 @@ def cases_158EC0(rng):
     for st in (2, 3, 4, 0xFF):
         out.append(case(f'158EC0 st {st:x}', 0x158EC0, [node], beat='a00', writes=sw(node, st), pin=True))
     out.append(case('158EC0 captured a04', 0x158EC0, [node], beat='a04', pin=True))
+    return out
+
+
+def cases_159210(rng):
+    out = []
+    node = PANEL24
+    # state 0
+    for r0 in (0, 1, UPPER):
+        for bitset in (0, 1):
+            for t in (0x2C, 0x24, 0x25, 0x15):
+                if r0 and (bitset or t != 0x2C):
+                    continue
+                if bitset and t not in (0x24, 0x2C):
+                    continue
+                w = sw(node, 0) + mask_writes(2, bitset, 5) + [W16(node + 0x2E, 5), W8(node + 3, t),
+                                                                 W32(node + 0x20, 0x5A5A5A5A),
+                                                                 W8(node + 0x0A, 0x77)]
+                out.append(case(f'159210 st0 r {r0:#x} set {bitset} t {t:x}', 0x159210, [node], beat='r03',
+                                writes=w, script={0x1B0FD0: [r0], 0x1C5570: [0x7B1234 if t != 0x15 else -5]},
+                                pin=t in (0x2C, 0x24)))
+    # state 1
+    for sub in range(9):
+        for r in (R_USE if sub == 0 else (0, 1, UPPER)):
+            for a in ((0, 1) if sub in (1, 6) else (0,)):
+                for t in ((0x2C, 0x24) if sub in (1, 2, 6) else (0x2C,)):
+                    for h in ((0, SCR + 0x200) if sub == 2 and t != 0x2C else (0,)):
+                        w = sw(node, 1, sub) + [W8(node + 0x0A, a), W8(node + 3, t), W32(node + 0x20, h),
+                                                W8(SCR + 0x204, 0x77)]
+                        script = {0x157860: [r]} if sub == 0 else {0x1BA1F0: [r]}
+                        out.append(case(f'159210 st1 sub {sub} r {r:#x} a {a} t {t:x} h {h:x}', 0x159210, [node],
+                                        beat='r03', writes=w, script=script, pin=r in (0, 1, 2, 3) and sub < 8))
+    for st in (2, 3, 4, 0xFF):
+        out.append(case(f'159210 st {st:x}', 0x159210, [node], beat='r03', writes=sw(node, st), pin=True))
+    out.append(case('159210 captured bed', 0x159210, [node], beat='bed', pin=True))
     return out
 
 
@@ -1463,7 +1498,7 @@ def cases_1CB580(rng):
                  writes=[W32(node + 0x44, 0x7A5000 + i)]) for i, node in enumerate((BED, R1, R2))]
 
 
-MAKERS = (cases_1575E0, cases_157B30, cases_157F30, cases_158050, cases_1582E0, cases_158EC0, cases_159620,
+MAKERS = (cases_1575E0, cases_157B30, cases_157F30, cases_158050, cases_1582E0, cases_158EC0, cases_159210, cases_159620,
           cases_159970, cases_159E70, cases_183C40, cases_1B18F0, cases_1BC960, cases_1BDFC0, cases_1BD560,
           cases_1C48C0, cases_1C4960, cases_1C4AF0, cases_1C4CB0, cases_1C7EB0, cases_1C8140, cases_1CAE40,
           cases_1CAF60, cases_1CB4F0, cases_1CB580)
@@ -1500,7 +1535,7 @@ def all_cases():
 # every variant of every case).
 VPIN = frozenset((
     '1575E0 node 0', '157B30 b 5 c84 1 f 0', '157F30 alias', '158050 overlap', '1582E0 st1 h 100 k 3 842 40',
-    '158EC0 st1 sub 2 r 0x1 a 0 h 1e00200', '159620 st1 use 2', '159970 st1 sub 0 r 0x3', '159E70 st1 idx 29 cnt 1 k 9',
+    '158EC0 st1 sub 2 r 0x1 a 0 h 1e00200', '159210 st1 sub 2 r 0x1 a 0 t 24 h 1e00200', '159620 st1 use 2', '159970 st1 sub 0 r 0x3', '159E70 st1 idx 29 cnt 1 k 9',
     '183C40 overlap 16 b4', '1B18F0 0 [0, 0, 1]', '1BC960 captured 0', '1BDFC0 captured 0', '1BD560 captured 0',
     '1C4960 0 st 0 r 0x0 d 80', '1C4CB0 t3 2 r 0x0 761 1 h 0', '1C7EB0 st1 pose overlap 0', '1C8140 0x1e04000 12345',
     '1CAE40 bed p44 1e02000 r 0x1', '1CB4F0 0x12345678 7a5f10',

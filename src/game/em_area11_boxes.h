@@ -225,6 +225,10 @@ int em_area11_boxes_owner_draw(EmActor *actor);
 /* A bound world owner's +0x44 (the model's original address) and +0x4C,
  * for the tick log: 1, or 0 when `actor` is not a bound world owner. */
 int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t *method);
+/* 001CA5E0(owner, handle, kind) on a bound world owner (+0x44 and +0x4C,
+ * which the record projection keeps read-only). 0, or -1 (not bound, or the
+ * handle is no model of the world bank or the library). */
+int em_area11_boxes_owner_001CA5E0(EmActor *actor, uint32_t handle, uint32_t kind);
 /* Nonallocating record projection for byte-addressed owner callers: +0x40,
  * +0x44 and +0x4C of this generation's already bound world/library owner.
  * The returned words are observations of the canonical view, not writable

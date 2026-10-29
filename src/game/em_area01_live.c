@@ -988,6 +988,19 @@ static int worker(void *ctx,EmArea01Call *c)
             c->v0=0;return rc<0 ? -1 : 0;
         }
     }
+    if(c->function==0x001CA5E0u && c->na>=3) {
+        /* 001CA5E0 on a typed shared owner (AREA02's 001C4AF0 re-installs
+         * the owner's model with kind 1): +0x44 and +0x4C are the owner's
+         * canonical view, read-only in the record view, so the store is the
+         * boxes' 001CA5E0 over it, with the views published around it. */
+        EmActor *a=actor(l,c->a[0]);
+        if(a && em_area11_boxes_owner_view(a)) {
+            if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
+            int rc=em_area11_boxes_owner_001CA5E0(a,c->a[1],c->a[2]);
+            if(em_area01_live_resume(l)<0)return -1;
+            c->v0=0;return rc<0 ? -1 : 0;
+        }
+    }
     if(model_function(c->function)) {
         /* Model worker brackets actor views itself; the player and camera
          * must also publish before its native head/shadow callbacks. */

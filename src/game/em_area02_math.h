@@ -25,6 +25,7 @@
  *   001582E0  node behaviour: a room-mask bit and a one-shot sound
  *             (NEARMISS C)
  *   00158EC0  node behaviour with a use sub-machine (byte-matched C)
+ *   00159210  node behaviour, the type 0x24/0x25/0x2C panel (byte-matched C)
  *   00159620  node behaviour with a use sub-machine, 00157B30 (byte-matched C)
  *   00159970  node behaviour with a use sub-machine (NEARMISS C)
  *   00159E70  node behaviour: an item-count flag sets a room-mask bit
@@ -148,6 +149,7 @@ int em_area02_math_00157F30(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_00158050(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_001582E0(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00158EC0(EmArea02Math *s, uint32_t a0);
+int em_area02_math_00159210(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00159620(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00159970(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00159E70(EmArea02Math *s, uint32_t a0);
