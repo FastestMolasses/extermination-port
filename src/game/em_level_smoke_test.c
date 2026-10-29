@@ -480,8 +480,23 @@ static const Phase k_phases[] = {
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
     /* AREA02 (FOURTH_LEVEL_ROUTE.md section 5): pads from the same
      * EM_LEVEL4_PAD_DIR (tools/test_level_smoke_area01r.py --prepare). */
+    {"a02_s0", "a02_s0_mts_bed (side, from a01r_03_door16)", 0,
+     "AREA02 side route: the bed's use-item prompt and the cure", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
     {"a02_00", "a02_00_duct", 0,
      "AREA02 recorded pad route: the duct and the sub change to sub 0", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a02_01", "a02_01_switch", 0,
+     "AREA02 recorded pad route: the switch [31]", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a02_02", "a02_02_ladder_escape", 0,
+     "AREA02 recorded pad route: the ladder while the car runs", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a02_03", "a02_03_over_wreck", 0,
+     "AREA02 recorded pad route: over the wreck", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a02_04", "a02_04_panel", 0,
+     "AREA02 recorded pad route: the battery panel [24]", "LEVEL3_BINDING.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };

@@ -25,12 +25,15 @@ ROUTE_DIR = refs.capture('s87/route_a01r')
 # the same EM_LEVEL4_PAD_DIR); their recordings are route_a02's.
 A02_ROUTE_DIR = refs.capture('s87/route_a02')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
-              'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct'}
-SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked'}
+              'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
+              'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel'}
+SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed'}
 # em_level_smoke_test.c's phase order: each side right after its source.
-ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_03', 'a02_00')
+ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_03', 'a02_s0', 'a02_00', 'a02_01',
+                'a02_02', 'a02_03', 'a02_04')
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
-           'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a02_00': 'a01r_03'}
+           'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a02_00': 'a01r_03', 'a02_s0': 'a01r_03',
+           'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -56,7 +59,7 @@ def owners_of(phase):
 
 
 # The fork recorder's input corrections (trace metadata v263_pad_corrections).
-PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)]}
+PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)], 'a02_02': [('late', 0, 2)]}
 
 
 def capture_path(phase):

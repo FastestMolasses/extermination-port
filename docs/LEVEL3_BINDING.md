@@ -14,6 +14,28 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-29, stop for review (after iteration 31): a02_s0 and
+a02_01..a02_04 are revisit-harness phases now. The C rows, the sources
+and a02_02's recorded late-input correction are in place, the drive
+tables are recorded on the fork (`build/drive_replay/route_a02_rest_20261029`,
+0 replay differences), and the contract passes. Two runs reached two
+stops; neither is fixed:**
+
+- **a02_01:** rows 0..484 are exact; the run stops at the switch [31]'s
+  Use (row 485).
+  - The failure: owner 00128C10 node 0x7A5640, at 00184BA0; the
+    interaction view could not read 0x00275480.
+  - The likely cause: export_effect_tables (R1's f4e2b28) serves
+    D_00275478 and D_00275488 as two windows. 00183EF0 reads three floats
+    at D_00275480, so that read crosses the boundary between them.
+  - The candidate fix is one window D_00275458..D_00275490. It is saved,
+    not run, in `../Extermination/build/agentkit/port/F2_wip.diff`.
+- **a02_s0** (the bed, from a01r_03): rows 0..378 are exact.
+  - The failure: owner 00159620 node 0x7A5F10, at 00247F34 (a runtime
+    read).
+  - This is the bed interaction R1 is on.
+- a02_00 stays exact (1,259 / 1,259 aligned rows in the same run).
+
 **2026-10-29, iteration 31 (revisit 51eec5b merged: R1's AREA02 host):
 from New Game the revisit harness plays through a02_00, and the whole-run
 checker (test_level_smoke.py) passes for the first time: "level smoke:
