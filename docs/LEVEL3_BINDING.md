@@ -14,6 +14,37 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-29, iteration 29 (port main 897188c merged): every camera-end
+observation of AREA00 and of a01r_00..a01r_02 equals the beats' saved
+RAM, and the revisit harness drives a01r_03 (door [16]): its rows 0..564
+are exact, up to the AREA02 area read, where the port stops: "001FF080(1,
+0): area 02 room 1 is not exported" (the port's area_read has no AREA02
+scene, world-texture catalog or shadow receivers yet; R1's AREA02 host
+lane).**
+
+- **The camera's w lanes.** The camblk check compared the eye / target w
+  words (camera +0x1C / +0x2C), which g.cam does not carry:
+  - 0018CBD0 (the retarget, byte-matched) stores 001026A0's whole
+    product at cam+0x10 (w 1.0) and copies the player's whole +0xA0
+    quadword to cam+0x20; `camera_script_seed_0018CBD0` now stores both w
+    lanes (a fork memwatch: a01r_01 row 8063's retarget writes +0x1C from
+    pc 001026C8, ra in 0018CBD0).
+  - 00182F90 (the script placement, byte-matched) runs its vsub / vadd on
+    all four lanes: the delta's w (target.w - +AC) reaches +AC, +BC and
+    0x70003B4C; `w_00182F90` now applies it, so the retarget after a
+    placement copies w 0 (the original's cam+0x2C at a01r_01's end).
+- **a01r_03 in the revisit harness:** the phase row (C) and its AREA02
+  boundary (state 0 of area 02 room 1, then the recording's 205 rows), the
+  return alignment generalised for the AREA02 destination
+  (`level_smoke_area00.RETURN_AREA`), the mock driver and the checker
+  contract (capture-shaped loader rows), and the drive replay table
+  recorded on the fork (`build/drive_replay/route_a01r_03_20261028`, 14
+  reads, 0 replay differences).
+- The checker fixtures give camblk all four blocks.
+- Checks: the three harness contracts (AREA00, AREA01, revisit),
+  area-script, script-host-workers, camera-live, first-control and
+  area-load references. Receipts: `build/frontier/r13`.
+
 **2026-10-28, iteration 28: the player record's +B0 is the original's
 (the hip after the stage, a placement's position after 001B07C0); with it
 the `lock_r54` class is gone and AREA00's arrival and a00_00..a00_04 are

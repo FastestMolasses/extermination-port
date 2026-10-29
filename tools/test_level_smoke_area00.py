@@ -153,7 +153,7 @@ def verify_checker():
             player=[row['p5'], row['m1F0'], row['m1F1'], row['clip'], bits(row['clock']), int(row['ground'], 16), row['b2F3']],
             pos_post=list(map(bits, row['pos'])), yaw_post=bits(row['yaw']), eye_post=list(map(bits, row['eye'])),
             tgt_post=list(map(bits, row['tgt'])), cam4=row['cam_mode'], screen8=row['screen'][:16], power=row['power'],
-            camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex()],
+            camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex(), bytes(48).hex()],
             a00=dict(hp=bits(row['hp']), progress=[row['d2'], row['story758'], row['taken'], row['docs']],
                      owners=owners, locks=row.get('locks'), wpn=row.get('wpn')))
 
@@ -171,7 +171,7 @@ def verify_checker():
             a00.compare_route_row(smoke, ticks, k, row, phase, owners=phase != 'a00_arrival')
         count += len(rows)
         ram = a00.capture_path(phase).with_name('eeMemory.bin').read_bytes()
-        ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in (a01.CAMERA_BLOCK, a01.CAMERA_FORWARD, a01.CAMERA_690)]
+        ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in a01.CAMERA_BLOCKS]
         a00.check_camera_end(ticks[-2], phase)
         gap = a00.source_gap(phase, capture)
         source_counter = rows[0]['counter'] - gap

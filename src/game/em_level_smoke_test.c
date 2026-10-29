@@ -469,6 +469,9 @@ static const Phase k_phases[] = {
     {"a01r_02", "a01r_02_bridge", 0,
      "AREA01 revisit recorded pad route", "AREA01_REVISIT.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01r_03", "a01r_03_door16", 0,
+     "AREA01 revisit recorded pad route and the AREA02 arrival", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -5379,18 +5382,23 @@ static int a01_route_frame(void)
         if(t.frames>s_a01_last_frame+120) {
             fail("AREA00 arrival state 0 did not follow the AREA01 exit");return 0;
         }
-    } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0")) {
+    } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0") ||
+              !strcmp(k_phases[t.current].name,"a01r_03")) {
         /* The return's only variable duration is its asynchronous loader.
          * The checker compares every gameplay row, every emitted loader
-         * row and the fixed suffix after AREA01 state 0 independently. */
+         * row and the fixed suffix after the destination's state 0
+         * independently (AREA01 for a00_10 / a00_s0; AREA02 sub 1 for
+         * a01r_03, door [16]: 205 rows after state 0). */
         const EmSceneState *s=em_scene_state();
-        const int after=!strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
-        if(s_a00_return_frame<0 && s->d810700==1 && s->d810701==0 && s->d810702==0 &&
+        const int to02=!strcmp(k_phases[t.current].name,"a01r_03");
+        const int after=to02 ? 205 : !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
+        if(s_a00_return_frame<0 &&
+           (to02 ? s->d810700==2 && s->d810701==1 : s->d810700==1 && s->d810701==0 && s->d810702==0) &&
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
             s_a00_return_frame=t.frames;
-            fprintf(stderr,"level smoke: %s: boundary counter=%u (AREA01 return state 0)\n",
-                    k_phases[t.current].name,em_frame_counter());
+            fprintf(stderr,"level smoke: %s: boundary counter=%u (%s state 0)\n",
+                    k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : "AREA01 return");
         }
         if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
             pad_apply(0,0,0);

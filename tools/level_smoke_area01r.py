@@ -17,10 +17,11 @@ import level_smoke_area01 as a01
 import reference_root as refs
 
 ROUTE_DIR = refs.capture('s87/route_a01r')
-MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge'}
+MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
+              'a01r_03': 'a01r_03_door16'}
 SIDE_BEATS = {}
 ROUTE_PHASES = tuple(MAIN_BEATS)
-SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01'}
+SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -216,12 +217,19 @@ def check_route(smoke, ticks, run, state, phase):
     capture = route_capture(phase)
     rows = capture['rows']
     start, counter = route_start(ticks, run, state, phase, capture)
-    end = start + len(rows) - 1
+    if phase in a00.RETURN_TICKS:
+        # door [16]'s AREA02 load: the gameplay rows, the loader's states (a
+        # host wait may be shorter) and the fixed rows after AREA02 state 0
+        pairs = a00.return_pairs(smoke, ticks, run, state, phase, start, rows)
+    else:
+        pairs = [(start + k, row) for k, row in enumerate(rows)]
+    end = pairs[-1][0]
     assert end + 1 < len(ticks), (phase, 'missing post-frame tail')
-    assert all(ticks[i]['counter'] == counter + i - start for i in range(start, end + 1)), \
-        (phase, 'skipped native main-loop tick')
-    for k, row in enumerate(rows):
-        compare_route_row(smoke, ticks, start + k, row, phase)
+    if phase not in a00.RETURN_TICKS:
+        assert all(ticks[i]['counter'] == counter + i - start for i in range(start, end + 1)), \
+            (phase, 'skipped native main-loop tick')
+    for i, row in pairs:
+        compare_route_row(smoke, ticks, i, row, phase)
     check_camera_end(ticks[end], phase)
     state['cursor'] = end + 1
     state.setdefault('a01r_ends', {})[phase] = ticks[end]['counter']

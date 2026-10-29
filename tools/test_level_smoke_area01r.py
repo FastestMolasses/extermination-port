@@ -54,7 +54,7 @@ typedef struct { int f; uint16_t buttons; uint8_t lx,ly; } AimStick;
 typedef struct { unsigned d810700,d810701,d810702; } EmSceneState;
 enum { EM_SCENE_TASK_08=8,EM_SCENE_TASK_09,EM_SCENE_TASK_0A,EM_SCENE_TASK_0B };
 static EmSceneState scene={1,0,0};
-static unsigned counter,buttons,failed;
+static unsigned counter,buttons,failed,arrived;
 static float lx,ly;
 static void pad_apply(unsigned b,float x,float y){buttons=b;lx=x;ly=y;}
 static void fail(const char *why){fprintf(stderr,"FAIL %s\n",why);failed=1;}
@@ -62,11 +62,12 @@ static unsigned em_frame_counter(void){return counter;}
 static void em_random_seed(uint32_t s){(void)s;}
 static void em_stream_live_drive_replay_anchor(const char *phase,unsigned c){(void)phase;(void)c;}
 static const EmSceneState *em_scene_state(void){return &scene;}
-static unsigned task_byte(unsigned off){(void)off;return 0;}
+static unsigned task_byte(unsigned off){return arrived ? (off==8?3:off==9?1:0):0;}
 '''.replace('PHASE_ROWS', ',\n'.join('{"%s",%s,%s}' % row for row in phases))
     suffix = r'''
 int main(int argc,char **argv){
-    if(argc!=3)return 2;
+    if(argc!=3 && argc!=4)return 2;
+    const int boundary=argc==4 ? atoi(argv[3]) : -1;
     unsigned n=sizeof k_phases/sizeof k_phases[0];
     for(t.until=0;t.until<(int)n && strcmp(k_phases[t.until].name,argv[2]);++t.until){}
     if(t.until==(int)n)return 2;
@@ -77,6 +78,8 @@ int main(int argc,char **argv){
     t.current=t.until;a01_route_begin();
     if(failed)return 1;
     for(counter=1;counter<21000;++counter){
+        /* a01r_03: AREA02 sub 1's state 0 at the recorded row (door [16]) */
+        if(boundary>=0 && t.frames+1==boundary){scene=(EmSceneState){2,1,1};arrived=1;}
         int done=a01_route_frame();
         printf("%u %u %a %a\n",counter,buttons,(double)lx,(double)ly);
         if(failed)return 1;
@@ -98,7 +101,12 @@ int main(int argc,char **argv){
         phase, capture = entry['phase'], a01r.route_capture(entry['phase'])
         path = subprocess.run([str(binary), 'path', phase], capture_output=True, text=True, check=True).stdout.splitlines()
         assert path == list(a01r.ROUTE_PHASES[:a01r.ROUTE_PHASES.index(phase) + 1]), (phase, 'C branch path', path)
-        result = subprocess.run([str(binary), 'drive', phase], env=env, capture_output=True, text=True, check=True)
+        boundary = -1
+        if phase in a00.RETURN_TICKS:
+            boundary = next(r['f'] for r in capture['rows'] if r['area4'] == a00.RETURN_AREA[phase] and
+                            bytes.fromhex(r['slots'])[8:12] == bytes((3, 1, 0, 0)))
+        result = subprocess.run([str(binary), 'drive', phase, str(boundary)], env=env, capture_output=True, text=True,
+                                check=True)
         actual = [(int(c), int(b), float.fromhex(x), float.fromhex(y)) for c, b, x, y in
                   (line.split() for line in result.stdout.splitlines())]
         frames, gap = entry['endpoint_row'], entry['gap']
@@ -159,7 +167,7 @@ def verify_checker():
             player=[row['p5'], row['m1F0'], row['m1F1'], row['clip'], bits(row['clock']), int(row['ground'], 16), row['b2F3']],
             pos_post=list(map(bits, row['pos'])), yaw_post=bits(row['yaw']), eye_post=list(map(bits, row['eye'])),
             tgt_post=list(map(bits, row['tgt'])), cam4=row['cam_mode'], screen8=row['screen'][:16], power=row['power'],
-            camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex()],
+            camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex(), bytes(48).hex()],
             a01r=dict(hp=bits(row['hp']), progress=[row['d2'], row['story758'], row['taken'], row['docs']],
                       owners=owners, locks=row['locks'], wpn=row['wpn'], s760=row['story760']))
 
@@ -170,15 +178,33 @@ def verify_checker():
         rows = capture['rows']
         ticks = [native_row(r) for r in rows] + [{}]
         for k, row in enumerate(rows):
-            ticks[k + 1].update(msg_pre=struct.unpack('<3I', bytes.fromhex(row['msg'])[:12]), fade8=row['fade'][:16])
+            loader = bytearray(27)
+            loader[1:5] = bytes.fromhex(row['slots'])[0x48:0x4C]
+            loader[25] = row['bd8']
+            ticks[k + 1].update(msg_pre=struct.unpack('<3I', bytes.fromhex(row['msg'])[:12]), fade8=row['fade'][:16],
+                                loader_pre=loader.hex())
         ram = a01r.capture_path(phase).with_name('eeMemory.bin').read_bytes()
-        ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in (a01.CAMERA_BLOCK, a01.CAMERA_FORWARD, a01.CAMERA_690)]
+        ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in a01.CAMERA_BLOCKS]
         gap = a01r.source_gap(phase, capture)
         source_counter = rows[0]['counter'] - gap
         aligned = [dict(counter=source_counter + k + 1) for k in range(gap - 1)] + ticks
         key = 'area00_ends' if a01r.SOURCES[phase] == 'a00_10' else 'a01r_ends'
         state = dict(cursor=0, **{key: {a01r.SOURCES[phase]: source_counter}})
         run = f'level smoke: {phase}: aligned counter={rows[0]["counter"]}\n'
+        if phase in a00.RETURN_TICKS:
+            # door [16]'s AREA02 load: the return alignment over the
+            # capture-shaped rows (the loader's instruction replay needs a
+            # native run: the --run check), then every row and the camera end
+            arrival = next(r['f'] for r in rows if r['area4'] == a00.RETURN_AREA[phase] and
+                           bytes.fromhex(r['slots'])[8:12] == bytes((3, 1, 0, 0)))
+            run += f'level smoke: {phase}: boundary counter={rows[arrival]["counter"]}\n'
+            pairs, waits, _, _, _ = a00.return_alignment(smoke, ticks, run, phase, 0, rows)
+            assert pairs == list(enumerate(rows)) and not waits, (phase, 'return alignment')
+            for k, row in enumerate(rows):
+                a01r.compare_route_row(smoke, ticks, k, row, phase)
+            a01r.check_camera_end(ticks[-2], phase)
+            count += len(rows)
+            continue
         with contextlib.redirect_stdout(io.StringIO()):
             a01r.check_route(smoke, aligned, run, state, phase)
         assert state['cursor'] == gap - 1 + len(rows) and state['a01r_ends'][phase] == rows[-1]['counter']
