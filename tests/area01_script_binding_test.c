@@ -17,14 +17,12 @@ static EmArea01Call call;
 static int reject;
 int em_area11_script_host_area(const EmAreaScriptHostArea *a) { area=*a;return 0; }
 uint8_t *em_area11_script_host_timeline_bytes(uint32_t a,uint32_t n) { (void)a;(void)n;return NULL; }
-/* D_0028A580, the player's bank word, from the Roger export (em_area11_roger). */
-int em_area11_roger_table_word(uint32_t a,uint32_t *v)
-{ if(a!=0x0028A580u || !v)return -1;*v=0x00D689C0u;return 0; }
 const uint8_t *em_module_loader_memory(const EmModuleLoader *l,uint32_t a,uint32_t n)
 { (void)l;return a>=0x823500u && a-0x823500u<=sizeof overlay && n<=sizeof overlay-(a-0x823500u) ? delivered+(a-0x823500u) : NULL; }
 uint8_t *em_module_loader_memory_mutable(EmModuleLoader *l,uint32_t a,uint32_t n)
 { return (uint8_t *)(void *)em_module_loader_memory(l,a,n); }
 EmStatusSceneLoader *em_module_loader_state(EmModuleLoader *l) { (void)l;return &loader_state; }
+int em_area11_roger_table_word(uint32_t a,uint32_t *v) { (void)a;(void)v;return -1; }
 const uint8_t *em_module_loader_memory_rest(const EmModuleLoader *l,uint32_t a,uint32_t *n)
 { (void)l;if(a<0x1300000u || a>=0x1300400u)return NULL;*n=0x1300400u-a;return banks+(a-0x1300000u); }
 static int map_bank(void *ctx,uint32_t a,uint32_t n,const uint8_t *p)

@@ -454,8 +454,8 @@ recording-derived and stay in the ignored `build/`.
   `EM_AIM_PAD_SCRIPT` and `EM_A01_ARRIVAL_TICKS`,
   `EM_AREA01_EXPLORE_SCRIPT` / `_PHASE`, `EM_CLIP_DEMO`,
   `EM_CONTROL_LOW_GAIT`, `EM_MOVE_LEGS`, `EM_MOVE_EXPECT` and the level
-  smoke's comparison-only `EM_RAND_REPLAY` (it replaces rand()'s state at
-  an area entry) (`fixture_set` in em_start_at.c); a card
+  smoke's rand() anchor `EM_RAND_REPLAY` (it re-seeds rand() at an area
+  entry) (`fixture_set` in em_start_at.c); a card
   that is not built (no `start.json`); a stale or changed card: a file
   `start.json` lists is missing, is not a regular file or does not have the
   SHA-256 it records, slot1 holds another file (names beginning with `.`,

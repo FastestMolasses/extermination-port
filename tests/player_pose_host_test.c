@@ -136,6 +136,7 @@ static void reset(void)
     assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
     assert(player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals));
     assert(player_pose_record_displayed());   /* the source is the record from the attach */
+    assert(player_pose_rebuild_default() == 0); /* the first stage's 0015C420 (em_player.c) */
     bind_release();
 }
 

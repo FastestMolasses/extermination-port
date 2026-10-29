@@ -328,7 +328,8 @@ static int check_card(const char *card)
  * prints the pad's changes): EM_STARTUP_TEST, the EM_*_TEST scripts of
  * em_game_selftest / em_opening_control_test, EM_NEW_GAME_STATE_TEST,
  * EM_AUDIO_TEST (main.c's audio modes); every EM_CAPTURE* (the capture
- * scripts, which inject input); and the names below. Every other EM_*
+ * scripts, which inject input); and the names below (EM_RAND_REPLAY
+ * re-seeds rand() at an area entry: the level smoke's comparison anchor). Every other EM_*
  * variable only observes (traces, dumps, counters, captures), changes the
  * host (EM_HEADLESS, EM_UNCAPPED, EM_MUTE, the disc-drive timing) or the
  * presentation (EM_HUD_*), or works only under a refused fixture
