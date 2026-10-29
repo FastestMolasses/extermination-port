@@ -334,7 +334,8 @@ WORKER = C.CFUNCTYPE(C.c_int, C.c_void_p, P(Call))
 
 class World(C.Structure):
     _fields_ = [('regions', P(Region)), ('region_count', C.c_uint), ('call', WORKER), ('ctx', C.c_void_p),
-                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32)]
+                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32),
+                ('view', C.c_void_p)]   # NULL: regions only
 
 
 TRACE_C = r"""/* Store trace for the native module (test build only): the 64-byte

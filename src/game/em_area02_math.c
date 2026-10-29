@@ -51,6 +51,11 @@ static uint8_t *span(Run *r, uint32_t address, uint32_t size)
         if (g->bytes && address >= g->base && size <= g->size && address - g->base <= g->size - size)
             return g->bytes + (address - g->base);
     }
+    if (s->view && size) {
+        uint8_t *p = s->view(s->ctx, address, size);
+        if (p)
+            return p;
+    }
     fault(r, EM_AREA02_MATH_FAULT_UNMAPPED, address);
     return NULL;
 }
@@ -1870,7 +1875,7 @@ static void f_1CB4F0(Run *r, uint32_t sp, uint32_t a0, uint32_t a1)
     run.entry = (fn);                                                                                                \
     if (setjmp(run.out))                                                                                             \
         return -1;                                                                                                   \
-    if (!s->regions)                                                                                                 \
+    if (!s->regions && !s->view)                                                                                     \
         fault(&run, EM_AREA02_MATH_FAULT_NULL, 0)
 
 static void put(int32_t *out, int32_t v)

@@ -9,6 +9,7 @@
 #include "game/em_script_door_fan.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_area02_misc.h"
+#include "game/em_area02_math.h"
 #include "game/em_ee_float.h"
 #include <string.h>
 
@@ -197,6 +198,79 @@ static int dispatch_overlay02(EmArea01Runtime *r, EmArea01Call *c)
     return rc;
 }
 
+/* em_area02_math's boot routines (docs/AREA02_MATH.md: the node
+ * behaviours, use tests, script callbacks and draw methods the revisit and
+ * AREA02 run), over this runtime's bytes; every callee re-enters the runtime.
+ * Dispatched for AREA02 only (area 2): AREA00 / AREA01 keep their existing
+ * live paths. Not 001C7EB0 / 001C8140 (the revisit's spawn module; the
+ * duplicate pair is to be merged). Returns 1
+ * when `function` is one of them (*rc set). */
+static uint8_t *math02_view(void *ctx, uint32_t address, uint32_t size)
+{
+    return bytes(ctx, address, size, 0);
+}
+static int math02_call(void *ctx, EmArea02MathCall *in)
+{
+    EmArea01Call c = {.function = in->fn, .sp = in->sp, .na = in->na, .nf = in->nf};
+    if (in->na > 4 || in->nf > 4) return fail(ctx, in->fn);
+    memcpy(c.a, in->a, sizeof in->a);
+    memcpy(c.f, in->f, sizeof in->f);
+    int rc = em_area01_runtime_call(ctx, &c);
+    if (rc == 0) { in->v0 = c.v0; in->f0 = c.f0; }
+    return rc;
+}
+static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
+{
+    static const struct { uint32_t fn; unsigned na; } entries[] = {
+        {0x001575E0u, 1}, {0x00157B30u, 2}, {0x00157F30u, 1}, {0x00158050u, 1}, {0x001582E0u, 1},
+        {0x00158EC0u, 1}, {0x00159620u, 1}, {0x00159970u, 1}, {0x00159E70u, 1}, {0x00183C40u, 2},
+        {0x001B18F0u, 3}, {0x001BC960u, 1}, {0x001BD560u, 1}, {0x001BDFC0u, 1}, {0x001C48C0u, 1},
+        {0x001C4960u, 1}, {0x001C4AF0u, 1}, {0x001C4CB0u, 1}, {0x001CAE40u, 2}, {0x001CAF60u, 1},
+        {0x001CB4F0u, 2}, {0x001CB580u, 1}};
+    unsigned na = 99;
+    for (unsigned i = 0; i < sizeof entries / sizeof entries[0]; ++i)
+        if (entries[i].fn == c->function) na = entries[i].na;
+    if (na == 99) return 0;
+    if (c->na < na || c->nf) { *rc = fail(r, c->function); return 1; }
+    EmArea02Math m;
+    memset(&m, 0, sizeof m);
+    m.call = math02_call;
+    m.ctx = r;
+    m.sp = c->sp;
+    m.view = math02_view;
+    const uint32_t a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1], a2 = (uint32_t)c->a[2];
+    int32_t out = 0;
+    int x;
+    switch (c->function) {
+    case 0x001575E0u: x = em_area02_math_001575E0(&m, a0, &out); break;
+    case 0x00157B30u: x = em_area02_math_00157B30(&m, a0, a1, &out); break;
+    case 0x00157F30u: x = em_area02_math_00157F30(&m, a0, &out); break;
+    case 0x00158050u: x = em_area02_math_00158050(&m, a0, &out); break;
+    case 0x001582E0u: x = em_area02_math_001582E0(&m, a0); break;
+    case 0x00158EC0u: x = em_area02_math_00158EC0(&m, a0); break;
+    case 0x00159620u: x = em_area02_math_00159620(&m, a0); break;
+    case 0x00159970u: x = em_area02_math_00159970(&m, a0); break;
+    case 0x00159E70u: x = em_area02_math_00159E70(&m, a0); break;
+    case 0x00183C40u: x = em_area02_math_00183C40(&m, a0, a1); break;
+    case 0x001B18F0u: x = em_area02_math_001B18F0(&m, a0, a1, a2, &out); break;
+    case 0x001BC960u: x = em_area02_math_001BC960(&m, a0); break;
+    case 0x001BD560u: x = em_area02_math_001BD560(&m, a0); break;
+    case 0x001BDFC0u: x = em_area02_math_001BDFC0(&m, a0); break;
+    case 0x001C48C0u: x = em_area02_math_001C48C0(&m, a0); break;
+    case 0x001C4960u: x = em_area02_math_001C4960(&m, a0); break;
+    case 0x001C4AF0u: x = em_area02_math_001C4AF0(&m, a0); break;
+    case 0x001C4CB0u: x = em_area02_math_001C4CB0(&m, a0); break;
+    case 0x001CAE40u: x = em_area02_math_001CAE40(&m, a0, a1); break;
+    case 0x001CAF60u: x = em_area02_math_001CAF60(&m, a0); break;
+    case 0x001CB4F0u: x = em_area02_math_001CB4F0(&m, a0, a1); break;
+    default:          x = em_area02_math_001CB580(&m, a0); break;
+    }
+    if (x < 0) { *rc = fail(r, m.fault_address ? m.fault_address : c->function); return 1; }
+    c->v0 = (uint64_t)(int64_t)out;
+    *rc = 0;
+    return 1;
+}
+
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
 {
     if (r->area == 0 && c->function >= 0x00823500u)
@@ -205,6 +279,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return dispatch_overlay02(r, c);
     int rc;
     if (dispatch_revisit(r, c, &rc))
+        return rc;
+    if (r->area == 2 && dispatch_math02(r, c, &rc))
         return rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;

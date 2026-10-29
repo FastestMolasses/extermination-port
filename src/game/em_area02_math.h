@@ -129,6 +129,10 @@ typedef struct {
     uint32_t fault_function; /* the entry that faulted */
     uint32_t fault_address;  /* UNMAPPED: the address; NULL worker / WORKER:
                                 the callee; NULL regions: 0 */
+    /* Optional: original memory outside every region, through a view (the
+     * shared AREA01/AREA02 runtime's bytes; called with ctx). NULL keeps the
+     * region-only contract; with it, NULL regions are allowed. */
+    uint8_t *(*view)(void *ctx, uint32_t address, uint32_t size);
 } EmArea02Math;
 
 void em_area02_math_clear_fault(EmArea02Math *s);
