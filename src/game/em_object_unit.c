@@ -113,11 +113,17 @@ int em_object_unit_gs_state_check_2(const uint8_t *p, const char **why)
                           "the GS state REF is not the class-2 set the chain page reproduces");
 }
 
+int em_object_unit_gs_state_check_21(const uint8_t *p, const char **why)
+{
+    return gs_state_check(p, why, 0x53001u, 1, 0x44ull,
+                          "the GS state REF is not the class-1 set the chain page reproduces");
+}
+
 void em_object_unit_gs_state(uint32_t gs_class, uint64_t *alpha, uint64_t *test, uint64_t *tex1, uint64_t *clamp,
                              uint64_t *colclamp)
 {
-    *alpha = gs_class == 2u ? 0x8000000068ull : 0x80000000A8ull;
-    *test = gs_class == 2u ? 0x53001u : 0x5000Du;
+    *alpha = gs_class == 2u ? 0x8000000068ull : gs_class == 1u ? 0x44ull : 0x80000000A8ull;
+    *test = gs_class != 0u ? 0x53001u : 0x5000Du;
     *tex1 = 0x60u;
     *clamp = 0u;
     *colclamp = 1u;
@@ -315,9 +321,13 @@ static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve re
      * not built: the address is what is checked here. */
     /* 001CABA0's units (001D3900 / 001D3CF0 on channel 3) REF set 2,
      * class 2 (D_00815A20) instead; they are object units only. */
-    const uint32_t gs_class = t.address == EM_OBJECT_UNIT_GS_STATE_2 ? 2u : 0u;
-    if (t.address != EM_OBJECT_UNIT_GS_STATE && (t.address != EM_OBJECT_UNIT_GS_STATE_2 || face))
-        return refuse(why, "the GS state REF is not set 1 class 0 (D_00815360) or set 2 class 2 (D_00815A20)");
+    /* AREA02's 001CAE40 units (001D3A30 / 001D3C40 on channel 3) REF set 2,
+     * class 1 (D_00815990), with the skin records D_00816D40 / D_00816E40. */
+    const uint32_t gs_class = t.address == EM_OBJECT_UNIT_GS_STATE_2 ? 2u
+                              : t.address == EM_OBJECT_UNIT_GS_STATE_21 ? 1u : 0u;
+    if (t.address != EM_OBJECT_UNIT_GS_STATE && (gs_class == 0u || face))
+        return refuse(why, "the GS state REF is not set 1 class 0 (D_00815360), set 2 class 1 (D_00815990) "
+                           "or set 2 class 2 (D_00815A20)");
     EmGfxObjectUnit *u = &out->unit;
     u->color = out->color;
     u->nodes = out->nodes;
@@ -347,14 +357,19 @@ static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve re
     if (gs_class == 2u && out->skin_address[0] != EM_OBJECT_UNIT_SKIN_3 &&
         out->skin_address[0] != EM_OBJECT_UNIT_SKIN_3 + 0x80u)
         return refuse(why, "a class-2 unit's skin record is not D_00816B40");
+    if (gs_class == 1u && out->skin_address[0] != EM_OBJECT_UNIT_SKIN_3_FOG &&
+        out->skin_address[0] != EM_OBJECT_UNIT_SKIN_3_FOG + 0x80u)
+        return refuse(why, "a class-1 unit's skin record is not D_00816D40");
     int clip = 0;
     if (w.at < w.size && peek_id(&w) != TAG_CNT && (gs_class == 0u || peek_id(&w) == TAG_REF)) {
-        if (gs_class == 2u) {
-            /* 001D3CF0 sends 001D1F80(3, 2, 2) again before the clip pass;
-             * a next unit or the RET 001CABA0 writes ends the unit. */
+        if (gs_class != 0u) {
+            /* 001D3CF0 sends 001D1F80(3, 2, 2) again before the clip pass
+             * (001D3C40: 001D1F80(3, 2, 1)); a next unit or the RET the
+             * caller writes ends the unit. */
             const uint32_t at = w.at;
             if (next_tag(&w, &t, why)) return -1;
-            if (t.id != TAG_REF || t.qwc != 9u || t.address != EM_OBJECT_UNIT_GS_STATE_2) {
+            if (t.id != TAG_REF || t.qwc != 9u ||
+                t.address != (gs_class == 2u ? EM_OBJECT_UNIT_GS_STATE_2 : EM_OBJECT_UNIT_GS_STATE_21)) {
                 w.at = at;
                 goto passes_done;
             }
@@ -362,9 +377,9 @@ static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve re
         if (parse_pass(&w, EM_OBJECT_UNIT_CLIP_KERNEL, out->clip_constants, &out->skin_address[1], &fog1,
                        &model2, &qwc2, &blocks2, why))
             return -1;
-        if (gs_class == 2u && out->skin_address[1] != EM_OBJECT_UNIT_SKIN_3_CLIP &&
+        if (gs_class != 0u && out->skin_address[1] != EM_OBJECT_UNIT_SKIN_3_CLIP &&
             out->skin_address[1] != EM_OBJECT_UNIT_SKIN_3_CLIP + 0x80u)
-            return refuse(why, "a class-2 unit's clip skin record is not D_00816E40");
+            return refuse(why, "a class-1/2 unit's clip skin record is not D_00816E40");
         if (model2 != out->model_address || qwc2 != model_qwc)
             return refuse(why, "the clip pass REFs another model than the object pass");
         clip = 1;
@@ -506,7 +521,7 @@ static EM_VU_HOST_NOINLINE int face_kernel(EmVu1FaceState *s, EmVu1ObjQword *dme
 
 static uint32_t template_prim(const EmGfxObjectUnit *u)
 {
-    return EM_OBJECT_UNIT_TEMPLATE_PRIM | (u->gs_class == 2u ? EM_OBJECT_UNIT_ABE : 0u);
+    return EM_OBJECT_UNIT_TEMPLATE_PRIM | (u->gs_class != 0u ? EM_OBJECT_UNIT_ABE : 0u);
 }
 
 static int object_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1ObjQword *dmem)
@@ -604,7 +619,7 @@ static int clip_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r)
         const int n = em_vu1_object_clip_triangles(res, tri, EM_VU1_OBJECT_CLIP_MAX_TRIANGLES * 32u);
         if (n < 0) { rc = fail(r, "the clip program kicked a packet outside its form", k); goto done; }
         for (int i = 0; i < n; ++i) {
-            if (tri[i].prim != (EM_OBJECT_UNIT_CLIP_PRIM | (u->gs_class == 2u ? EM_OBJECT_UNIT_ABE : 0u))) {
+            if (tri[i].prim != (EM_OBJECT_UNIT_CLIP_PRIM | (u->gs_class != 0u ? EM_OBJECT_UNIT_ABE : 0u))) {
                 rc = fail(r, "a clip packet's PRIM is not the class's (0x03B / 0x07B)", k);
                 goto done;
             }
@@ -652,7 +667,7 @@ int em_object_unit_run(const EmGfxObjectUnit *u, EmObjectUnitResult *r)
     /* The face program's batch buffers start at dmem 0x20: four nodes fit;
      * it has no clip pass (001D3E40 appends none). */
     if (face && (u->node_count > 4u || u->clip)) return fail(r, "face nodes overlap the batch buffers, or clip", 0);
-    if (u->gs_class != 0u && (face || u->gs_class != 2u)) return fail(r, "a GS class other than 0 or 2", 0);
+    if (u->gs_class != 0u && (face || u->gs_class > 2u)) return fail(r, "a GS class other than 0, 1 or 2", 0);
     r->prim = face ? EM_OBJECT_UNIT_TEMPLATE_PRIM : template_prim(u);
     EmVu1ObjQword *dmem = malloc(EM_VU1_OBJ_DMEM_QWORDS * sizeof *dmem);
     if (!dmem) return fail(r, "out of memory", 0);

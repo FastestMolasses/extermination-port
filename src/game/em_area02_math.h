@@ -24,6 +24,8 @@
  *             (byte-matched C)
  *   001582E0  node behaviour: a room-mask bit and a one-shot sound
  *             (NEARMISS C)
+ *   00157860  the panels' use reaction: 001B6F00 facing, the script start
+ *             by type / k / the battery bytes (byte-matched C)
  *   00158EC0  node behaviour with a use sub-machine (byte-matched C)
  *   00159210  node behaviour, the type 0x24/0x25/0x2C panel (byte-matched C)
  *   00159620  node behaviour with a use sub-machine, 00157B30 (byte-matched C)
@@ -58,7 +60,8 @@
  * loaded pointer), the argument registers the original sets up for that call
  * (a0..a3 as 64-bit register images, f12..f14 as raw bits; `na` / `nf` say
  * how many) and the stack pointer at the call. The worker writes v0 / f0.
- * Calls between routines of this module (00159620 -> 00157B30, 001CAF60 ->
+ * Calls between routines of this module (00158EC0 / 00159210 -> 00157860,
+ * 00159620 -> 00157B30, 001CAF60 ->
  * 001CAE40, 001CB580 -> 001CB4F0) are direct. Where the original relies on
  * a register a callee leaves unchanged (001BD560 after 001BD270 / 001BD460,
  * docs/AREA02_MATH.md section 3) the translation uses the value the register
@@ -148,6 +151,7 @@ int em_area02_math_00157B30(EmArea02Math *s, uint32_t a0, uint32_t a1, int32_t *
 int em_area02_math_00157F30(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_00158050(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_001582E0(EmArea02Math *s, uint32_t a0);
+int em_area02_math_00157860(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2, int32_t *out);
 int em_area02_math_00158EC0(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00159210(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00159620(EmArea02Math *s, uint32_t a0);

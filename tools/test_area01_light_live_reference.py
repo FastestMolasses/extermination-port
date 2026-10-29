@@ -42,6 +42,7 @@ def build():
     sources=['tests/area01_light_live_bridge.c','src/game/em_area01_light_live.c',
              'src/game/em_area00_fx_exit.c','src/game/em_area00_fx_spawn.c','src/game/em_area00_world.c',
              'src/game/em_owner_draw_live.c','src/game/em_object_unit.c',
+             'src/game/em_area02_math.c','src/game/em_area02_misc.c',
              'src/game/em_point_light.c','src/game/em_packet_chain_original.c',
              'src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c','src/game/em_effect_original.c',
              'src/game/em_coll_probe_original.c',*SOURCES]

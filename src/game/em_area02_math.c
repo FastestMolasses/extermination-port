@@ -207,7 +207,6 @@ static void method(Run *r, uint32_t sp, uint32_t node)
 
 #define FN_1026A0 0x001026A0u /* (out, matrix, vector) */
 #define FN_102948 0x00102948u /* (dst, src) one quadword */
-#define FN_157860 0x00157860u
 #define FN_157CE0 0x00157CE0u
 #define FN_158590 0x00158590u
 #define FN_1AEBA0 0x001AEBA0u
@@ -469,6 +468,8 @@ static void f_1582E0(Run *r, uint32_t sp, uint32_t node)
  *   2: +4 += 1; 3: 001AFC10(node); other: nothing.
  * The frame is 0x20 bytes.
  * ---------------------------------------------------------------------- */
+static int32_t f_157860(Run *r, uint32_t sp, uint32_t node, uint32_t s, uint32_t k);
+
 static void f_158EC0(Run *r, uint32_t sp, uint32_t node)
 {
     uint32_t st = u8(r, node + 4);
@@ -504,7 +505,7 @@ static void f_158EC0(Run *r, uint32_t sp, uint32_t node)
     case 1:
         switch (u8(r, node + 5)) {
         case 0: {
-            uint64_t v = call3(r, sp, FN_157860, node, s, 1);
+            uint64_t v = (uint64_t)(int64_t)f_157860(r, sp, node, s, 1);
             if (v == 0)
                 break;
             if (v == 2)
@@ -581,6 +582,74 @@ static void f_158EC0(Run *r, uint32_t sp, uint32_t node)
 }
 
 /* ------------------------------------------------------------------------
+ * 00157860(node, s, k) -> v0, the panels' use reaction: 0 unless bit 2 of
+ * byte +0x0B. Then 0x700038A0 = (0.3, 0, 9.0, 1.0) and 001B6F00(node,
+ * 0x700038A0; pi). With "start" = word D_00246FB4 = 0x80000018,
+ * 001BA1A0(s, D_00246F20), 001BA1F0(node), +0 = 2, result 2:
+ *   k == 1 or type +3 != 0x2C: "start" when byte D_00810C7F is 0, else the
+ *     tail;
+ *   type 0x2C, byte D_00810CB7 == halfword D_00810CB2: bit 0 of +0x0B:
+ *     001BA1A0(s, D_00247BA0), 001BA1F0(node); else D_00246FB4 = 0x8000001E,
+ *     001BA1A0(s, D_00246F20), 001BA1F0(node); +0 = 2, result 2;
+ *   otherwise the tail.
+ * Tail: bit 0 of +0x0B: +0x0A = 1, +0 = 2, result 3. Else k == 1 or type
+ * other than 0x2C: D_00247834 = 0x80000018, 001BA1A0(s, D_002477A0); type
+ * 0x2C: D_002474F4 = 0x42 when float +0xB4 < 6.0 + D_00810354, else 0x41,
+ * D_00247534 = 0x80000010, 001BA1A0(s, D_00247420); then 001BA1F0(node),
+ * result 1. The frame is 0x40 bytes.
+ * ---------------------------------------------------------------------- */
+static int32_t f_157860(Run *r, uint32_t sp, uint32_t node, uint32_t s, uint32_t k)
+{
+    uint64_t v[2];
+    uint32_t f12 = 0x40490FDBu; /* pi */
+    sp -= 0x40;
+    if (!(u8(r, node + 0x0B) & 4))
+        return 0;
+    st32(r, SPR(0x38A0), 0x3E99999Au);
+    st32(r, SPR(0x38A4), 0);
+    st32(r, SPR(0x38A8), 0x41100000u);
+    st32(r, SPR(0x38AC), F_ONE);
+    v[0] = reg(node);
+    v[1] = reg(SPR(0x38A0));
+    (void)callv(r, sp, FN_1B6F00, 2, v, 1, &f12, NULL);
+    if (k == 1 || u8(r, node + 3) != 0x2C) {
+        if (u8(r, 0x00810C7Fu) == 0) {
+            st32(r, 0x00246FB4u, 0x80000018u);
+            (void)call2(r, sp, FN_1BA1A0, s, 0x00246F20u);
+            (void)call1(r, sp, FN_1BA1F0, node);
+            st8(r, node + 0, 2);
+            return 2;
+        }
+    } else if (u8(r, 0x00810CB7u) == u16(r, 0x00810CB2u)) {
+        if (u8(r, node + 0x0B) & 1) {
+            (void)call2(r, sp, FN_1BA1A0, s, 0x00247BA0u);
+        } else {
+            st32(r, 0x00246FB4u, 0x8000001Eu);
+            (void)call2(r, sp, FN_1BA1A0, s, 0x00246F20u);
+        }
+        (void)call1(r, sp, FN_1BA1F0, node);
+        st8(r, node + 0, 2);
+        return 2;
+    }
+    if (u8(r, node + 0x0B) & 1) {
+        st8(r, node + 0x0A, 1);
+        st8(r, node + 0, 2);
+        return 3;
+    }
+    if (k == 1 || u8(r, node + 3) != 0x2C) {
+        st32(r, 0x00247834u, 0x80000018u);
+        (void)call2(r, sp, FN_1BA1A0, s, 0x002477A0u);
+    } else {
+        uint32_t lim = em_ee_add_bits(0x40C00000u, w32(r, 0x00810354u));
+        st32(r, 0x002474F4u, em_ee_c_lt_bits(w32(r, node + 0xB4), lim) ? 0x42u : 0x41u);
+        st32(r, 0x00247534u, 0x80000010u);
+        (void)call2(r, sp, FN_1BA1A0, s, 0x00247420u);
+    }
+    (void)call1(r, sp, FN_1BA1F0, node);
+    return 1;
+}
+
+/* ------------------------------------------------------------------------
  * 00159210(node), by the state byte +4 (s = node + 0x1F0):
  *   0: nothing unless 001B0FD0(node, s, 0, 2) is 0. Then 001C6380(node),
  *      word +0x20 = 0, byte +0x0A = 0; type +3 0x2C: word +0x30 =
@@ -653,7 +722,7 @@ static void f_159210(Run *r, uint32_t sp, uint32_t node)
         sub = u8(r, node + 5);
         switch (sub) {
         case 0: {
-            uint64_t v = call3(r, sp, FN_157860, node, s, 0);
+            uint64_t v = (uint64_t)(int64_t)f_157860(r, sp, node, s, 0);
             if (v == 0)
                 break;
             if (v == 2)
@@ -2030,6 +2099,15 @@ int em_area02_math_001575E0(EmArea02Math *s, uint32_t a0, int32_t *out)
     int32_t v;
     ENTER(0x001575E0u);
     v = f_1575E0(&run, s->sp, a0);
+    put(out, v);
+    return 0;
+}
+
+int em_area02_math_00157860(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2, int32_t *out)
+{
+    int32_t v;
+    ENTER(0x00157860u);
+    v = f_157860(&run, s->sp, a0, a1, a2);
     put(out, v);
     return 0;
 }
