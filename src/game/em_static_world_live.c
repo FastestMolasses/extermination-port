@@ -11,7 +11,10 @@
 #include "game/em_render_context_live.h"
 #include "game/em_static_world_draw.h"
 
-#define RUN_MAX 0x10000u   /* the captured runs are 0xB00..0x3150 bytes */
+/* The run lies in the packet arena D_0028F700..D_0076B5C0, so the arena
+ * bounds it (AREA11's captured runs are 0xB00..0x3150 bytes; AREA02 sub 0's
+ * wreck view needs more than 0x10000). */
+#define RUN_MAX (0x0076B5C0u - 0x0028F700u)
 
 static struct {
     EmStaticWorldDraw draw;

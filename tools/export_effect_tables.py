@@ -156,7 +156,9 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           # AREA02's bed D_00275458 and panels D_00275478 / D_00275480).
           # Preserve original addresses through the existing readonly ELF
           # window provider; no additional mutable owner or live capture.
-          (0x00275458, 8), (0x00275460, 0x10), (0x00275470, 8), (0x00275478, 0x10), (0x00275488, 8),
+          # One window: a candidate's three floats may cross two
+          # descriptors (the panels' D_00275480 reads up to D_0027548B).
+          (0x00275458, 0x38),
           (0x002755E8, 0x10), (0x00275878, 0x10), (0x002758A8, 0x18),
           # 001C02E0 -> 001BF630 / 001D0D60 and its Use descriptor.
           (0x0024FD50, 0x9F4), (0x00275638, 0x14),
@@ -203,6 +205,9 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           # words are other exports' or unread), and AREA01's three room-list
           # words D_002758D0 (the revisit's 0x825950 calls 0019C6F0(0x29, ..)).
           (0x0024D7C4, 4), (0x002758D0, 0xC),
+          # AREA02's word D_0024D7C8 (its room lists lie in the overlay's
+          # data: the owner 0x823930's 0019C6F0 calls, a02_02).
+          (0x0024D7C8, 4),
           # D_0024D6B0: 001B0CD0's four 0x10-byte vectors (a1 & 3), the
           # revisit's 0x826010 probe.
           (0x0024D6B0, 0x40))
