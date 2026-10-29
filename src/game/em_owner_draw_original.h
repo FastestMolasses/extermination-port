@@ -189,6 +189,11 @@ int em_owner_draw_001CA940(EmOwnerDraw *s, int32_t flags, const EmOwnerModel *mo
 int em_owner_draw_001D38A0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
 int em_owner_draw_001D3BA0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
 
+/* 001D37D0 / 001D3AD0 (chan, model) alone: the kernel CALL, the D_002514B0
+ * REF while 001D2910(0) is 0, and the model's REF (the room is checked). */
+int em_owner_draw_001D37D0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
+int em_owner_draw_001D3AD0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
+
 /* 001D3900(chan, model): 001D1F80(chan, 2, 2) (the GS state REF of set 2,
  * class 2, through `gs`), REF 8 qw to the skin record D_00816B40 + (context
  * +0x9C) * 0x80, then 001D37D0(chan, model). 001D3CF0(chan, model):

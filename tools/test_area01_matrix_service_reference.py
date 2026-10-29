@@ -25,7 +25,7 @@ def build():
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
         '-shared','-fPIC','-Isrc','-Wl,-dead_strip','-Wl,-exported_symbol,_mx_*',
         'tests/area01_matrix_service_bridge.c','src/game/em_area01_matrix_service.c',
-        'src/game/em_object_unit.c',*SOURCES,'-o',str(target)],cwd=ROOT,check=True)
+        'src/game/em_object_unit.c','src/game/em_area02_math.c','src/game/em_area02_misc.c',*SOURCES,'-o',str(target)],cwd=ROOT,check=True)
     n=C.CDLL(str(target));n.mx_seed.argtypes=[C.c_void_p]*3
     n.mx_call.argtypes=[C.POINTER(Call),C.POINTER(C.c_uint32)]
     n.mx_deny.argtypes=[C.c_uint32];n.mx_model.argtypes=[C.c_uint32]

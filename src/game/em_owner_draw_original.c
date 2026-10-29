@@ -219,6 +219,28 @@ int em_owner_draw_001D3BA0(S *s, int32_t chan, u32 model, u32 w04)
     return 0;
 }
 
+/* 001D37D0 / 001D3AD0 (chan, model) alone, for callers that write their own
+ * skin-record REF before them (AREA02's 001D3A30 / 001D3C40 list records). */
+int em_owner_draw_001D37D0(S *s, int32_t chan, u32 model, u32 w04)
+{
+    if (!s) return -1;
+    if (latched(s)) return -1;
+    int ref2 = s->world.ctx_0C ? (*s->world.ctx_0C & 1u) == 0 : 0;
+    if (prepare(s, chan, submit_bytes(ref2), 0x001D37D0u) < 0) return -1;
+    submit(s, chan, EM_OWNER_DRAW_KERNEL, model, w04);
+    return 0;
+}
+
+int em_owner_draw_001D3AD0(S *s, int32_t chan, u32 model, u32 w04)
+{
+    if (!s) return -1;
+    if (latched(s)) return -1;
+    int ref2 = s->world.ctx_0C ? (*s->world.ctx_0C & 1u) == 0 : 0;
+    if (prepare(s, chan, submit_bytes(ref2), 0x001D3AD0u) < 0) return -1;
+    submit(s, chan, EM_OWNER_DRAW_CLIP_KERNEL, model, w04);
+    return 0;
+}
+
 /* 001D3900(chan, model) (decomp func_001D3900.c): 001D1F80(chan, 2, 2),
  * then the REF 8 to D_00816B40 + (context +0x9C << 7), then 001D37D0. */
 int em_owner_draw_001D3900(S *s, int32_t chan, u32 model, u32 w04, EmOwnerDrawGsState gs, void *ctx)

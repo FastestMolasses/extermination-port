@@ -26,6 +26,7 @@ def build(fixture='tests/area01_model_draw_bridge.c',prefix='ad',extra=()):
              'src/game/em_actor_pool.c','src/game/em_roger_actor_original.c',
              'src/game/em_startup_load_gaps.c','src/game/em_opening_face.c',
              'src/game/em_object_unit.c','src/game/em_packet_chain_original.c',
+             'src/game/em_area02_math.c','src/game/em_area02_misc.c',
              'src/game/em_area01_math_core.c','src/game/em_area01_math_owner.c',
              'src/game/em_area01_math_actor.c',*SOURCES,*extra]
     target=OUT/f'{prefix}_bridge.dylib'

@@ -8,6 +8,8 @@
 
 #include "game/em_actor_light_001D89D0.h"
 #include "game/em_area01_math_owner.h"
+#include "game/em_area02_math.h"
+#include "game/em_area02_misc.h"
 #include "game/em_anim_runtime_rest.h"
 #include "game/em_face_attach.h"
 #include "game/em_frame.h"
@@ -867,6 +869,233 @@ int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner 
         log->position = fnv(log->position, q->nodes + 32u * k, 16);
         log->light = fnv(log->light, q->nodes + 32u * k + 16u, 16);
     }
+    return 0;
+}
+
+/* ------------------------------------------------ AREA02's 001CAF60 */
+
+/* The channel-3 cursor as the memory routines see it (context +0x1C) and as
+ * the channel translations hold it (L.channels[3]): one copy at a time. */
+static int ch3_load(void)
+{
+    const uint32_t *cursor = words(CTX + 0x1Cu, 4);
+    if (!cursor || *cursor < L.ch3_address || *cursor > ARENA_END) return -1;
+    L.channels[3].cursor = L.ch3_base + (*cursor - L.ch3_address);
+    return 0;
+}
+
+static struct {
+    EmOwnerServicesOwner *owner;
+    uint32_t record, current;    /* the record; D_00275B44 (the owner being ticked) */
+    uint32_t fault;
+} A2;
+
+static int a2_fail(uint32_t address)
+{
+    if (!A2.fault) A2.fault = address;
+    return -1;
+}
+
+/* Memory of the memory-addressed routines: D_00275B44, then the render
+ * context's storage (the cursor words, the packet arena; writable), then the
+ * model bank and the call's regions (read only: the routines store only to
+ * the context's storage). */
+static uint8_t *a2_view(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address == 0x00275B44u && size == 4) return (uint8_t *)&A2.current;
+    uint8_t *p = em_rcl_bytes_mut(address, size);
+    if (p) return p;
+    p = (uint8_t *)(uintptr_t)resolve((void *)(uintptr_t)L.bank, address, size);
+    if (!p) a2_fail(address);
+    return p;
+}
+
+/* 001D37D0 / 001D3AD0 (chan 3) after 001D3A30's list record. */
+static int a2_submit(uint32_t fn, int32_t chan, uint32_t model)
+{
+    const uint8_t *w = resolve((void *)(uintptr_t)L.bank, model + 4u, 4);
+    uint32_t w04;
+    if (chan != 3 || !w) return a2_fail(model);
+    memcpy(&w04, w, 4);
+    if (ch3_load() < 0) return a2_fail(CTX + 0x1Cu);
+    const int rc = fn == 0x001D37D0u ? em_owner_draw_001D37D0(&L.draw, chan, model, w04)
+                                     : em_owner_draw_001D3AD0(&L.draw, chan, model, w04);
+    if (rc < 0) return a2_fail(L.draw.fault.address ? L.draw.fault.address : fn);
+    return ch3_store() < 0 ? a2_fail(CTX + 0x1Cu) : 0;
+}
+
+static int a2_misc_call(void *ctx, EmArea02MiscCall *c)
+{
+    (void)ctx;
+    c->v0 = 0;
+    switch (c->fn) {
+    case 0x001D1F80u:
+        /* The veil module writes at the context's cursor word itself. */
+        if (c->na < 3) return a2_fail(c->fn);
+        return em_rcl_001D1F80((int32_t)c->a[0], (int32_t)c->a[1], (int32_t)c->a[2]) < 0 ? a2_fail(c->fn) : 0;
+    case 0x001D37D0u: case 0x001D3AD0u:
+        if (c->na < 2) return a2_fail(c->fn);
+        return a2_submit(c->fn, (int32_t)c->a[0], (uint32_t)c->a[1]);
+    default:
+        return a2_fail(c->fn);
+    }
+}
+
+/* 001D3AC0 / 001D3CE0 (model): em_area02_misc's translations over the
+ * context's storage (D_00275670, the context words, the packet arena). */
+static int a2_list(uint32_t fn, uint32_t model, uint32_t sp)
+{
+    const uint32_t *cursor = words(CTX + 0x1Cu, 4);
+    if (!cursor || *cursor >= ARENA_END) return a2_fail(CTX + 0x1Cu);
+    EmArea02MiscRegion regions[3] = {
+        {0x00275670u, 4, em_rcl_bytes_mut(0x00275670u, 4)},
+        {CTX, 0xA0u, em_rcl_bytes_mut(CTX, 0xA0u)},
+        {*cursor, ARENA_END - *cursor, em_rcl_bytes_mut(*cursor, ARENA_END - *cursor)},
+    };
+    for (unsigned i = 0; i < 3; ++i)
+        if (!regions[i].bytes) return a2_fail(regions[i].base);
+    EmArea02Misc m;
+    memset(&m, 0, sizeof m);
+    m.regions = regions;
+    m.region_count = 3;
+    m.call = a2_misc_call;
+    m.sp = sp;
+    const int rc = fn == 0x001D3AC0u ? em_area02_misc_001D3AC0(&m, model) : em_area02_misc_001D3CE0(&m, model);
+    if (rc < 0) return a2_fail(m.fault_address ? m.fault_address : fn);
+    return 0;
+}
+
+static int a2_call(void *ctx, EmArea02MathCall *c)
+{
+    (void)ctx;
+    EmOwnerServicesOwner *o = A2.owner;
+    c->v0 = 0;
+    c->f0 = 0;
+    switch (c->fn) {
+    case 0x001CA7B0u: {
+        /* 001CA7B0(node + 0xB0; radius): the owner's +0xB0 quadword. */
+        if (c->na != 1 || c->nf != 1 || (uint32_t)c->a[0] != A2.record + 0xB0u) return a2_fail(c->fn);
+        uint32_t p[4];
+        memcpy(p, o->pos, sizeof p);
+        int32_t flags = 0;
+        if (em_owner_draw_001CA7B0(&L.draw, p, c->f[0], &flags) < 0) return a2_fail(L.draw.fault.address);
+        c->v0 = (uint64_t)(int64_t)flags;
+        return 0;
+    }
+    case 0x001D8C20u:
+        if (c->na != 1) return a2_fail(c->fn);
+        return w_001D8C20(NULL, (int32_t)c->a[0]) < 0 ? a2_fail(CTX + 0x246Cu) : 0;
+    case 0x001C7420u:
+        if (c->na != 3 || (uint32_t)c->a[0] != A2.record) return a2_fail(c->fn);
+        if (ch3_load() < 0) return a2_fail(CTX + 0x1Cu);
+        if (em_owner_services_001C7420(&L.services, o, (int32_t)c->a[1], (int32_t)c->a[2], NULL) < 0 ||
+            L.services.fault.code)
+            return a2_fail(L.services.fault.address ? L.services.fault.address : c->fn);
+        return ch3_store() < 0 ? a2_fail(CTX + 0x1Cu) : 0;
+    case 0x001D3AC0u: case 0x001D3CE0u:
+        if (c->na != 1) return a2_fail(c->fn);
+        return a2_list(c->fn, (uint32_t)c->a[0], c->sp);
+    case 0x001CAAC0u: {
+        /* 001CAAC0(D_00275B44 + 0xB0, start): the page's depth insertion of
+         * the unit from start (its RET is in place). */
+        if (c->na != 2 || (uint32_t)c->a[0] != A2.record + 0xB0u) return a2_fail(c->fn);
+        EmPacketChain *pc = em_rcl_packet_chain();
+        if (!pc) return a2_fail(c->fn);
+        EmAnimRest *r = &L.rest;
+        memset(r, 0, sizeof *r);
+        r->world.region[0] = (EmPoseRegion){A2.record + 0xB0u, 16, (uint8_t *)(uintptr_t)o->pos, 0};
+        r->world.region_count = 1;
+        r->world.scratch = &L.spr;
+        r->workers.ctx = pc;
+        r->workers.w_001CB760 = em_packet_chain_w_001CB760;
+        int32_t key = 0;
+        if (em_anim_rest_001CAAC0(r, A2.record + 0xB0u, (uint32_t)c->a[1], &key) < 0)
+            return a2_fail(r->fault.address);
+        return 0;
+    }
+    default:
+        return a2_fail(c->fn);
+    }
+}
+
+int em_owner_draw_live_001CAF60(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
+                                const uint32_t rgb[4], uint32_t record, uint32_t current, uint32_t sp,
+                                const EmOwnerDrawLiveRegion *regions, unsigned region_count)
+{
+    if (!bank || !owner || !rgb || !regions || !region_count || region_count > EM_OWNER_DRAW_LIVE_REGIONS)
+        return report(0x001CAF60u, "NULL argument or missing record views");
+    if (current != record) return report(record, "001CAF60 of an owner other than D_00275B44");
+    if (em_rcl_fault()) return report(em_rcl_fault(), "the render context has faulted");
+    if (bind_views(bank) < 0) return -1;
+    if (ch3_open() < 0) return report(CTX + 0x1Cu, "the channel-3 cursor is outside the packet arena");
+    const uint32_t frame = em_frame_counter();
+    if (L.page_frame != frame) {
+        L.page_frame = frame;
+        L.page_count = 0;
+        L.page_log_count = 0;
+    }
+    if (L.page_count >= EM_OWNER_DRAW_LIVE_PAGE_UNITS)
+        return report(0x001CAF60u, "more page units in one frame than EM_OWNER_DRAW_LIVE_PAGE_UNITS");
+    L.bank = bank;
+    EmOwnerDrawWorld *d = &L.draw.world;
+    d->channel = L.channels;
+    d->channel_count = 4;
+    static EmActorLightBinding binding;
+    binding.light = &L.light;
+    binding.ctx = NULL;
+    binding.w_owner_rgb = w_owner_rgb;
+    L.owner_rgb = rgb;
+    memset(&L.light.fault, 0, sizeof L.light.fault);
+    memset(&L.draw.fault, 0, sizeof L.draw.fault);
+    EmOwnerServices *s = &L.services;
+    memset(s, 0, sizeof *s);
+    s->world.d00275B40 = owner->bone;
+    s->world.d00275B40_count = owner->bone_count;
+    s->world.scratch = &L.spr;
+    s->world.channel = L.channels;
+    s->world.channel_count = 4;
+    s->workers.ctx = &binding;
+    s->workers.w_001D89D0 = em_actor_light_w_001D89D0;
+    memset(&A2, 0, sizeof A2);
+    A2.owner = owner;
+    A2.record = record;
+    A2.current = current;
+    const uint32_t start = L.ch3_address;
+    uint8_t *const unit = L.channels[3].cursor;
+    if (ch3_store() < 0) return report(CTX + 0x1Cu, "the channel-3 cursor could not be stored");
+    EmArea02Math m;
+    memset(&m, 0, sizeof m);
+    m.call = a2_call;
+    m.sp = sp;
+    m.view = a2_view;
+    L.regions = regions;
+    L.region_count = region_count;
+    int rc = em_area02_math_001CAF60(&m, record);
+    L.regions = NULL;
+    L.region_count = 0;
+    L.owner_rgb = NULL;
+    d->channel = &L.channel;                       /* 001CAA00's single channel 0 */
+    d->channel_count = 1;
+    if (rc < 0 || A2.fault) {
+        fprintf(stderr, "em_owner_draw_live: 001CAF60 faulted at %08X (math %d/%08X, draw %08X/%d, light %08X/%d)\n",
+                (unsigned)A2.fault, (int)m.fault, (unsigned)m.fault_address, (unsigned)L.draw.fault.address,
+                (int)L.draw.fault.code, (unsigned)L.light.fault.address, (int)L.light.fault.code);
+        return -1;
+    }
+    if (ch3_load() < 0) return report(CTX + 0x1Cu, "the channel-3 cursor left the packet arena");
+    const uint32_t used = ch3_address(L.channels[3].cursor) - start;
+    if (!used) return 0;                           /* 001CA7B0 culled it */
+    if (used < 0x10u || unit[used - 0x10u + 3u] != 0x60u)
+        return report(start, "001CAE40's bytes do not end in its RET tag");
+    const char *why = NULL;
+    EmObjectUnitPieces *q = &L.page_units[L.page_count];
+    if (em_object_unit_parse(unit, used - 0x10u, resolve, (void *)bank, q, &why) < 0) {
+        fprintf(stderr, "em_owner_draw_live: the 001CAE40 unit at %08X is refused: %s\n", (unsigned)start,
+                why ? why : "unit shape");
+        return -1;
+    }
+    L.page_address[L.page_count++] = start;
     return 0;
 }
 

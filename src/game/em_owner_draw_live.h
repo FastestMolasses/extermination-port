@@ -156,6 +156,19 @@ int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServi
 int em_owner_draw_live_001CB360(EmOwnerServicesOwner *owner, const uint32_t rgb[4], uint32_t record,
                                 const EmOwnerDrawLiveRegion *regions, unsigned region_count);
 
+/* AREA02's draw method 001CAF60(record) (= 001CAE40(record, +0x44)):
+ * em_area02_math's translation over the render context's storage, its
+ * callees this module's: 001CA7B0 (the owner's +0xB0), 001D8C20, 001C7420
+ * on channel 3, 001D3AC0 / 001D3CE0 (em_area02_misc's list records with
+ * 001D37D0 / 001D3AD0 here), and 001CAAC0's depth insertion into the page.
+ * The unit (from the channel-3 cursor to its RET) is kept with the frame's
+ * page units. `current` is D_00275B44 (the owner being ticked: must be
+ * `record`); `sp` the original stack pointer at the call; `regions` map
+ * the record (its +0x44 is read). 0, or -1 (reported). */
+int em_owner_draw_live_001CAF60(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
+                                const uint32_t rgb[4], uint32_t record, uint32_t current, uint32_t sp,
+                                const EmOwnerDrawLiveRegion *regions, unsigned region_count);
+
 /* The light of a draw method other than 001CAA00 (001CB480, the status MAP
  * page's models, docs/STATUS_PAGES.md section 7, and 001CB4F0, the status
  * hub's models in lighting mode 1, whose 001D89D0 hands it to the one

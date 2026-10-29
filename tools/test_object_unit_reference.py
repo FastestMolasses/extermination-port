@@ -46,6 +46,14 @@ K. The class-2 units (001CACB0 -> 001CABA0 on channel 3: 001D1F80(3, 2,
    class-2 GS state REF (D_00815A20) equals em_object_unit_gs_state_check_2's
    set in every capture.
 
+K1. AREA02's class-1 units (the 001C4AF0 owners' +0x4C 001CAF60 ->
+   001CAE40 on channel 3: 001D1F80(3, 2, 1), 001D3AC0 / 001D3CE0's skin
+   records D_00816D40 / D_00816E40, PRIM 0x07C / 0x07B): every such owner
+   of the AREA02 captures (s87 route_a01r a01r_03 and route_a02) as the
+   ORIGINAL code writes its unit, and at the camera's point (the clip pass),
+   run the same way; the class-1 GS state REF (D_00815990) equals
+   em_object_unit_gs_state_check_21's set in those captures.
+
 F. The face units (001CB3C0's, CALL 0x0023C480: Roger's and Dennis's faces,
    docs/VU1_FACE_MORPH.md): every distinct intact face unit in the display
    lists of the route beats 00..14 (the colour, node and weights CNTs, the
@@ -98,6 +106,7 @@ static const uint8_t *resolve(void *ctx, uint32_t a, uint32_t n)
 { (void)ctx; if (a > g_size || n > g_size - a) return NULL; return g_ram + a; }
 int shim_gs(const unsigned char *bytes, const char **why) { return em_object_unit_gs_state_check(bytes, why); }
 int shim_gs2(const unsigned char *bytes, const char **why) { return em_object_unit_gs_state_check_2(bytes, why); }
+int shim_gs21(const unsigned char *bytes, const char **why) { return em_object_unit_gs_state_check_21(bytes, why); }
 int shim_run(const unsigned char *ram, unsigned ram_size, const unsigned char *unit, unsigned size,
              EmObjectUnitTriangle *out, unsigned cap, unsigned *object_tris, unsigned *pieces,
              const char **why)
@@ -381,6 +390,65 @@ def class2_case(item):
     return res
 
 
+# ------------------------------------------------------------ K1. AREA02 class-1 units
+
+CAP2 = {}
+A2_DRAW, A2_OWNER = 0x1CAF60, 0x1C4AF0
+
+
+def area02_owners(name):
+    ram = CAP2[name][0]
+    out = []
+    for i in range(400):
+        a = 0x7A5640 + i * 0x2F0
+        if ram[a] and u32(ram, a + 0x10) == A2_OWNER and u32(ram, a + 0x4C) == A2_DRAW and u32(ram, a + 0x44):
+            out.append((name, a))
+    return out
+
+
+def class1_case(item):
+    """001CAF60's channel-3 unit, written by the ORIGINAL code, through the
+    original microcode and the native parse + run (class 1)."""
+    name, owner, near = item
+    ram, spr = CAP2[name]
+    if near:
+        b = bytearray(ram)
+        struct.pack_into('<3f', b, owner + 0xB0, *tod.camera_point(ram))
+        ram = bytes(b)
+    o = tod.EE(ELF, ram, spr)
+    ctx = u32(ram, 0x275670)
+    o.put32(ctx + 0x1C, tod.CAP_DL)
+    for a, v in ((0x275B48, owner), (0x275B44, owner), (0x275B40, owner + 0x110)):
+        o.put32(a, v)
+    o.calls[0x1CAAC0] = lambda r: None
+    o.run(A2_DRAW, (owner,))
+    used = o.load(ctx + 0x1C) - tod.CAP_DL
+    res = dict(capture=name, owner=hex(owner), near=near, unit=used)
+    if not used:
+        return res
+    unit = o.read(tod.CAP_DL, used)
+    assert unit[-13] == 0x60, ('001CAE40 ends in its RET tag', name, hex(owner))
+    unit = unit[:-16]
+    img = bytearray(ram)
+    img[tod.CAP_DL:tod.CAP_DL + len(unit)] = unit
+    img = bytes(img)
+    ABE['value'] = 0x40
+    try:
+        want, blocks = oracle(img, tod.CAP_DL, len(unit))
+    finally:
+        ABE['value'] = 0
+    n, out, objs, pieces, why = native(img, unit)
+    assert n >= 0, ('native refused a class-1 unit', name, hex(owner), n, why)
+    got = ntris(out, n)
+    if got != want:
+        k = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+        raise AssertionError(('class-1 triangles differ', name, hex(owner), len(got), len(want), k,
+                              got[k] if k < len(got) else None, want[k] if k < len(want) else None))
+    assert pieces[4] in (0x816D40, 0x816DC0), ('skin record', hex(pieces[4]))
+    res.update(clip=bool(pieces[2]), triangles=len(want), object_triangles=objs)
+    return res
+
+
 # ------------------------------------------------------------ F. faces
 
 def face_units():
@@ -546,6 +614,22 @@ def main():
     k_results = [r for r in parallel_map(class2_case, k_chosen) if r['unit']]
     assert any(r['clip'] for r in k_results) and any(not r['clip'] for r in k_results), \
         ('class-2 units of both passes', [(r['owner'], r['clip']) for r in k_results])
+    # K1: AREA02's class-1 units (001CAF60)
+    for sub, beats in (('s87/route_a01r', ('a01r_03_door16',)),
+                       ('s87/route_a02', ('a02_00_duct', 'a02_s0_mts_bed'))):
+        for beat in beats:
+            p = refs.capture(sub) / beat
+            if (p / 'eeMemory.bin').exists() and (p / 'scratchpad.bin').exists():
+                ram = (p / 'eeMemory.bin').read_bytes()
+                assert ram[0x810700] == 2, (beat, 'not AREA02')
+                why = C.c_char_p()
+                assert LIB.shim_gs21(ram[0x815990:0x815990 + 144], C.byref(why)) == 0, (beat, why.value)
+                CAP2[beat] = (ram, (p / 'scratchpad.bin').read_bytes())
+    k1_items = [(n, a, near) for beat in CAP2 for n, a in area02_owners(beat) for near in (0, 1)]
+    assert k1_items, 'no AREA02 001CAF60 owner in the captures'
+    k1_results = [r for r in parallel_map(class1_case, k1_items) if r['unit']]
+    assert any(r['clip'] for r in k1_results) and any(not r['clip'] for r in k1_results), \
+        ('class-1 units of both passes', [(r['owner'], r['clip']) for r in k1_results])
     sample = next(r for r in drawn if r['clip'])
     refused = refusals(sample['capture'], int(sample['owner'], 16), sample['_unit'])
     tally = {}
@@ -563,6 +647,8 @@ def main():
                   f'{len(refused)} parser refusals',
                   f"{len(k_results)} class-2 units ({sum(r['clip'] for r in k_results)} clip, "
                   f"{sum(r['triangles'] for r in k_results)} triangles) equal the original microcode's",
+                  f"{len(k1_results)} AREA02 class-1 units ({sum(r['clip'] for r in k1_results)} clip, "
+                  f"{sum(r['triangles'] for r in k1_results)} triangles) equal the original microcode's",
                   part(len(face_results), len(faces), 'face units') +
                   f" ({sum(r['triangles'] for r in face_results)} triangles)")
     for r in results: r.pop('_unit', None)

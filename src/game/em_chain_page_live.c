@@ -151,9 +151,10 @@ static uint32_t digest_more(uint32_t h, const EmGfxGsPrim *p, const EmChainPageQ
     return h;
 }
 
-/* A CALL's target that is this frame's 001CABA0 unit (em_owner_draw_live):
- * its triangles (em_object_unit_run: the object kernel and the clip
- * program's translations) as GS primitives with the class-2 state, each
+/* A CALL's target that is this frame's 001CABA0 (class 2) or AREA02 001CAE40
+ * (class 1) unit (em_owner_draw_live): its triangles (em_object_unit_run:
+ * the object kernel and the clip program's translations) as GS primitives
+ * with the class's state, each
  * with its PRIM (the template's strip, the clip pass's list). */
 static int page_unit(void *ctx, uint32_t address, EmGfxGsPrim *out, uint32_t capacity, uint32_t *count)
 {
@@ -162,13 +163,14 @@ static int page_unit(void *ctx, uint32_t address, EmGfxGsPrim *out, uint32_t cap
     *count = 0;
     const EmObjectUnitPieces *q = em_owner_draw_live_page_unit(address);
     if (!q) return 0;
-    if (q->unit.gs_class != 2u || em_object_unit_run(&q->unit, &r) < 0 || r.count > capacity) {
-        fprintf(stderr, "chain page: the class-2 unit at %08X is refused: %s\n", (unsigned)address,
-                r.why ? r.why : "not class 2, or too many triangles");
+    if ((q->unit.gs_class != 1u && q->unit.gs_class != 2u) || em_object_unit_run(&q->unit, &r) < 0 ||
+        r.count > capacity) {
+        fprintf(stderr, "chain page: the class-%u unit at %08X is refused: %s\n", (unsigned)q->unit.gs_class,
+                (unsigned)address, r.why ? r.why : "not class 1 or 2, or too many triangles");
         return -1;
     }
     uint64_t alpha, test, tex1, clamp, colclamp;
-    em_object_unit_gs_state(2u, &alpha, &test, &tex1, &clamp, &colclamp);
+    em_object_unit_gs_state(q->unit.gs_class, &alpha, &test, &tex1, &clamp, &colclamp);
     for (uint32_t i = 0; i < r.count; ++i) {
         const EmObjectUnitTriangle *t = &r.tri[i];
         EmGfxGsPrim *o = &out[i];

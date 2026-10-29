@@ -15,10 +15,14 @@ typedef struct {
     EmOwnerDrawLiveRegion regions[4];
     uint32_t rgb[4], record;
     unsigned region_count;
+    /* Set by the caller before a 001CAF60 call (AREA02's draw method): the
+     * word D_00275B44 (the owner being ticked) and the original stack
+     * pointer at the call. */
+    uint32_t current, sp;
 } EmArea01ModelDraw;
 
 void em_area01_model_draw_bind(EmArea01ModelDraw *draw, EmArea01Model *model);
-/* Named draw method or 001DA6A0, with a0 naming the original pool record.
+/* Named draw method (001CAA00, 001CACB0, 001CB360, 001CAF60) or 001DA6A0, with a0 naming the original pool record.
  * Unknown methods fail. Missing resources do not substitute another area.
  * Restore the caller's active/inactive actor-view state on a draw failure
  * unless the actor view itself is faulty, preserving the primary fault. */

@@ -18,7 +18,8 @@ caught on both sides and handled by one Python policy:
         when the script gives a value outside the 32-bit range).
 A node method (word +0x4C) or 001C7EB0's callback is a call through a
 loaded pointer; its target must have a policy (0x1CAA00, 0x1CAF60 in the
-cases). Calls among the translated routines (00159620 -> 00157B30,
+cases). Calls among the translated routines (00158EC0 / 00159210 ->
+00157860, 00159620 -> 00157B30,
 001CAF60 -> 001CAE40, 001CB580 -> 001CB4F0) are not intercepted: the
 original runs its own code, the native module its own translations. The
 routine under test is never hooked (0x1CAF60 is both an entry and a method
@@ -101,7 +102,7 @@ CODE_END = 0x230000
 
 # Translated routines (address -> size in bytes, from the census).
 FUNCS = {
-    0x1575E0: 0xF4, 0x157B30: 0x1B0, 0x157F30: 0x2C, 0x158050: 0x64, 0x1582E0: 0x150, 0x158EC0: 0x348,
+    0x1575E0: 0xF4, 0x157860: 0x2CC, 0x157B30: 0x1B0, 0x157F30: 0x2C, 0x158050: 0x64, 0x1582E0: 0x150, 0x158EC0: 0x348,
     0x159210: 0x408, 0x159620: 0x348, 0x159970: 0x214, 0x159E70: 0x144, 0x183C40: 0x2A4, 0x1B18F0: 0x238, 0x1BC960: 0x81C,
     0x1BD560: 0x490, 0x1BDFC0: 0x630, 0x1C48C0: 0x9C, 0x1C4960: 0x98, 0x1C4AF0: 0xAC, 0x1C4CB0: 0x2F0,
     0x1C7EB0: 0x28C, 0x1C8140: 0x7C, 0x1CAE40: 0x114, 0x1CAF60: 0x8, 0x1CB4F0: 0x90, 0x1CB580: 0x8,
@@ -118,7 +119,7 @@ CALLEES = {
     # vector leaves and the yaw of 00157B30 (pure; run as original)
     0x1026A0: (R, 3, 0), 0x102948: (R, 2, 0), 0x1B1240: (R, 1, 2),
     # stubs
-    0x157860: (S, 3, 0), 0x157CE0: (S, 2, 0), 0x158590: (S, 3, 0), 0x1AEBA0: (S, 1, 0), 0x1AF780: (S, 0, 0),
+    0x157CE0: (S, 2, 0), 0x158590: (S, 3, 0), 0x1AEBA0: (S, 1, 0), 0x1AF780: (S, 0, 0),
     0x1AFA90: (S, 1, 0), 0x1AFC10: (S, 1, 0), 0x1B0FD0: (S, 1, 0), 0x1B1020: (S, 4, 0), 0x1B1630: (S, 0, 3),
     0x1B17A0: (S, 1, 0), 0x1B1B70: (S, 1, 0), 0x1B1D20: (S, 1, 0), 0x1B6F00: (S, 2, 1), 0x1BA1A0: (S, 2, 0),
     0x1BA1C0: (S, 2, 0), 0x1BA1F0: (S, 1, 0), 0x1BBD20: (S, 2, 0), 0x1BC150: (S, 1, 0), 0x1BC740: (S, 2, 0),
@@ -135,7 +136,7 @@ INDIRECT = {0x1CAA00, 0x1CAF60}
 # Entry signatures: fn -> (argument kinds, output kind); outputs: None
 # (void), 'i' (int32).
 ENTRIES = {
-    0x1575E0: ('p', 'i'), 0x157B30: ('pp', 'i'), 0x157F30: ('p', 'i'), 0x158050: ('p', 'i'), 0x1582E0: ('p', None),
+    0x1575E0: ('p', 'i'), 0x157860: ('ppp', 'i'), 0x157B30: ('pp', 'i'), 0x157F30: ('p', 'i'), 0x158050: ('p', 'i'), 0x1582E0: ('p', None),
     0x158EC0: ('p', None), 0x159210: ('p', None), 0x159620: ('p', None), 0x159970: ('p', None), 0x159E70: ('p', None),
     0x183C40: ('pp', None), 0x1B18F0: ('ppp', 'i'), 0x1BC960: ('p', None), 0x1BD560: ('p', None),
     0x1BDFC0: ('p', None), 0x1C48C0: ('p', None), 0x1C4960: ('p', None), 0x1C4AF0: ('p', None),
@@ -977,6 +978,33 @@ def cases_1582E0(rng):
 R_USE = (0, 1, 2, 3, 4, -1, UPPER, 2 | UPPER)
 
 
+def react_writes(node, r):
+    """Bytes that make 00157860 answer r (0..3): +0x0B bits, D_00810C7F and
+    the battery bytes D_00810CB7 / D_00810CB2 (equal only for r = 2)."""
+    b, c7f = {0: (0, 0), 1: (4, 1), 2: (4, 0), 3: (5, 1)}[r]
+    return [W8(node + 0x0B, b), W8(0x810C7F, c7f), W8(0x810CB7, 3), W16(0x810CB2, 3 if r == 2 else 4)]
+
+
+def cases_157860(rng):
+    out = []
+    for beat, node in (('r03', PANEL24), ('a00', PANEL)):
+        for b in (0, 1, 4, 5):
+            for k in (0, 1):
+                for t in (0x2C, 0x24):
+                    for c7f in (0, 1):
+                        for eq in (0, 1):
+                            for b4 in ((0.0, 99.0) if t == 0x2C and k == 0 and not (b & 1) else (0.0,)):
+                                if not (b & 4) and (k or t != 0x2C or c7f or eq or b4):
+                                    continue
+                                w = [W8(node + 0x0B, b), W8(node + 3, t), W8(0x810C7F, c7f), W8(0x810CB7, 3),
+                                     W16(0x810CB2, 3 if eq else 0x103), WF(node + 0xB4, b4),
+                                     WF(0x810354, 1.5), W8(node + 0x0A, 0x77)]
+                                out.append(case(f'157860 {beat} b {b} k {k} t {t:x} c {c7f} eq {eq} b4 {b4}',
+                                                0x157860, [node, node + 0x1F0, k], beat=beat, writes=w,
+                                                pin=beat == 'r03' or b == 4))
+    return out
+
+
 def cases_158EC0(rng):
     out = []
     node = PANEL
@@ -995,11 +1023,14 @@ def cases_158EC0(rng):
                                 pin=t in (0x14, 0x22)))
     # state 1
     for sub in range(9):
-        for r in (R_USE if sub == 0 else (0, 1, UPPER)):
+        for r in ((0, 1, 2, 3) if sub == 0 else (0, 1, UPPER)):
             for a in ((0, 1) if sub in (1, 6) else (0,)):
                 for h in ((0, SCR + 0x200) if sub == 2 else (0,)):
                     w = sw(node, 1, sub) + [W8(node + 0x0A, a), W32(node + 0x20, h), W8(SCR + 0x204, 0x77)]
-                    script = {0x157860: [r]} if sub == 0 else {0x1BA1F0: [r]}
+                    # sub 0: 00157860 (translated, run as code) answers r by
+                    # its +0x0B bits and D_00810C7F (k = 1).
+                    w += react_writes(node, r) if sub == 0 else []
+                    script = {} if sub == 0 else {0x1BA1F0: [r]}
                     out.append(case(f'158EC0 st1 sub {sub} r {r:#x} a {a} h {h:x}', 0x158EC0, [node], beat='a00',
                                     writes=w, script=script, pin=r in (0, 1, 2, 3) and sub < 8))
     for st in (2, 3, 4, 0xFF):
@@ -1027,13 +1058,14 @@ def cases_159210(rng):
                                 pin=t in (0x2C, 0x24)))
     # state 1
     for sub in range(9):
-        for r in (R_USE if sub == 0 else (0, 1, UPPER)):
+        for r in ((0, 1, 2, 3) if sub == 0 else (0, 1, UPPER)):
             for a in ((0, 1) if sub in (1, 6) else (0,)):
-                for t in ((0x2C, 0x24) if sub in (1, 2, 6) else (0x2C,)):
+                for t in ((0x2C, 0x24) if sub in (0, 1, 2, 6) else (0x2C,)):
                     for h in ((0, SCR + 0x200) if sub == 2 and t != 0x2C else (0,)):
                         w = sw(node, 1, sub) + [W8(node + 0x0A, a), W8(node + 3, t), W32(node + 0x20, h),
                                                 W8(SCR + 0x204, 0x77)]
-                        script = {0x157860: [r]} if sub == 0 else {0x1BA1F0: [r]}
+                        w += react_writes(node, r) if sub == 0 else []
+                        script = {} if sub == 0 else {0x1BA1F0: [r]}
                         out.append(case(f'159210 st1 sub {sub} r {r:#x} a {a} t {t:x} h {h:x}', 0x159210, [node],
                                         beat='r03', writes=w, script=script, pin=r in (0, 1, 2, 3) and sub < 8))
     for st in (2, 3, 4, 0xFF):
@@ -1498,7 +1530,7 @@ def cases_1CB580(rng):
                  writes=[W32(node + 0x44, 0x7A5000 + i)]) for i, node in enumerate((BED, R1, R2))]
 
 
-MAKERS = (cases_1575E0, cases_157B30, cases_157F30, cases_158050, cases_1582E0, cases_158EC0, cases_159210, cases_159620,
+MAKERS = (cases_1575E0, cases_157860, cases_157B30, cases_157F30, cases_158050, cases_1582E0, cases_158EC0, cases_159210, cases_159620,
           cases_159970, cases_159E70, cases_183C40, cases_1B18F0, cases_1BC960, cases_1BDFC0, cases_1BD560,
           cases_1C48C0, cases_1C4960, cases_1C4AF0, cases_1C4CB0, cases_1C7EB0, cases_1C8140, cases_1CAE40,
           cases_1CAF60, cases_1CB4F0, cases_1CB580)
@@ -1544,7 +1576,7 @@ VPIN = frozenset((
 # branch both ways (a greedy cover over the full sweep's outcomes).
 QUICK_EXTRA = frozenset((
     # killers of the mutants of section 5 that the pinned set alone missed
-    '1582E0 st0 k 7 set 1', '1582E0 st0 k 13 set 0', '158EC0 st1 sub 0 r 0x100000002 a 0 h 0',
+    '1582E0 st0 k 7 set 1', '1582E0 st0 k 13 set 0',
     '159E70 st1 idx -1 cnt 1 k 2', '1BC960 st1 0 sub 0 h 5 t3 0 set 1 b 12 r 0 prestore',
     '1BC960 st2 sub0 set 1 b84 1208', '1C4CB0 t3 2 r 0x0 761 2 h 0', '1C7EB0 st0 lim 1 cb 1caa00',
     '1C7EB0 st0 lim 731 cb 1caa00 fx-after', '1C7EB0 st1 rec 0 0 0 t 0 n 0 cb 1caa00 s 2',

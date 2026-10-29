@@ -104,6 +104,8 @@ int em_area01_model_draw_call(EmArea01ModelDraw *d,uint32_t function,uint32_t no
         rc=em_owner_draw_live_001CB360(&d->owner,d->rgb,node,d->regions,d->region_count);
     } else if(r && function==0x001CAA00u && prepare(d,node,r,0,1)==0) {
         rc=em_owner_draw_live_001CAA00_attached(&d->bank,&d->owner,d->rgb,node,d->regions,d->region_count);
+    } else if(r && function==0x001CAF60u && prepare(d,node,r,0,0)==0) {
+        rc=em_owner_draw_live_001CAF60(&d->bank,&d->owner,d->rgb,node,d->current,d->sp,d->regions,d->region_count);
     } else if(r && function==0x001CACB0u && prepare(d,node,r,0,0)==0) {
         rc=em_owner_draw_live_001CABA0(&d->bank,&d->owner,d->rgb,node);
     }

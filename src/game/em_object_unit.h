@@ -50,7 +50,9 @@ extern "C" {
 #define EM_OBJECT_UNIT_FACE_KERNEL UINT32_C(0x0023C480)  /* 001D3E40's CALL */
 #define EM_OBJECT_UNIT_GS_STATE    UINT32_C(0x00815360)  /* 001D1F80(0, 1, 0): set 1, class 0 */
 #define EM_OBJECT_UNIT_GS_STATE_2  UINT32_C(0x00815A20)  /* 001D1F80(3, 2, 2): set 2, class 2 */
+#define EM_OBJECT_UNIT_GS_STATE_21 UINT32_C(0x00815990)  /* 001D1F80(3, 2, 1): set 2, class 1 */
 #define EM_OBJECT_UNIT_SKIN_3      UINT32_C(0x00816B40)  /* 001D3900's skin record (+0x80 per slot) */
+#define EM_OBJECT_UNIT_SKIN_3_FOG  UINT32_C(0x00816D40)  /* 001D3A30's (AREA02's 001CAE40) */
 #define EM_OBJECT_UNIT_SKIN_3_CLIP UINT32_C(0x00816E40)  /* 001D3CF0's */
 #define EM_OBJECT_UNIT_ARENA       UINT32_C(0x00814220)  /* *D_00275674: the arena's first qword */
 /* 001C7420 writes at most 0x1B0 / 8 = 54 nodes before the rows would reach
@@ -109,8 +111,14 @@ int em_object_unit_gs_state_check(const uint8_t *bytes, const char **why);
  * CLAMP_1 0, COLCLAMP 1 and a PRIM the template overrides; the bytes of
  * every AREA11 capture (tools/test_object_unit_reference.py). */
 int em_object_unit_gs_state_check_2(const uint8_t *bytes, const char **why);
-/* The GS register values of class `gs_class` (0 or 2) the page path draws
- * with (EM_GFX_GS_* of em_gfx.h): alpha, test, tex1, clamp, colclamp. */
+/* The same for 001D1F80(3, 2, 1)'s REF (set 2, class 1, D_00815990): as
+ * class 2 but ALPHA_1 0x44; the bytes of the AREA02 captures
+ * (tools/test_object_unit_reference.py section K1). */
+int em_object_unit_gs_state_check_21(const uint8_t *bytes, const char **why);
+/* The GS register values of class `gs_class` (0, 1 or 2) the page path draws
+ * with (EM_GFX_GS_* of em_gfx.h): alpha, test, tex1, clamp, colclamp. Class 1
+ * (001D1F80(3, 2, 1), set 2 class 1 at D_00815990) differs from class 2 only
+ * in ALPHA_1 0x44 ((Cs - Cd) * As >> 7 + Cd); the captured AREA02 bytes. */
 void em_object_unit_gs_state(uint32_t gs_class, uint64_t *alpha, uint64_t *test, uint64_t *tex1,
                              uint64_t *clamp, uint64_t *colclamp);
 

@@ -981,7 +981,11 @@ typedef struct {
                                         / D_00816E40 (PRIM 0x07C / 0x07B: ABE, the
                                         FIX 0x80 additive blend, no Z write), drawn
                                         on the chain page (CHAIN_PAGE.md section 6),
-                                        never by em_gfx_object_unit */
+                                        never by em_gfx_object_unit; 1, AREA02's
+                                        001D1F80(3, 2, 1) set 2 class 1 and the
+                                        skin records D_00816D40 / D_00816E40 (ABE,
+                                        ALPHA 0x44, no Z write), on the chain page
+                                        as class 2 */
 } EmGfxObjectUnit;
 int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
 
