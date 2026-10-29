@@ -27,6 +27,38 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### 2026-10-29 (drawbridge 492d8f7 merged): a01r_02 reached
+
+**`EM_START_AT=area01-revisit` with the a01r pad and path now plays
+a01r_00, a01r_01 and a01r_02 to the pad script's end without a fault**
+(about 560 s headless): D_008107DF / D_0081075F 0xFF and control at pad
+frame 9600, the bridge script 0x82B0D0 (D_008107E0 0xE0, then 0xFF,
+D_00810760 0xFF) and control back by pad frame 10500. A discovery run
+from the start-point save, not a row-by-row comparison.
+
+The "op07 slowdown" of the entry below was not frame time. At op07 the
+event reaches the item 0x20 status page, which is frame-machine state 3:
+its frames run no world-frame head, so EM_START_AT_PAD's clock (stepped
+there) stopped and the recorded Triangle that closes the page never came;
+the GS head probes of those frames were all the profile showed. Measured
+with temporary instrumentation (not committed): no primitive over 20 ms,
+1 ms per kick, every kick on the no-picture path. Fixed in the discovery
+aid (0571221): the clock also steps at the close-out of a frame without a
+world-frame head, and EM_START_AT_PATH steers and holds only while the
+player has control.
+
+Bound on the way (commits on `revisit`): EM_START_AT refuses EM_RAND_REPLAY
+(f20aa9c); effect handler 001ECEF0 (em_area02_misc, descriptors
+D_00257090 / D_00257120 exported, test_area01_effect_ecef0_reference.py,
+96 chains equal) and D_0081070A in the aim/fire views for the spat hazard
+001E2E80 (21c5e1a); 001798D0 for the bridge script's op0A sub 8, and
+D_0028A580 (the retained player bank, the Roger export's word) for its op0A
+sub 2, whose 0 had made 00183090's bone_init fail (8d85d8a).
+
+Known pre-existing test breakage seen (not from these changes):
+test_area01_scratch_alias.py does not compile (tests/area01_scratch_alias_test.c,
+a missing spad3B50 initializer).
+
 ### 2026-10-28, night (drawbridge 1e20998 merged: every slot-0xFFF pass)
 
 **The revisit now plays the whole camera cinematic of 0x82AD90 and stops
