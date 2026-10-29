@@ -9,6 +9,7 @@
 #include "game/em_scene_bindings.h"
 #include "game/em_spawn_table.h"
 #include "game/em_stream_live.h"
+#include "game/em_start_at.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -145,10 +146,17 @@ static void fail(const char *reason)
  * those rows with the original's skip captures. Only input is driven; the
  * record is read, never written. The fixture fails when the run ends
  * before control returned (a fault stops the game), or when control does
- * not return within 120 frames of the promotion. */
+ * not return within 120 frames of the promotion.
+ * A loaded game (EM_START_AT, em_game_install_loaded_001AC070) begins the
+ * fixture too: EM_SKIP_SCENE=N counts the rises from the load, START
+ * reaches the game through the pad script's filter (em_start_at.c ORs the
+ * test buttons in), and the run quits EM_SKIP_RUN frames after control.
+ * Every rise of 3B91 to 1 is logged with the area bytes ("skippable scene
+ * N begins"), and the story bytes (the flags D_00810758..760, the counters
+ * D_008107D8..7E7) are printed at control and at the run's end. */
 enum { SKIP_HOLD = 2, SKIP_PRE = 2, SKIP_AFTER_CONTROL = 8, SKIP_CONTROL_LIMIT = 120 };
 static struct {
-    int active, opening_run, failed, passed;
+    int active, opening_run, quit_run, failed, passed;
     int scene, delay, run_after;       /* EM_SKIP_SCENE, EM_SKIP_DELAY, EM_SKIP_RUN */
     int rises, prev3B91, armed_frame, press_frame, released;
     int promo_frame, control_frame, end_frame, prev_frame;
@@ -178,6 +186,9 @@ static void skip_begin(void)
     const char *value = getenv("EM_STARTUP_TEST");
     skip.opening_run = value && strcmp(value, "newgame-skip") == 0;
     skip.scene = skip.opening_run ? 1 : skip_env("EM_SKIP_SCENE", 0);
+    /* The opening run and a loaded game's (EM_START_AT) quit EM_SKIP_RUN
+     * frames after control; under the level smoke the route goes on. */
+    skip.quit_run = skip.opening_run || em_start_at_name() != NULL;
     skip.active = skip.scene > 0;
     skip.delay = skip_env("EM_SKIP_DELAY", skip.scene == 1 ? 0 : 10);
     skip.run_after = skip_env("EM_SKIP_RUN", 120);
@@ -202,12 +213,33 @@ static void skip_format(char *out, size_t size)
              (unsigned)rec_w(0xC4), cam ? (int)*cam : -1);
 }
 
+/* The story bytes a skip's landing and the scene's owner leave: the event
+ * flags D_00810758..760, the counters D_008107D8..7E7 and the area bytes
+ * D_00810700..701, compared with the original's skip captures. */
+static void skip_story(const char *at)
+{
+    const uint8_t *flags = em_scene_progress_at(em_scene_state(), 0x00810758u, 9);
+    const uint8_t *story = em_scene_progress_at(em_scene_state(), 0x008107D8u, 16);
+    const uint8_t *area = em_scene_progress_at(em_scene_state(), 0x00810700u, 2);
+    char out[80] = "", *o = out;
+    for (unsigned i = 0; flags && i < 9; ++i) o += sprintf(o, "%02x", flags[i]);
+    o += sprintf(o, " story=");
+    for (unsigned i = 0; story && i < 16; ++i) o += sprintf(o, "%02x", story[i]);
+    fprintf(stderr, "skip state: scene=%d at=%s frame=%d flags=%s area=%02x%02x\n", skip.scene, at,
+            g.frame_no, out, area ? area[0] : 0xFFu, area ? area[1] : 0xFFu);
+}
+
 /* Before the frame: arm, press and release. */
 static void skip_before_frame(void)
 {
     if (!skip.active || skip.failed || skip.control_frame >= 0) return;
     uint8_t b91 = em_scene_state()->spad3B91;
-    if (b91 == 1 && skip.prev3B91 != 1) ++skip.rises;
+    if (b91 == 1 && skip.prev3B91 != 1) {
+        ++skip.rises;
+        const uint8_t *area = em_scene_progress_at(em_scene_state(), 0x00810700u, 3);
+        fprintf(stderr, "cutscene skip: skippable scene %d begins at frame %d (area %02x %02x %02x)\n",
+                skip.rises, g.frame_no, area ? area[0] : 0xFFu, area ? area[1] : 0xFFu, area ? area[2] : 0xFFu);
+    }
     skip.prev3B91 = b91;
     if (skip.armed_frame < 0 && skip.rises == skip.scene && b91 == 1 &&
         em_frame_transition()->substate == 0) {
@@ -262,21 +294,23 @@ static void skip_after_frame(void)
             skip.end_frame = g.frame_no + skip.run_after;
             fprintf(stderr, "cutscene skip: control at frame %d (promotion + %d), +0x20C was -1 "
                     "on %d sample(s)\n", g.frame_no, rel, skip.clip_minus1);
+            skip_story("control");
         } else if (rel > SKIP_CONTROL_LIMIT) {
             skip_fail("control did not return after the skip");
         }
         return;
     }
     if (skip.clip_bad) {skip_fail("+0x20C left the clip rows -1..458");return;}
-    if (skip.opening_run && g.frame_no < skip.end_frame) return;
-    if (skip.opening_run || g.frame_no >= skip.control_frame + SKIP_AFTER_CONTROL) {
+    if (skip.quit_run && g.frame_no < skip.end_frame) return;
+    if (skip.quit_run || g.frame_no >= skip.control_frame + SKIP_AFTER_CONTROL) {
+        skip_story("end");
         const uint8_t *event39 = em_scene_progress_at(em_scene_state(), 0x00810791u, 1);
         fprintf(stderr, "cutscene skip test: PASS scene=%d press=%d promotion=%d control=%d "
                 "(promotion + %d) ran_to=%d event39=%u\n", skip.scene, skip.press_frame,
                 skip.promo_frame, skip.control_frame, skip.control_frame - skip.promo_frame,
                 g.frame_no, event39 ? *event39 : 0u);
         skip.passed = 1;
-        if (skip.opening_run) em_frame_request_quit();
+        if (skip.quit_run) em_frame_request_quit();
     }
 }
 

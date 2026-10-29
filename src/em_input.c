@@ -98,6 +98,7 @@ void em_input_set_gamepad(const EmPadState *gp)
 static uint16_t s_test_buttons;
 
 void em_input_set_test_buttons(uint16_t buttons) { s_test_buttons = buttons; }
+uint16_t em_input_test_buttons(void) { return s_test_buttons; }
 
 static EmInputFilter s_filter;
 static void *s_filter_user;

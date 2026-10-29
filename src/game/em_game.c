@@ -1646,6 +1646,7 @@ int em_game_install_loaded_001AC070(void)
         return -1;
     }
     game_install_state();
+    em_opening_control_test_begin();
     return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
 }
 

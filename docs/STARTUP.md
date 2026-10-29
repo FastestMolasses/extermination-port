@@ -407,6 +407,8 @@ start-point save through the original's own load path. Off by default
 | `area00` | AREA00, the arrival from AREA01 | `build/start_saves/area00` |
 | `area01-revisit` | AREA01 again, the arrival from AREA00 | `build/start_saves/area01-revisit` |
 | `area02` | AREA02 sub 1, the arrival through the revisit's door [16] (a01r_03) | `build/start_saves/area02` |
+| `a02_01` .. `a02_05` | AREA02 sub 0, where route_a02's beat starts (discovery runs) | `build/start_saves/<name>` |
+| `a01_03`, `a01_05`, `a01_s7`, `a01_07`, `a00_01`, `a00_04`, `a01r_01` | where that route beat starts (its source state; the cutscene skip runs, docs/AREA_SCRIPT.md "The skip path") | `build/start_saves/<name>` |
 
 The cards are the start-point saves `make start-saves` builds with the
 original save writer (docs/SAVE_GAME.md section 7); they are disc- and
@@ -488,7 +490,12 @@ recording-derived and stay in the ignored `build/`.
   `EM_LEVEL_SMOKE_PAGES_CAPTURE`, `EM_LEVEL_SMOKE_PAGES_DEBUG`,
   `EM_LEVEL_SMOKE_PAGE_CAPTURE`, `EM_LEVEL_SMOKE_PHASE_CAPTURE`,
   `EM_REPLAY_AUDIO`, `EM_REPLAY_CAPTURE`, `EM_REPLAY_CAPTURE_EVERY`,
-  `EM_REPLAY_MAX_OVERRUN`, `EM_AUDIO_FILE`. `EM_CARRY_TEST` and
+  `EM_REPLAY_MAX_OVERRUN`, `EM_AUDIO_FILE`; and the cutscene skip
+  fixture's `EM_SKIP_SCENE`, `EM_SKIP_DELAY` and `EM_SKIP_RUN`
+  (`tools/test_cutscene_skip.py`, docs/AREA_SCRIPT.md "The skip path"): in
+  a loaded game it presses only START, through the test buttons, which the
+  pad script's filter ORs into its command, and quits `EM_SKIP_RUN` frames
+  after control. `EM_CARRY_TEST` and
   `EM_BLOCKER_TEST` are load-time self-tests (em_collision.c's
   constructor): they run and exit before main, so the switch is never read.
 - **Test instrumentation:** `EM_START_AT_TEST=1` (headless) prints the

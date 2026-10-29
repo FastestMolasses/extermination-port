@@ -31,6 +31,13 @@ static const struct {
     {"a02_03", 0x02},
     {"a02_04", 0x02},
     {"a02_05", 0x02},
+    {"a01_03", 0x01},
+    {"a01_05", 0x01},
+    {"a01_s7", 0x01},
+    {"a01_07", 0x01},
+    {"a00_01", 0x00},
+    {"a00_04", 0x00},
+    {"a01r_01", 0x01},
 };
 
 static struct {
@@ -379,7 +386,8 @@ int em_start_at_check(void)
         if (strcmp(k_points[i].name, v) == 0) s.name = k_points[i].name;
     if (!s.name) {
         s.name = "";
-        return refuse("an unknown start point (area01, area00, area01-revisit, area02, a02_01 .. a02_05)", NULL);
+        return refuse("an unknown start point (area01, area00, area01-revisit, area02, a02_01 .. a02_05, "
+                             "a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01)", NULL);
     }
     const char *ng = getenv("EM_NEW_GAME");
     if (ng && ng[0] && strcmp(ng, "0") != 0)
@@ -443,11 +451,14 @@ const char *em_start_at_name(void) { return s.on ? s.name : NULL; }
 const char *em_start_at_card_root(void) { return s.on ? s.root : NULL; }
 int em_start_at_report(void) { return s.on && s.report; }
 
-/* The pad script's filter: the whole pad is the script's command. */
+/* The pad script's filter: the whole pad is the script's command, with
+ * the test buttons ORed in as em_input_pad does before the filter (the
+ * cutscene skip fixture's START, em_opening_control_test.c). */
 static void pad_filter(EmPadState *out, void *user)
 {
     (void)user;
     *out = pad.now;
+    out->buttons |= em_input_test_buttons();
 }
 
 void em_start_at_pad_control(unsigned counter)

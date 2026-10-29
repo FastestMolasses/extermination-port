@@ -82,6 +82,7 @@ COMPATIBLE = {
     'EM_LEVEL_SMOKE_PAGES_CAPTURE', 'EM_LEVEL_SMOKE_PAGES_DEBUG', 'EM_LEVEL_SMOKE_PAGE_CAPTURE',
     'EM_LEVEL_SMOKE_PHASE_CAPTURE', 'EM_REPLAY_AUDIO', 'EM_REPLAY_CAPTURE', 'EM_REPLAY_CAPTURE_EVERY',
     'EM_REPLAY_MAX_OVERRUN', 'EM_AUDIO_FILE',                             # only under a refused fixture
+    'EM_SKIP_SCENE', 'EM_SKIP_DELAY', 'EM_SKIP_RUN',                      # the cutscene skip fixture (START only)
 }
 # Load-time self-tests (em_collision.c's constructor): they run and exit
 # before main, so the switch is never read and no frame runs.

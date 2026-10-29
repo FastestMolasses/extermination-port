@@ -36,10 +36,33 @@ the port in every run (an open item, AREA_SCRIPT.md "The skip path"; a
 sampling offset does not explain it), while the landing that waits on it
 runs on the same frame in both.
 
-Default run (about 7 s): the opening, START on the first accepting frame.
-EM_TEST_FULL=1 adds the opening 45 frames later and the four skippable
-route scenes (director beats 0..2 and Roger's encounter, each a level-smoke
-run through roger, about 2 min; run in parallel).
+The later levels (lane K1, 2026-10-29): the skips of AREA01 (the NPC's
+three conversations 0x829E60 / 0x829FA0 / 0x82A660 and the shaft door's
+0x8298E0), AREA00 (the arrival 0x828D60, door [51]'s 0x8294E0, the cage
+terminal's scene) and the AREA01 revisit's event, compared with the
+original's skips recorded on the debugging fork (the same folder,
+CAPTURE_README.md "Later levels"; each pressed START 10 frames after the
+first accepting frame of its route beat). Most run from a loaded game
+(EM_START_AT=<start point>, the beat's recorded pad as EM_START_AT_PAD with
+its path as EM_START_AT_PATH; the skip fixture runs in a loaded game too
+and quits 300 frames after control). A loaded game is not the recording's
+state (its timers, rand(), the camera the stick is read against), so the
+position and the facing are not compared; every other field is, row by row,
+plus the event flags D_00810758..760 and the counters D_008107D8..7E7 at
+control and 300 frames later, which must be the original's bytes. Door
+[51]'s pad starts 90 frames late: after a load the player takes no stick
+input for the post-control lock, and the beat's first stick turn must land.
+AREA01's 0x8298E0 and 0x829FA0 run on the AREA01 route harness from New
+Game instead (their beats' first presses miss from a loaded game), compared
+as the AREA11 route scenes plus the story bytes at control.
+
+Default run (about 12 s): the opening, START on the first accepting frame,
+and in parallel four loaded skips: the NPC's first and third conversations,
+the AREA00 arrival and door [51]. EM_TEST_FULL=1 adds the opening 45 frames
+later, the four skippable AREA11 route scenes (director beats 0..2 and
+Roger's encounter, each a level-smoke run through roger), the cage terminal
+and the revisit's event from loaded games, and AREA01's 0x8298E0 and
+0x829FA0 on the route harness (several minutes; run in parallel).
 """
 import json
 import os
@@ -53,6 +76,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import reference_mode  # noqa: E402
+import level_smoke_area00 as a00  # noqa: E402
+import level_smoke_area01 as a01  # noqa: E402
+import level_smoke_area01r as a01r  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -72,6 +98,26 @@ FULL_RUNS = [
        'EM_SKIP_DELAY': '10'})
      for n, name in ((2, '10_cage_roof_roger'), (3, '11_crevice_prompt'), (4, '13_east_tower'),
                      (5, '14_roger_encounter'))]
+
+# Loaded-game skips: (label, capture, start point, pad set, beat, pad delay,
+# steer: EM_START_AT_PATH from the recording; a01_s7 starts at the NPC and
+# a00_04 at its terminal, and their recorded pads reach the scene alone,
+# where the path's steering changed the player's clip before the Use).
+LOADED = [
+    ('AREA01 NPC first talk (a01_s0)', 'a01_s0_npc_first_talk/skip_armed_plus10', 'area01', 'area01', 'a01_s0', 0, True),
+    ('AREA01 NPC third talk (a01_s7)', 'a01_s7_npc_third_talk/skip_armed_plus10', 'a01_s7', 'area01', 'a01_s7', 0, False),
+    ('AREA00 arrival (a01_07)', 'a00_arrival/skip_armed_plus10', 'a01_07', 'area01', 'a01_07', 0, True),
+    ('AREA00 door [51] (a00_01)', 'a00_01_door51_locked/skip_armed_plus10', 'a00_01', 'area00', 'a00_01', 90, True),
+]
+FULL_LOADED = [
+    ('AREA00 cage terminal (a00_04)', 'a00_04_cage_terminal/skip_armed_plus10', 'a00_04', 'area00', 'a00_04', 0, False),
+    ('AREA01 revisit event (a01r_01)', 'a01r_01_event/skip_armed_plus10', 'a01r_01', 'area01r', 'a01r_01', 0, True),
+]
+# AREA01 route scenes on the AREA01 harness (New Game, the recorded pads):
+# the 6th and 7th rises of 3B91 to 1 from New Game.
+FULL_AREA01 = [(f'AREA01 route scene {n} ({beat})', f'{name}/skip_armed_plus10', n, beat)
+               for n, beat, name in ((6, 'a01_03', 'a01_03_shaft_locked'), (7, 'a01_05', 'a01_05_npc_bridge_talk'))]
+SKIP_RUN = 300                       # frames after control a loaded run goes on (EM_SKIP_RUN)
 
 SAMPLE = re.compile(r'^skip sample: scene=(\d+) rel=(-?\d+) frame=(\d+) (.*)$')
 
@@ -112,6 +158,56 @@ def native_rows(log):
     return rows
 
 
+STATE = re.compile(r'^skip state: scene=\d+ at=(control|end) frame=\d+ flags=([0-9a-f]+) story=([0-9a-f]+) '
+                   r'area=([0-9a-f]+)$', re.M)
+
+
+def native_state(log):
+    return {m.group(1): (m.group(2), m.group(3)) for m in STATE.finditer(log)}
+
+
+def capture_state(name):
+    """The flags D_00810758..760 and the counters D_008107D8..7E7 at control and
+    SKIP_RUN rows later in the original's capture."""
+    trace = json.loads((CAPTURES / name / 'trace.json').read_text())
+    by_f = {row['f']: row for row in trace['rows']}
+    out = {}
+    for at, f in (('control', trace['control_f']), ('end', trace['control_f'] + SKIP_RUN)):
+        if f in by_f:
+            out[at] = (by_f[f]['flags'][16:34], by_f[f]['story'])
+    return out
+
+
+# The recorded pads (the level smoke harnesses' export of the fork
+# recordings) and the recordings the paths come from.
+PAD_SETS = {'area01': lambda out: a01.prepare_pads(out, True), 'area00': a00.prepare_pads,
+            'area01r': a01r.prepare_pads}
+CAPTURE_OF = {'area01': a01.capture_path, 'area00': a00.capture_path, 'area01r': a01r.capture_path}
+
+
+def prepare_inputs(runs, routes):
+    """Each loaded run's pad and path ("f x z" per recorded row), delayed by
+    its pad delay (a neutral pad and the first position before it)."""
+    sets = {r[3] for r in runs} | ({'area01'} if routes else set())
+    for name in sets:
+        PAD_SETS[name](LANE / 'pads' / name)
+    inputs = {}
+    for label, _capture, _point, pads, beat, delay, _steer in runs:
+        pad = (LANE / 'pads' / pads / f'{beat}.pad').read_text().splitlines()
+        rows = json.loads(CAPTURE_OF[pads](beat).read_text())['rows']
+        head = pad[0].split()
+        head[2] = str(int(head[2]) + delay)
+        lines = [' '.join(head)] + (['0 0 127 127'] if delay else [])
+        lines += [' '.join([str(int(r.split()[0]) + delay)] + r.split()[1:]) for r in pad[1:]]
+        path = [f"{f} {rows[0]['pos'][0]!r} {rows[0]['pos'][2]!r}" for f in range(delay)]
+        path += [f"{r['f'] + delay} {r['pos'][0]!r} {r['pos'][2]!r}" for r in rows]
+        stem = LANE / 'pads' / f'{beat}_skip'
+        stem.with_suffix('.pad').write_text('\n'.join(lines) + '\n')
+        stem.with_suffix('.path').write_text('\n'.join(path) + '\n')
+        inputs[label] = (stem.with_suffix('.pad'), stem.with_suffix('.path'))
+    return inputs
+
+
 def run(label, env_extra):
     LANE.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, EM_UNCAPPED='1', **env_extra)
@@ -147,7 +243,8 @@ def compare(label, capture, env_extra):
     if 'cutscene skip test: PASS' not in log: problems.append('no "cutscene skip test: PASS" line')
     faults = [line for line in log.splitlines() if 'worker fault' in line or 'FAIL' in line]
     problems += [f'log: {line}' for line in faults[:3]]
-    if env_extra['EM_STARTUP_TEST'] == 'newgame-level' and 'level smoke: PASS' not in log:
+    loaded = 'EM_START_AT' in env_extra
+    if env_extra.get('EM_STARTUP_TEST') == 'newgame-level' and 'level smoke: PASS' not in log:
         problems.append('the level smoke did not pass after the skip')
     native = native_rows(log)
     original = capture_rows(capture)
@@ -173,7 +270,9 @@ def compare(label, capture, env_extra):
         for field in fields:
             if mine[field] != theirs[field]:
                 problems.append(f'rel {rel} {field}: port {mine[field]!r} original {theirs[field]!r}')
-        if placed and rel >= landing:
+        if loaded:
+            pass        # a loaded game's position and facing are not the recording's
+        elif placed and rel >= landing:
             for field in ('pos', 'yaw'):
                 if mine[field] != theirs[field]:
                     problems.append(f'rel {rel} {field} (placed by the landing): port {floats(mine[field])} '
@@ -189,9 +288,14 @@ def compare(label, capture, env_extra):
         if native.get(rel, {}).get('fade') != want or original.get(rel, {}).get('fade') != want:
             problems.append(f'fade at rel {rel}: port {native.get(rel, {}).get("fade")} '
                             f'original {original.get(rel, {}).get("fade")} (want {want})')
+    if 'flags' in json.loads((CAPTURES / capture / 'trace.json').read_text())['rows'][0]:
+        want, have = capture_state(capture), native_state(log)
+        for at in ('control', 'end') if loaded else ('control',):
+            if have.get(at) != want.get(at):
+                problems.append(f'story bytes at {at}: port {have.get(at)} original {want.get(at)}')
     minus1 = [r for r in sorted(native) if native[r]['clip'] == -1]
     note = (f'{compared} rows, control +{nc}, +20C -1 at rel {minus1}, '
-            f'{"placed by the landing" if placed else "not moved by the landing"}, '
+            f'{"position not compared (loaded game)" if loaded else "placed by the landing" if placed else "not moved by the landing"}, '
             f'fade 3->2 at rel {fade_step(native, 2)} (original {fade_step(original, 2)})')
     return label, problems[:12], seconds, log_path, note
 
@@ -202,7 +306,21 @@ def main():
         sys.exit(f'{BIN} is missing (make all)')
     if not (CAPTURES / OPENING[1] / 'trace.json').exists():
         sys.exit(f'{CAPTURES} is missing the original skip captures')
+    loaded = LOADED + (FULL_LOADED if reference_mode.FULL else [])
+    routes = FULL_AREA01 if reference_mode.FULL else []
+    for label, capture, *_ in loaded + routes:
+        if not (CAPTURES / capture / 'trace.json').exists():
+            sys.exit(f'{CAPTURES / capture} is missing (CAPTURE_README.md "Later levels")')
+    inputs = prepare_inputs(loaded, routes)
     runs = [OPENING] + (FULL_RUNS if reference_mode.FULL else [])
+    runs += [(label, capture, {'EM_START_AT': point, 'EM_START_AT_PAD': str(inputs[label][0]),
+                               'EM_SKIP_SCENE': '1', 'EM_SKIP_DELAY': '10', 'EM_SKIP_RUN': str(SKIP_RUN),
+                               'EM_HEADLESS': '1', **({'EM_START_AT_PATH': str(inputs[label][1])} if steer else {})})
+             for label, capture, point, _pads, _beat, _delay, steer in loaded]
+    runs += [(label, capture, {'EM_STARTUP_TEST': 'newgame-level', 'EM_LEVEL_SMOKE_UNTIL': beat,
+                               'EM_LEVEL2_PAD_DIR': str(LANE / 'pads/area01'), 'EM_SKIP_SCENE': str(n),
+                               'EM_SKIP_DELAY': '10'})
+             for label, capture, n, beat in routes]
     with ThreadPoolExecutor(max_workers=len(runs)) as pool:
         results = list(pool.map(lambda r: compare(*r), runs))
     failed = 0
@@ -213,7 +331,8 @@ def main():
         for problem in problems:
             print(f'    {problem}')
         if problems: print(f'    log: {log_path}')
-    reference_mode.banner(reference_mode.part(len(runs), 1 + len(FULL_RUNS), 'skip runs'))
+    reference_mode.banner(reference_mode.part(len(runs), 1 + len(FULL_RUNS) + len(LOADED) + len(FULL_LOADED) +
+                                              len(FULL_AREA01), 'skip runs'))
     verdict = 'FAIL' if failed else 'PASS'
     print(f'cutscene skip: {verdict} {len(runs) - failed}/{len(runs)} runs agree with the original '
           f'captures ({time.time() - start:.1f} s)')

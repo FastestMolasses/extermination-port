@@ -310,6 +310,79 @@ exercised: the manager 008257A0's 0x829E80 and Roger's armed talk 0x828810 (both
 skippable, ending in op18; no route beat reaches them) and the level
 exit's departure movie (a movie skip, not a 3B91 skip).
 
+### The skip path in the later levels (lane K1, 2026-10-29)
+
+The user reported that skipping worked in AREA11 but crashed the game in the
+next area. On drawbridge b8964ba no skip of the first three levels faults:
+
+- **Inventory** (every rise of 3B91 to 1 on the whole-run route New Game ..
+  a02_00, logged by the fixture's "skippable scene N begins" line, plus the
+  side beats; the skip rule is 001AE6B0's, the same in every area: START or
+  SELECT while 3B91 == 1 and D_0028A9A0 == 0):
+
+  | N | Where | Script (owner) | Rise / first accepting row (fork beat) | Control after the promotion |
+  |---|---|---|---|---|
+  | 1 | AREA11 opening | 0x828FC0 | see above | +34 |
+  | 2..4 | AREA11 director beats 0..2 | 0x8294C0 / 0x829A40 / 0x829CC0 | see above | +36 / +35 / +35 |
+  | 5 | AREA11 Roger's encounter | 0x8283D0 | see above | +35 |
+  | 6 | AREA01 a01_03, after the locked shaft door | 0x8298E0 | 297 / 297 | +35 |
+  | 7 | AREA01 a01_05, the NPC's second talk | 0x829FA0 | 135 / 135 | +34 |
+  | side | AREA01 a01_s0 / a01_s7, the NPC's first / third talk | 0x829E60 / 0x82A660 | 565 / 565, 153 / 153 | +34 / +34 |
+  | 8 | AREA00 arrival (in a01_07, after the area load) | 0x828D60 | 543 / 605 (the arrival's fade) | +36 |
+  | 9 | AREA00 a00_01, door [51] locked | 0x8294E0 | 322 / 322 | +35 |
+  | 10 | AREA00 a00_04, the cage terminal | (rise f996) | 996 / 996 | +37 |
+  | 11 | AREA01 revisit a01r_01, the event (after E008S4) | (rise f1137) | 1137 / 1139 | +35 |
+
+  No other rise happens through a02_00: the revisit's other event scripts,
+  the bridge script 0x82B0D0 (a01r_02), the AREA02 arrival and a02_00 are
+  not skippable (their op07 subcommands do not raise 3B91). The movies
+  (E900 on the title and at New Game, the departure E001, AREA00's E006S1
+  and E007, the revisit's E008S4) skip on START by 002036E0's rule
+  (em_frontend.c, docs/GS_EXACT.md 10.4); the whole-run route skipped
+  every one through a02_00 without a fault, and START held across E008S4
+  in a loaded a01r_01 (the press still down when the game resumes) skips
+  it and the event goes on.
+- **The original's skips**, recorded on the debugging fork from each beat's
+  source state with the recorded inputs, START 10 frames after the first
+  accepting row (decomp `build/startup-reference/cutscene_skip/`, its
+  CAPTURE_README.md "Later levels"). The flags D_00810758..760 and the
+  counters D_008107D8..7E7 the landing and the scene's owner leave are on
+  the control row and unchanged 300 frames later (a01r_01: D_008107DF =
+  0xFF, D_0081075F = 0xFF and the item-0x20 request D_008106B0 = 1 on the
+  control row, the status page opening three rows later).
+- **The port's skips** (`make test-cutscene-skip`): every scene above
+  agrees row for row on 3B91, 3B8D, the player's +4/+5/+1F0/+20C/+2F3/+34/
+  +204 and D_008101E4, control on the same row after the promotion, the
+  fade substate on the promotion's next row and the control row, and the
+  story bytes. Scenes 6 and 7 run on the AREA01 route harness from New Game
+  (rows exact before the press, so the position and facing are compared as
+  for the AREA11 route scenes); the others run from loaded games at new
+  start points (`EM_START_AT=a01_s7`, `a01_07`, `a00_01`, `a00_04`,
+  `a01r_01`, and `area01` for a01_s0; tools/build_start_saves.py), whose
+  state is not the recording's, so their position and facing are not
+  compared. Door [51]'s pad starts 90 frames late (after a load the stick
+  does nothing during the post-control lock, and the beat's first stick
+  turn must land). The same skips at other press points (accepting frame
+  + 0 .. + 6000, 25 runs over a01_s0, the arrival, a00_04 and a01r_01; + 250 in
+  0x8298E0, + 1000 in 0x829FA0), under EM_NEW_GAME=1 and at host speed,
+  all reached control without a fault (discovery runs, not compared).
+- **Two sampling notes.** The fixture samples once per world frame: frames
+  that run no world-frame head (frame-machine state 3, a status page) are
+  not sampled, so after a01r_01's skip the port's fade substate reads 0 one
+  sample after control while the capture's rows show 1 for three rows; a
+  trace of 0x1AE040 shows the same three passes (the classifier's page
+  request, state 3 sub-step 0, the page's 001AED80) between those two
+  samples. The fade substate's 3 -> 2 step one row late (above) is the
+  same in all eight new scenes.
+- **What was changed:** test instrumentation only. The skip fixture begins
+  in a loaded game as well (em_game_install_loaded_001AC070), the pad
+  script's filter ORs the test buttons in (it replaced the whole pad, so a
+  fixture's START never reached a loaded game), the fixture logs every
+  skippable scene and the story bytes; the seven start points. No game
+  module changed: no skip path in these levels needed a worker that was
+  not bound already. The reported crash could not be reproduced on this
+  branch.
+
 Environment used by both tests: services outside the scripts (transition
 substate, message completion, stream readiness, camera cursor, animation-done
 bit, skip promotion, callbacks) are one scripted environment applied to both

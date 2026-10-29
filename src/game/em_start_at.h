@@ -18,7 +18,10 @@
  * handoff.
  *
  * The names: area01 (AREA01's arrival from AREA11), area00 (AREA00's
- * arrival from AREA01) and area01-revisit (AREA01 again, from AREA00). */
+ * arrival from AREA01), area01-revisit (AREA01 again, from AREA00), area02
+ * (AREA02's arrival), and a route beat's start (its source state):
+ * a02_01 .. a02_05 (discovery runs) and a01_03, a01_05, a01_s7, a01_07,
+ * a00_01, a00_04, a01r_01 (tools/test_cutscene_skip.py's skips). */
 #ifndef EM_START_AT_H
 #define EM_START_AT_H
 

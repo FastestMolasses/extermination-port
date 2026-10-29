@@ -522,9 +522,14 @@ test-level-smoke-ps2-drive: $(BIN)
 
 # test-cutscene-skip: a cutscene skipped in the headless game, frame by
 # frame against the original's skip captures (tools/test_cutscene_skip.py,
-# AREA_SCRIPT.md "The skip path"): the opening by default (about 7 s);
-# EM_TEST_FULL=1 adds a later opening press and the four skippable route
-# scenes, each a level-smoke run through roger (about 2 min in parallel).
+# AREA_SCRIPT.md "The skip path"): by default the opening and, from loaded
+# games (EM_START_AT start points, make start-saves), the NPC's first and
+# third talks in AREA01, the AREA00 arrival and door [51] (about 12 s in
+# parallel; 21 s measured under load); EM_TEST_FULL=1 adds a later opening
+# press, the four skippable AREA11 route scenes (level-smoke runs through
+# roger), the AREA00 cage terminal and the revisit's event from loaded
+# games, and AREA01's shaft door and NPC talk on the AREA01 route harness
+# (about 7.5 min in parallel).
 .PHONY: test-cutscene-skip
 test-cutscene-skip: $(BIN)
 	python3 tools/test_cutscene_skip.py

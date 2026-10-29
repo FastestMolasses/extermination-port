@@ -41,6 +41,10 @@ route's manifest: its first beat's source state):
   a02_01 .. a02_05 the source state of route_a02's beat a02_01 .. a02_05
                    (the previous beat's end, AREA02 sub 0): a loaded game
                    placed where that beat starts (discovery runs)
+  a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01
+                   the source state of that route beat: a loaded game
+                   placed where the beat starts (the cutscene skip runs,
+                   tools/test_cutscene_skip.py)
 
 Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
 host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
@@ -105,6 +109,16 @@ START_POINTS = {
     'a02_03': {'route': 's87/route_a02', 'first': 'a02_03_', 'area': 2},
     'a02_04': {'route': 's87/route_a02', 'first': 'a02_04_', 'area': 2},
     'a02_05': {'route': 's87/route_a02', 'first': 'a02_05_', 'area': 2},
+    # The beats whose skippable scenes tools/test_cutscene_skip.py skips
+    # from a loaded game (docs/AREA_SCRIPT.md "The skip path"): the source
+    # state of each, a loaded game placed where that beat starts.
+    'a01_03': {'route': 's87/route_a01', 'first': 'a01_03_', 'area': 1},
+    'a01_05': {'route': 's87/route_a01', 'first': 'a01_05_', 'area': 1},
+    'a01_s7': {'route': 's87/route_a01', 'first': 'a01_s7_', 'area': 1},
+    'a01_07': {'route': 's87/route_a01', 'first': 'a01_07_', 'area': 1},
+    'a00_01': {'route': 's87/route_a00', 'first': 'a00_01_', 'area': 0},
+    'a00_04': {'route': 's87/route_a00', 'first': 'a00_04_', 'area': 0},
+    'a01r_01': {'route': 's87/route_a01r', 'first': 'a01r_01_', 'area': 1},
 }
 
 

@@ -198,6 +198,9 @@ void em_input_stick_from_round_gate(float x, float y, float deadzone,
  * so a fixture can press START while the level smoke drives the pad.
  * 0 (the default) leaves the snapshot untouched. */
 void em_input_set_test_buttons(uint16_t buttons);
+/* The test buttons em_input_set_test_buttons holds (a filter that replaces
+ * the pad ORs them back in: EM_START_AT_PAD under the skip fixture). */
+uint16_t em_input_test_buttons(void);
 
 void em_input_pad(EmPadState *out);
 
