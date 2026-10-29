@@ -471,8 +471,8 @@ recording-derived and stay in the ignored `build/`.
   the recordings).
 - **Compatible** (every other `EM_*` variable the source reads;
   tools/test_start_at.py checks that each is refused or named here): the
-  host's `EM_HEADLESS`, `EM_UNCAPPED`, `EM_MUTE`, `EM_INPUT_TEST` (prints
-  the pad's changes), the disc-drive timing `EM_PS2_DRIVE_REPLAY` and
+  host's `EM_HEADLESS`, `EM_HEADLESS_RASTER`, `EM_UNCAPPED`, `EM_MUTE`,
+  `EM_INPUT_TEST` (prints the pad's changes), the disc-drive timing `EM_PS2_DRIVE_REPLAY` and
   `EM_IOP_TICK_PHASE`, the GS head's `EM_GS_BANDS`, `EM_GS_EARLY_OPS`,
   `EM_GS_EARLY_PARSE`, `EM_GS_LIST`, `EM_GS_SPEC`, `EM_GS_SPEC_CHECK`,
   `EM_GS_TEXCACHE`, `EM_GS_THREADS` (the same bytes); the presentation's
@@ -529,8 +529,8 @@ recording-derived and stay in the ignored `build/`.
   control in AREA01, and all 0x640 bytes of the block equal to the slot
   after the read, the handoff and the placement, and at control but for the
   world frame counter D_00810750), the card server's read-only line and
-  the handback probe; the switch alone, headless, without `EM_UNCAPPED`,
-  reaches control in AREA01 without quitting, faster than paced frames
+  the handback probe; the switch alone, headless and paced
+  (`EM_UNCAPPED=0`), reaches control in AREA01 without quitting, faster than paced frames
   could, with the read-only line; the card unchanged by both; and the
   refusals (the names, every refused fixture the source reads and nine
   changed copies of the card). Mutants killed: the boot paced, the
@@ -575,6 +575,31 @@ its timing changes. The backend zeroes the mixed samples before they reach
 the speakers (macOS and iOS), and the movie player is muted (it keeps its
 audio clock, which paces the video). Headless runs have always been muted
 this way.
+
+### EM_HEADLESS_RASTER=0/1 and headless pacing (EM_UNCAPPED=0/1): faster headless runs
+
+Added 2026-10-29 (PERFORMANCE.md "Progress" P18; the user's go-ahead of
+that day: "you can skip GS drawing when headless or anything else you want
+to do to speed things up").
+
+- **The raster skip.** A headless run (em_headless) that checks and
+  captures no picture records and parses its GS frames without drawing
+  them (GS_EXACT.md section 9, "The headless raster skip";
+  `em_gs_world_raster_wanted`, set in main() through
+  `em_gfx_gs_world_raster`). "No picture" means no `EM_*` variable whose
+  name holds CAPTURE, PRESENT, _PX, DUMP, DIGEST, _FB, GS_ or PIXEL.
+  `EM_HEADLESS_RASTER=1` draws anyway, `EM_HEADLESS_RASTER=0` skips (also
+  windowed: the window then shows no picture). The game runs the same: it
+  reads no pixel, and every check of the recorder and the parser still runs.
+  A picture read or a GS-frame capture under the skip fail-stops. The run
+  prints `gfx: headless raster skip: ...` once.
+- **Headless pacing.** `EM_UNCAPPED` unset: a headless run is no longer
+  paced to 59.94 Hz (every test and harness already set `EM_UNCAPPED=1`);
+  a windowed run is paced as before. `EM_UNCAPPED=0` paces a headless run,
+  `EM_UNCAPPED=1` unpaces a windowed one. Nothing the game computes depends
+  on host time (newgame-control's tick log is byte-identical paced and
+  unpaced); only the muted audio device drops what it is pushed faster than
+  it pulls.
 
 ### EM_DIAG_DIGESTS=1: the diagnostic digests without the tick log
 

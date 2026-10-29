@@ -1695,6 +1695,62 @@ An adversarial review of 8ed78b8 (P15) left five items. This step answers them, 
 
 **Not covered.** No speed measurement (see above); the iPhone was not run; the build without worker threads (Windows) was only syntax-checked; item 2's case does not occur in the random differential (only gs_world_test draws it).
 
+### P18. Faster headless runs: the raster skip, unpaced headless runs, exact float fast paths (2026-10-29)
+
+Port lane P1, branch `revisit`. The user's go-ahead (2026-10-29): "Yes you can skip GS drawing when headless or anything else you want to do to speed things up." The ask came from AREA02's discovery runs (AREA02_PRETRANS.md: a02_03 "about 0.25 frames/s").
+
+**What the 0.25 frames/s was.** It is the pad script's clock, not the engine's. Headless, a02_03 ran at about 58 engine frames/s on this M1 (a loaded machine: load average 8-20 from other lanes). The native player stops 4.2 units off the recorded path, and EM_START_AT_PATH's clock then advances one pad frame per ~300 engine frames (AREA02_PRETRANS.md). A sample of that run: the main thread was busy every frame (no waits). The GS workers drew the raster on other cores. The main thread's own top costs were these:
+- em_vu_vec_bits with its lane arithmetic: ~31 %;
+- the AREA01 actor view's commit and snapshot: ~13 %;
+- the muzzle node's field lookup: ~5 %;
+- the VU1 object kernel: ~4 %.
+
+**What changed.**
+- *The headless raster skip* (src/gs/em_gs_world.c `em_gs_world_create_raster`, `em_gs_world_raster_wanted`; em_gfx.h `em_gfx_gs_world_raster`; main.c; the Metal backend; GS_EXACT.md section 9, "The headless raster skip").
+  - When it is on: a headless run with no `EM_*` variable naming CAPTURE, PRESENT, _PX, DUMP, DIGEST, _FB, GS_ or PIXEL. `EM_HEADLESS_RASTER=1` draws anyway, and `EM_HEADLESS_RASTER=0` skips.
+  - What still runs: every world and list frame is recorded and parsed as before, by one worker thread, while the game builds the next frame. The recorder's residency and order checks, and the parser's refusals, span faults and malformed packets, latch the same faults.
+  - What does not: no span is drawn, and the field texture is not uploaded.
+  - What is kept: uploads, and the GIF frames (the status pages), still write local memory.
+  - The guards: a picture read or a GS-frame capture under the skip fail-stops. The presenter's comparison for frames that draw nothing (that the buffer still holds its picture) is not made.
+  - Test programs that link the backend directly keep the raster: only main() sets the switch.
+- *Headless runs are unpaced* (em_frame.c `frame_pace_ntsc`). With `EM_UNCAPPED` unset, a headless run no longer sleeps to 59.94 Hz. A windowed run is paced as before. `EM_UNCAPPED=0` paces a headless run. Every Python test and harness already set `EM_UNCAPPED=1`. tools/test_start_at.py step 2 now sets `EM_UNCAPPED=0`, so that it still sees the start point's own unpaced boot.
+- *The VU0 lane arithmetic* (src/game/em_ee_float.h).
+  - `em_eei_exact_sum` orders its operands by magnitude, with selects instead of branches. The value is the same: the exponent-ordered form subtracted the other way round and took the second operand's sign, which is the larger one's.
+  - `em_eei_vu_add_raw`, `_sub_raw` and `_mul_raw` take a fast path when both operands are normal (exponent field 1..254): DAZ leaves them unchanged and no NaN or Inf rule applies, so the path goes straight to the exact sum or product.
+  - `em_vu_form_lookup` indexes its table by (op, dest, bc) directly instead of a binary search, over the same 60 rows.
+  - The microbenchmark (corner()'s four ops plus a SUB and a MULbc, thread CPU time): about 50 ns per em_vu_vec_bits call before, 26 after.
+- *The AREA01 actor view* (em_area01_actor_view.c). The commit's two integrity loops and the snapshot's copy walk the six owned byte ranges instead of testing every byte of the 0x2F0-byte record against them. The ranges are ascending and disjoint, so the same byte is the first to differ.
+- *The muzzle node's field lookup* (em_aim_fire_flash.c). The scan over the 256 records stops at the highest record ever claimed since the attach. No record past it can be live: `live` is set only by a claim and cleared only by the attach.
+
+**Same results** (receipts: the decomp's build/p1_speed/receipts/summary.txt).
+- *newgame-control.* The tick log (EM_AREA_CHANGE_LOG) is byte-identical across four runs: the old binary uncapped, and the new one paced, uncapped and by default. All four give PASS, displacement 9.599849, locked_ticks 1301.
+- *The first-level harness segment* (`EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=panel`, 4,526 frames). PASS with 5 live phases. The tick log is byte-identical, and so are the rand() values (EM_RAND_TRACE's counter and value columns; its other columns are host return offsets).
+- *The a02_03 discovery run* (EM_START_AT=a02_03 with the beat's pad and path, 100 s each). The old binary's 5,741 tick-log rows equal the first 5,741 of the new binary's 8,087.
+- *The float header.* `make test-ee-float-header` passes: 33,800 recorded original results, the form table and 105,000 random model cases. A scratch differential of the old header against the new one, 200 M cases over seven ops (VU add, sub and mul; the exact sum; EE add, sub and madd), gave 0 differences. Its operands were drawn to hit zeros, denormals, Inf, NaN, MAX, near exponents and exact and near cancellation.
+- *The raster skip in tests/gs_world_test.c* (under the thread sanitizer). run()'s three frames hand over the same fields (buffer, height, draw offset) and the same 100 parsed primitives, with no pixel drawn and one worker. A parser refusal (PRIM type 7) faults the same way in both modes. The switch's seven cases are checked too.
+- *Other tests, all PASS:*
+  - the AREA00, AREA01 and revisit harness contracts (`--verify-harness`);
+  - `make test-start-at`;
+  - test_status_gs_page `--item`, which draws (EM_STATUS_GS_DUMP, EM_PRESENT_LOG);
+  - test-area01-actor-view-reference, test-aim-fire-live, test-render-context-reference, test-object-unit-reference, test-camera-follow-original-reference and test-shadow-original-reference.
+  - The shadow test loads the Metal backend through ctypes and captures non-GS frames. Its failure under the first version of the switch, which was decided in em_gfx_create, moved the decision into main().
+
+**Faster** (M1, other lanes running; wall times are noisy, main-thread CPU less so):
+
+| Run | Before | After |
+|---|---|---|
+| `EM_STARTUP_TEST=newgame-control build/extermination` (the default command) | 50.8 s wall, 43.8 s CPU | 11.0 s wall, 12.1 s CPU |
+| the same with `EM_UNCAPPED=1` | 12.1 s wall, 40.8 s CPU; main thread 11.2 s | 11-13 s wall, 12.1-13.1 s CPU; main thread 10.2 s |
+| level smoke to `panel` (`EM_UNCAPPED=1`, 4,526 frames) | 24.3 s wall, 72.2 s CPU; 196 frames/s by main-thread CPU | 21.9 s wall, 24.8 s CPU; 214 frames/s |
+| a02_03 discovery (engine frames 1,700-6,000) | 58.1 frames/s | 81.5 frames/s |
+
+The raster skip saves CPU on the worker cores, which cut total CPU about 3x on the first level. That matters on a shared machine and for energy. The first level's wall time is bound by the main thread, so there the gain is the float work. AREA02's scene spends more of its main thread in VU0 math and the actor bridges, so it gains about 40 %.
+
+**Not covered.**
+- Not run (the orchestrator runs them): the full level smoke, and the EM_TEST_FULL sweeps (among them test_ee_float_header's 40x random sweep).
+- The VU1 kernels (the object kernel is now ~7 % of a02_03's main thread) still run under the skip. Their packets go through the recorder's checks, and their operand faults are fail-stops.
+- The d3d12 and Vulkan stubs only gained `em_gfx_gs_world_raster` (syntax-checked).
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.

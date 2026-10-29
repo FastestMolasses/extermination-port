@@ -47,6 +47,7 @@ static struct {
     u32 fault;
     u32 d0028A56C;
     Flash rec[EM_ACTOR_POOL_CAPACITY];
+    unsigned live_end;               /* rec[live_end..] were never claimed (live 0) */
     Flash *current;
     EmRogerActor stack;              /* 001AF780 / 001AF800 on the one stack */
     EmOwnerServices services;        /* 001C6150 / 001C62C0 / 001C9610 */
@@ -95,6 +96,7 @@ int em_aim_fire_flash_attach(EmActorPool *pool, EmSceneState *scene)
         return -1;
     }
     memset(S.rec, 0, sizeof S.rec);
+    S.live_end = 0;
     memset(&S.models, 0, sizeof S.models);
     S.pool = pool;
     S.scene = scene;
@@ -117,6 +119,7 @@ int em_aim_fire_flash_claim(EmActor *actor)
     memset(f, 0, sizeof *f);
     f->generation = actor->generation;
     f->live = 1;
+    if ((unsigned)i >= S.live_end) S.live_end = (unsigned)i + 1u;
     return 0;
 }
 
@@ -158,7 +161,8 @@ static void *masked(u32 address, size_t size, u32 base, size_t count, uint8_t *b
 void *em_aim_fire_flash_field(uint32_t address, size_t size, int write)
 {
     if (!S.attached || S.fault || !size || size > EM_ACTOR_RECORD_SIZE) return NULL;
-    for (unsigned i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
+    /* (the records past live_end were never claimed: none is live) */
+    for (unsigned i = 0; i < S.live_end; ++i) {
         Flash *f = &S.rec[i];
         if (!f->live || !flash_of(&S.pool->records[i])) continue;
         for (unsigned k = 0; k < f->held; ++k) {

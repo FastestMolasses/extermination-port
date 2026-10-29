@@ -61,6 +61,27 @@ extern "C" {
 typedef struct EmGsWorld EmGsWorld;
 
 EmGsWorld *em_gs_world_create(void);
+/* raster 0: the headless raster skip (docs/PERFORMANCE.md P18). Every frame
+ * is recorded and parsed exactly as with the raster (the recorder's checks,
+ * the parser's refusals, span faults and malformed packets latch the same
+ * faults, uploads and GIF frames write local memory as ever), but no span of
+ * a world or list frame is drawn: one worker thread parses each frame while
+ * the game builds the next (no early parse, no bands). Local memory
+ * keeps only what uploads and GIF frames wrote, and the field
+ * (em_gs_world_field, em_gs_world_read) is not the frame's picture. Nothing
+ * the game reads comes from the raster (it reads the fault, the recording
+ * and the enable state only), so the game runs the same. For runs that check
+ * or capture no picture; em_gs_world_raster_wanted decides. raster 1 is
+ * em_gs_world_create. NULL without memory. */
+EmGsWorld *em_gs_world_create_raster(int raster);
+/* 1 when the world draws its frames (not the raster skip). */
+int em_gs_world_raster(const EmGsWorld *w);
+/* The headless raster switch (docs/LAUNCHER_OPTIONS.md, a developer switch):
+ * EM_HEADLESS_RASTER=1 draws, EM_HEADLESS_RASTER=0 skips (headless or not);
+ * unset, a headless run (`headless` 1) skips unless an EM_ variable asks
+ * for a picture or a GS diagnostic (its name holds CAPTURE, PRESENT, _PX,
+ * DUMP, DIGEST, _FB, GS_ or PIXEL), and a windowed run draws. 1: draw. */
+int em_gs_world_raster_wanted(int headless);
 void em_gs_world_destroy(EmGsWorld *w);
 
 /* A GS memory image (EMGM, written by tools/export_gs_memory.py from the

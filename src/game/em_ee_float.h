@@ -199,24 +199,25 @@ static inline uint32_t em_eei_pack(uint32_t sign, uint64_t mag, int exp, int nea
 static inline uint32_t em_eei_exact_sum(uint32_t a, uint32_t b)
 {
     uint32_t ma = em_eei_sig(a), mb = em_eei_sig(b);
-    uint32_t sa = a >> 31, sb = b >> 31;
-    if (ma == 0 && mb == 0) return (sa && sb) ? EM_EE_SIGN : 0; /* -0 only for (-0)+(-0) */
+    if (ma == 0 && mb == 0) return ((a & b) >> 31) ? EM_EE_SIGN : 0; /* -0 only for (-0)+(-0) */
     if (ma == 0) return b;
     if (mb == 0) return a;
-    int ea = em_eei_uexp(a), eb = em_eei_uexp(b);
-    if (ea < eb) {
-        uint32_t tm = ma, ts = sa;
-        int te = ea;
-        ma = mb; sa = sb; ea = eb;
-        mb = tm; sb = ts; eb = te;
-    }
-    unsigned d = (unsigned)(ea - eb);
-    uint64_t x = (uint64_t)ma << 39;
-    uint64_t y = d <= 39 ? (uint64_t)mb << (39 - d) : 1;
-    if (sa == sb) return em_eei_pack(sa, x + y, ea - 39, 0, 0);
-    if (x == y) return 0;
-    if (x > y) return em_eei_pack(sa, x - y, ea - 39, 0, 0);
-    return em_eei_pack(sb, y - x, ea - 39, 0, 0);
+    /* (docs/PERFORMANCE.md P18) The operands are ordered by magnitude, not
+     * by exponent alone: with equal exponents the larger significand comes
+     * first, so the difference below never goes negative. That is the same
+     * value: the exponent-ordered form subtracts the other way round and
+     * takes the second operand's sign, which is the larger one's. The
+     * selects compile without branches. */
+    const int swap = (b & UINT32_C(0x7FFFFFFF)) > (a & UINT32_C(0x7FFFFFFF));
+    const uint32_t hi = swap ? b : a, lo = swap ? a : b;
+    const uint32_t mh = swap ? mb : ma, ml = swap ? ma : mb;
+    const int eh = em_eei_uexp(hi);
+    const unsigned d = em_eei_exp(hi) - em_eei_exp(lo);
+    const uint64_t x = (uint64_t)mh << 39;
+    const uint64_t y = d <= 39 ? (uint64_t)ml << (39 - d) : 1;
+    const uint64_t mag = ((hi ^ lo) >> 31) ? x - y : x + y;
+    if (!mag) return 0;
+    return em_eei_pack(hi >> 31, mag, eh - 39, 0, 0);
 }
 
 /* Finite DAZ-applied a * b, truncated: em_eei_pack(sign, ma * mb,
@@ -423,8 +424,17 @@ static inline int em_ee_c_le(float fs, float ft) { return em_ee_c_le_bits(em_ee_
  * clamped first (NaN -> +MAX, +-Inf -> +-MAX) depends on the form.
  */
 
+/* Both operands normal (exponent field 1..254): DAZ leaves them, and no NaN
+ * or Inf rule applies (the lane functions' fast path; docs/PERFORMANCE.md
+ * P18). */
+static inline int em_eei_both_normal(uint32_t x, uint32_t y)
+{
+    return em_eei_exp(x) - 1u < 254u && em_eei_exp(y) - 1u < 254u;
+}
+
 static inline uint32_t em_eei_vu_add_raw(uint32_t x, uint32_t y)
 {
+    if (em_eei_both_normal(x, y)) return em_eei_exact_sum(x, y);
     x = em_eei_daz(x);
     y = em_eei_daz(y);
     if (em_eei_is_nan(x)) return em_eei_quiet(x);
@@ -437,6 +447,7 @@ static inline uint32_t em_eei_vu_add_raw(uint32_t x, uint32_t y)
 
 static inline uint32_t em_eei_vu_sub_raw(uint32_t x, uint32_t y)
 {
+    if (em_eei_both_normal(x, y)) return em_eei_exact_sum(x, y ^ EM_EE_SIGN);
     x = em_eei_daz(x);
     y = em_eei_daz(y);
     if (em_eei_is_nan(x)) return em_eei_quiet(x);
@@ -446,6 +457,7 @@ static inline uint32_t em_eei_vu_sub_raw(uint32_t x, uint32_t y)
 
 static inline uint32_t em_eei_vu_mul_raw(uint32_t x, uint32_t y)
 {
+    if (em_eei_both_normal(x, y)) return em_eei_exact_product(x, y);
     x = em_eei_daz(x);
     y = em_eei_daz(y);
     if (em_eei_is_nan(x)) return em_eei_quiet(x);
@@ -498,96 +510,93 @@ static inline int em_vu_op_reads_acc(em_vu_op op)
 
 /* One entry per form that occurs in the original boot ELF's code, each
  * recorded on a real instance (docs/EE_FLOAT_MODEL.md section 4). Keep this
- * table identical to ee_float_model.VU_FORMS and sorted by (op, dest, bc)
- * (the lookup is a binary search); the header test checks every
- * (op, dest, bc) combination against it. */
+ * table identical to ee_float_model.VU_FORMS (the header test checks every
+ * (op, dest, bc) combination against it). The table is indexed by (op,
+ * dest, bc) directly (EM_VU_FORM_KEY; docs/PERFORMANCE.md P18: the lookup
+ * was a binary search over the same rows): an entry holds
+ * EM_VU_FORM_MEASURED and the clamp / order flags, 0 for an unmeasured
+ * form. */
+#define EM_VU_FORM_KEY(op, dest, bc) ((((unsigned)(op)) * 16u + (unsigned)(dest)) * 5u + (unsigned)((bc) + 1))
+#define EM_VU_FORM_MEASURED 0x10u
+#define EM_VU_FORM_ROW(op, dest, bc, cs, ct, ca, order) \
+    [EM_VU_FORM_KEY(op, dest, bc)] = (unsigned char)(EM_VU_FORM_MEASURED | (cs) | (ct) << 1 | (ca) << 2 | (order) << 3)
 static inline int em_vu_form_lookup(em_vu_op op, unsigned dest, int bc, em_vu_form *form)
 {
-    static const struct {
-        unsigned char op, dest;
-        signed char bc;
-        unsigned char cs, ct, ca, order;
-    } table[] = {
-        {EM_VU_ADD, 1, -1, 0, 0, 0, 0},       /* ft = vf0: ft clamp free */
-        {EM_VU_ADD, 14, -1, 0, 0, 0, 0},
-        {EM_VU_ADD, 15, -1, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 1, 3, 0, 0, 0, 0},      /* ft = vf0: ft clamp free */
-        {EM_VU_ADDBC, 2, 0, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 2, 1, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 4, 0, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 4, 1, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 4, 3, 0, 0, 0, 0},      /* ft = vf0: ft clamp free */
-        {EM_VU_ADDBC, 8, 0, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 8, 1, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 8, 2, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 8, 3, 0, 0, 0, 0},
-        {EM_VU_ADDBC, 12, 0, 0, 0, 0, 0},
-        {EM_VU_ADDQ, 8, -1, 0, 0, 0, 0},      /* fs = vf0: fs clamp free */
-        {EM_VU_ADDQ, 15, -1, 0, 0, 0, 0},     /* fs = vf0: fs clamp free */
-        {EM_VU_SUB, 1, -1, 1, 1, 0, 0},       /* fs == ft on every instance */
-        {EM_VU_SUB, 3, -1, 1, 1, 0, 0},       /* fs == ft on every instance */
-        {EM_VU_SUB, 8, -1, 0, 0, 0, 0},
-        {EM_VU_SUB, 12, -1, 0, 0, 0, 0},
-        {EM_VU_SUB, 13, -1, 0, 0, 0, 0},
-        {EM_VU_SUB, 14, -1, 0, 0, 0, 0},
-        {EM_VU_SUB, 15, -1, 1, 1, 0, 0},
-        {EM_VU_SUBBC, 1, 0, 0, 0, 0, 0},
-        {EM_VU_SUBBC, 2, 0, 0, 0, 0, 0},
-        {EM_VU_SUBBC, 4, 0, 0, 0, 0, 0},
-        {EM_VU_SUBBC, 8, 0, 0, 0, 0, 0},
-        {EM_VU_SUBBC, 15, 3, 1, 1, 0, 0},
-        {EM_VU_MUL, 8, -1, 1, 0, 0, 0},       /* fs == ft: only "not both" is determined */
-        {EM_VU_MUL, 14, -1, 1, 0, 0, 0},
-        {EM_VU_MUL, 15, -1, 1, 1, 0, 0},
-        {EM_VU_MULBC, 1, 0, 1, 0, 0, 0},
-        {EM_VU_MULBC, 7, 0, 1, 0, 0, 0},      /* ft = vf0: ft clamp free */
-        {EM_VU_MULBC, 8, 0, 1, 0, 0, 0},
-        {EM_VU_MULBC, 12, 0, 1, 0, 0, 0},
-        {EM_VU_MULBC, 14, 0, 1, 0, 0, 0},
-        {EM_VU_MULBC, 14, 1, 1, 0, 0, 0},
-        {EM_VU_MULBC, 14, 2, 1, 0, 0, 0},
-        {EM_VU_MULBC, 14, 3, 1, 0, 0, 0},
-        {EM_VU_MULBC, 15, 0, 1, 1, 0, 0},
-        {EM_VU_MULBC, 15, 3, 1, 1, 0, 0},
-        {EM_VU_MULQ, 2, -1, 1, 0, 0, 0},
-        {EM_VU_MULQ, 12, -1, 1, 0, 0, 0},
-        {EM_VU_MULQ, 14, -1, 1, 0, 0, 0},
-        {EM_VU_MULQ, 15, -1, 1, 1, 0, 0},
-        {EM_VU_MULABC, 1, 2, 1, 0, 0, 0},     /* fs = vf0: fs clamp free */
-        {EM_VU_MULABC, 14, 0, 1, 0, 0, 0},
-        {EM_VU_MULABC, 15, 0, 1, 0, 0, 0},
-        {EM_VU_MULABC, 15, 1, 1, 0, 0, 0},
-        {EM_VU_MADDBC, 1, 3, 1, 1, 1, 0},     /* all clamped: NaN order free */
-        {EM_VU_MADDBC, 14, 0, 1, 0, 0, 1},
-        {EM_VU_MADDBC, 14, 2, 1, 0, 0, 1},
-        {EM_VU_MADDBC, 15, 0, 1, 0, 0, 1},
-        {EM_VU_MADDBC, 15, 3, 1, 1, 1, 0},    /* all clamped: NaN order free */
-        {EM_VU_MADDABC, 14, 1, 1, 0, 0, 0},
-        {EM_VU_MADDABC, 15, 1, 1, 0, 0, 0},
-        {EM_VU_MADDABC, 15, 2, 1, 0, 0, 0},
-        {EM_VU_MADDABC, 15, 3, 1, 0, 0, 0},
-        {EM_VU_OPMULA, 14, -1, 0, 0, 0, 0},
-        {EM_VU_OPMSUB, 14, -1, 0, 0, 0, 0},
+    /* columns: op, dest, bc, clamp fs, clamp ft, clamp acc, product NaN first */
+    static const unsigned char table[EM_VU_FORM_KEY(EM_VU_OP_COUNT, 0, -1)] = {
+        EM_VU_FORM_ROW(EM_VU_ADD, 1, -1, 0, 0, 0, 0),      /* ft = vf0: ft clamp free */
+        EM_VU_FORM_ROW(EM_VU_ADD, 14, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADD, 15, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 1, 3, 0, 0, 0, 0),     /* ft = vf0: ft clamp free */
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 2, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 2, 1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 4, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 4, 1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 4, 3, 0, 0, 0, 0),     /* ft = vf0: ft clamp free */
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 8, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 8, 1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 8, 2, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 8, 3, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDBC, 12, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_ADDQ, 8, -1, 0, 0, 0, 0),     /* fs = vf0: fs clamp free */
+        EM_VU_FORM_ROW(EM_VU_ADDQ, 15, -1, 0, 0, 0, 0),    /* fs = vf0: fs clamp free */
+        EM_VU_FORM_ROW(EM_VU_SUB, 1, -1, 1, 1, 0, 0),      /* fs == ft on every instance */
+        EM_VU_FORM_ROW(EM_VU_SUB, 3, -1, 1, 1, 0, 0),      /* fs == ft on every instance */
+        EM_VU_FORM_ROW(EM_VU_SUB, 8, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUB, 12, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUB, 13, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUB, 14, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUB, 15, -1, 1, 1, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUBBC, 1, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUBBC, 2, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUBBC, 4, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUBBC, 8, 0, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_SUBBC, 15, 3, 1, 1, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MUL, 8, -1, 1, 0, 0, 0),      /* fs == ft: only "not both" is determined */
+        EM_VU_FORM_ROW(EM_VU_MUL, 14, -1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MUL, 15, -1, 1, 1, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 1, 0, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 7, 0, 1, 0, 0, 0),     /* ft = vf0: ft clamp free */
+        EM_VU_FORM_ROW(EM_VU_MULBC, 8, 0, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 12, 0, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 14, 0, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 14, 1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 14, 2, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 14, 3, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 15, 0, 1, 1, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULBC, 15, 3, 1, 1, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULQ, 2, -1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULQ, 12, -1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULQ, 14, -1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULQ, 15, -1, 1, 1, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULABC, 1, 2, 1, 0, 0, 0),    /* fs = vf0: fs clamp free */
+        EM_VU_FORM_ROW(EM_VU_MULABC, 14, 0, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULABC, 15, 0, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MULABC, 15, 1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MADDBC, 1, 3, 1, 1, 1, 0),    /* all clamped: NaN order free */
+        EM_VU_FORM_ROW(EM_VU_MADDBC, 14, 0, 1, 0, 0, 1),
+        EM_VU_FORM_ROW(EM_VU_MADDBC, 14, 2, 1, 0, 0, 1),
+        EM_VU_FORM_ROW(EM_VU_MADDBC, 15, 0, 1, 0, 0, 1),
+        EM_VU_FORM_ROW(EM_VU_MADDBC, 15, 3, 1, 1, 1, 0),   /* all clamped: NaN order free */
+        EM_VU_FORM_ROW(EM_VU_MADDABC, 14, 1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MADDABC, 15, 1, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MADDABC, 15, 2, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_MADDABC, 15, 3, 1, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_OPMULA, 14, -1, 0, 0, 0, 0),
+        EM_VU_FORM_ROW(EM_VU_OPMSUB, 14, -1, 0, 0, 0, 0),
     };
-    /* The table is sorted by (op, dest, bc): a binary search. */
-    size_t lo = 0, hi = sizeof table / sizeof table[0];
-    while (lo < hi) {
-        const size_t i = lo + (hi - lo) / 2;
-        int cmp = (int)table[i].op < (int)op ? -1 : (int)table[i].op > (int)op ? 1 : 0;
-        if (!cmp) cmp = (unsigned)table[i].dest < dest ? -1 : (unsigned)table[i].dest > dest ? 1 : 0;
-        if (!cmp) cmp = (int)table[i].bc < bc ? -1 : (int)table[i].bc > bc ? 1 : 0;
-        if (cmp < 0) { lo = i + 1; continue; }
-        if (cmp > 0) { hi = i; continue; }
-        if (form) {
-            form->op = op;
-            form->clamp_fs = table[i].cs;
-            form->clamp_ft = table[i].ct;
-            form->clamp_acc = table[i].ca;
-            form->product_nan_first = table[i].order;
-        }
-        return EM_EE_FLOAT_OK;
+    if ((unsigned)op >= (unsigned)EM_VU_OP_COUNT || dest > 15u || bc < -1 || bc > 3)
+        return EM_EE_FLOAT_UNMEASURED;
+    const unsigned e = table[EM_VU_FORM_KEY(op, dest, bc)];
+    if (!e) return EM_EE_FLOAT_UNMEASURED;
+    if (form) {
+        form->op = op;
+        form->clamp_fs = (unsigned char)(e & 1u);
+        form->clamp_ft = (unsigned char)(e >> 1 & 1u);
+        form->clamp_acc = (unsigned char)(e >> 2 & 1u);
+        form->product_nan_first = (unsigned char)(e >> 3 & 1u);
     }
-    return EM_EE_FLOAT_UNMEASURED;
+    return EM_EE_FLOAT_OK;
 }
 
 /* One written lane of a resolved form. `t` is the already-selected ft lane

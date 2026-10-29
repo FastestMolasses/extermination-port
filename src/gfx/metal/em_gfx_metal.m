@@ -79,6 +79,10 @@ struct EmGfx {
     id<MTLTexture>               target;
     id<MTLTexture>               offscreen;
     bool                         headless;
+    /* The GS world draws its frames (em_gs_world_raster_wanted, read at
+     * create): false is the headless raster skip (docs/PERFORMANCE.md P18),
+     * where no picture may be read back or captured. */
+    bool                         gswRaster;
     /* em_gfx_overlay_glyph_nearest: font quads queued now sample nearest */
     bool                         glyphNearest;
     id<MTLCommandBuffer>         cmd;
@@ -1026,6 +1030,7 @@ EmGfx *em_gfx_create(EmWindow *win)
     layer.framebufferOnly = NO;
 #endif
     g->headless = em_headless();
+    g->gswRaster = true;   /* (em_gfx_gs_world_raster) */
     g->shadowCurrent = -1;
     return g;
 }
@@ -3096,6 +3101,7 @@ int em_gfx_shadow_receiver_end(EmGfx *g)
 
 int em_gfx_shadow_target_read(EmGfx *g, uint8_t *rgba)
 {
+    if (g && g->gswOn && !g->gswRaster) return gsw_fail(g, "a picture read under the headless raster skip");
     /* The GS frame: the target in GS memory (FBP 0x12C, 128 x 128). */
     if (g && g->gswOn && rgba)
         return em_gs_world_read(g->gsw, (uint32_t)EM_SHADOW_GS_FRAME_TARGET & 0x1FFu,
@@ -4219,6 +4225,7 @@ int em_gfx_gs_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, 
 int em_gfx_gs_surface_read(EmGfx *g, uint32_t fbp, uint32_t fbw, uint32_t height, uint8_t *rgba)
 {
     if (!g || !rgba) return -1;
+    if (g->gswOn && !g->gswRaster) return gsw_fail(g, "a picture read under the headless raster skip");
     if (g->gswOn) return em_gs_world_read(g->gsw, fbp, fbw, 64u * fbw, height, rgba);
     struct EmGfxGsSurface *s = gsf_find(g, fbp, fbw);
     if (!s || height > s->height || !height) return -1;
@@ -4327,7 +4334,13 @@ int em_gfx_gs_world_enable(EmGfx *g, int on, EmGfxGsRead read, void *read_ctx)
         return 0;
     }
     if (!read) return -1;
-    if (!g->gsw && !(g->gsw = em_gs_world_create())) return -1;
+    if (!g->gsw && !(g->gsw = em_gs_world_create_raster(g->gswRaster ? 1 : 0))) return -1;
+    if (!g->gswRaster) {
+        static int noted;
+        if (!noted++)
+            fprintf(stderr, "gfx: headless raster skip: the GS frames are recorded and parsed, not drawn "
+                            "(EM_HEADLESS_RASTER=1 draws them)\n");
+    }
     g->gswRead = read;
     g->gswReadCtx = read_ctx;
     g->gswOn = true;
@@ -4335,6 +4348,14 @@ int em_gfx_gs_world_enable(EmGfx *g, int on, EmGfxGsRead read, void *read_ctx)
 }
 
 int em_gfx_gs_world_enabled(EmGfx *g) { return g && g->gswOn; }
+
+int em_gfx_gs_world_raster(EmGfx *g, int raster)
+{
+    if (!g) return -1;
+    if (g->gsw) return (raster != 0) == g->gswRaster ? 0 : -1;
+    g->gswRaster = raster != 0;
+    return 0;
+}
 
 int em_gfx_gs_memory_load(EmGfx *g, const char *path)
 {
@@ -4407,6 +4428,7 @@ int em_gfx_gs_field_read(EmGfx *g, uint8_t *rgba, uint64_t *frame)
 {
     uint32_t w, h;
     if (!g || !rgba || !g->gsw) return -1;
+    if (!g->gswRaster) return gsw_fail(g, "a picture read under the headless raster skip");
     gsw_complete(g);
     const uint8_t *f = em_gs_world_field(g->gsw, &w, &h, frame);
     if (!f || w != EM_GS_WORLD_FIELD_W || h != EM_GS_WORLD_FIELD_H) return -1;
@@ -4915,8 +4937,9 @@ static void gsw_complete(EmGfx *g)
     uint64_t frame = 0;
     const uint8_t *f = ok ? em_gs_world_field(g->gsw, &w, &h, &frame) : NULL;
     if (f && w == EM_GS_WORLD_FIELD_W && h <= EM_GS_WORLD_FIELD_H) {
-        [g->gswSlotTex[g->gswPendSlot] replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:f
-                                         bytesPerRow:4u * w];
+        if (g->gswRaster)   /* (the raster skip drew no picture to show) */
+            [g->gswSlotTex[g->gswPendSlot] replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:f
+                                             bytesPerRow:4u * w];
         /* The field's line was taken at gsw_present from the XYOFFSET_1 of
          * the frame handed to the model; the field drawn is that frame's. */
         if (!em_gs_world_field_xyoffset_known(g->gsw) ||
@@ -5097,11 +5120,12 @@ int em_gfx_gs_head(EmGfx *g, const void *env, size_t env_bytes, const void *clea
         if (memcmp(&b->disp, &g->gsDisp, sizeof b->disp) != 0)
             return gsw_fail(g, "a frame that draws nothing under display registers other than its buffer's "
                                "field was presented with (a moved picture is not modelled)");
-        /* what the display scans: the model's local memory at DISPFB2 */
-        uint8_t *now = malloc(EM_GFX_SCAN_BYTES);
-        const int same = now && b->rows <= EM_GS_WORLD_FIELD_H &&
+        /* what the display scans: the model's local memory at DISPFB2 (a
+         * picture check: the raster skip draws no picture to compare) */
+        uint8_t *now = g->gswRaster ? malloc(EM_GFX_SCAN_BYTES) : NULL;
+        const int same = !g->gswRaster || (now && b->rows <= EM_GS_WORLD_FIELD_H &&
                          em_gs_world_read(g->gsw, fbp, fbw, 64u * fbw, b->rows, now) == 0 &&
-                         memcmp(now, b->bytes, (size_t)64u * fbw * b->rows * 4u) == 0;
+                         memcmp(now, b->bytes, (size_t)64u * fbw * b->rows * 4u) == 0);
         free(now);
         if (!same) return gsw_fail(g, "a frame that draws nothing shows a buffer the GS model drew over since");
     }
@@ -5306,6 +5330,12 @@ void em_gfx_gs_display_release(EmGfx *g)
 void em_gfx_request_capture(EmGfx *g, const char *path)
 {
     if (!g || !path) return;
+    if (g->gswOn && !g->gswRaster) {
+        /* no GS field drawn to capture: the run asked for a picture through
+         * a variable the switch does not know (em_gs_world_raster_wanted) */
+        gsw_fail(g, "a capture requested under the headless raster skip (EM_HEADLESS_RASTER=1 draws)");
+        return;
+    }
     snprintf(g->capturePath, sizeof(g->capturePath), "%s", path);
     g->captureRequested = true;
 }

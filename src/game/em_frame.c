@@ -32,6 +32,7 @@
 #include <time.h>
 
 #include "em_input.h"
+#include "em_platform.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_task.h"
 
@@ -500,8 +501,12 @@ static void frame_pace_ntsc(void)
     const long period_ns = 16683350L;
     struct timespec *next = &s_frame.next_deadline;
     if (!s_frame.pace_initialized) {
+        /* EM_UNCAPPED=1: no pacing, EM_UNCAPPED=0: paced. Unset, a headless
+         * run is not paced (docs/PERFORMANCE.md P18: nothing it computes
+         * depends on host time; the tests and harnesses always ran so) and a
+         * windowed run is. */
         const char *e = getenv("EM_UNCAPPED");
-        s_frame.uncapped = (e && e[0] == '1');
+        s_frame.uncapped = (e && e[0]) ? e[0] == '1' : em_headless();
         s_frame.pace_initialized = true;
         clock_gettime(CLOCK_MONOTONIC, next);
     }

@@ -15,8 +15,8 @@
    handback probe: after control a button held through the test buttons
    (ORed in before the outer input layer, which a still-installed driven
    pad would erase) reaches D_00810E70.
-2. EM_START_AT=area01 alone (EM_HEADLESS=1, no EM_UNCAPPED): the switch as a
-   developer runs it. It reaches control in AREA01 with the same lines
+2. EM_START_AT=area01 alone (EM_HEADLESS=1, EM_UNCAPPED=0: paced, as a
+   windowed run is): the switch as a developer runs it. It reaches control in AREA01 with the same lines
    (no block lines, no quit: the run goes on as the player's) and the card
    server's read-only line, faster than
    the 1607 paced frames would take (the boot runs unpaced to control);
@@ -67,7 +67,7 @@ FULL = os.environ.get('EM_TEST_FULL') == '1'
 # EM_* name the source reads must be refused with it (step 4).
 COMPATIBLE = {
     'EM_START_AT', 'EM_START_AT_TEST', 'EM_START_AT_DIR', 'EM_START_AT_PAD', 'EM_START_AT_PATH', 'EM_NEW_GAME',  # its own; EM_NEW_GAME=1 refused apart
-    'EM_HEADLESS', 'EM_UNCAPPED', 'EM_MUTE', 'EM_INPUT_TEST',            # the host; the pad's changes printed
+    'EM_HEADLESS', 'EM_HEADLESS_RASTER', 'EM_UNCAPPED', 'EM_MUTE', 'EM_INPUT_TEST',  # the host; the pad's changes printed
     'EM_PS2_DRIVE_REPLAY', 'EM_IOP_TICK_PHASE',                           # the disc-drive timing
     'EM_GS_BANDS', 'EM_GS_EARLY_OPS', 'EM_GS_EARLY_PARSE', 'EM_GS_LIST', 'EM_GS_SPEC', 'EM_GS_SPEC_CHECK',
     'EM_GS_TEXCACHE', 'EM_GS_THREADS',                                    # the GS head (the same bytes)
@@ -120,12 +120,14 @@ def run_report(name, log_path):
 
 
 def run_switch(log_path):
-    """Step 2: the switch alone, headless; ended 1 s after control. The
-    seconds from the first frame (engine frame 0) to control."""
+    """Step 2: the switch alone, headless and paced (EM_UNCAPPED=0: a headless
+    run is otherwise not paced, docs/PERFORMANCE.md P18, and the boot's own
+    unpacing would go unseen); ended 1 s after control. The seconds from the
+    first frame (engine frame 0) to control."""
     log = open(log_path, 'w')
     t0 = time.time()
     proc = subprocess.Popen([str(BIN)], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
-                            env=env(EM_START_AT='area01', EM_HEADLESS='1'))
+                            env=env(EM_START_AT='area01', EM_HEADLESS='1', EM_UNCAPPED='0'))
     seen = first = None
     while proc.poll() is None and time.time() - t0 < 120:
         time.sleep(0.1)
