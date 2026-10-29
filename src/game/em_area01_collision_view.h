@@ -37,7 +37,10 @@ typedef struct {
 
 typedef struct {
     EmArea01CollisionHost host;
+    /* 0x700031F8..0x7000323F: what 00199C50 stages (at its original call,
+     * 001AE040 state 0 after 001B6990's bind; zero and refused before). */
     uint32_t metadata[EM_SLG_COLL_SPAD_WORDS];
+    int staged;
     uint32_t self_word, point_before[4];
     const void *entity_before, *self_before;
     int record_before, node_before;
@@ -54,6 +57,9 @@ typedef struct {
 uint32_t em_area01_collision_pool_address(const EmActorPool *, const EmPlayerLiveActor *, const void *);
 const void *em_area01_collision_pool_identity(const EmActorPool *, const EmPlayerLiveActor *, uint32_t);
 int em_area01_collision_view_bind(EmArea01CollisionView *, const EmArea01CollisionHost *);
+/* 00199C50 (em_slg_00199C50 over the bound file): stage the scratchpad
+ * pointer metadata 0x700031F8.. into the view. 0, or -1 (latched). */
+int em_area01_collision_view_00199C50(EmArea01CollisionView *);
 /* Every native worker boundary must commit the previous borrow then begin a
  * new one. Unknown and incompatible spans are refused, never filled. */
 int em_area01_collision_view_begin(EmArea01CollisionView *);

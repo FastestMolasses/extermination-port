@@ -2204,7 +2204,11 @@ pool's free list (item 5): those are port work that needs no new recording
    through em_sfx_play_at; em_anim_rest_001CB5B0 runs for AREA01's models
    where AREA11's slots are the no-op w_001CB5B0 and em_bone_burst /
    em_aim_fire_trail answer its external call without it; em_slg_00199C50 checks
-   AREA01's collision views at the arrival where AREA11 keeps um_00199C50.
+   AREA01's collision views at the arrival where AREA11 keeps um_00199C50
+   (since 2026-10-28 the AREA01/00/02 scenes run it at the original's
+   caller, 001AE040 state 0 after 001B6990: the collision view stages its
+   metadata there and refuses reads before; AREA11 keeps the report, no
+   reader).
    One owner per original is the rule: each pair needs one translation at
    the original's caller in both areas.
    What removes them: binding each at its original caller where the first

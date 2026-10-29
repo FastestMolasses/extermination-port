@@ -38,6 +38,9 @@ route's manifest: its first beat's source state):
                    exit: the AREA01 revisit arrival (block area 1)
   area02           s87/route_a02's a02_00 source, the revisit's door [16]
                    (a01r_03): the AREA02 arrival (block area 2)
+  a02_01 .. a02_05 the source state of route_a02's beat a02_01 .. a02_05
+                   (the previous beat's end, AREA02 sub 0): a loaded game
+                   placed where that beat starts (discovery runs)
 
 Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
 host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
@@ -95,6 +98,13 @@ START_POINTS = {
     'area00': {'route': 's87/route_a00', 'first': 'a00_00_', 'area': 0},
     'area01-revisit': {'route': 's87/route_a01r', 'first': 'a01r_00_', 'area': 1},
     'area02': {'route': 's87/route_a02', 'first': 'a02_00_', 'area': 2},
+    # AREA02's later beats (discovery ahead of the row-exact frontier): the
+    # source state of each beat, a loaded game placed at its start.
+    'a02_01': {'route': 's87/route_a02', 'first': 'a02_01_', 'area': 2},
+    'a02_02': {'route': 's87/route_a02', 'first': 'a02_02_', 'area': 2},
+    'a02_03': {'route': 's87/route_a02', 'first': 'a02_03_', 'area': 2},
+    'a02_04': {'route': 's87/route_a02', 'first': 'a02_04_', 'area': 2},
+    'a02_05': {'route': 's87/route_a02', 'first': 'a02_05_', 'area': 2},
 }
 
 

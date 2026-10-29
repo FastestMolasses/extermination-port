@@ -26,6 +26,11 @@ static const struct {
     {"area00", 0x00},
     {"area01-revisit", 0x01},
     {"area02", 0x02},
+    {"a02_01", 0x02},
+    {"a02_02", 0x02},
+    {"a02_03", 0x02},
+    {"a02_04", 0x02},
+    {"a02_05", 0x02},
 };
 
 static struct {
@@ -374,7 +379,7 @@ int em_start_at_check(void)
         if (strcmp(k_points[i].name, v) == 0) s.name = k_points[i].name;
     if (!s.name) {
         s.name = "";
-        return refuse("an unknown start point (area01, area00, area01-revisit, area02)", NULL);
+        return refuse("an unknown start point (area01, area00, area01-revisit, area02, a02_01 .. a02_05)", NULL);
     }
     const char *ng = getenv("EM_NEW_GAME");
     if (ng && ng[0] && strcmp(ng, "0") != 0)

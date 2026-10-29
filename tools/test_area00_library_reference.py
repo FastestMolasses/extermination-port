@@ -32,8 +32,10 @@ def main():
     for address, writable, retained, data in regions:
         for first, _ in X.SPANS:
             start = X.B.u32(library, 4 + 4 * first) & ~3
-            if address == base + start:
-                data = data[:X.B.block_model_size(library, start)]
+            # the region holding the span's first model (AREA02's export may
+            # have extended it downwards): keep up to that model's end
+            if address <= base + start < address + len(data):
+                data = data[:base + start - address + X.B.block_model_size(library, start)]
         before += struct.pack('<4I', address, len(data), writable, retained) + data
     after = X.extend(bytes(before), library)
     assert X.extend(after, library) == after, 'export is not idempotent'

@@ -74,14 +74,17 @@ def extend(previous, library):
         start = B.u32(library, 4 + 4 * first) & ~3
         end_at = B.u32(library, 4 + 4 * last) & ~3
         end = end_at + B.block_model_size(library, end_at)
-        matches = [i for i, r in enumerate(regions) if r[0] == base + start]
+        # The span may already start lower (export_area02_library.py
+        # extends the 0x58 span down to 0x57): the region holding `start`.
+        matches = [i for i, r in enumerate(regions) if r[0] <= base + start < r[0] + len(r[3])]
         if len(matches) != 1:
             raise ValueError('Expected retained pickup span is missing')
         i = matches[0]
         address, writable, retained, old = regions[i]
-        if writable or retained != 1 or old != library[start:start + len(old)]:
+        lo = address - base
+        if writable or retained != 1 or old != library[lo:lo + len(old)]:
             raise ValueError('Existing pickup span differs from disc or has unexpected flags')
-        regions[i] = (address, writable, retained, library[start:max(end, start + len(old))])
+        regions[i] = (address, writable, retained, library[lo:max(end, lo + len(old))])
     result = bytearray(header)
     for address, writable, retained, data in regions:
         result += struct.pack('<4I', address, len(data), writable, retained) + data
