@@ -26,6 +26,9 @@ int em_frontend_failed(void);
  * world frame after the boot title's LOAD GAME, the wait for the
  * placement and control in the loaded area. Inert otherwise. */
 void em_frontend_load_test_before_frame(void);
+/* At every frame close-out (world and status frames): EM_START_AT_PAD's
+ * clock for a frame without a world-frame head. Inert without it. */
+void em_frontend_start_at_after_frame(void);
 /* What the game reads of the frontend after New Game (the movie service of
  * 001AD360 step 1): {installed, the stored selector D_00275C78 (-1 none),
  * a movie open, failed}. tools/test_new_game_switch.py compares it. */

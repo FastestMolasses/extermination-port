@@ -328,7 +328,8 @@ static int check_card(const char *card)
  * prints the pad's changes): EM_STARTUP_TEST, the EM_*_TEST scripts of
  * em_game_selftest / em_opening_control_test, EM_NEW_GAME_STATE_TEST,
  * EM_AUDIO_TEST (main.c's audio modes); every EM_CAPTURE* (the capture
- * scripts, which inject input); and the names below. Every other EM_*
+ * scripts, which inject input); and the names below (EM_RAND_REPLAY
+ * re-seeds rand() at an area entry: the level smoke's comparison anchor). Every other EM_*
  * variable only observes (traces, dumps, counters, captures), changes the
  * host (EM_HEADLESS, EM_UNCAPPED, EM_MUTE, the disc-drive timing) or the
  * presentation (EM_HUD_*), or works only under a refused fixture
@@ -342,7 +343,7 @@ static int fixture_set(char *name, size_t size)
         "EM_SKIP_STARTUP", "EM_TEST_MEMCARD_ROOT", "EM_INPUT_RECORD", "EM_INPUT_PLAY", "EM_SCENE",
         "EM_STARTUP_MENU_WAIT", "EM_LEVEL_SMOKE_UNTIL", "EM_AIM_PAD_SCRIPT", "EM_A01_ARRIVAL_TICKS",
         "EM_AREA01_EXPLORE_SCRIPT", "EM_AREA01_EXPLORE_PHASE", "EM_CLIP_DEMO", "EM_CONTROL_LOW_GAIT",
-        "EM_MOVE_LEGS", "EM_MOVE_EXPECT"};
+        "EM_MOVE_LEGS", "EM_MOVE_EXPECT", "EM_RAND_REPLAY"};
     for (char **e = environ; e && *e; ++e) {
         const char *v = *e;
         const char *eq = strchr(v, '=');

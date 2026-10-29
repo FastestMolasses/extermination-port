@@ -59,6 +59,7 @@ static float lx,ly;
 static void pad_apply(unsigned b,float x,float y){buttons=b;lx=x;ly=y;}
 static void fail(const char *why){fprintf(stderr,"FAIL %s\n",why);failed=1;}
 static unsigned em_frame_counter(void){return counter;}
+static void em_random_seed(uint32_t s){(void)s;}
 static void em_stream_live_drive_replay_anchor(const char *phase,unsigned c){(void)phase;(void)c;}
 static const EmSceneState *em_scene_state(void){return &scene;}
 static unsigned task_byte(unsigned off){(void)off;return 0;}

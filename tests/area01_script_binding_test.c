@@ -21,6 +21,7 @@ const uint8_t *em_module_loader_memory(const EmModuleLoader *l,uint32_t a,uint32
 uint8_t *em_module_loader_memory_mutable(EmModuleLoader *l,uint32_t a,uint32_t n)
 { return (uint8_t *)(void *)em_module_loader_memory(l,a,n); }
 EmStatusSceneLoader *em_module_loader_state(EmModuleLoader *l) { (void)l;return &loader_state; }
+int em_area11_roger_table_word(uint32_t a,uint32_t *v) { (void)a;(void)v;return -1; }
 const uint8_t *em_module_loader_memory_rest(const EmModuleLoader *l,uint32_t a,uint32_t *n)
 { (void)l;if(a<0x1300000u || a>=0x1300400u)return NULL;*n=0x1300400u-a;return banks+(a-0x1300000u); }
 static int map_bank(void *ctx,uint32_t a,uint32_t n,const uint8_t *p)

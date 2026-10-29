@@ -4,7 +4,8 @@
  * and its 0x90-byte record D_0026A900, and 0015A2C0's config rows 3 and 4
  * (D_00248120 + 20 * 3, 40 bytes), and (since 2026-10-19, later) the
  * class-2 owners' D_00242EB0..D_00242F20 (00128C10's clip tables and
- * 00128600's byte rows). argv[1] holds the expected bytes, in that order;
+ * 00128600's byte rows) and 0012CAA0's grab table D_00242DD0..D_00242EAF
+ * (since 2026-10-28). argv[1] holds the expected bytes, in that order;
  * argv[2] is 0 for an export without these windows. */
 #define main earlier_effects_fixture_main
 #include "aim_fire_effects_live_test.c"
@@ -12,7 +13,7 @@
 
 static const struct { uint32_t base, size; } k_windows[] = {
     {0x00269400u, 0x184u}, {0x0026A900u, 0x90u}, {0x0024815Cu, 0x28u},
-    {0x00242EB0u, 0x70u},
+    {0x00242EB0u, 0x70u}, {0x00242DD0u, 0xE0u},
 };
 enum { WINDOWS = sizeof k_windows / sizeof k_windows[0] };
 
@@ -20,7 +21,7 @@ int main(int argc, char **argv)
 {
     assert(argc == 3);
     const int present = atoi(argv[2]);
-    uint8_t expected[0x184 + 0x90 + 0x28 + 0x70];
+    uint8_t expected[0x184 + 0x90 + 0x28 + 0x70 + 0xE0];
     FILE *f = fopen(argv[1], "rb");
     assert(f && fread(expected, 1, sizeof expected, f) == sizeof expected);
     assert(fgetc(f) == EOF);
@@ -53,9 +54,11 @@ int main(int argc, char **argv)
     assert(!em_effects_live_window(0x0026A8FFu, 1)); ++refusals;
     assert(!em_effects_live_window(0x00248148u, 20)); ++refusals;
     assert(!em_effects_live_window(0x0024815Bu, 2)); ++refusals;
-    /* D_00242EAF is not exported; the class-2 window's end meets the
+    /* D_00242DCF is not exported; 0012CAA0's grab table ends where the
+     * class-2 window starts, and the class-2 window's end meets the
      * D_00242F20 clip-id window: each side reads, a span across does not. */
-    assert(!em_effects_live_window(0x00242EAFu, 1)); ++refusals;
+    assert(!em_effects_live_window(0x00242DCFu, 1)); ++refusals;
+    assert(em_effects_live_window(0x00242EAFu, 1) && em_effects_live_window(0x00242EB0u, 1));
     assert(!em_effects_live_window(0x00242EAFu, 2)); ++refusals;
     assert(em_effects_live_window(0x00242F1Fu, 1) && em_effects_live_window(0x00242F20u, 1));
     /* Row 4's end meets the AREA01 row-5 window: each side reads, a span
