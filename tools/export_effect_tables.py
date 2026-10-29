@@ -166,6 +166,8 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           # AREA01 crate's lazy nest selector: one area's count and pointer;
           # the pointer array and records remain loader-owned overlay data.
           (0x0024A852, 2), (0x0024D824, 4),
+          # AREA02's crates (001551B0 in sub 0): the same selector for area 2.
+          (0x0024A854, 2), (0x0024D828, 4),
           # AREA01 placements 46..53 use floor-field config rows 0, 1,
           # and 5. Preserve only those original 20-byte records.
           (0x00248120, 0x28), (0x00248184, 0x14),
