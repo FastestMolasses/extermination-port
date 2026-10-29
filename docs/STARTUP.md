@@ -507,7 +507,10 @@ recording-derived and stay in the ignored `build/`.
   frame, "f x z" lines) steers the stick toward the recorded position eight
   frames ahead at the recorded stick's magnitude and holds the script's
   clock while the player lags more than 2.5 units (up to 300 frames at a
-  time), so the presses land where the recording made them; a progress
+  time), so the presses land where the recording made them; it steers and
+  holds only while the player has control (0x70003B8D clear: a scripted
+  stretch moves the player itself, and a hold there only stretched the
+  script's clock by 300 frames a step); a progress
   line every 300 script frames prints the position and the revisit's story
   bytes.
 - **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):

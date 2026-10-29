@@ -20,6 +20,7 @@
 #include "game/em_area11_roger.h"
 #include "game/em_area11_door.h"
 #include "game/em_game.h"
+#include "game/em_frontend.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -889,6 +890,7 @@ void frame_close_out(void)
 
     em_opening_control_test_after_frame();
     em_level_smoke_test_after_frame();
+    em_frontend_start_at_after_frame();
     g.frame_no++;
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
@@ -1083,6 +1085,7 @@ int em_render_001ABF90(const uint64_t packet[4])
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
     em_opening_control_test_after_frame();
     em_level_smoke_test_after_frame();
+    em_frontend_start_at_after_frame();
     g.frame_no++;
     return 0;
 }
