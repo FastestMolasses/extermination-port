@@ -71,8 +71,8 @@ failing at 001798D0 (next unit).**
   slot-0xFFF targets, and `test-ramp-pass-reference` checks the model's
   walk of each ramp pass against the C walker and of all of a frame's
   passes in one page.
-- Receipts: `build/frontier/r05d` (a diagnostic build; the same code with a
-  temporary backtrace in the actor view, removed).
+- Receipts: the iteration-27 run `build/frontier/r07` (the same code plus
+  iteration 27's; r05d, a diagnostic build, removed).
 
 **2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
 the revisit harness (`tools/test_level_smoke_area01r.py --run`) runs the
