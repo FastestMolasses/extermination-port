@@ -38,6 +38,8 @@
 #include "game/em_security_gun_rest.h"
 #include "game/em_security_gun.h"
 #include "game/em_player.h"
+#include "game/em_player_use_dispatch.h"
+#include "game/em_player_closure_live.h"
 #include "game/em_game_internal.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_random.h"
@@ -281,6 +283,13 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         const uint32_t *library=em_area11_roger_library_word();
         return contains(a,n,0x0028A56Cu,4) && !write && library
             ? (uint8_t *)(void *)library+a-0x0028A56Cu : NULL;
+    }
+    if(overlaps(a,n,0x0028A580u,4)) {
+        /* D_0028A580, the retained player bank: the Roger export's word, the
+         * one the player stage reads (the loader's table leaves it 0). */
+        const uint32_t *bank=em_area11_roger_player_bank_word();
+        return contains(a,n,0x0028A580u,4) && !write && bank
+            ? (uint8_t *)(void *)bank+a-0x0028A580u : NULL;
     }
     if(overlaps(a,n,0x0028A574u,4)) {
         const uint32_t *bank=em_area11_roger_door_bank_word();
@@ -1189,6 +1198,20 @@ static int worker(void *ctx,EmArea01Call *c)
          * record and drop its phase byte). */
         if(c->na<3)return -1;
         int rc=em_scene_bindings_00119828(NULL,(int32_t)c->a[0],(int32_t)c->a[1],(int32_t)c->a[2]);
+        c->v0=0;return rc<0 ? -1 : 0;
+    }
+    case 0x001798D0u: {
+        /* 001798D0(player) (byte-matched decomp C; script 0x82B0D0's op0A
+         * sub 8 through 001B9A00, a01r_02): the player record's use-accept
+         * clear (+0x38, +0x21C, +0x25C, 00174A50(a, 0.0), +5, +6, +0x1F0):
+         * em_player_use_001798D0, its one translation, over the live player
+         * record with the closure's workers. */
+        const EmPlayerUseWorkers *use=em_player_closure_live_use();
+        if(c->na<1 || (uint32_t)c->a[0]!=0x008102B0u || !use)return worker_result(l,-1,c->function);
+        if(em_area01_live_suspend(l)<0)return -1;
+        EmPlayerLiveActor *pa=player_states_actor_mut();
+        int rc=pa ? em_player_use_001798D0(use,pa) : -1;
+        if(em_area01_live_resume(l)<0)return -1;
         c->v0=0;return rc<0 ? -1 : 0;
     }
     case 0x001FD4C0u: {

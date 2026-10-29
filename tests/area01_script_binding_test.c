@@ -1,6 +1,7 @@
 /* Resource and forwarding contract; interpreter behavior has the separate
  * original-instruction corpus. The loader mock models replacement delivery. */
 #include "game/em_area01_script_live.h"
+#include "game/em_area11_roger.h"
 #include "game/em_area11_boxes.h"
 #include <assert.h>
 #include <stdlib.h>
@@ -16,6 +17,9 @@ static EmArea01Call call;
 static int reject;
 int em_area11_script_host_area(const EmAreaScriptHostArea *a) { area=*a;return 0; }
 uint8_t *em_area11_script_host_timeline_bytes(uint32_t a,uint32_t n) { (void)a;(void)n;return NULL; }
+/* The retained player bank word D_0028A580 (em_area11_roger's export). */
+static const uint32_t player_bank_word=0x00D689C0u;
+const uint32_t *em_area11_roger_player_bank_word(void) { return &player_bank_word; }
 const uint8_t *em_module_loader_memory(const EmModuleLoader *l,uint32_t a,uint32_t n)
 { (void)l;return a>=0x823500u && a-0x823500u<=sizeof overlay && n<=sizeof overlay-(a-0x823500u) ? delivered+(a-0x823500u) : NULL; }
 uint8_t *em_module_loader_memory_mutable(EmModuleLoader *l,uint32_t a,uint32_t n)

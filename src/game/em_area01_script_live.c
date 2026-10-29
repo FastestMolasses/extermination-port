@@ -2,6 +2,7 @@
 #include "game/em_area11_boxes.h"
 #include "game/em_ee_float.h"
 #include <stdio.h>
+#include "game/em_area11_roger.h"
 #include <string.h>
 
 static int contains(uint32_t a,uint32_t n,uint32_t lo,uint32_t hi)
@@ -72,6 +73,12 @@ static const uint8_t *resource(void *ctx,uint32_t a,uint32_t n)
     EmArea01Script *s=ctx;
     uint8_t *p=em_area01_script_bytes(s,a,n,0);
     if (p) return p;
+    if (contains(a,n,0x0028A580u,0x0028A584u)) {
+        /* D_0028A580, the retained player bank (op0A sub 2 restores it):
+         * the Roger export's word, as the player stage and the live read it. */
+        const uint32_t *bank=em_area11_roger_player_bank_word();
+        return bank ? (const uint8_t *)(const void *)bank+(a-0x0028A580u) : NULL;
+    }
     if (contains(a,n,0x0028A490u,0x0028A750u)) {
         EmStatusSceneLoader *ld=em_module_loader_state(s->loader);
         return ld ? (uint8_t *)ld->d28A490+(a-0x0028A490u) : NULL;
