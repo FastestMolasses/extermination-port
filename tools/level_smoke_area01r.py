@@ -150,8 +150,10 @@ def check_camera_end(tick, phase):
     ram = path.with_name('eeMemory.bin').read_bytes()
     assert hashlib.sha256(ram).hexdigest() == snapshot['ee_sha256'], (phase, 'snapshot RAM digest differs')
     blocks = tick.get('camblk')
-    assert blocks and len(blocks) == 3, (phase, 'missing complete camera observation')
-    for (address, size), value in zip((a01.CAMERA_BLOCK, a01.CAMERA_FORWARD, a01.CAMERA_690), blocks):
+    # the camera block, the forward, D_00810690.. and the eye / target / up
+    # quads D_008105D0.. (a01.CAMERA_BLOCKS: the tick log's camblk)
+    assert blocks and len(blocks) == len(a01.CAMERA_BLOCKS), (phase, 'missing complete camera observation')
+    for (address, size), value in zip(a01.CAMERA_BLOCKS, blocks):
         assert bytes.fromhex(value) == ram[address:address + size], (phase, 'ending camera differs', hex(address))
 
 

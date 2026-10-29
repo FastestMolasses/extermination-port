@@ -112,6 +112,10 @@ SOURCES = dict(zip(MAIN_BEATS, ('a01_arrival', *tuple(MAIN_BEATS)[:-1]))) | {
 # module load ends 9 frames later (disc timing): row 538 against v2.6.3's 529.
 AREA00_ARRIVAL_ROW = 538 if refs.FORK_MODE else 529
 CAMERA_BLOCK, CAMERA_FORWARD, CAMERA_690 = (0x8101E0, 0xD0), (0x810600, 16), (0x810690, 20)
+# The tick log's camblk: those three, then the eye / target / up quads
+# D_008105D0..D_008105FF (em_scene_bindings.c, census L13).
+CAMERA_5D0 = (0x8105D0, 48)
+CAMERA_BLOCKS = (CAMERA_BLOCK, CAMERA_FORWARD, CAMERA_690, CAMERA_5D0)
 
 
 def camera_vectors(tick, where):
@@ -129,8 +133,9 @@ def check_camera_end(tick, phase):
     """The whole camera at a recording's last row against that recording's
     saved RAM (eeMemory.bin, the state after the last row; its snapshot
     names the same main-loop counter and the RAM's SHA-256): the camera
-    block D_008101E0..+0xCF, the forward D_00810600..0F and
-    D_00810690..D_008106A3, byte for byte."""
+    block D_008101E0..+0xCF, the forward D_00810600..0F,
+    D_00810690..D_008106A3 and the eye / target / up quads
+    D_008105D0..D_008105FF, byte for byte."""
     path = capture_path(phase)
     capture = json.loads(path.read_text())
     snapshot = json.loads(path.with_name('snapshot.json').read_text())
@@ -138,8 +143,8 @@ def check_camera_end(tick, phase):
     ram = path.with_name('eeMemory.bin').read_bytes()
     assert hashlib.sha256(ram).hexdigest() == snapshot['ee_sha256'], (phase, 'saved RAM differs from its snapshot')
     blk = tick.get('camblk')
-    assert blk, (phase, 'no live camera block at the last row')
-    for (address, size), port in zip((CAMERA_BLOCK, CAMERA_FORWARD, CAMERA_690), blk):
+    assert blk and len(blk) == len(CAMERA_BLOCKS), (phase, 'no complete live camera observation at the last row')
+    for (address, size), port in zip(CAMERA_BLOCKS, blk):
         port, orig = bytes.fromhex(port), ram[address:address + size]
         diff = [hex(address + o) for o in range(size) if port[o] != orig[o]]
         assert not diff, (phase, f'tick {tick.get("tick")}', 'camera bytes differ from the saved RAM', diff)
