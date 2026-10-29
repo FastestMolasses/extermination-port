@@ -254,7 +254,7 @@ still differs).
 - Checks: `test-chain-page` (two passes in one page, a target CALLed twice),
   `test-gs-world`, `test-dof-pass-reference`, `test-ramp-pass-reference`,
   New Game control 9.599849; not run: the first-level smokes and
-  EM_TEST_FULL. Receipts: the iteration-24 run `build/frontier/i25` (the
+  EM_TEST_FULL. Receipts: the iteration-29 run `build/frontier/r13` (the
   same code plus iterations 23 and 24; i23 and i24 removed).
 
 **2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's
