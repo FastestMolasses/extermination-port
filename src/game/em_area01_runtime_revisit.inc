@@ -433,11 +433,19 @@ static int rv_001BB0E0(EmArea01Runtime *r, EmArea01Call *c)
     memcpy(&entry_address, a.image + 0x20, 4);
     memcpy(&owner_address, a.image + 0x24, 4);
     const uint8_t *entry = bytes(r, entry_address, EM_SDF_ENTRY_SIZE, 0);
-    const uint8_t *owner_bytes = bytes(r, owner_address, 0x30, 0);
-    if (!entry || !owner_bytes) return fail(r, entry ? owner_address : entry_address);
+    if (!entry) return fail(r, entry_address);
+    /* The owner's +0x2E (its done mask) is read in states 0 / 1 only: in
+     * states 2 / 3 the owner may already be freed (the group 0x82A900's
+     * owner at a01r_01 row 8103 frees itself in the tick its actors run
+     * state 2, the fork pool probe), and the original reads nothing of it. */
     uint8_t entry_copy[EM_SDF_ENTRY_SIZE], owner_copy[0x30];
+    memset(owner_copy, 0, sizeof owner_copy);
+    if (a.image[4] <= 1u) {
+        const uint8_t *owner_bytes = bytes(r, owner_address, 0x30, 0);
+        if (!owner_bytes) return fail(r, owner_address);
+        memcpy(owner_copy, owner_bytes, sizeof owner_copy);
+    }
     memcpy(entry_copy, entry, sizeof entry_copy);
-    memcpy(owner_copy, owner_bytes, sizeof owner_copy);
     const EmSlgScriptActorWorkers w = {&a,          rv_slg_001BAD40, rv_slg_001C5C90, rv_slg_001C68C0,
                                        rv_slg_001BA580, rv_slg_001C64F0, rv_slg_001F9660, rv_slg_001BA540,
                                        rv_slg_001AFC10, rv_slg_method_4C};

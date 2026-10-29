@@ -41,14 +41,15 @@ class Page(M.Page):
         while i < n:
             at, v = words[i]
             i += 1
-            if at == 'PASS':                                # the pass starts: its own environment
+            if at == 'PASS':                                # a pass starts: its own environment
                 self.gs.env = {}
-                self.pass_first = len(self.gs.prims)
+                self.pass_firsts.append(len(self.gs.prims))
                 continue
             if at == 'AGAIN':                               # the frame's draw environment again
                 if len(self.again) >= 16:
-                    fail('more than 16 environment-again marks in the pass')
+                    fail('more than 16 environment-again marks in the passes')
                 self.again.append(len(self.gs.prims))
+                self.again_pass.append(len(self.pass_firsts) - 1)
                 self.gs.env = {}
                 for k in AGAIN_FORGETS:
                     self.gs.state.pop(k, None)

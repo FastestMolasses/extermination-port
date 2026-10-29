@@ -210,13 +210,14 @@ int shim_page(Region *regions, unsigned count, uint32_t start, const uint32_t *s
     g_page.prim_q = q;
     g_page.prim_env = envs;
     g_page.prim_capacity = capacity;
-    g_page.pass_call = pass[0];
+    g_page.pass_calls = &pass[0];
+    g_page.pass_count = pass[0] ? 1u : 0u;
     g_page.draw_envs = pass[1];
     g_page.draw_env_slot = pass[2];
     int rc = em_chain_page_run(&g_page, start);
     *counts = g_page.counts;
     out[0] = g_page.fault; out[1] = g_page.fault_address; out[2] = g_page.prim_count;
-    out[3] = g_page.pass_first; out[4] = g_page.again_count;
+    out[3] = g_page.pass_first[0]; out[4] = g_page.again_count;
     for (uint32_t k = 0; k < g_page.again_count && k < EM_CHAIN_PAGE_AGAIN_MAX; ++k) out[5 + k] = g_page.again[k];
     return rc;
 }

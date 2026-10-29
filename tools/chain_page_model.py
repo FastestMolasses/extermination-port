@@ -594,18 +594,24 @@ class Page:
     capture's RAM, or the port's page dump). elf: the boot ELF bytes (the
     oracle's instruction fetch comes from the MPG uploads in the stream)."""
 
-    def __init__(self, read, elf=None, skip_calls=(), units=None, pass_call=None, draw_envs=None, draw_env_slot=0):
+    def __init__(self, read, elf=None, skip_calls=(), units=None, pass_call=None, draw_envs=None, draw_env_slot=0,
+                 pass_calls=None):
         self.read = read
-        # The pass (CHAIN_PAGE.md section 6.2): the top-level CALL followed
-        # with list mode's registers, its REF of the kicked slot's draw
-        # environment (bank A at draw_envs) an environment-again mark.
-        self.pass_call = pass_call
+        # The passes (CHAIN_PAGE.md sections 6.2 / 6.3): the frame's
+        # slot-0xFFF CALLs (pass_calls; pass_call: one), each followed at the
+        # top level with list mode's registers and its own environment, its
+        # REF of the kicked slot's draw environment (bank A at draw_envs) an
+        # environment-again mark.
+        self.pass_calls = list(pass_calls or ()) + ([pass_call] if pass_call is not None else [])
+        if len(self.pass_calls) > 4:
+            fail('more than 4 slot-0xFFF passes in a page')
         self.draw_envs, self.draw_env_slot = draw_envs, draw_env_slot
-        if pass_call is not None and (draw_envs is None or draw_env_slot not in (0, 1)):
+        if self.pass_calls and (draw_envs is None or draw_env_slot not in (0, 1)):
             fail('a pass needs the draw environments and a slot 0 or 1')
-        self.passes = 0
-        self.pass_first = None
+        self.pass_targets = []     # in DMA order
+        self.pass_firsts = []      # each pass's first primitive
         self.again = []
+        self.again_pass = []       # the pass each mark is in
         # Class-2 object units walked over (001CABA0's CALLs, CHAIN_PAGE.md
         # section 6): {target: (last TEX0, last PRIM)}. The unit's GS state
         # REF (001D1F80(3, 2, 2): set 2 class 2) and its last kicked TEX0 /
@@ -669,10 +675,10 @@ class Page:
             elif tid == 5:                                  # CALL
                 if len(stack) >= 2:
                     fail(f'DMA CALL at {cur:#x}: a third nesting level')
-                if self.pass_call is not None and addr == self.pass_call and not stack:
-                    if self.passes:
-                        fail(f'DMA CALL at {cur:#x}: a second pass CALL')
-                    self.passes = 1
+                if addr in self.pass_calls and not stack:
+                    if addr in self.pass_targets:
+                        fail(f'DMA CALL at {cur:#x}: the same pass CALLed twice')
+                    self.pass_targets.append(addr)
                     out.append(('PASS', addr))
                     in_pass = entry_pass = True
                     data = cur + 16
@@ -712,6 +718,35 @@ class Page:
             cur = nxt
         fail('DMA runaway')
 
+    @property
+    def passes(self):
+        return len(self.pass_targets)
+
+    @property
+    def pass_first(self):
+        return self.pass_firsts[0] if self.pass_firsts else None
+
+    def pass_view_digest(self):
+        """em_chain_page_live.c's log digest: one pass, its pass_digest; several,
+        each pass's (its own marks, relative to it) folded by FNV-1a."""
+        envs = self.gs.envs
+        spans = []
+        for k, first in enumerate(self.pass_firsts):
+            end = first
+            while end < len(envs) and envs[end] is not None:
+                end += 1
+            marks = [a - first for a, q in zip(self.again, self.again_pass) if q == k]
+            spans.append((envs[first:end], marks))
+        if len(spans) == 1:
+            return pass_digest(*spans[0])
+        h = 2166136261
+        for e, marks in spans:
+            w = pass_digest(e, marks)
+            for b in range(4):
+                h ^= (w >> (8 * b)) & 0xFF
+                h = (h * 16777619) & M32
+        return h
+
     def run(self, start):
         stream = self.dma(start)
         # one flat VIF stream with each word's source address (and whether
@@ -729,14 +764,15 @@ class Page:
         while i < n:
             at, v = words[i]
             i += 1
-            if at == 'PASS':                                # the pass starts: its own environment
+            if at == 'PASS':                                # a pass starts: its own environment
                 self.gs.env = {}
-                self.pass_first = len(self.gs.prims)
+                self.pass_firsts.append(len(self.gs.prims))
                 continue
             if at == 'AGAIN':                               # the frame's draw environment again
                 if len(self.again) >= 16:
-                    fail('more than 16 environment-again marks in the pass')
+                    fail('more than 16 environment-again marks in the passes')
                 self.again.append(len(self.gs.prims))
+                self.again_pass.append(len(self.pass_firsts) - 1)
                 self.gs.env = {}
                 for k in AGAIN_FORGETS:
                     self.gs.state.pop(k, None)

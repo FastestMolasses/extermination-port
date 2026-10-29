@@ -29,6 +29,11 @@ C. The Original profile's path: em_chain_page's pass mode over the captured
    and 3 workers (EM_TEST_FULL: 1, 2, 3, 8) and with 3 workers every block
    an upload: all 4 MiB equal to AFTER.
 
+M. The Python model (tools/chain_page_model.py, the level smoke's
+   independent walk): each of the frame's slot-0xFFF CALLs alone gives the
+   C walk's primitives and marks, and all of them in one page (their slot
+   chain's DMA order) give each pass in turn with the same counts.
+
 The C side is tests/dof_pass_reference_bridge.c (dof_replay, dof_live: both
 take any pass target).
 
@@ -170,6 +175,58 @@ def part_c(lib, cap: Capture, report) -> None:
             report.setdefault('workers' if res.count(0) else 'workers_up', []).append(workers)
 
 
+SYNTH = 0x02000000          # the synthetic slot blocks (past the 32 MiB of RAM)
+
+
+def part_m(cap: Capture, report) -> None:
+    import chain_page_model as M
+    ram = cap.ram()
+    ctx = D.u32(ram, 0x275670)
+    slot = D.u32(ram, ctx + 0x9C)
+    bank = D.field_of(ram, slot)[0]
+    targets = [int(t, 16) for _b, t in cap.chain]
+
+    def page(calls):
+        # block 0 at SYNTH (the page's start; its end is SYNTH + 0x20), the
+        # others from SYNTH + 0x100; each CALL, then a NEXT to the next
+        # block, the last one's to the page's end
+        at = [SYNTH] + [SYNTH + 0x100 + 0x20 * k for k in range(1, len(calls))]
+        blocks = bytearray(0x100 + 0x20 * len(calls))
+        for k, t in enumerate(calls):
+            nxt = at[k + 1] if k + 1 < len(calls) else SYNTH + 0x20
+            o = at[k] - SYNTH
+            blocks[o:o + 8] = (0x50000000).to_bytes(4, 'little') + t.to_bytes(4, 'little')
+            blocks[o + 16:o + 24] = (0x20000000).to_bytes(4, 'little') + nxt.to_bytes(4, 'little')
+        def read(a, n):
+            if a >= SYNTH:
+                return bytes(blocks[a - SYNTH:a - SYNTH + n])
+            return bytes(ram[a:a + n])
+        pg = M.Page(read, pass_calls=calls, draw_envs=bank, draw_env_slot=slot)
+        pg.run(SYNTH)
+        return pg
+
+    single = {}
+    for t in targets:
+        pg = page([t])
+        single[t] = (len(pg.gs.prims), [a - pg.pass_first for a in pg.again])
+    walk = report.get('walk')
+    if walk and single[cap.target] != (walk[0], walk[4]):
+        D.fail(f'{cap.fid}: the Python model walks the ramp pass as {single[cap.target]}, the C walker as '
+               f'{(walk[0], walk[4])}')
+    if len(targets) > 1:
+        # one page holding every CALL: the DMA order of the slot chain is
+        # the tail first, each block's NEXT the one before it
+        pg = page(targets)
+        firsts = pg.pass_firsts + [len(pg.gs.prims)]
+        got = [(firsts[k + 1] - firsts[k], [a - firsts[k] for a, q in zip(pg.again, pg.again_pass) if q == k])
+               for k in range(pg.passes)]
+        if pg.pass_targets != targets or got != [single[t] for t in targets]:
+            D.fail(f'{cap.fid}: the Python model walks the {len(targets)} passes in one page as {got} '
+                   f'(targets {pg.pass_targets}), alone as {[single[t] for t in targets]}')
+        else:
+            report['model_passes'] = len(targets)
+
+
 def main() -> int:
     t0 = time.monotonic()
     ids = sorted(p.parent.name for p in CAP.glob('*/analysis.json')) if CAP.exists() else []
@@ -184,12 +241,14 @@ def main() -> int:
         report: dict = {'field': field_words(lib, cap)}
         part_a(lib, cap, report)
         part_c(lib, cap, report)
+        part_m(cap, report)
         print(f'  {fid}: ramp CALL {cap.target:#x} (slot chain {cap.chain}), {len(cap.gif)} GIF bytes, '
               f'{report.get("pixels")} pixels, {report.get("residue")} field words of the 8.2 residue; '
               f'model equal with {report.get("bands", [])} band(s); walk '
               f'(primitives, passes, pass primitives, DIRECT, marks) {report.get("walk")}; the Original '
               f'profile\'s path equal with {report.get("workers", [])} workers and, every block an upload, '
-              f'{report.get("workers_up", [])}')
+              f'{report.get("workers_up", [])}; the Python model equal ({report.get("model_passes", 1)} '
+              f'pass(es) in one page)')
     dt = time.monotonic() - t0
     if D.FAILS:
         print(f'test_ramp_pass_reference: FAIL ({len(D.FAILS)} problems, {dt:.1f} s)')

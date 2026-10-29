@@ -2021,6 +2021,10 @@ static void log_tick_end(int rc)
                     pl.draw_envs, pl.draw_env_slot, pl.pass_digest);
             for (uint32_t k = 0; k < pl.again_count && k < EM_CHAIN_PAGE_AGAIN_MAX; ++k)
                 fprintf(f, "%s%u", k ? ", " : "", pl.again[k]);
+            /* the frame's slot-0xFFF CALL targets (CHAIN_PAGE.md 6.3) */
+            fputs("], [", f);
+            for (uint32_t k = 0; k < pl.pass_target_count && k < EM_CHAIN_PAGE_PASSES_MAX; ++k)
+                fprintf(f, "%s%u", k ? ", " : "", pl.pass_targets[k]);
             fputs("]]", f);
         } else {
             fputs("null", f);

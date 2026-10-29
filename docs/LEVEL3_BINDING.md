@@ -14,6 +14,38 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-28, iteration 26: the revisit run is exact through a01r_00
+(1,382 rows) and all 8,122 rows of a01r_01 (the train-room event, the
+item page, the op0D cinematic and its ramp frames), and a01r_02 through
+row 448; it stops at a01r_02 frame 10065, owner 008261A0's node 007B3580
+failing at 001798D0 (next unit).**
+
+- **a01r_01 row 8079 (`msg` 4 against 0, D_008106B0 0 against 1) was the
+  item page's module load.** The status page loads module 0x23 through the
+  module loader (task slot 2, rows 8068..8090 in the recording); the
+  revisit harness did not hand the a01r beats' bank loads to the drive
+  replay, so the port's loader polled at host speed and the page's message
+  came 14 rows early. `test_level_smoke_area01r.py` now passes the a01r
+  traces to `drive_replay.write_table` (the "L" lines, as the AREA00
+  harness does for a00_08): 2 more loader reads.
+- **The node fault at a01r_01 frame 9597** (001BB0E0's node 0x7A5930
+  failing on 0x7A64F0): the group 0x82A900's owner (record 5, 0x825950)
+  frees itself in row 8103's tick, the tick its script actor (record 1)
+  runs state 2 (a fork pool probe, `build/frontier/fork/a01r_01`); the
+  revisit runtime's rv_001BB0E0 read the owner's bytes on every call.
+  001BB0E0 reads the owner's +0x2E in states 0 / 1 only, so the runtime
+  now reads it there only.
+- **Build:** the binary now also depends on `src/game/*.inc` (an edit of
+  `em_area01_runtime_revisit.inc` alone did not rebuild it).
+- **The chain page's Python model takes several passes**
+  (`chain_page_model.py` `pass_calls`, `pass_targets`, `again_pass`, the
+  folded digest), the tick log's page record ends with the frame's
+  slot-0xFFF targets, and `test-ramp-pass-reference` checks the model's
+  walk of each ramp pass against the C walker and of all of a frame's
+  passes in one page.
+- Receipts: `build/frontier/r05d` (a diagnostic build; the same code with a
+  temporary backtrace in the actor view, removed).
+
 **2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
 the revisit harness (`tools/test_level_smoke_area01r.py --run`) runs the
 whole AREA00 path, the return and a01r_00 exact on all 1,382 rows, and
