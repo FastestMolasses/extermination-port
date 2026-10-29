@@ -20,6 +20,8 @@ static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | (uint16_t)p[1]
 static uint32_t rd32(const uint8_t *p)
 { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 
+enum { OWNED_COUNT = sizeof owned / sizeof owned[0] };
+
 static int represented(unsigned offset)
 {
     for (unsigned i = 0; i < sizeof owned / sizeof owned[0]; ++i)
@@ -165,10 +167,12 @@ int em_area01_actor_view_commit(EmArea01ActorView *v)
         if (memcmp(r->image + 0x14, r->before + 0x14, 12)) return fail(v, base + 0x14, 3);
         /* An unbracketed native worker would otherwise have its changes
          * silently overwritten. All represented fields must still agree
-         * with the pre-segment view, including links changed by allocation. */
-        for (unsigned i = 0; i < EM_ACTOR_RECORD_SIZE; ++i)
-            if (represented(i) && !r->shared[i] && live[i] != r->before[i])
-                return fail(v, base + i, 1);
+         * with the pre-segment view, including links changed by allocation.
+         * (The represented bytes are the owned ranges, ascending: walked
+         * range by range, the first difference is the same byte.) */
+        for (unsigned k = 0; k < OWNED_COUNT; ++k)
+            for (unsigned i = owned[k].at; i < owned[k].end; ++i)
+                if (!r->shared[i] && live[i] != r->before[i]) return fail(v, base + i, 1);
         EmArea01ActorSpan spans[EM_AREA01_ACTOR_SHARED_MAX];
         int n = projections(v, a, spans, mask, 0);
         if (n < 0) return -1;
@@ -192,9 +196,10 @@ int em_area01_actor_view_commit(EmArea01ActorView *v)
                 return fail(v, base + 0x10, 5);
             em_actor_pool_record_image(v->pool, a, live);
             if (memcmp(live + 0x14, r->before + 0x14, 12)) return fail(v, base + 0x14, 3);
-            for (unsigned j = 0; j < EM_ACTOR_RECORD_SIZE; ++j)
-                if (represented(j) && !r->shared[j] && (j < 0x10 || j >= 0x14) && live[j] != r->before[j])
-                    return fail(v, base + j, 5);
+            for (unsigned k = 0; k < OWNED_COUNT; ++k)
+                for (unsigned j = owned[k].at; j < owned[k].end; ++j)
+                    if (!r->shared[j] && (j < 0x10 || j >= 0x14) && live[j] != r->before[j])
+                        return fail(v, base + j, 5);
         }
         commit_actor(a, r->image, r->shared);
         for (int i = 0; i < n; ++i)
@@ -220,7 +225,8 @@ int em_area01_actor_view_snapshot(EmArea01ActorView *v, uint32_t address, uint32
     uint8_t image[EM_ACTOR_RECORD_SIZE], native[EM_ACTOR_RECORD_SIZE], mask[EM_ACTOR_RECORD_SIZE];
     memcpy(image, v->record[index].image, sizeof image);
     em_actor_pool_record_image(v->pool, a, native);
-    for (unsigned i = 0; i < sizeof image; ++i) if (represented(i)) image[i] = native[i];
+    for (unsigned k = 0; k < OWNED_COUNT; ++k)
+        memcpy(image + owned[k].at, native + owned[k].at, owned[k].end - owned[k].at);
     EmArea01ActorSpan spans[EM_AREA01_ACTOR_SHARED_MAX];
     int n = projections(v, a, spans, mask, 1);
     if (n < 0) return -1;
