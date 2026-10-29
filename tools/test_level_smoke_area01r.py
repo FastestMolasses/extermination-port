@@ -37,7 +37,7 @@ def verify_harness(out):
     """Execute the actual C selector/reader/driver over the recorded inputs.
     Only the driver's game-facing services are mocked."""
     source = (ROOT / 'src/game/em_level_smoke_test.c').read_text()
-    phases = re.findall(r'\{"(a01r_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
+    phases = re.findall(r'\{"((?:a01r|a02)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
                         source, re.S)
     assert [p[0] for p in phases] == list(a01r.ROUTE_PHASES), ('C/Python phase order', phases)
     selector = source[source.index('static int side_played('):source.index('static void report_not_live(')]
@@ -66,8 +66,11 @@ static unsigned task_byte(unsigned off){return arrived ? (off==8?3:off==9?1:0):0
 '''.replace('PHASE_ROWS', ',\n'.join('{"%s",%s,%s}' % row for row in phases))
     suffix = r'''
 int main(int argc,char **argv){
-    if(argc!=3 && argc!=4)return 2;
-    const int boundary=argc==4 ? atoi(argv[3]) : -1;
+    if(argc!=3 && argc!=4 && argc!=7)return 2;
+    const int boundary=argc>=4 ? atoi(argv[3]) : -1;
+    /* the destination's D_00810700..702 at the boundary (default AREA02 sub 1, door [16]) */
+    const unsigned dest[3]={argc==7 ? (unsigned)atoi(argv[4]) : 2u, argc==7 ? (unsigned)atoi(argv[5]) : 1u,
+                            argc==7 ? (unsigned)atoi(argv[6]) : 1u};
     unsigned n=sizeof k_phases/sizeof k_phases[0];
     for(t.until=0;t.until<(int)n && strcmp(k_phases[t.until].name,argv[2]);++t.until){}
     if(t.until==(int)n)return 2;
@@ -78,8 +81,8 @@ int main(int argc,char **argv){
     t.current=t.until;a01_route_begin();
     if(failed)return 1;
     for(counter=1;counter<21000;++counter){
-        /* a01r_03: AREA02 sub 1's state 0 at the recorded row (door [16]) */
-        if(boundary>=0 && t.frames+1==boundary){scene=(EmSceneState){2,1,1};arrived=1;}
+        /* a01r_03 / a02_00: the destination's state 0 at the recorded row */
+        if(boundary>=0 && t.frames+1==boundary){scene=(EmSceneState){dest[0],dest[1],dest[2]};arrived=1;}
         int done=a01_route_frame();
         printf("%u %u %a %a\n",counter,buttons,(double)lx,(double)ly);
         if(failed)return 1;
@@ -105,8 +108,9 @@ int main(int argc,char **argv){
         if phase in a00.RETURN_TICKS:
             boundary = next(r['f'] for r in capture['rows'] if r['area4'] == a00.RETURN_AREA[phase] and
                             bytes.fromhex(r['slots'])[8:12] == bytes((3, 1, 0, 0)))
-        result = subprocess.run([str(binary), 'drive', phase, str(boundary)], env=env, capture_output=True, text=True,
-                                check=True)
+        dest = [str(b) for b in bytes.fromhex(a00.RETURN_AREA[phase])[:3]] if phase in a00.RETURN_TICKS else []
+        result = subprocess.run([str(binary), 'drive', phase, str(boundary), *dest], env=env, capture_output=True,
+                                text=True, check=True)
         actual = [(int(c), int(b), float.fromhex(x), float.fromhex(y)) for c, b, x, y in
                   (line.split() for line in result.stdout.splitlines())]
         frames, gap = entry['endpoint_row'], entry['gap']
@@ -150,7 +154,8 @@ def verify_checker():
     def bits(value):
         return struct.unpack('<I', struct.pack('<f', value))[0]
 
-    def native_row(row):
+    def native_row(row, phase):
+        owner_table, key = a01r.owners_of(phase)
         post = bytearray(smoke.tsr.SNAP)
         post[:5] = bytes.fromhex(row['slots'])[8:13]
         for address, value in ((0x8106B0, row['req']), (0x810700, row['area4'][:6]), (smoke.SPAD, row['spad'])):
@@ -162,21 +167,22 @@ def verify_checker():
         block[0x20:0x2C] = struct.pack('<3f', *row['cam_tgt'])
         owners = {str(address): [row[name]['h'], struct.pack('<3f', *row[name]['pos']).hex(),
                   row[name]['s1F0'], row[name]['t2DC'], int(row[name]['cb'], 16)]
-                  for name, address in a01r.OWNERS.items()}
+                  for name, address in owner_table.items()}
         return dict(counter=row['counter'], tick=row['f'], post=post.hex(),
             player=[row['p5'], row['m1F0'], row['m1F1'], row['clip'], bits(row['clock']), int(row['ground'], 16), row['b2F3']],
             pos_post=list(map(bits, row['pos'])), yaw_post=bits(row['yaw']), eye_post=list(map(bits, row['eye'])),
             tgt_post=list(map(bits, row['tgt'])), cam4=row['cam_mode'], screen8=row['screen'][:16], power=row['power'],
             camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex(), bytes(48).hex()],
-            a01r=dict(hp=bits(row['hp']), progress=[row['d2'], row['story758'], row['taken'], row['docs']],
-                      owners=owners, locks=row['locks'], wpn=row['wpn'], s760=row['story760']))
+            **{key: dict(hp=bits(row['hp']), progress=[row['d2'], row['story758'], row['taken'], row['docs']],
+                         owners=owners, locks=row['locks'], wpn=row['wpn'], s760=row['story760'])})
 
     count = rejected = 0
     for phase in a01r.ROUTE_PHASES:
         capture = a01r.route_capture(phase)
         a01r.check_owner_nodes(phase, capture)
         rows = capture['rows']
-        ticks = [native_row(r) for r in rows] + [{}]
+        ticks = [native_row(r, phase) for r in rows] + [{}]
+        okey = a01r.owners_of(phase)[1]
         for k, row in enumerate(rows):
             loader = bytearray(27)
             loader[1:5] = bytes.fromhex(row['slots'])[0x48:0x4C]
@@ -228,27 +234,27 @@ def verify_checker():
             pair = copy.deepcopy(ticks[last:last + 2])
             tick = pair[0]
             if field in ('df', 'e0'):
-                value = bytearray.fromhex(tick['a01r']['progress'][0]); value[7 if field == 'df' else 8] ^= 0x11
-                tick['a01r']['progress'][0] = value.hex()
+                value = bytearray.fromhex(tick[okey]['progress'][0]); value[7 if field == 'df' else 8] ^= 0x11
+                tick[okey]['progress'][0] = value.hex()
             elif field == 'story75F':
-                value = bytearray.fromhex(tick['a01r']['progress'][1]); value[7] ^= 0x11
-                tick['a01r']['progress'][1] = value.hex()
+                value = bytearray.fromhex(tick[okey]['progress'][1]); value[7] ^= 0x11
+                tick[okey]['progress'][1] = value.hex()
             elif field == 's760':
-                tick['a01r']['s760'] = '%02x' % (int(tick['a01r']['s760'][:2], 16) ^ 0x11) + tick['a01r']['s760'][2:]
+                tick[okey]['s760'] = '%02x' % (int(tick[okey]['s760'][:2], 16) ^ 0x11) + tick[okey]['s760'][2:]
             elif field == 'owner':
-                next(iter(tick['a01r']['owners'].values()))[4] ^= 4
+                next(iter(tick[okey]['owners'].values()))[4] ^= 4
             elif field == 'missing_owner':
-                tick['a01r']['owners'].clear()
+                tick[okey]['owners'].clear()
             elif field == 'missing_observation':
-                del tick['a01r']
+                del tick[okey]
             elif field in ('locks', 'wpn'):
-                tick['a01r'][field] = 'ff' + tick['a01r'][field][2:]
+                tick[okey][field] = 'ff' + tick[okey][field][2:]
             elif field == 'camera':
                 tick['cam4'] = 'ff' + tick['cam4'][2:]
             elif field == 'clock':
                 tick['player'][4] = bits(rows[last]['clock'] + 1)
             else:
-                tick['a01r']['hp'] = bits(rows[last]['hp'] + 1)
+                tick[okey]['hp'] = bits(rows[last]['hp'] + 1)
             try:
                 a01r.compare_route_row(smoke, pair, 0, rows[last], phase)
             except AssertionError:
