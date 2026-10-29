@@ -1398,6 +1398,11 @@ static int script_bank(void *ctx,EmActor *a,uint32_t *value,int write)
 }
 static uint64_t resource_epoch(void *ctx)
 { return *((EmArea01Live *)ctx)->host.resource_epoch; }
+int em_area01_live_00199C50(EmArea01Live *l)
+{
+    if(!l || !l->bound)return -1;
+    return em_area01_collision_view_00199C50(&l->collision)<0 ? fail(l,l->collision.fault_address) : 0;
+}
 int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
 {
     if(!l || !h || !h->pool || !h->scene || !h->area || !h->loader || !h->current_actor ||

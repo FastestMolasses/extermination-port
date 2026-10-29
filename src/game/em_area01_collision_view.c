@@ -48,6 +48,7 @@ static const void *decode(EmArea01CollisionView *v,uint32_t a)
 { return !a?NULL:v->host.identity?v->host.identity(v->host.ctx,a):em_area01_collision_pool_identity(v->host.pool,v->host.player,a); }
 static int node_index(EmArea01CollisionView *v,uint32_t address)
 {
+    if(!v->staged)return fail(v,0x700031F8,1);
     uint32_t base=v->metadata[(0x3208-0x31F8)/4];
     if(address<base||(address-base)%0x40)return -1;
     uint32_t i=(address-base)/0x40;
@@ -57,7 +58,7 @@ static int record_word(EmArea01CollisionView *v,EmCollProbeState *s,uint32_t *ou
 {
     if(s->record==EM_COLL_PROBE_RECORD_NONE)*out=0;
     else if(s->record==EM_COLL_PROBE_RECORD_CELL)*out=0x700030B0;
-    else if(s->record==EM_COLL_PROBE_RECORD_GRID&&s->node>=0&&(uint32_t)s->node<grid(v)->count)
+    else if(s->record==EM_COLL_PROBE_RECORD_GRID&&s->node>=0&&(uint32_t)s->node<grid(v)->count&&v->staged)
         *out=v->metadata[(0x3208-0x31F8)/4]+0x40u*(uint32_t)s->node;
     else return fail(v,0x700031D0,3);
     return 0;
@@ -120,19 +121,30 @@ int em_area01_collision_view_bind(EmArea01CollisionView *v,const EmArea01Collisi
     if(!h->shared||!h->segment||!h->segment->state||!h->segment->face||!h->segment->world||
        !h->segment->world->cells||!h->segment->world->grid||!h->move||(!h->pool&&(!h->address||!h->identity))||!h->generation||!h->bytes)
         return fail(v,0,1);
+    /* The bind checks the file against the grid with the metadata the
+     * original's 00199C50 will stage (a local copy); the view's own copy is
+     * staged at that call (em_area01_collision_view_00199C50). */
+    uint32_t meta[EM_SLG_COLL_SPAD_WORDS];
     if(!cells(v)||!cells(v)->bytes||!lists(v)||h->file.d28A5A8_value!=cells(v)->count||
-       em_slg_00199C50(&h->file,v->metadata)<0||v->metadata[(0x320C-0x31F8)/4]!=grid(v)->count)
+       em_slg_00199C50(&h->file,meta)<0||meta[(0x320C-0x31F8)/4]!=grid(v)->count)
         return fail(v,0x700031F8,1);
     if(!h->file.d28A5A8||(uint64_t)h->file.address+h->file.size>UINT64_C(0x100000000)||
        (uint64_t)h->file.d28A5A8+cells(v)->size>0x02000000u)return fail(v,0x70003250,1);
     for(unsigned i=0;i<12;i++){
-        uint32_t a=v->metadata[(0x3210-0x31F8)/4+i];
+        uint32_t a=meta[(0x3210-0x31F8)/4+i];
         if(!a&&i>=6)continue;
         if(!span(a,2u*grid(v)->count,h->file.address,h->file.size,(void *)h->file.bytes))return fail(v,0x70003210u+4*i,1);
     }
-    if(!span(v->metadata[(0x3208-0x31F8)/4],64u*grid(v)->count,h->file.address,h->file.size,(void *)h->file.bytes)||
-       !span(v->metadata[1],12u*grid(v)->vert_count,h->file.address,h->file.size,(void *)h->file.bytes))return fail(v,0x700031FC,1);
+    if(!span(meta[(0x3208-0x31F8)/4],64u*grid(v)->count,h->file.address,h->file.size,(void *)h->file.bytes)||
+       !span(meta[1],12u*grid(v)->vert_count,h->file.address,h->file.size,(void *)h->file.bytes))return fail(v,0x700031FC,1);
     v->generation=h->generation(h->ctx);return 0;
+}
+int em_area01_collision_view_00199C50(EmArea01CollisionView *v)
+{
+    if(!v||v->fault)return -1;
+    if(em_slg_00199C50(&v->host.file,v->metadata)<0||v->metadata[(0x320C-0x31F8)/4]!=grid(v)->count)
+        return fail(v,0x700031F8,1);
+    v->staged=1;return 0;
 }
 int em_area01_collision_view_begin(EmArea01CollisionView *v)
 {
@@ -207,6 +219,7 @@ uint8_t *em_area01_collision_view_bytes(EmArea01CollisionView *v,uint32_t a,uint
      * bytes. Never expose those across the canonical mutable cell boundary. */
     if((uint64_t)alias+n>v->host.file.d28A5A8&&(uint64_t)v->host.file.d28A5A8+t->size>alias)return NULL;
     if(write)return NULL;
+    if(!v->staged&&(uint64_t)a+n>0x700031F8u&&a<0x70003240u)return NULL;   /* before 00199C50 */
     p=span(a,n,0x700031F8,0x48,v->metadata);if(p)return p;
     p=span(a,n,0x7000324C,2,&t->count);if(p)return p;
     p=span(a,n,0x70003250,4,&v->host.file.d28A5A8);if(p)return p;

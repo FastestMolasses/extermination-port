@@ -30,7 +30,7 @@ def build():
              'coll_list_passes','coll_segment_walkers','coll_move_original',
              'coll_grid_hull','sdk_math_original','sdk_soft_float','interaction_scan',
              'area01_sys','area01_math_core','area01_math_player','area01_collision_view',
-             'startup_load_gaps']
+             'startup_load_gaps','player_hull_shove']
     path=OUT/'closeout.dylib'
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror',
                     '-ffp-contract=off','-shared','-fPIC','-Isrc',

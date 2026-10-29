@@ -311,7 +311,9 @@ static const struct {
     [UM_001C1DC0] = {0x001C1DC0u, "its 001D2830 registrations and 001C1E70..001C1F50 passes have no "
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
-    [UM_00199C50] = {0x00199C50u, "no port counterpart"},
+    [UM_00199C50] = {0x00199C50u, "a scene without the AREA01/02 live composition (AREA11): nothing "
+                                  "reads the collision scratch metadata it stages (the walkers read "
+                                  "the EMCL export's grid views)"},
     [UM_001FAE70] = {0x001FAE70u, "area music cue outside its bound calls (the state-0 area entry, "
                                   "the state-4 room move, the state-5 status close, the state-2 "
                                   "options close and state 6's sub-area return; w_001FAE70)"},
@@ -406,7 +408,22 @@ static int um_001D19E0(void *ctx)
     }
     return unmirrored(UM_001D19E0);
 }
-static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
+/* 00199C50 (001AE040 state 0, after 001B6990): the collision scratch
+ * metadata 0x700031F8.. from D_0028A598 / D_0028A5A8. In a scene with the
+ * AREA01/AREA00/AREA02 live composition (bound at 001B6990) it stages the
+ * collision view's copy, the walkers' one storage. AREA11 (the first level)
+ * has no reader of those words: its walkers read the EMCL export's grid
+ * views, so the call is reported (FIRST_LEVEL_AUDIT.md). */
+static int um_00199C50(void *ctx)
+{
+    (void)ctx;
+    if (arrival_scene() && s_area01_live.bound) {
+        if (em_area01_live_00199C50(&s_area01_live) < 0)
+            return em_scene_fault(&s_state, 0x00199C50u, EM_SCENE_FAULT_NULL_WORKER);
+        return 0;
+    }
+    return unmirrored(UM_00199C50);
+}
 static int rcl_live(void);
 static int rcl_fault(void);
 /* 001D1EF0 (byte-matched), the tear-down frame: 001D1C50, 001D2830(3, 1),

@@ -76,6 +76,9 @@ typedef struct {
  * slot count/head are borrowed pointers. Binding allocates no model/slots
  * and resets no pool, player or overlay. */
 int em_area01_live_bind(EmArea01Live *, const EmArea01LiveHost *);
+/* 00199C50 at its original call (001AE040 state 0, after 001B6990's bind):
+ * the collision view stages the scratchpad pointer metadata. 0, or -1. */
+int em_area01_live_00199C50(EmArea01Live *live);
 /* After the shared script host drops its borrowed descriptors at reset. */
 void em_area01_live_detach(EmArea01Live *);
 int em_area01_live_resume(EmArea01Live *);

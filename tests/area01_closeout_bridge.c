@@ -116,7 +116,8 @@ int cg_setup(uint8_t *ram,uint8_t *spad)
     host.file.size=0x02000000u-host.file.address;
     host.file.d28A5A8=word(ram+0x28A5A8);
     host.file.d28A5A8_value=half(ram+host.file.d28A5A8);
-    if(em_area01_collision_view_bind(&collision_view,&host)<0)return -1;
+    if(em_area01_collision_view_bind(&collision_view,&host)<0 ||
+       em_area01_collision_view_00199C50(&collision_view)<0)return -1;   /* 001B6990, then 00199C50 */
     return cg_bind(1);
 }
 int cg_run(uint32_t *fault)

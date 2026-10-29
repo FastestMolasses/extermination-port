@@ -1,5 +1,8 @@
 /* Included after the existing segment oracle's Bridge: test fixture only. */
 #include "game/em_area01_collision_view.h"
+/* The bind (001B6990) followed by 00199C50, as 001AE040 state 0 runs them. */
+static int cv_bind_staged(EmArea01CollisionView *v,const EmArea01CollisionHost *h)
+{ int rc=em_area01_collision_view_bind(v,h);return rc<0?rc:em_area01_collision_view_00199C50(v); }
 static struct {
     Bridge *b;EmCollProbeState state;EmCollSegmentFaceScratch face;
     EmCollMoveScratch move;EmAimFireWorldLive shared;EmArea01CollisionView view;
@@ -32,7 +35,7 @@ int cv_setup(Bridge *b,BState *st,uint32_t file,uint32_t file_size,uint32_t tabl
         .file={.address=file,.bytes=b->ram.ram+file,.size=file_size,.d28A5A8=table,.d28A5A8_value=b->table.count},
         .ctx=b,.address=cv_address,.identity=cv_identity,.generation=cv_generation,.bytes=cv_fallback,
         .player_chain=cv_player_chain};
-    return em_area01_collision_view_bind(&CV.view,&h);
+    return cv_bind_staged(&CV.view,&h);
 }
 /* A loader re-mapping of the file after bind (a sub-area bank delivery
  * splits the region holding it): the resolver serves `remap` (or nothing),
@@ -123,13 +126,13 @@ int cv_pool_contract(void)
        em_area01_collision_pool_address(&pool,&player,NULL)||
        em_area01_collision_pool_identity(&pool,&player,EM_ACTOR_POOL_BASE-1))return -3;
     EmArea01CollisionHost host=CV.view.host;host.pool=&pool;
-    if(em_area01_collision_view_bind(&CV.view,&host)<0||cv_begin()<0)return -4;
+    if(cv_bind_staged(&CV.view,&host)<0||cv_begin()<0)return -4;
     EmActor *a=em_actor_pool_alloc_001AFA90(&pool,&scene,4);
     if(!a||cv_commit()!=-1||CV.view.fault!=2)return -5;
-    if(em_area01_collision_view_bind(&CV.view,&host)<0||cv_begin()<0)return -6;
+    if(cv_bind_staged(&CV.view,&host)<0||cv_begin()<0)return -6;
     if(em_actor_pool_free_001AFC10(&pool,&scene,a)<0||!em_actor_pool_alloc_001AFA90(&pool,&scene,4)||
        cv_commit()!=-1||CV.view.fault!=2)return -7;
-    if(em_area01_collision_view_bind(&CV.view,&host)<0||cv_begin()<0||cv_commit()<0)return -8;
+    if(cv_bind_staged(&CV.view,&host)<0||cv_begin()<0||cv_commit()<0)return -8;
     return 0;
 }
 void cv_reset_lists(void){em_actor_class_lists_reset(&CV.b->lists);}
