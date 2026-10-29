@@ -4,6 +4,10 @@ The revisit's main line (FOURTH_LEVEL_ROUTE.md section 4; docs/AREA01_REVISIT.md
 a01r_00 (back to the train room), a01r_01 (the event: D_008107DF 1 .. 0xFF,
 D_0081075F = 0xFF, item 0x20) and a01r_02 (the bridge: D_008107E0 -> 0xFF,
 D_00810760 = 0xFF). a01r_00 starts where AREA00's a00_10 return ends.
+The side beats (FOURTH_LEVEL_ROUTE.md section 4) branch from a main beat's
+end: a01r_s0 (the event's pickup) from a01r_01, a01r_s1 (door [14],
+locked) from a01r_02; a run --until a side plays the main line to its
+source, then only the side.
 Preparation exports pads only. A native route is certified only by the row
 comparisons below; they do not certify rendered pixels.
 """
@@ -17,17 +21,40 @@ import level_smoke_area01 as a01
 import reference_root as refs
 
 ROUTE_DIR = refs.capture('s87/route_a01r')
+# AREA02's beats follow the revisit on the same native path (their pads in
+# the same EM_LEVEL4_PAD_DIR); their recordings are route_a02's.
+A02_ROUTE_DIR = refs.capture('s87/route_a02')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
-              'a01r_03': 'a01r_03_door16'}
-SIDE_BEATS = {}
-ROUTE_PHASES = tuple(MAIN_BEATS)
-SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02'}
+              'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct'}
+SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked'}
+# em_level_smoke_test.c's phase order: each side right after its source.
+ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_03', 'a02_00')
+SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
+           'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a02_00': 'a01r_03'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
               door_r16=0x7AE920, bridge_r41=0x7B3290, bridge_r42=0x7B3580, r45_8267C0=0x7B3E50,
               g5_825950=0x7A64F0, g7_825950=0x7A6AD0, g6_826CF0=0x7A67E0, g0_823CD0=0x7A5640,
               g1_823CD0=0x7A5930, g2_823CD0=0x7A5C20, g3_823CD0=0x7A5F10, g4_823CD0=0x7A6200)
+# FOURTH_LEVEL_ROUTE.md section 1.1, A02_OWNERS: the sub-1 table s1_* and
+# the sub-0 table s0_* (the loads reuse the pool addresses; every AREA02 row
+# samples both). The tick log's "a02" observation (em_scene_bindings.c
+# log_area02) holds the same nodes.
+A02_OWNERS = dict(s1_pick_g0=0x7A5640, s1_pick_g1=0x7A5930, s1_pick_g2=0x7A5C20, s1_bed_r0=0x7A5F10,
+                  s1_r1_1C4AF0=0x7A6200, s1_r2_159970=0x7A64F0, s1_save_r3=0x7A67E0, s1_panel_r4=0x7A6AD0,
+                  s1_door_r5=0x7A6DC0, s1_door_r6=0x7A70B0, s0_lock_r21=0x7AD780, s0_door_r22=0x7ADA70,
+                  s0_panel_r24=0x7AE050, s0_door_r25=0x7AE340, s0_lamp_r26=0x7AE630, s0_r27_825100=0x7AE920,
+                  s0_turntable_r28=0x7AEC10, s0_r31_823980=0x7AF4E0, s0_k7_r32=0x7AF7D0, s0_k8_r33=0x7AFAC0,
+                  s0_k11_r34=0x7AFDB0, s0_k10_r35=0x7B00A0, s0_gate_r36=0x7B0390, s0_gate_r37=0x7B0680,
+                  s0_gate_r38=0x7B0970)
+
+
+def owners_of(phase):
+    """The recorded owner table and the tick log's observation key."""
+    return (A02_OWNERS, 'a02') if phase.startswith('a02_') else (OWNERS, 'a01r')
+
+
 # The fork recorder's input corrections (trace metadata v263_pad_corrections).
 PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)]}
 
@@ -35,13 +62,19 @@ PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)]}
 def capture_path(phase):
     if phase == 'a00_10':
         return a00.capture_path(phase)
-    return ROUTE_DIR / MAIN_BEATS[phase] / 'trace.json'
+    return (A02_ROUTE_DIR if phase.startswith('a02_') else ROUTE_DIR) / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
+
+
+def revisit_path(until):
+    """The revisit phases a run --until `until` plays: the main line up to
+    it, without the side beats it passes (a side: then only that side)."""
+    assert until in ROUTE_PHASES, ('unknown AREA01 revisit phase', until)
+    return tuple(p for p in ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1] if p not in SIDE_BEATS or p == until)
 
 
 def phase_path(until):
     """The native path: New Game through AREA00's a00_10, then the revisit."""
-    assert until in ROUTE_PHASES, ('unknown AREA01 revisit phase', until)
-    return (*a00.phase_path('a00_10'), *ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1])
+    return (*a00.phase_path('a00_10'), *revisit_path(until))
 
 
 def source_capture(phase):
@@ -73,7 +106,7 @@ def check_owner_nodes(phase, capture=None):
     capture = capture or route_capture(phase)
     ram = capture_path(phase).with_name('eeMemory.bin').read_bytes()
     row = capture['rows'][-1]
-    for name, node in OWNERS.items():
+    for name, node in owners_of(phase)[0].items():
         callback = struct.unpack_from('<I', ram, node + 0x10)[0]
         pos = [round(v, 5) for v in struct.unpack_from('<3f', ram, node + 0xB0)]
         want = row[name]
@@ -94,10 +127,13 @@ def source_gap(phase, capture):
 def command_rows(phase, capture):
     """The recorder's effective pad (level_smoke_area00.command_rows with this
     level's corrections): a late first input yields to a newer command in
-    its window, as the original capture driver does."""
+    its window, as the original capture driver does. A beat whose first
+    input comes later (a01r_s1: f10) holds the pad the session started
+    with until then (route_capture: the pad as the session left it,
+    cleared), which is the C driver's pad before its first command."""
     commands = capture['inputs']
     corrections = PAD_CORRECTIONS.get(phase, [])
-    assert commands and commands[0]['f'] == 0
+    assert commands and (commands[0]['f'] == 0 or not corrections)
     assert all(a['f'] <= b['f'] for a, b in zip(commands, commands[1:])), (phase, 'backward command')
     out, policy, sent, index = [], (0, 127, 127), None, 0
     frames = sorted({r['f'] for r in commands} | {f for _, f, n in corrections} |
@@ -179,13 +215,14 @@ def compare_route_row(smoke, ticks, i, row, phase):
                 player=(row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['b2F3']),
                 ground=row['ground'], clock=row['clock'], fade=row['fade'][:16],
                 cam_eye=row['cam_eye'], cam_tgt=row['cam_tgt'], fwd=row['fwd'])
-    observed = tick.get('a01r')
+    owners, key = owners_of(phase)
+    observed = tick.get(key)
     assert observed, (phase, row['f'], 'missing AREA01 revisit observations')
     got.update(hp=round(smoke.f32(observed['hp']), 3), progress=observed['progress'], s760=observed['s760'],
                locks=observed['locks'], wpn=observed['wpn'], d7dc=observed['progress'][0][8:10])
     want.update(hp=row['hp'], progress=[row['d2'], row['story758'], row['taken'], row['docs']],
                 s760=row['story760'], locks=row['locks'], wpn=row['wpn'], d7dc=row['d7dc'])
-    for name, address in OWNERS.items():
+    for name, address in owners.items():
         value = observed['owners'].get(str(address))
         assert value is not None, (phase, row['f'], name, 'missing canonical owner')
         rawpos = [round(v, 5) for v in struct.unpack('<3f', bytes.fromhex(value[1]))]

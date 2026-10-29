@@ -217,6 +217,8 @@ static const char *area02_file(unsigned sub, const char *name)
     return out;
 }
 
+static const uint8_t *closure_spawn_read(uint32_t address, uint32_t size);
+
 /* What 001B6990 spawned at the last state 0 (S10b). */
 enum { POOL_NONE = 0, POOL_ROSTER, POOL_LEGACY_WORLD };
 static int s_pool_mode = POOL_NONE;
@@ -888,7 +890,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         log_hex(f, bytes, windows[i][1]);
     }
     fputc(']', f);
-    if (!strcmp(key, "a01r")) {
+    if (!strcmp(key, "a01r") || !strcmp(key, "a02")) {
         /* D_00810760..63 (the bridge's event 8 and its neighbours), the
          * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
         uint8_t bytes[4];
@@ -899,7 +901,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         fputs(", \"s760\": ", f);
         log_hex(f, bytes, 4);
     }
-    if (!strcmp(key, "a00") || !strcmp(key, "a01r")) {
+    if (!strcmp(key, "a00") || !strcmp(key, "a01r") || !strcmp(key, "a02")) {
         static const uint32_t starts[] = {0x00810840u, 0x00810C60u};
         static const char *const names[] = {"locks", "wpn"};
         for (unsigned i = 0; i < 2; ++i) {
@@ -952,6 +954,20 @@ static void log_area01r(FILE *f)
                                      0x7B3580, 0x7B3E50, 0x7A64F0, 0x7A6AD0, 0x7A67E0, 0x7A5640,
                                      0x7A5930, 0x7A5C20, 0x7A5F10, 0x7A6200};
     log_area_owners(f, "a01r", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* AREA02's recorded owners (FOURTH_LEVEL_ROUTE.md section 1.1, A02_OWNERS:
+ * the sub-1 table s1_* and the sub-0 table s0_*). The two loads reuse the
+ * pool addresses, so every AREA02 row samples both lists. */
+static void log_area02(FILE *f)
+{
+    if (s_state.d810700 != 2)
+        return;
+    static const uint32_t nodes[] = {0x7A5640, 0x7A5930, 0x7A5C20, 0x7A5F10, 0x7A6200, 0x7A64F0, 0x7A67E0,
+                                     0x7A6AD0, 0x7A6DC0, 0x7A70B0, 0x7AD780, 0x7ADA70, 0x7AE050, 0x7AE340,
+                                     0x7AE630, 0x7AE920, 0x7AEC10, 0x7AF4E0, 0x7AF7D0, 0x7AFAC0, 0x7AFDB0,
+                                     0x7B00A0, 0x7B0390, 0x7B0680, 0x7B0970};
+    log_area_owners(f, "a02", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
 /* Chain step AUDIO: the EE sound state at this tick's main-loop top (the
@@ -1437,6 +1453,7 @@ static void log_tick_end(int rc)
         log_area01(f);
         log_area00(f);
         log_area01r(f);
+        log_area02(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */
@@ -2604,6 +2621,7 @@ static int w_001AFCA0(void *ctx)
     em_player_closure_live_set_scan(NULL, NULL);
     em_player_closure_live_set_water(NULL, NULL);
     em_player_closure_live_set_crawl_clip(NULL, NULL);
+    em_player_closure_live_set_spawn_read(NULL);
     player_pose_set_stage_hook(NULL, NULL);
     player_pose_set_takeover_end_hook(NULL, NULL);
     em_message_live_set_host(NULL);
@@ -3397,6 +3415,7 @@ static int area01_shared_interactions(void)
     em_player_closure_live_set_scan(area01_scan, NULL);
     em_player_closure_live_set_water(area01_water, NULL);
     em_player_closure_live_set_crawl_clip(area01_crawl_clip, NULL);
+    em_player_closure_live_set_spawn_read(closure_spawn_read);
     em_message_live_set_host(em_area11_interaction_host_message_host());
     return 0;
 }
@@ -4380,6 +4399,13 @@ static const uint8_t *ambient_load(void *ctx, uint32_t address, uint32_t size)
 {
     (void)ctx;
     return em_spawn_table_read(&s_spawn_table, address, size);
+}
+
+/* The closure's 00179910 point (em_player_closure_live_set_spawn_read): the
+ * same read-only spawn table window. */
+static const uint8_t *closure_spawn_read(uint32_t address, uint32_t size)
+{
+    return s_spawn_table_loaded ? em_spawn_table_read(&s_spawn_table, address, size) : NULL;
 }
 
 static int ambient_0011A070(void *ctx, int32_t handle)

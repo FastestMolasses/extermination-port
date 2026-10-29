@@ -49,6 +49,9 @@ int em_player_closure_live_water_contact(EmPlayerLiveActor *actor);
 /* The original 00188610 row selector over the area's exported D_002754D8. */
 void em_player_closure_live_set_crawl_clip(int (*clip)(void *context, EmPlayerLiveActor *actor,
                                                        int *result), void *context);
+/* The read-only scene-entry tables (D_0024D650 and its spawn records) for
+ * 00179910's point; NULL detaches. */
+void em_player_closure_live_set_spawn_read(const uint8_t *(*read)(uint32_t address, uint32_t size));
 void em_player_closure_live_set_scan(int (*scan)(void *context, EmPlayerLiveActor *actor,
                                                  int *result),
                                      void *context);

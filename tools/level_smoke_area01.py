@@ -301,7 +301,16 @@ def check_route(smoke, ticks, run, state, phase):
           'the whole camera block at the last row byte for byte with the saved RAM)')
 
 
-def check_rng_checkpoints(state, frames):
+def rand_anchors(run):
+    """The comparison-only rand() replay anchors the run installed
+    (em_level_smoke_test.c rand_replay_anchor, EM_RAND_REPLAY): [(counter,
+    state)] from its "rand replay: <key>: state <hex> at the run's counter
+    <n>" lines."""
+    return [(int(m.group(2)), int(m.group(1), 16)) for m in
+            re.finditer(r"^rand replay: \S+: state ([0-9a-f]{8}) at the run's counter (\d+)", run or '', re.M)]
+
+
+def check_rng_checkpoints(state, frames, run=None):
     """Audit the native LCG chain; report original snapshot equality separately.
 
     R.port has already resolved *all* native calls, including AREA01, and
@@ -309,18 +318,27 @@ def check_rng_checkpoints(state, frames):
     stream. Their endpoint RAM supplies one state word, not an order oracle.
     The documented first-level value-dependent divergence can carry into
     these endpoints, so a difference is reported and never called parity.
+    A run with the comparison-only rand() replay (the AREA00 / revisit
+    harnesses) restarts the chain at each anchor its log names: the first
+    draw at the anchor's counter or the next one must start from the
+    anchor's state, and every anchor must be met.
     """
     ends = state.get('area01_ends', {})
     if not ends:
         return
     checkpoints = sorted((counter, phase) for phase, counter in ends.items())
     native, calls, index, reports = 1, 0, 0, []
+    anchors, met = sorted(rand_anchors(run)), 0
     ordered = list(frames.items())
     assert [c for c, _ in ordered] == sorted(c for c, _ in ordered), 'RNG trace counters moved backward'
     for counter, phase in checkpoints:
         while index < len(ordered) and ordered[index][0] <= counter:
             c, draws = ordered[index]
             for _, before, *_ in draws:
+                if met < len(anchors) and anchors[met][0] <= c:
+                    at, seed = anchors[met]
+                    assert c <= at + 1 and before == seed, ('rand replay anchor not met', at, c, hex(before), hex(seed))
+                    native, met = seed, met + 1
                 assert before == native, ('AREA01 native RNG chain broken', phase, c, hex(before), hex(native))
                 native = (native * 0x41C64E6D + 0x3039) & 0xFFFFFFFF
                 calls += 1
@@ -337,9 +355,12 @@ def check_rng_checkpoints(state, frames):
             original, = struct.unpack('<I', memory.read(4))
         reports.append(dict(phase=phase, native_counter=counter, original_counter=capture['last_counter'],
                             native_state=native, original_state=original, equal=native == original))
+    last = ordered[index - 1][0] if index else 0
+    assert all(at > last for at, _ in anchors[met:]), ('rand replay anchor passed without a draw', anchors[met:])
     state['area01_rng_checkpoints'] = reports
     print(f'AREA01 RNG: PASS native LCG continuity through {calls} mapped calls to the last checked '
-          'endpoint; original per-call AREA01 capture unavailable')
+          'endpoint' + (f' ({met} comparison-only rand() replay anchor(s) met)' if met else '') +
+          '; original per-call AREA01 capture unavailable')
     for row in reports:
         print(f'AREA01 RNG checkpoint {row["phase"]}: native {row["native_state"]:08X}, '
               f'original {row["original_state"]:08X}, {"equal" if row["equal"] else "DIFFERENT"} '

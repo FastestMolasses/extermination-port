@@ -466,11 +466,22 @@ static const Phase k_phases[] = {
     {"a01r_01", "a01r_01_event", 0,
      "AREA01 revisit recorded pad route", "AREA01_REVISIT.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01r_s0", "a01r_s0_pickup (side, from a01r_01_event)", 0,
+     "AREA01 revisit side route: the event's pickup", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
     {"a01r_02", "a01r_02_bridge", 0,
      "AREA01 revisit recorded pad route", "AREA01_REVISIT.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01r_s1", "a01r_s1_door14_locked (side, from a01r_02_bridge)", 0,
+     "AREA01 revisit side route: door [14], locked", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
     {"a01r_03", "a01r_03_door16", 0,
      "AREA01 revisit recorded pad route and the AREA02 arrival", "AREA01_REVISIT.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    /* AREA02 (FOURTH_LEVEL_ROUTE.md section 5): pads from the same
+     * EM_LEVEL4_PAD_DIR (tools/test_level_smoke_area01r.py --prepare). */
+    {"a02_00", "a02_00_duct", 0,
+     "AREA02 recorded pad route: the duct and the sub change to sub 0", "LEVEL3_BINDING.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
@@ -5284,7 +5295,7 @@ static void a01_route_begin(void)
     if (a01_explore_begin()) return;
 #endif
     const int area00=!strncmp(k_phases[t.current].name,"a00_",4);
-    const int revisit=!strncmp(k_phases[t.current].name,"a01r_",5);
+    const int revisit=!strncmp(k_phases[t.current].name,"a01r_",5) || !strncmp(k_phases[t.current].name,"a02_",4);
     const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : revisit ? "EM_LEVEL4_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
     s_a00_return_frame=-1;
     char path[1024];
@@ -5383,22 +5394,26 @@ static int a01_route_frame(void)
             fail("AREA00 arrival state 0 did not follow the AREA01 exit");return 0;
         }
     } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0") ||
-              !strcmp(k_phases[t.current].name,"a01r_03")) {
+              !strcmp(k_phases[t.current].name,"a01r_03") || !strcmp(k_phases[t.current].name,"a02_00")) {
         /* The return's only variable duration is its asynchronous loader.
          * The checker compares every gameplay row, every emitted loader
          * row and the fixed suffix after the destination's state 0
          * independently (AREA01 for a00_10 / a00_s0; AREA02 sub 1 for
-         * a01r_03, door [16]: 205 rows after state 0). */
+         * a01r_03, door [16]: 205 rows after state 0; AREA02 sub 0 for
+         * a02_00, the duct's sub change: 143 rows). */
         const EmSceneState *s=em_scene_state();
         const int to02=!strcmp(k_phases[t.current].name,"a01r_03");
-        const int after=to02 ? 205 : !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
+        const int to020=!strcmp(k_phases[t.current].name,"a02_00");
+        const int after=to02 ? 205 : to020 ? 143 : !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
         if(s_a00_return_frame<0 &&
-           (to02 ? s->d810700==2 && s->d810701==1 : s->d810700==1 && s->d810701==0 && s->d810702==0) &&
+           (to02 ? s->d810700==2 && s->d810701==1 :
+            to020 ? s->d810700==2 && s->d810701==0 :
+                    s->d810700==1 && s->d810701==0 && s->d810702==0) &&
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
             s_a00_return_frame=t.frames;
             fprintf(stderr,"level smoke: %s: boundary counter=%u (%s state 0)\n",
-                    k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : "AREA01 return");
+                    k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : to020 ? "AREA02 sub 0" : "AREA01 return");
         }
         if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
             pad_apply(0,0,0);

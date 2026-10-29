@@ -150,6 +150,9 @@ static struct {
     void *water_context;
     int (*crawl_clip)(void *context, EmPlayerLiveActor *actor, int *result);
     void *crawl_clip_context;
+    /* The scene-entry tables' read-only bytes (D_0024D650 and the spawn
+     * records it points at; em_scene_bindings' spawn table window). */
+    const uint8_t *(*spawn_read)(uint32_t address, uint32_t size);
     EmLocoHost loco;          /* 00161020 / 001612D0 and 0017B490's host */
     /* The idle / walk states' scene words (refreshed before each call):
      * D_0028A9A0 (the transition substate), D_00810E74 (pressed) and the
@@ -1228,11 +1231,28 @@ static int x_sound_1FB9F0(void *c, int a0, int a1, int a2, int a3)
     em_sfx_submit_001FB9F0(id, a2, a3);
     return 0;
 }
+/* 00179910's point (NEARMISS C src/func_00179910.c, logic recovered): the
+ * three words at D_0024D650[area][sub] + offset (+0xF0 / +0x120: spawn
+ * records 5 and 6 of the area's table), read only through the scene's
+ * spawn table window; a window without them faults. */
+static uint32_t rd_le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
 static int x_area_point(void *c, int area, int sub, unsigned offset, uint32_t out[3])
 {
-    (void)c; (void)area; (void)sub; (void)offset;
+    (void)c;
     memset(out, 0, 3 * sizeof *out);
-    return unbound("D_0024D650's area record words (00179910, area 2)");
+    if (!L.spawn_read)
+        return unbound("D_0024D650's area record words (00179910): no spawn table window");
+    const uint8_t *rooms = L.spawn_read(0x0024D650u + 4u * (uint32_t)area, 4);
+    const uint8_t *entries = rooms ? L.spawn_read(rd_le32(rooms) + 4u * (uint32_t)sub, 4) : NULL;
+    const uint8_t *words = entries ? L.spawn_read(rd_le32(entries) + offset, 12) : NULL;
+    if (!words)
+        return unbound("D_0024D650's area record words (00179910): outside the spawn table window");
+    for (unsigned k = 0; k < 3; ++k)
+        out[k] = rd_le32(words + 4 * k);
+    return 0;
 }
 /* 001809B0 through the ladder climb's translation. */
 static int w_ledge_move(void *c, EmPlayerLiveActor *a, int side, int *result)
@@ -2329,6 +2349,11 @@ void em_player_closure_live_set_crawl_clip(int (*clip)(void *, EmPlayerLiveActor
 {
     L.crawl_clip = clip;
     L.crawl_clip_context = context;
+}
+
+void em_player_closure_live_set_spawn_read(const uint8_t *(*read)(uint32_t address, uint32_t size))
+{
+    L.spawn_read = read;
 }
 
 int em_player_closure_live_water_contact(EmPlayerLiveActor *actor)

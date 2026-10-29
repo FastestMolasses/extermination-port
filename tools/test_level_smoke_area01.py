@@ -319,12 +319,18 @@ def main():
     replay_info = None
     phases = [p for p in phase_path(until) if p != 'a01_arrival']
     if not args.no_drive_replay and phases:
+        # The side beats' page loads (a01_s1 / s2 / s4 / s5: the pickup's
+        # page module through the loader task) take the recording's loader
+        # polls (drive_replay.loader_reads), as the AREA00 and revisit
+        # harnesses do; the main beats have no bank load.
+        from level_smoke_area01 import capture_path
         replay_info = drive_replay.write_table(
             [(p, (MAIN_BEATS | SIDE_BEATS)[p], route_capture(p)['first_counter']) for p in phases],
-            args.drive_replay, out / 'drive_replay.txt')
+            args.drive_replay, out / 'drive_replay.txt', {p: capture_path(p) for p in phases})
         env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
-        print(f"AREA01: drive replay of {replay_info['entries']} fork-recorded reads over "
-              f"{len(phases)} phases (comparison only)", flush=True)
+        print(f"AREA01: drive replay of {replay_info['entries']} fork-recorded reads and "
+              f"{replay_info['loader_entries']} loader reads over {len(phases)} phases (comparison only)",
+              flush=True)
     started = time.monotonic()
     receipt = dict(binary=str(binary), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                    until=until, side=args.side, area01_path=phase_path(until), pad_changes=count,
