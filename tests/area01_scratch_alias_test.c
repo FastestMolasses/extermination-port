@@ -75,7 +75,7 @@ static int eye_cases(void)
 {
     uint8_t want[EYE_END-EYE_BASE];
     if(fread(want,1,sizeof want,stdin)!=sizeof want || fgetc(stdin)!=EOF)return 1;
-    const EmCameraLiveRoom room={NULL,room_word,NULL,NULL,NULL,NULL};
+    const EmCameraLiveRoom room={NULL,room_word,NULL,NULL,NULL,NULL,NULL};
     s_room=&room;
     for(uint32_t a=0;a<sizeof want;a+=4) {
         const uint8_t *p=em_camera_live_eye_rows(EYE_BASE+a,4);uint32_t w;

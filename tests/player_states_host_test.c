@@ -98,6 +98,7 @@ int em_player_closure_live_water_contact(EmPlayerLiveActor *p)
 /* No scripted takeover in this fixture (em_player.c reads it at every stage). */
 int player_pose_owned(void) { return 0; }
 int player_pose_legacy_release(void) { return 1; }
+int player_pose_rebuild_default(void) { return 0; }
 /* The stage's own takeover (a script owner's frame): the pose host's side,
  * counted. */
 static unsigned takeover_prepares, takeover_admissions;
