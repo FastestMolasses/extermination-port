@@ -12,6 +12,7 @@
 #include "game/em_area01_side.h"
 #include "game/em_area01_revisit.h"
 #include "game/em_area00_return.h"
+#include "game/em_area02_overlay.h"
 
 typedef struct {
     uint32_t function, sp;
@@ -49,13 +50,17 @@ typedef struct {
     EmArea01RevisitFault revisit_fault;
     EmArea00ReturnHooks ret;
     EmArea00ReturnFault ret_fault;
+    /* AREA02's overlay owners (em_area02_overlay; em_area02_runtime_overlay.inc). */
+    EmArea02OvlHooks overlay02;
+    EmArea02OvlFault overlay02_fault;
     uint32_t sp, fault_address;
     int fault;
     unsigned area;
 } EmArea01Runtime;
 
 /* Bind a fresh/reset runtime. It allocates and seeds no original memory.
- * The original entry defaults to AREA01; bind_area accepts only 0 or 1. */
+ * The original entry defaults to AREA01; bind_area accepts 0 (AREA00), 1
+ * (AREA01) and 2 (AREA02). */
 int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host);
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area);
 /* Named original entry or worker; recursive module calls use this same
