@@ -779,7 +779,7 @@ static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
     const unsigned area=l->runtime.area;
-    if(area==0 && c->function>=0x00823500u) {
+    if((area==0 || area==2) && c->function>=0x00823500u) {
         if(em_area01_script_worker_handles_area(c->function,area)) {
             const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
             int rc=em_area01_script_worker_call_area(&host,c,&fault,area);
@@ -1364,7 +1364,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
        !h->resource_epoch || !h->rebind)
         return -1;
     const unsigned area=h->scene->d810700;
-    if(area>1 || h->area->area!=area)return -1;
+    if(area>2 || h->area->area!=area)return -1;
     memset(l,0,sizeof *l);l->host=*h;
     EmPoseHost *pose=player_pose_record_host();
     EmStatusSceneLoader *ld=em_module_loader_state(h->loader);

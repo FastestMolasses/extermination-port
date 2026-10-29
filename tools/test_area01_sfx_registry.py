@@ -84,11 +84,16 @@ def main():
     raw=args.registry.read_bytes();assert hashlib.sha256(raw).hexdigest()==report['registry_sha256']
     entries,samples,ladder=T.parse_emsr(raw)
     # Regenerate the exact pre-extension list with the same original exporter.
-    saved=X.AREA01_IDS,X.AREA01_SHARED_IDS,X.AREA00_SCOPES
+    # AREA02's scopes (2.0, and 2.1, whose office coverage binding the
+    # AREA02 captures replace) resolve last; the baseline leaves them out.
+    saved=X.AREA01_IDS,X.AREA01_SHARED_IDS,X.AREA00_SCOPES,X.AREA02_SCOPES,X.area02_bindings,X.scene_ids
+    scenes=X.scene_ids
     X.AREA01_IDS=X.AREA01_SHARED_IDS=()
-    X.AREA00_SCOPES=()
+    X.AREA00_SCOPES=X.AREA02_SCOPES=()
+    X.area02_bindings=lambda:{}
+    X.scene_ids=lambda census=True:{k:v for k,v in scenes(census).items() if k[0]!=2}
     try:old=X.export(OUT/'baseline')
-    finally:X.AREA01_IDS,X.AREA01_SHARED_IDS,X.AREA00_SCOPES=saved
+    finally:X.AREA01_IDS,X.AREA01_SHARED_IDS,X.AREA00_SCOPES,X.AREA02_SCOPES,X.area02_bindings,X.scene_ids=saved
     old_entries,old_samples,old_ladder=T.parse_emsr((OUT/'baseline/sfx_registry.emsr').read_bytes())
     indexed={key(e):e for e in entries};json_index={key(e):e for e in report['entries']}
     assert all(indexed[key(e)]==e for e in old_entries)
@@ -143,14 +148,14 @@ def main():
     # Pin the finite loader cap with otherwise valid registries. Added
     # synthetic ABSENT entries carry no wave or original data.
     at=24+len(ladder)*2+sum(16+len(e['ops'])*32 for e in entries)
-    for count in (4096,4097):
+    for count in (8192,8193):   # EMSR_MAX_ENTRIES (AREA02's two domains raised it from 4096)
         blob=bytearray(raw[:at])
         struct.pack_into('<I',blob,12,count)
         for i in range(count-len(entries)):
             blob+=struct.pack('<IhhBBHHH',0x1000+i,0,0,2,0,0,0,0)
         blob+=raw[at:];path=OUT/f'cap-{count}.emsr';path.write_bytes(blob)
         check=lib.shim_new(str(path).encode(),T.STREAM_VOICES,0,0,0,1)
-        assert bool(check)==(count==4096),count
+        assert bool(check)==(count==8192),count
         if check:lib.shim_free(check)
     for label,blob in (('truncated',raw[:-1]),('extra',raw+b'\0')):
         path=OUT/f'malformed-{label}.emsr';path.write_bytes(blob)

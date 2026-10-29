@@ -56,6 +56,13 @@ AREA01_SHARED_IDS = (0x1AC,)
 # scope so their addition does not renumber the installed samples.
 AREA00_SCOPES = ((0, 0), (0, 1))
 AREA00_IDS = tuple(range(0x3E8, 0x5DC)) + tuple(range(0x7D0, 0x9C4))
+# AREA02 (export_area02_sfx.sub_binding: each sub's capture-checked
+# binding; docs/AREA02_PRETRANS.md). Sub 1 replaces the office fixture's
+# coverage match (chunk04.n0, AREA00's container; no capture) with the
+# AREA02 sub-1 captures' binding (chunk06.n1). Both AREA02 scopes are
+# resolved last, so every other scope keeps its samples and indices.
+AREA02_SCOPES = ((2, 0), (2, 1))
+AREA02_IDS = AREA00_IDS
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -217,6 +224,24 @@ def area00_bindings():
             setattr(C, name, value)
 
 
+def area02_bindings():
+    """Both AREA02 sub bindings; restores the shared AREA01 exporter
+    configuration afterwards, as area00_bindings does."""
+    import export_area01_common as C
+    names = ('OVERLAY_PATH', 'OVERLAY_SIZE', 'OVERLAY_ID', 'AREA', 'SUB',
+             'OUT', 'SCRATCH', 'ROUTE_A01', 'ARRIVAL', 'captures')
+    saved = {name: getattr(C, name) for name in names}
+    try:
+        import export_area02_sfx as S2
+        result = {}
+        for area, sub in AREA02_SCOPES:
+            result.update(S2.sub_binding(sub)[0])
+        return result
+    finally:
+        for name, value in saved.items():
+            setattr(C, name, value)
+
+
 def area_bindings(elf):
     """(area, sub) -> {group: [Bank]} plus provenance."""
     global_rows = containers_by_type(GLOBAL_CONTAINER,
@@ -259,6 +284,7 @@ def area_bindings(elf):
                                     f"(coverage {match['coverage']}, "
                                     f"exact {match['exact']}); no capture")
     bindings.update(area00_bindings())
+    bindings.update(area02_bindings())
     return bindings
 
 
@@ -541,6 +567,9 @@ def scene_ids(census=True):
     for scope in AREA00_SCOPES:
         scenes.setdefault(scope, [])
         scenes[scope] += [i for i in AREA00_IDS if i not in scenes[scope]]
+    for scope in AREA02_SCOPES:
+        scenes.setdefault(scope, [])
+        scenes[scope] += [i for i in AREA02_IDS if i not in scenes[scope]]
     if census:
         scope, ids = census_ids()
         scenes.setdefault(scope, [])
@@ -575,7 +604,8 @@ def export(out_dir: Path):
     # Registry entry rows still sort by scope/id after sample allocation.
     def scope_order(kv):
         scope = kv[0]
-        return (2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0, scope)
+        return (3 if scope in AREA02_SCOPES else 2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0,
+                scope)
     for (area, sub), ids in sorted(scene_ids().items(), key=scope_order):
         for sound_id in ids:
             entry = resolve(elf, bindings, sound_id, area, sub, samples)

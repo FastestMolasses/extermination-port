@@ -82,7 +82,7 @@ int em_area01_script_worker_handles(uint32_t fn)
 { return em_area01_script_worker_handles_area(fn,1); }
 int em_area01_script_worker_handles_area(uint32_t fn,unsigned area)
 {
-    if(area>1)return 0;
+    if(area>2)return 0;
     return fn==0x001B7670u || fn==0x001B7700u || fn==0x001B8AB0u || fn==0x001B6AE0u ||
            (area==1 && (fn==0x00825910u || fn==0x00826950u)) ||
            (area==0 && fn==0x00824E40u);

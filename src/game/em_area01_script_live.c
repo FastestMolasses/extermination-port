@@ -17,9 +17,12 @@ typedef struct {
 /* Delivered module headers and original script entry/placement tables:
  * export_area00_tables.scripts_window / overlay_data_window and the
  * corresponding AREA01 exports. Mutable script words stay in the loader. */
-static const AreaScripts areas[2]={
+static const AreaScripts areas[3]={
     {1,0x008284E0u,0x0082BB50u,0x00826F80u,0x6500u,EM_AREA00_SCRIPT_DEST_PATH},
-    {2,0x00829860u,0x0082BD50u,0x00828A00u,0x4300u,EM_AREA01_SCRIPT_DEST_PATH}
+    {2,0x00829860u,0x0082BD50u,0x00828A00u,0x4300u,EM_AREA01_SCRIPT_DEST_PATH},
+    /* AREA02 (export_area02_tables: the scripts window 0x826780..0x829190,
+     * the overlay data 0x825680 + 0x3C00). */
+    {3,0x00826780u,0x00829190u,0x00825680u,0x3C00u,EM_AREA02_SCRIPT_DEST_PATH}
 };
 
 void em_area01_script_free(EmArea01Script *s)
@@ -54,7 +57,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
 }
 EmScriptImage *em_area01_script_image(EmArea01Script *s,uint32_t entry)
 {
-    if (!s || !s->bound || s->area>1) return NULL;
+    if (!s || !s->bound || s->area>2) return NULL;
     for (unsigned i=0;i<4;++i)
         if (em_script_image_read(&s->boot[i],entry,EM_SCRIPT_RECORD_SIZE)) return &s->boot[i];
     const AreaScripts *a=&areas[s->area];
@@ -147,7 +150,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
                   uint32_t rec,int32_t *result)
 {
     EmArea01Script *s=ctx;
-    if (!s || !s->bound || s->area>1 || !result) return -1;
+    if (!s || !s->bound || s->area>2 || !result) return -1;
     /* The callback address is meaningful only in the bound overlay. Boot
      * door callbacks are shared originals. Unknown callbacks never succeed. */
     switch (fn) {
@@ -191,7 +194,7 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
                               EmModuleLoader *loader,const char *boot_path,const char *dest_path,
                               unsigned area_id)
 {
-    if (!s || !host || !host->worker || !loader || s->bound || area_id>1) return -1;
+    if (!s || !host || !host->worker || !loader || s->bound || area_id>2) return -1;
     const uint32_t lo[4]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u};
     const uint32_t hi[4]={0x00247E20u,0x0024DF80u,0x00248540u,0x002668A0u};
     const uint32_t entry[4]={0x00246C20u,0x0024D900u,0x002482C0u,0x00266620u};
