@@ -1025,6 +1025,17 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     EmSdkMathContext *sdk=em_collision_world_sdk();float out;
     switch(c->function) {
+    case 0x00121A28u: {
+        /* 00121A28, the C runtime's memset(dst, value, count) (the AREA02
+         * owner 0x823930's state-0 clear of its +0x2B0 block): over the
+         * canonical bytes of dst; v0 = dst. */
+        const uint32_t n=(uint32_t)c->a[2];
+        if(c->na!=3 || c->nf || n>0x10000u)return -1;
+        uint8_t *p=n ? bytes(l,(uint32_t)c->a[0],n,1) : NULL;
+        if(n && !p)return worker_result(l,-1,(uint32_t)c->a[0]);
+        if(n)memset(p,(int)(c->a[1]&0xFFu),n);
+        c->v0=c->a[0];return 0;
+    }
     case 0x001798D0u: {
         /* 001798D0(D_008102B0): the area script's player reset (0x82B0D0's
          * record handler at a01r_02): em_player_use_001798D0 over the live
