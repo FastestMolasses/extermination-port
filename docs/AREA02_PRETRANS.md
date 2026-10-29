@@ -112,14 +112,27 @@ the camera and the scripts are the same storages AREA01 and AREA00 use.
   start point `EM_START_AT=area02` (sub 1 arrival). Sub 1 has no message
   bank of its own: sub 0's emmd serves the area.
 
+- **00199C50** (9135d25): at its original caller (001AE040 state 0, after
+  001B6990) the collision view stages its scratch metadata; AREA11 keeps
+  the report (no reader).
+- **Sub 0's data** (22e1722, 319d4eb; found by the discovery runs below):
+  the library models 0x57 (a pickup) and 0x7D (001C4960's,
+  export_area02_library.py), the crate registry roots D_0024A854 /
+  D_0024D828, 0022DCD0's light list D_00269680, 0019C6F0's room-list root
+  D_0024D7C8, the use descriptors as one window D_00275458..D_0027548F,
+  the static world run bounded by the packet arena, and the live worker's
+  00121A28 (memset; 51eec5b).
+
 Assets to export (port root, from the user's disc and ELF):
 `export_module_loader.py`, `export_area02_level.py --sub 1` (and 0),
 `export_area02_sfx.py`, `export_area02_tables.py`,
 `export_area02_world_textures.py`, `export_area02_shadow_receivers.py`,
 `export_sfx_registry.py`, `export_effect_tables.py` (then
 `export_area01_water_effects.py` and `export_area00_runtime_tables.py`, as
-STARTUP.md step 50 says), then
-`build_start_saves.py`.
+STARTUP.md step 50 says), `export_roger_banks.py` then
+`export_area00_library.py` then `export_area02_library.py`, then
+`build_start_saves.py` (start points `area02` and `a02_01` .. `a02_05`:
+each a loaded game placed at that route_a02 beat's start, for discovery).
 
 Reference tests: test_area02_runtime_reference.py (the 15 entries through
 the runtime over the a02 captures), test_area02_state_reference.py,
@@ -133,6 +146,16 @@ frames without a fault, but the duct entry at row 225..228 (the player's
 action 0x2C at the snapped point (90.4, 0.047, -175.0)) does not happen
 natively: the player stays at about (90.1, 0.05, -174.5). That is the
 first behaviour divergence, not yet located (row comparison is F2's lane).
+
+Discovery ahead (2026-10-29, `EM_START_AT=a02_0N` with the beat's
+recorded pad and path; not row-exact, positions drift from the recording):
+a02_01 and a02_02 run to the pad's end without a fault after the sub-0
+data above; a02_03 ran 600+ of its 830 frames in a 2,400 s limit without a
+fault (about 0.25 frames/s: the actor walk's emulated creature poses and
+the software GS raster dominate a sample). a02_s0 (sub 1, from `area02`)
+fail-stops at 00184BA0 on the owner 0015AFA0 (node 0x7A5640) near pad
+frame 300+: the Use scan itself or its winner claim refused (not yet
+diagnosed). a02_04 and a02_05 have not been run.
 
 001C7EB0 / 001C8140: em_area02_math's are the one translation of each (the
 duplicate em_area01_revisit_spawn and its test were removed; the runtime runs
