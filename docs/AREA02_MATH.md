@@ -59,7 +59,7 @@ translation of the call sequence).
 | 001C4960 | 152 | AW | math_vector | a02_00 | behaviour of AREA02 nodes 0x7B23E0 / 0x7B26D0 / 0x7B29C0, AREA04 0x7B87C0 |
 | 001C4AF0 | 172 | AW | math_vector | a01r_03 | behaviour of [1] 0x7A6200 (AREA02 sub 1) |
 | 001C4CB0 | 752 | BM | math_vector | a02_00 | behaviour of AREA02 node 0x7AEF00 (+3 2), AREA04 0x7B84D0 (+3 3) |
-| 001C7EB0 | 652 | NM | anim_runtime | a01r_01 | behaviour 001C8140 installs (the event's spawned nodes) |
+| 001C7EB0 | 652 | BM | anim_runtime | a01r_01 | behaviour 001C8140 installs (the event's spawned nodes) |
 | 001C8140 | 124 | BM | anim_runtime | a01r_01 | called from inside 001BAC00 (one call, at 0x1BAC4C) |
 | 001CAE40 | 276 | BM | anim_runtime | a01r_03 | only through 001CAF60 |
 | 001CAF60 | 8 | BM | anim_runtime | a01r_03 | node method (+0x4C) of 0x7A6200 and AREA04 0x7B26D0 |
@@ -348,8 +348,11 @@ register images, the fault latch.
   `func_001BA1F0(anim, 2, 3)` and `func_001AFC10(anim, 3)` all have a0 = the **node** in the
   original (anim = node + 0x1F0 is a1; 2 and 3 are a2 / a3 left from the state compares).
   00157CE0 reads a0 and a1; the others read a0. The C passes the wrong a0 in four calls.
-- **001C7EB0** (NEARMISS C): `n` is uninitialised in the C when the countdown does not run
-  001C64F0; the original clears that register at entry, so n = 0 (no 0x3000 bits).
+- **001C7EB0** (byte-matched C since 2026-10-27; it was NEARMISS): the loop index and
+  001C64F0's result are one variable zeroed at entry, so n = 0 (no 0x3000 bits) when the
+  countdown does not run 001C64F0. em_area02_math's 001C7EB0 / 001C8140 are the port's
+  one translation of each: the runtime runs them for the AREA01 revisit's placement spawn
+  (area 1) and for AREA02 (area 2); 001C8140's v0 is 001AFA90's whole register.
 - **001BD560** (NEARMISS C): behaviour agrees; the C's `func_001BA1A0(sub, ...)` after
   001BD270 / 001BD460 is right because those leaves keep a0 (section 2).
 - **001C4960** (word assembly): unlike 001C48C0 / 001C4AF0, state 2 and every state above

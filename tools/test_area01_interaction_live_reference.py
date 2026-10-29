@@ -81,6 +81,12 @@ def main():
     start=time.time();lib=build();elf=read_elf_bytes()
     paths=sorted((refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     if not mode.FULL:paths=[paths[0]]
+    # AREA02 (the revisit's door 16 arrival and the a02 route): the bed
+    # 00159620 (selector 5), the 0x2C panel 00159210 (its line of sight),
+    # and the selector-2 owners where a capture holds them.
+    a02=[refs.capture('s87/route_a01r')/'a01r_03_door16/eeMemory.bin']
+    a02+=sorted(refs.capture('s87/route_a02').glob('a02_*/eeMemory.bin'))
+    paths+=[a for a in a02 if a.exists()]
     cases=queries=claims=0;forms=set()
     for path in paths:
         ram=path.read_bytes();spr=(path.parent/'scratchpad.bin').read_bytes();seen=set();nodes=[]
@@ -90,7 +96,9 @@ def main():
                 seen.add(form);forms.add(form);nodes.append(node)
         for node in nodes:
             options=[(0,(0,0,0,0),1.,False),(0,(0,0,0,0),1.,True)]
-            if mode.FULL:options += [(0,(0,0,0,0),40.,False),(0,(1,0x2800,2,node),1.,True)]
+            special=ram[node+8] in (2,5) or (ram[node+2]&31==4 and ram[node+3]==0x2C)
+            if mode.FULL or special:options += [(0,(0,0,0,0),40.,False),(0,(1,0x2800,2,node),1.,True),
+                                                (0,(1,0x0800,0,0),1.,False),(0,(1,0x0100,0,0),1.,False)]
             if ram[node+2]&31==7:
                 options += [(0x2D,(0,0,0,0),2.,False),(0x2D,(1,0x2000,0,0),2.,False)]
             for action,hit,distance,scan in options:
@@ -103,7 +111,22 @@ def main():
             for gates in ((1,0,0),(0,1,0),(0,0,1)):
                 q,c=check(lib,elf,ram,spr,nodes[0],scan=True,gates=gates)
                 cases+=1;queries+=q;claims+=c
-    report=dict(status='PASS',mode='full' if mode.FULL else 'quick',captures=len(paths),
+    # Selector 2 (no captured owner holds it): the bed of the first AREA02
+    # capture with +8 = 2 and a descriptor (its x, y + 1, z, 3.0, 2.0) in
+    # zero RAM, both gates passing and failing.
+    path=next(a for a in paths if 'a01r_03' in str(a) or 'a02_' in str(a))
+    ram=bytearray(path.read_bytes());spr=(path.parent/'scratchpad.bin').read_bytes();bed=0x7A5F10
+    assert u32(ram,bed+16)==0x159620,('the bed node',hex(u32(ram,bed+16)))
+    x,y,z=struct.unpack_from('<3f',ram,bed+0xB0);ram[bed+8]=2
+    struct.pack_into('<I',ram,bed+0x30,0x1E00000);struct.pack_into('<5f',ram,0x1E00000,x,y+1.,z,3.,2.)
+    for distance in (1.,2.9,3.1,40.):
+        for scan in (False,True):
+            q,c=check(lib,elf,bytes(ram),spr,bed,0,(0,0,0,0),distance,scan)
+            cases+=1;queries+=q;claims+=c
+    forms.add((ram[bed+2]&31,ram[bed+3],2,0x159620))
+    special=sorted({f'{f[0]}/{f[1]:x}/{f[2]}' for f in forms if f[2] in (2,5) or (f[0]==4 and f[1]==0x2C)})
+    assert any(f.endswith('/5') for f in special) and any('/2c/' in f for f in special),('AREA02 forms',special)
+    report=dict(status='PASS',mode='full' if mode.FULL else 'quick',captures=len(paths),special_forms=special,
         forms=len(forms),cases=cases,ray_boundaries=queries,claim_boundaries=claims,seconds=round(time.time()-start,2))
     (OUT/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     mode.banner(f'{cases} AREA01 candidate/scan cases');print(json.dumps(report,sort_keys=True))

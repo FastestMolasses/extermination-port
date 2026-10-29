@@ -52,7 +52,7 @@ static int rv_world_worker(void *ctx, EmArea00WorldCall *w)
  * places group 0x82A900 at a01r_01 f1139): em_sdf_001BAC00, the one
  * translation (the AREA11 opening binds it too), over this runtime. Its
  * 001AFA90 / 001C8140 allocate through the runtime (001C8140:
- * em_area01_revisit_spawn); the bytes em_sdf hands back per node (+0x03,
+ * em_area02_math); the bytes em_sdf hands back per node (+0x03,
  * +0x0D, +0xB0.., +0xC0.., +0x10, +0x20, +0x24, +0x2E; the 0x270E path's
  * +0x24 / +0x2E) are stored after the walk, then the owner's +0x2E. */
 enum { RV_PLACE_MAX = 16 };
@@ -94,15 +94,14 @@ static int rv_place_afa90(void *ctx, uint8_t type, uint32_t *node, EmSdfSpawned 
     return rv_place_slot(pl, *node, 0, view);
 }
 
-static int rv_place_worker(void *ctx, EmArea01Call *c) { return em_area01_runtime_call(ctx, c); }
 
 static int rv_place_c8140(void *ctx, uint32_t bank, int16_t index, uint32_t callback, uint32_t *node,
                           EmSdfSpawned **view)
 {
     RvPlace *pl = ctx;
-    const EmArea01RuntimeHost host = {pl->r, bytes, rv_place_worker};
     uint64_t v0 = 0;
-    if (em_area01_revisit_spawn_001C8140(&host, pl->sp, bank, index, callback, &v0, &pl->fault) < 0) return -1;
+    if (spawn02(pl->r, pl->sp, 0x001C8140u, bank, (uint32_t)(int32_t)index, callback, &v0, &pl->fault) < 0)
+        return -1;
     *node = (uint32_t)v0;
     return rv_place_slot(pl, *node, 1, view);
 }
@@ -580,19 +579,11 @@ static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     case 0x001F9660u: /* 001BB0E0 command 6's sound copy (em_area02_misc) */
         *rc = rv_001F9660(r, c);
         return 1;
-    case 0x001C8140u: { /* a 0x270E placement entry's node (em_area01_revisit_spawn) */
-        if (c->na < 3 || c->nf) { *rc = fail(r, c->function); return 1; }
-        const EmArea01RuntimeHost host = {r, bytes, rv_place_worker};
+    case 0x001C8140u: /* a 0x270E placement entry's node (em_area02_math) */
+    case 0x001C7EB0u: { /* that node's behaviour (em_area02_math) */
+        if (c->na < (c->function == 0x001C8140u ? 3u : 1u) || c->nf) { *rc = fail(r, c->function); return 1; }
         uint32_t f = 0;
-        *rc = em_area01_revisit_spawn_001C8140(&host, c->sp, a0, (int16_t)c->a[1], (uint32_t)c->a[2], &c->v0, &f);
-        if (*rc < 0) *rc = fail(r, f ? f : c->function);
-        return 1;
-    }
-    case 0x001C7EB0u: { /* that node's behaviour (em_area01_revisit_spawn) */
-        if (c->na < 1 || c->nf) { *rc = fail(r, c->function); return 1; }
-        const EmArea01RuntimeHost host = {r, bytes, rv_place_worker};
-        uint32_t f = 0;
-        *rc = em_area01_revisit_spawn_001C7EB0(&host, c->sp, a0, &f);
+        *rc = spawn02(r, c->sp, c->function, a0, (uint32_t)c->a[1], (uint32_t)c->a[2], &c->v0, &f);
         if (*rc < 0) *rc = fail(r, f ? f : c->function);
         return 1;
     }

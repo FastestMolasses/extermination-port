@@ -2,6 +2,7 @@
 #include "game/em_door_candidate.h"
 #include "game/em_roger.h"
 #include "game/em_ee_float.h"
+#include <math.h>
 #include <string.h>
 
 typedef struct { EmArea01Interaction *binding;uint32_t player,node,sp;float *score; } Frame;
@@ -67,9 +68,21 @@ static int candidate(Frame *f,float *score)
         floats(f,f->node+0xC0,o.angles,3)<0) return -1;
     p.yaw=em_ee_float(read_value(f,f->player+0xC4,4));
     float descriptor[6]={0};
+    if (o.selector==5 && p.action!=0x2D) {
+        /* Selector 5: the squared planar distance to the owner within 196
+         * (mula / madd) and |owner y - player y| <= 4; no descriptor and
+         * no score. */
+        uint32_t dx=em_ee_sub_bits(em_ee_bits(o.position[0]),em_ee_bits(p.position[0]));
+        uint32_t dz=em_ee_sub_bits(em_ee_bits(o.position[2]),em_ee_bits(p.position[2]));
+        uint32_t d2=em_ee_madd_bits(em_ee_mula_bits(dx,dx),dz,dz);
+        if (!(em_ee_float(d2)<=196.0f)) return 0;
+        float dy=fabsf(em_ee_float(em_ee_sub_bits(em_ee_bits(o.position[1]),em_ee_bits(p.position[1]))));
+        return dy<=4.0f;
+    }
     if (p.action!=0x2D) {
         uint32_t at=read_value(f,f->node+0x30,4);
-        unsigned count=o.selector==1 ? 6 : ((o.selector==0 || o.selector>5) && kind!=5 && kind!=6 && kind!=10 ? 3 : 2);
+        unsigned count=o.selector==1 ? 6 : o.selector==2 ? 5 :
+            ((o.selector==0 || o.selector>5) && kind!=5 && kind!=6 && kind!=10 ? 3 : 2);
         if (floats(f,at,descriptor,count)<0) return -1;
         memcpy(o.descriptor,descriptor,8);
     }
@@ -97,15 +110,51 @@ static int candidate(Frame *f,float *score)
         if (kind==4) switch (o.subtype) {
         case 0x14:case 0x22:case 0x23:case 0x24:case 0x25:case 0x26:case 0x37:case 0x38:
             yaw=o.angles[1];break;
-        case 0x2C:return fail(f->binding,0x00183EF0u);
+        case 0x2C:yaw=o.angles[1];break;
         default:break;
         }
         float point[6]={o.position[0],o.position[1],o.position[2],descriptor[0],descriptor[1],yaw};
+        if (kind==4 && o.subtype==0x2C) {
+            /* 0x2C (the 00159210 panel): after the distance and height
+             * gates, a line of sight from the player's +16 height to the
+             * owner's +3 (0019A910 mode 4 over 0x70003600 / 0x70003610)
+             * that a hit polygon with flags 0x2800 blocks; then the
+             * facing gate on the owner's yaw. The gates alone: the same
+             * test with a facing that is exactly 0. */
+            float gates[6];memcpy(gates,point,sizeof gates);
+            gates[5]=em_ee_float(em_ee_add_bits(em_ee_bits(3.1415927410125732421875f),em_ee_bits(p.yaw)));
+            if (!em_interaction_elevator_candidate(gates,p.position,p.yaw,p.action,score)) return 0;
+            uint32_t ray[8]={em_ee_bits(p.position[0]),em_ee_add_bits(0x41800000u,em_ee_bits(p.position[1])),
+                             em_ee_bits(p.position[2]),0x3F800000u,em_ee_bits(o.position[0]),
+                             em_ee_add_bits(0x40400000u,em_ee_bits(o.position[1])),em_ee_bits(o.position[2]),
+                             0x3F800000u};
+            uint8_t *q=mem(f,0x70003600u,32,1);if (!q) return -1;memcpy(q,ray,sizeof ray);
+            write_value(f,0x70003B98u,em_ee_bits(*score),4);
+            EmArea01Call c={.function=0x0019A910u,.sp=f->sp,.a={0x70003600u,0x70003610u,4},.na=3};
+            if (f->binding->fault || f->binding->host.worker(f->binding->host.ctx,&c)<0) return fail(f->binding,c.function);
+            if ((uint32_t)c.v0!=0) {
+                uint32_t record=read_value(f,0x700031D0u,4);
+                if ((uint16_t)read_value(f,record+0x1A,2)&0x2800u) return f->binding->fault ? -1 : 0;
+            }
+            if (f->binding->fault) return -1;
+        }
         return em_interaction_elevator_candidate(point,p.position,p.yaw,p.action,score);
     }
     if (o.selector==1) {
         if (kind==10) return em_roger_candidate(descriptor+3,descriptor,&p,f->binding->math,score);
         return em_interaction_elevator_candidate(descriptor,p.position,p.yaw,p.action,score);
+    }
+    if (o.selector==2) {
+        /* Selector 2: the descriptor point's planar distance (sqrt of mula /
+         * madd) within its +0x0C, the score, then the owner-to-player
+         * height within its +0x10; no facing gate (angle 0). */
+        uint32_t dx=em_ee_sub_bits(em_ee_bits(descriptor[0]),em_ee_bits(p.position[0]));
+        uint32_t dz=em_ee_sub_bits(em_ee_bits(descriptor[2]),em_ee_bits(p.position[2]));
+        float dist=sqrtf(em_ee_float(em_ee_madd_bits(em_ee_mula_bits(dx,dx),dz,dz)));
+        if (!(dist<=descriptor[3])) return 0;
+        *score=dist;
+        uint32_t dy=em_ee_sub_bits(em_ee_bits(p.position[1]),em_ee_bits(o.position[1]));
+        return sqrtf(em_ee_float(em_ee_mul_bits(dy,dy)))<=descriptor[4];
     }
     return fail(f->binding,0x00183EF0u);
 }

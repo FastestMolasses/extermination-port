@@ -27,6 +27,16 @@ compared access, so the test confirms each one.
 
 ## State (newest first)
 
+### AREA02 host (revisit 6d212fb .. 029fc00)
+
+The AREA02 game-logic host runs in the shared composition (area index 2):
+the overlay entries, em_area02_state, em_area02_math (with 00159210 and
+00157860 added), the 001CAF60 draw method (GS class 1 on the chain page),
+the boxes owner's 001CA5E0 and the Use scan's selector 2 / 5 and 0x2C
+paths. `EM_START_AT=area02` and the a02_00 pad run without a fault; the
+duct entry at a02_00 row 225 does not happen yet. Details, assets and
+tests: docs/AREA02_PRETRANS.md section 2.
+
 ### 2026-10-29 (drawbridge 492d8f7 merged): a01r_02 reached
 
 **`EM_START_AT=area01-revisit` with the a01r pad and path now plays
@@ -160,8 +170,8 @@ Done since the entry below (commits on `revisit`):
   phase byte (op1A never advanced). Any worker that suspends the live while
   a caller holds a byte view of a pool record has the same hazard.
 - **op14 group 0x82A900** (9d54ac6, 13fb576, bea6ce8): 001BAC00
-  (em_sdf_001BAC00), 001C8140 / 001C7EB0 (em_area01_revisit_spawn, from the
-  byte-matched C), 001BB0E0 with 001BAD40 (em_slg_001BB0E0 /
+  (em_sdf_001BAC00), 001C8140 / 001C7EB0 (em_area02_math's, the one translation of
+  each since the duplicate em_area01_revisit_spawn was removed), 001BB0E0 with 001BAD40 (em_slg_001BB0E0 /
   em_sdf_001BAD40), 001F9660 and 001F4010 (em_area02_misc) bound in the
   runtime; 001F2F90 / 001F3340 (em_area00_fx_debris) and the particle
   records (em_effects_live's) in the live. 49 designed cases added to

@@ -5,7 +5,6 @@
 #include "game/em_area01_light_owner.h"
 #include "game/em_area00_world.h"
 #include "game/em_area00_fx.h"
-#include "game/em_area01_revisit_spawn.h"
 #include "game/em_script_door_fan.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_area02_misc.h"
@@ -56,6 +55,42 @@ CALL_ADAPTER(exitb_call, EmArea01ExitbCall)
 CALL_ADAPTER(room_call, EmArea01RoomCall)
 CALL_ADAPTER(side_call, EmArea01SideCall)
 #undef CALL_ADAPTER
+
+/* em_area02_math's boot routines (docs/AREA02_MATH.md: the node
+ * behaviours, use tests, script callbacks and draw methods the revisit and
+ * AREA02 run), over this runtime's bytes; every callee re-enters the runtime.
+ * Dispatched for AREA02 (area 2; dispatch_math02): AREA00 / AREA01 keep
+ * their existing live paths, except 001C8140 / 001C7EB0, the revisit's
+ * placement spawn, which area 1 runs through spawn02 too. */
+static uint8_t *math02_view(void *ctx, uint32_t address, uint32_t size)
+{
+    return bytes(ctx, address, size, 0);
+}
+static int math02_call(void *ctx, EmArea02MathCall *in)
+{
+    EmArea01Call c = {.function = in->fn, .sp = in->sp, .na = in->na, .nf = in->nf};
+    if (in->na > 4 || in->nf > 4) return fail(ctx, in->fn);
+    memcpy(c.a, in->a, sizeof in->a);
+    memcpy(c.f, in->f, sizeof in->f);
+    int rc = em_area01_runtime_call(ctx, &c);
+    if (rc == 0) { in->v0 = c.v0; in->f0 = c.f0; }
+    return rc;
+}
+/* 001C8140(bank, index, behaviour) or 001C7EB0(node) through em_area02_math
+ * at the call's sp; *v0 = 001C8140's register. 0, or -1 with *fault. */
+static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2,
+                   uint64_t *v0, uint32_t *fault)
+{
+    EmArea02Math m;
+    memset(&m, 0, sizeof m);
+    m.call = math02_call;
+    m.ctx = r;
+    m.sp = sp;
+    m.view = math02_view;
+    int x = fn == 0x001C8140u ? em_area02_math_001C8140(&m, a0, a1, a2, v0) : em_area02_math_001C7EB0(&m, a0);
+    if (x < 0 && fault) *fault = m.fault_address ? m.fault_address : fn;
+    return x < 0 ? -1 : 0;
+}
 
 #include "game/em_area01_runtime_overlay.inc"
 #include "game/em_area00_runtime_overlay.inc"
@@ -198,34 +233,13 @@ static int dispatch_overlay02(EmArea01Runtime *r, EmArea01Call *c)
     return rc;
 }
 
-/* em_area02_math's boot routines (docs/AREA02_MATH.md: the node
- * behaviours, use tests, script callbacks and draw methods the revisit and
- * AREA02 run), over this runtime's bytes; every callee re-enters the runtime.
- * Dispatched for AREA02 only (area 2): AREA00 / AREA01 keep their existing
- * live paths. Not 001C7EB0 / 001C8140 (the revisit's spawn module; the
- * duplicate pair is to be merged). Returns 1
- * when `function` is one of them (*rc set). */
-static uint8_t *math02_view(void *ctx, uint32_t address, uint32_t size)
-{
-    return bytes(ctx, address, size, 0);
-}
-static int math02_call(void *ctx, EmArea02MathCall *in)
-{
-    EmArea01Call c = {.function = in->fn, .sp = in->sp, .na = in->na, .nf = in->nf};
-    if (in->na > 4 || in->nf > 4) return fail(ctx, in->fn);
-    memcpy(c.a, in->a, sizeof in->a);
-    memcpy(c.f, in->f, sizeof in->f);
-    int rc = em_area01_runtime_call(ctx, &c);
-    if (rc == 0) { in->v0 = c.v0; in->f0 = c.f0; }
-    return rc;
-}
 static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
     static const struct { uint32_t fn; unsigned na; } entries[] = {
         {0x001575E0u, 1}, {0x00157860u, 3}, {0x00157B30u, 2}, {0x00157F30u, 1}, {0x00158050u, 1}, {0x001582E0u, 1},
         {0x00158EC0u, 1}, {0x00159210u, 1}, {0x00159620u, 1}, {0x00159970u, 1}, {0x00159E70u, 1}, {0x00183C40u, 2},
         {0x001B18F0u, 3}, {0x001BC960u, 1}, {0x001BD560u, 1}, {0x001BDFC0u, 1}, {0x001C48C0u, 1},
-        {0x001C4960u, 1}, {0x001C4AF0u, 1}, {0x001C4CB0u, 1}};
+        {0x001C4960u, 1}, {0x001C4AF0u, 1}, {0x001C4CB0u, 1}, {0x001C7EB0u, 1}, {0x001C8140u, 3}};
     /* The draw methods 001CAE40 / 001CAF60 / 001CB4F0 / 001CB580 are the
      * draw host's (em_area01_model_draw -> em_owner_draw_live), not this
      * dispatch: their callees are the render context's. */
@@ -234,6 +248,12 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
         if (entries[i].fn == c->function) na = entries[i].na;
     if (na == 99) return 0;
     if (c->na < na || c->nf) { *rc = fail(r, c->function); return 1; }
+    if (c->function == 0x001C7EB0u || c->function == 0x001C8140u) {
+        uint32_t f = 0;
+        *rc = spawn02(r, c->sp, c->function, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], &c->v0, &f);
+        if (*rc < 0) *rc = fail(r, f);
+        return 1;
+    }
     EmArea02Math m;
     memset(&m, 0, sizeof m);
     m.call = math02_call;

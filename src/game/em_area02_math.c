@@ -1992,16 +1992,18 @@ static void f_1C7EB0(Run *r, uint32_t sp, uint32_t node)
  * 001C8140(a0, a1, a2): n = 001AFA90(0x0C); when n is nonzero (the whole
  * register): byte n+3 = 0x0C, byte n+0x0D = 0x63, halfword n+0x94 = a1,
  * word n+0x40 = a0, word n+0x10 = 0x1C7EB0, word n+0x24 = 0, word n+0x2E8 =
- * 0.5, word n+0x2EC = a2. The frame is 0x40 bytes.
+ * 0.5, word n+0x2EC = a2. The frame is 0x40 bytes. Its v0 is 001AFA90's whole
+ * register, which nothing after that call writes (the placement walker
+ * 001BAD40 takes it as the node).
  * ---------------------------------------------------------------------- */
-static void f_1C8140(Run *r, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2)
+static uint64_t f_1C8140(Run *r, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2)
 {
     uint64_t v;
     uint32_t n;
     sp -= 0x40;
     v = call1(r, sp, FN_1AFA90, 0x0C);
     if (v == 0)
-        return;
+        return v;
     n = (uint32_t)v;
     st8(r, n + 3, 0x0C);
     st8(r, n + 0x0D, 0x63);
@@ -2011,6 +2013,7 @@ static void f_1C8140(Run *r, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2)
     st32(r, n + 0x24, 0);
     st32(r, n + 0x2E8, F_HALF);
     st32(r, n + 0x2EC, a2);
+    return v;
 }
 
 /* ------------------------------------------------------------------------
@@ -2178,10 +2181,13 @@ int em_area02_math_001B18F0(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t 
     return 0;
 }
 
-int em_area02_math_001C8140(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2)
+int em_area02_math_001C8140(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *v0)
 {
+    uint64_t v;
     ENTER(0x001C8140u);
-    f_1C8140(&run, s->sp, a0, a1, a2);
+    v = f_1C8140(&run, s->sp, a0, a1, a2);
+    if (v0)
+        *v0 = v;
     return 0;
 }
 

@@ -74,31 +74,62 @@ source_definitions and its ALIASES:
   - AREA01 0x8240E0, a02_05's return into AREA01:
     em_area00_return_008240E0.
 
-## 2. Binding stops ahead
+## 2. The AREA02 host (built on revisit, 2026-10-28)
 
-AREA02's 16 overlay entries are translated and compared with the original
-in `em_area02_overlay.c` (AREA02_OVERLAY_PORT.md, test_area02_overlay_reference.py),
-but nothing calls them: there is no AREA02 runtime or live composition like
-AREA01's (em_area01_runtime / em_area01_live). The census confirms which of
-them the route reaches: 0x823580, 0x823900 (the area init), 0x823930,
-0x823980, 0x823D70, 0x824020, 0x8242F0, 0x824800, 0x824910, 0x824AC0,
-0x824C40, 0x824CD0, 0x824D50, 0x824FA0, 0x825100 (0x825520 is reached only
-through 0x825100's D_0081083F == 2, not on the route).
+AREA02 runs in the shared AREA01 composition (one runtime, one live
+composition, area index 2), not in a separate em_area02_runtime /
+em_area02_live: the pool, the actor views, the boxes owners, the player,
+the camera and the scripts are the same storages AREA01 and AREA00 use.
 
-A binding lane needs the following:
+- **Runtime** (`em_area01_runtime`, area 2; 51ab8e5). The 15 route-reached
+  overlay entries (0x823580, 0x823900, 0x823930, 0x823980, 0x823D70,
+  0x824020, 0x8242F0, 0x824800, 0x824910, 0x824AC0, 0x824C40, 0x824CD0,
+  0x824D50, 0x824FA0, 0x825100) dispatch to em_area02_overlay's
+  translations through `em_area02_runtime_overlay.inc` (each hook paired
+  with the runtime by address; frames as the original's). 0x825520 is not
+  wired (reached only through 0x825100's D_0081083F == 2). Every other
+  callee goes to the host worker; an unbound one is the fail-stop
+  (`em_area01: unbound worker ...`).
+- **Area state** (`em_area02_state`, 9d69286): the overlay header check and
+  001E7780's 0x823900 init for area 2.
+- **Boot routines** (`em_area02_math`, dispatched for area 2; 51ca93d,
+  6d212fb, 01646c6): the 23 node behaviours and helpers, among them the
+  panels 00158EC0 / 00159210 and their use reaction 00157860.
+- **Draw method 001CAF60** (01646c6): the 001C4AF0 owners' +0x4C goes to
+  the draw host (em_area01_model_draw -> em_owner_draw_live_001CAF60:
+  em_area02_math's 001CAF60 over the render context, its callees the
+  owner-draw module's). Its unit is GS class 1 (001D1F80(3, 2, 1),
+  D_00815990, ALPHA 0x44; skin records D_00816D40 / D_00816E40), drawn on
+  the chain page.
+- **Boxes owners**: em_area11_boxes_owner_001CA5E0 (001C4AF0's model
+  switch on the canonical +0x44 / +0x4C; 6d212fb).
+- **Use scan** (029fc00): 00183EF0's selector 2 and 5 paths and the 0x2C
+  panel's line of sight; the use descriptors D_00275458..D_00275490.
+- **Scene and assets** (c9b7037, 5804f88; the area read is F2's lane from
+  2026-10-28): the arrival scene sub 0 / 1, the module loader areas, the
+  start point `EM_START_AT=area02` (sub 1 arrival). Sub 1 has no message
+  bank of its own: sub 0's emmd serves the area.
 
-- **Memory.** An AREA02 host that serves `bytes` over the scene's storage:
-  - the actor pool and the 0x810000 story block;
-  - the boot data and the overlay data;
-  - the scratchpad, and the stack frames below `sp`.
-- **Dispatch.** The area init 0x823900 called where the original runs it.
-  The pool owners dispatched by their +0x10 word: 0x823930, 0x823D70,
-  0x824FA0, 0x825100, and 0x823580 for the spawned node.
-- **Hooks.** Each of the owners' hooks paired with its existing port
-  translation by address, as em_area01_runtime does for AREA01. The list
-  is in AREA02_OVERLAY_PORT.md "Binding". Every callee is among the
-  1,331 above, so each has a translation or is a native boundary.
+Assets to export (port root, from the user's disc and ELF):
+`export_module_loader.py`, `export_area02_level.py --sub 1` (and 0),
+`export_area02_sfx.py`, `export_area02_tables.py`,
+`export_area02_world_textures.py`, `export_area02_shadow_receivers.py`,
+`export_sfx_registry.py`, `export_use_descriptors.py`, then
+`build_start_saves.py`.
 
-Until that host exists, an EM_START_AT run (or the New Game route) stops at
-AREA02's area init. The first stop F1's frontier will meet is a01r_03's
-area change; the survey shows nothing to translate before it.
+Reference tests: test_area02_runtime_reference.py (the 15 entries through
+the runtime over the a02 captures), test_area02_state_reference.py,
+test_area02_math_reference.py, test_object_unit_reference.py section K1
+(the 001CAF60 units through the original microcode),
+test_area01_interaction_live_reference.py (the AREA02 forms).
+
+Runs (headless, 2026-10-28): `EM_START_AT=area02` idles 300 s in sub 1
+without a fault. With a02_00_duct's recorded pad and path it runs 900+
+frames without a fault, but the duct entry at row 225..228 (the player's
+action 0x2C at the snapped point (90.4, 0.047, -175.0)) does not happen
+natively: the player stays at about (90.1, 0.05, -174.5). That is the
+first behaviour divergence, not yet located (row comparison is F2's lane).
+
+001C7EB0 / 001C8140: em_area02_math's are the one translation of each (the
+duplicate em_area01_revisit_spawn and its test were removed; the runtime runs
+em_area02_math's for area 1's placement spawn and for area 2).
