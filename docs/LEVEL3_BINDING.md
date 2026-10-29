@@ -14,6 +14,94 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-29, iteration 31 (revisit 51eec5b merged: R1's AREA02 host):
+from New Game the revisit harness plays through a02_00, and the whole-run
+checker (test_level_smoke.py) passes for the first time: "level smoke:
+PASS (45 live phases ...)". That covers the first level, AREA01, AREA00,
+the revisit, a01r_03 (941 / 941 rows, with the loader, chain and veil
+replays and the AREA02 sub-1 arrival) and a02_00 (1,423 / 1,423 rows:
+the duct, the sub change to sub 0, the arrival at entry 5 and control).
+Every recorded side beat of the first three levels also passes row for
+row.**
+
+- **Side beats, each a full checker PASS from New Game:**
+
+  | Beat | Rows | What changed |
+  |---|---|---|
+  | a01_s0 | 1,435 | nothing (run as the source of s2 and s5) |
+  | a01_s1 | 397 | page loads replayed (below) |
+  | a01_s2 | 680 | page loads replayed |
+  | a01_s3 | 262 | nothing |
+  | a01_s4 | 1,225 | page loads replayed |
+  | a01_s5 | 3,118 | page loads replayed |
+  | a01_s6 | 229 | nothing |
+  | a01_s7 | 982 | nothing |
+  | a00_s0 | 534 | nothing: the AREA01 return with its loader, chain and veil replays |
+  | a01r_s0 | 374 | new harness phase |
+  | a01r_s1 | 760 | new harness phase |
+
+  - **Page loads:** the AREA01 harness now replays the side beats' page
+    loads from the fork recordings (`drive_replay.loader_reads`, as the
+    AREA00 and revisit harnesses do). Before, a01_s1, s2 and s5 stopped at
+    the pickup's page request (LEVEL2_BINDING.md 2026-10-19).
+  - **a01r_s0 and a01r_s1:** the event's pickup, from a01r_01, and door
+    [14] locked, from a01r_02. Both are revisit-harness side phases. a01r_s1's
+    first input is at f10; until then it holds the session's cleared pad,
+    as route_capture does.
+  - **Drive tables:** recorded on the fork into
+    `build/drive_replay/route_a01r_sides_20261029` (9 and 21 reads, 0
+    replay differences).
+- **a02_00 in the revisit harness:**
+  - **Phase:** a C phase row with its AREA02 sub-0 boundary (143 rows after
+    state 0), `RETURN_AREA` `02000502`, and route_a02's recording.
+  - **Owners:** the 25 recorded A02_OWNERS (FOURTH_LEVEL_ROUTE.md section
+    1.1) are logged as the tick log's `a02` observation.
+  - **Checker contract:** its mock boundary now takes each phase's
+    destination.
+  - **Drive table:** recorded on the fork
+    (`build/drive_replay/route_a02_00_20261029`, 5 reads).
+  - **The duct entry at rows 225..228** (R1's open question) is exact
+    natively: the Use scan from 029fc00 suffices.
+- **The commands across a02_00's load.** The recorder's crawl policy keeps
+  toggling the stick through the sub change (f1029..f1284). The C driver
+  keyed every command to native ticks, so after the shorter host-speed load
+  the stick stayed up 142 ticks too long, and the player turned in place at
+  row 1355 (clip 1, yaw falling by pi/8 per tick).
+  - Pad scripts now have a version 2 header that carries the destination's
+    state-0 row.
+  - From the native boundary on, tick boundary + q takes the command of
+    recorded row arrival + q. This is the same pairing the checker
+    compares.
+  - The harness contract rejects three malformed v2 headers.
+- **00179910's point** (NEARMISS C, logic recovered): the area-2 exit
+  boxes read D_0024D650[area][sub] + 0xF0 / + 0x120. These are spawn
+  records 5 and 6, read through the scene's read-only spawn table window
+  (`em_player_closure_live_set_spawn_read`). Before, the closure
+  fail-stopped there when a02_00 reached the duct (row 469).
+- **The AREA02 library models** (pickup 0x57 at sub 0's node 0x7A8830; the
+  fault 001B1020 at row 1281) are R1's tools/export_area02_library.py
+  (22e1722). F2's identical extension was dropped in favour of it.
+- **The whole-run checker:**
+  - `rand_order` now names the rand() callers of AREA00, the revisit and
+    AREA02, each mapped to its original. Each original's decomp C calls
+    00122BB8 itself: 0022DCD0, 001C50B0, 001DF180, 001E2E80, 0x8282F0,
+    0x823820, 0012AFC0, 00128600, 0012B410, 001B8AB0, 0012D850, 0x8240E0,
+    0x826010 and 00128C10.
+  - It also names their call adapters as wrappers.
+  - The AREA01 RNG continuity audit restarts the chain at the run's logged
+    comparison-only rand() replay anchors.
+  - The new AREA02 anchors are entry02 = 55925c31 and entry02.2 =
+    411f8b31, in `build/rand_replay/route_a02_00_20261029`. Natively they
+    are already equal, so they change nothing.
+- Checks:
+  - the three harness contracts;
+  - `test-player-closure-10-12-19-reference`;
+  - New Game control 9.599849.
+- Receipts:
+  - `build/frontier/f03`: the a01r_03 full pass.
+  - `build/frontier/g06`: the a02_00 full pass.
+  - `build/frontier/side_*`: logs and receipts only.
+
 **2026-10-29, iteration 30 (revisit 6d212fb merged: R1's AREA02 area
 read): a01r_03 passes the AREA02 load. Under the checker's return
 alignment, all 639 paired rows are exact: rows 0..565, the 19 loader
@@ -56,7 +144,7 @@ which belongs to R1's lane.**
 - Checks: the three harness contracts (AREA00, AREA01, revisit),
   world-textures, area-load and start-at references, New Game control
   9.599849. Rows: `build/frontier/tools/return_rows.py <out> a01r_03`.
-  Receipt: `build/frontier/f02`.
+  Receipt: `build/frontier/f03` (the iteration-31 run; f02 removed).
 
 **2026-10-29, iteration 29 (port main 897188c merged): every camera-end
 observation of AREA00 and of a01r_00..a01r_02 equals the beats' saved
@@ -87,7 +175,7 @@ lane).**
 - The checker fixtures give camblk all four blocks.
 - Checks: the three harness contracts (AREA00, AREA01, revisit),
   area-script, script-host-workers, camera-live, first-control and
-  area-load references. Receipts: `build/frontier/f02` (iteration 30's run, later code; r13 removed).
+  area-load references. Receipts: `build/frontier/f03` (iteration 31's run, later code; r13 and f02 removed).
 
 **2026-10-28, iteration 28: the player record's +B0 is the original's
 (the hip after the stage, a placement's position after 001B07C0); with it
@@ -121,7 +209,7 @@ a00_04.**
   D_008105D0..; the checks wanted exactly three, so every AREA00 phase end
   read as a missing observation).
 - Checks: first-control, area-load and room-move references; AREA00
-  harness through a00_04 (`build/frontier/i27`).
+  harness through a00_04 (`build/frontier/f03`, a later run of the whole path; i27 removed).
 
 **2026-10-28, iteration 27: from New Game the revisit run plays the whole
 route through a01r_02 ("level smoke: PASS 43 live phases through
@@ -149,7 +237,7 @@ the ramp frames), a01r_02 1,024 / 1,024 (over the lowered bridge, script
   "missing complete camera observation" (the AREA00 phases' camera-end
   check needs the live camera's block at that tick); the per-phase row
   comparison above (the harness's prefix report) is the measure.
-- Receipts: `build/frontier/f02` (iteration 30's run: the same code plus iterations
+- Receipts: `build/frontier/f03` (iteration 31's run: the same code plus iterations
   28 to 30; r07 removed).
 
 **2026-10-28, iteration 26: the revisit run is exact through a01r_00
@@ -181,7 +269,7 @@ failing at 001798D0 (next unit).**
   slot-0xFFF targets, and `test-ramp-pass-reference` checks the model's
   walk of each ramp pass against the C walker and of all of a frame's
   passes in one page.
-- Receipts: the iteration-30 run `build/frontier/f02` (the same code plus
+- Receipts: the iteration-31 run `build/frontier/f03` (the same code plus
   iteration 27's; r05d, a diagnostic build, removed).
 
 **2026-10-28, iteration 25: the a00 -> a01r handoff plays. From New Game
@@ -231,7 +319,7 @@ boundary aligns the next phase.** Next: the a00 -> a01r handoff
   001AF800 on such a record now goes to the pool's release
   (`em_area11_boxes_001AF800`: em_roger_actor_001AF800 over the canonical
   slot stack) with the views published around it (em_area01_live).
-- Receipts: `build/frontier/f02` (later code; i25 and r13 removed). Quick tests: AREA01 runtime and revisit
+- Receipts: `build/frontier/f03` (later code; i25, r13 and f02 removed). Quick tests: AREA01 runtime and revisit
   runtime references.
 
 **2026-10-28, iteration 23: the AREA00 arrival is exact on all 4,017 rows,
@@ -258,7 +346,7 @@ a00_10 frame 15254, where the owner 008266A0's node 007B9380 fails at
   `build/fork_refs/probes_1028_e007`: 691 pairs, the last 2 after the feed
   loop's end, a 133-vblank stall, gate 686, end 1510; the replayed beat
   equal to the recording on all 1,095 rows).
-- Receipts: the iteration-30 run `build/frontier/f02` (the same code plus
+- Receipts: the iteration-31 run `build/frontier/f03` (the same code plus
   iteration 24's; i24 removed).
 
 **2026-10-28, iteration 22 (`revisit` merged, a fast-forward: R1's single
@@ -298,7 +386,7 @@ still differs).
 - Checks: `test-chain-page` (two passes in one page, a target CALLed twice),
   `test-gs-world`, `test-dof-pass-reference`, `test-ramp-pass-reference`,
   New Game control 9.599849; not run: the first-level smokes and
-  EM_TEST_FULL. Receipts: the iteration-30 run `build/frontier/f02` (the
+  EM_TEST_FULL. Receipts: the iteration-31 run `build/frontier/f03` (the
   same code plus iterations 23 and 24; i23 and i24 removed).
 
 **2026-10-28, iteration 21: a00_09 is exact through row 793 (the bug's

@@ -167,7 +167,15 @@ def prepare_pads(out):
         assert 0 < len(rows) <= 2048 and 1 <= frames <= 20000
         assert all(0 <= r['f'] <= frames and 0 <= r['buttons'] <= 65535 and
                    0 <= r['lx'] <= 255 and 0 <= r['ly'] <= 255 for r in rows)
-        lines = [f'EMA1 1 {frames} {gap}'] + [f"{r['f']} {r['buttons']:x} {r['lx']} {r['ly']}" for r in rows]
+        header = f'EMA1 1 {frames} {gap}'
+        if phase in a00.RETURN_TICKS:
+            # version 2: the destination's state-0 row; the C driver keys
+            # the commands after its native boundary to the recorded rows
+            # (a02_00 holds the stick across its sub change)
+            arrival = next(r['f'] for r in capture['rows'] if r['area4'] == a00.RETURN_AREA[phase] and
+                           bytes.fromhex(r['slots'])[8:12] == bytes((3, 1, 0, 0)))
+            header = f'EMA1 2 {frames} {gap} {arrival}'
+        lines = [header] + [f"{r['f']} {r['buttons']:x} {r['lx']} {r['ly']}" for r in rows]
         (out / f'{phase}.pad').write_text('\n'.join(lines) + '\n')
         manifest.append(dict(phase=phase, reference=refs.label(),
             capture=str(capture_path(phase)), capture_sha256=hashlib.sha256(capture_path(phase).read_bytes()).hexdigest(),
@@ -273,7 +281,7 @@ def check_route(smoke, ticks, run, state, phase):
     last = rows[-1]
     print(f'{phase}: PASS {len(rows)} native rows: player, ground, camera, task, request, message, fade, '
           f'health, progress (D_008107DF {last["df"]}, D_008107E0 {last["e0"]}, D_00810760 '
-          f'{last["story760"][:2]}), locks, weapon bytes and 16 revisit owners; ending camera bytes '
+          f'{last["story760"][:2]}), locks, weapon bytes and {len(owners_of(phase)[0])} recorded owners; ending camera bytes '
           'equal to saved RAM')
 
 

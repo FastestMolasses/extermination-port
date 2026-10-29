@@ -5287,6 +5287,12 @@ static AimStick s_a01_pad[A01_PAD_MAX];
 static unsigned s_a01_pad_count;
 static int s_a01_last_frame;
 static int s_a00_return_frame;
+/* Header version 2 (a return phase with commands across its load: a02_00):
+ * the recording's row of the destination's state 0. From the native
+ * boundary on, native tick boundary + q takes the command of recorded row
+ * arrival + q, the pairing the checker compares (the host-speed load is
+ * shorter than the recording's); before it, the command of t.frames. */
+static int s_a01_arrival_row;
 
 static void a01_route_begin(void)
 {
@@ -5306,8 +5312,11 @@ static void a01_route_begin(void)
                            "AREA01 route pad script missing (tools/test_level_smoke_area01.py --prepare)");return; }
     unsigned version, gap;
     s_a01_pad_count=0;
+    s_a01_arrival_row=0;
     if(fscanf(f,"EMA1 %u %d %u",&version,&s_a01_last_frame,&gap)!=3 ||
-       version!=1 || s_a01_last_frame<1 || s_a01_last_frame>20000 || !gap || gap>120) {
+       (version!=1 && version!=2) || (version==2 && fscanf(f,"%d",&s_a01_arrival_row)!=1) ||
+       s_a01_last_frame<1 || s_a01_last_frame>20000 || !gap || gap>120 ||
+       (version==2 && (s_a01_arrival_row<1 || s_a01_arrival_row>s_a01_last_frame))) {
         fclose(f);fail("invalid AREA01 pad-script header");return;
     }
     int frame, fields;unsigned buttons,lx,ly;
@@ -5431,7 +5440,9 @@ static int a01_route_frame(void)
         return 1;
     }
     const AimStick *input=NULL;
-    for(unsigned i=0;i<s_a01_pad_count && s_a01_pad[i].f<=t.frames-2;++i)input=&s_a01_pad[i];
+    const int row=s_a01_arrival_row>0 && s_a00_return_frame>=0 ? s_a01_arrival_row+(t.frames-s_a00_return_frame)
+                                                                : t.frames;
+    for(unsigned i=0;i<s_a01_pad_count && s_a01_pad[i].f<=row-2;++i)input=&s_a01_pad[i];
     if(input)pad_apply(input->buttons,(input->lx-128)/128.0f,(input->ly-128)/128.0f);
     return 0;
 }

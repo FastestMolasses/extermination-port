@@ -14,6 +14,14 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
+## State (2026-10-29, the side beats)
+
+All eight AREA01 side beats now pass the checker row for row from New Game
+(a01_s0 1,435, s1 397, s2 680, s3 262, s4 1,225, s5 3,118, s6 229, s7 982).
+a01_s1, s2 and s5 no longer stop at the pickup's page request: the harness
+replays the recorded page loads (`drive_replay.loader_reads`; F2 iteration
+31, LEVEL3_BINDING.md "Current state").
+
 ## State (2026-10-19, the drive replay; port main 4f7a564 + the replay change)
 
 The user's decision of 2026-10-19 ("Comparison-only replay") is built: the

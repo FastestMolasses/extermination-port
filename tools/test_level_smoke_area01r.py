@@ -133,7 +133,8 @@ int main(int argc,char **argv){
     path = out / 'pads/a01r_00.pad'
     original = path.read_text()
     bad = ('EMA1 1 10 1\n0 0 127 127\n1 0\n',
-           'EMA1 1 10 1\n2 0 127 127\n1 0 127 127\n', 'EMA1 1 10 1\n0 0 127 256\n')
+           'EMA1 1 10 1\n2 0 127 127\n1 0 127 127\n', 'EMA1 1 10 1\n0 0 127 256\n',
+           'EMA1 2 10 1 0\n0 0 127 127\n', 'EMA1 2 10 1 11\n0 0 127 127\n', 'EMA1 2 10 1\n0 0 127 127\n')
     try:
         for content in bad:
             path.write_text(content)
