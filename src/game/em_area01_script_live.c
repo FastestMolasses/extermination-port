@@ -1,5 +1,6 @@
 #include "game/em_area01_script_live.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area11_roger.h"
 #include "game/em_ee_float.h"
 #include <stdio.h>
 #include <string.h>
@@ -72,6 +73,15 @@ static const uint8_t *resource(void *ctx,uint32_t a,uint32_t n)
     EmArea01Script *s=ctx;
     uint8_t *p=em_area01_script_bytes(s,a,n,0);
     if (p) return p;
+    if (a==0x0028A580u && n==4u) {
+        /* D_0028A580, the player's animation bank word (op0A sub 2 puts it
+         * back into the player's +0x40 at a01r_02 row 983): the word the
+         * player stage's 00182DF0 reads (em_area11_roger_table_word, the
+         * export of D_0028A490); the module loader's table holds only the
+         * slots its loads relocate. */
+        static uint32_t bank;
+        return em_area11_roger_table_word(a,&bank)<0 ? NULL : (const uint8_t *)&bank;
+    }
     if (contains(a,n,0x0028A490u,0x0028A750u)) {
         EmStatusSceneLoader *ld=em_module_loader_state(s->loader);
         return ld ? (uint8_t *)ld->d28A490+(a-0x0028A490u) : NULL;

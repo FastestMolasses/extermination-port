@@ -1,4 +1,5 @@
 #include "game/em_area01_live.h"
+#include "game/em_player_closure_live.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_message_live.h"
 #include "game/em_area01_scene_view.h"
@@ -1010,6 +1011,16 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     EmSdkMathContext *sdk=em_collision_world_sdk();float out;
     switch(c->function) {
+    case 0x001798D0u: {
+        /* 001798D0(D_008102B0): the area script's player reset (0x82B0D0's
+         * record handler at a01r_02): em_player_use_001798D0 over the live
+         * record, a native worker, with the views published around it. */
+        if(c->na!=1 || c->nf || c->a[0]!=EM_AREA01_PLAYER_BASE || !l->player.active)return -1;
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_player_closure_live_001798D0(l->player.actor);
+        if(em_area01_live_resume(l)<0)return -1;
+        c->v0=0;return worker_result(l,rc,c->function);
+    }
     case 0x0021BB00u:
         if(c->na!=1 || c->nf || c->a[0]!=EM_AREA01_PLAYER_BASE || !l->player.active)return -1;
         c->v0=(uint64_t)(int64_t)em_player_0021BB00(l->player.actor);

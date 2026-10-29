@@ -3252,6 +3252,19 @@ static int refresh_all(void)
     return 0;
 }
 
+int em_player_closure_live_001798D0(EmPlayerLiveActor *actor)
+{
+    if (!L.bound || !actor) return -1;
+    L.sdk->fault = 0;
+    FAULT(refresh_all());
+    int r = em_player_use_001798D0(&L.use, actor);
+    if (r >= 0 && L.sdk->fault) {
+        fprintf(stderr, "player closure: 001798D0: an SDK worker faulted at 0x%08X\n", (unsigned)L.sdk->fault);
+        r = -1;
+    }
+    return r;
+}
+
 int em_player_closure_live_use_press(EmPlayerLiveActor *actor, int *result)
 {
     if (!L.bound || !actor || !result) return -1;
