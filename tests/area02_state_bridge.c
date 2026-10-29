@@ -1,0 +1,34 @@
+/* Test-only loader access for the AREA02 state (as tests/area00_state_bridge.c). */
+#include "../src/game/em_module_loader.c"
+#include "game/em_area01_state.h"
+
+static EmModuleLoader loader;
+static EmArea01State state;
+
+static uint8_t *memory(void *ctx, uint32_t address, uint32_t size)
+{ return em_module_loader_memory_mutable(ctx, address, size); }
+
+void area02_state_test_shutdown(void)
+{
+    for (unsigned i = 0; i < MAX_REGIONS; ++i) free(loader.regions[i].bytes);
+    memset(&loader, 0, sizeof loader);
+    em_area01_state_detach(&state);
+}
+
+int area02_state_test_seed(const uint8_t *overlay, uint32_t size, const uint8_t *bss,
+                           const uint8_t *initial_globals)
+{
+    area02_state_test_shutdown();
+    uint8_t *file = region_for(&loader, 0x823500u, size);
+    uint8_t *zero = region_for(&loader, EM_AREA02_STATE_BSS, EM_AREA02_STATE_BSS_SIZE);
+    if (!file || !zero) return -1;
+    memcpy(file, overlay, size);
+    memcpy(zero, bss, EM_AREA02_STATE_BSS_SIZE);
+    memcpy(state.globals, initial_globals, sizeof state.globals);
+    return em_area01_state_bind_area(&state, memory, &loader, 2);
+}
+uint8_t *area02_state_test_view(uint32_t address, uint32_t size)
+{ return em_area01_state_bytes(&state, address, size); }
+int area02_state_test_init(void) { return em_area02_state_00823900(&state.area02); }
+int area02_state_test_dispatch(uint8_t area, uint8_t sub) { return em_area01_state_001E7780(&state, area, sub); }
+uint32_t area02_state_test_fault(void) { return state.fault ? state.fault : state.area02.fault; }

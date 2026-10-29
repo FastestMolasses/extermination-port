@@ -9,6 +9,7 @@
 #include "game/em_script_door_fan.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_area02_misc.h"
+#include "game/em_area02_math.h"
 #include "game/em_ee_float.h"
 #include <string.h>
 
@@ -59,6 +60,7 @@ CALL_ADAPTER(side_call, EmArea01SideCall)
 #include "game/em_area01_runtime_overlay.inc"
 #include "game/em_area00_runtime_overlay.inc"
 #include "game/em_area01_runtime_revisit.inc"
+#include "game/em_area02_runtime_overlay.inc"
 
 /* 001F4E20 is already translated by the AREA00 FX owner. Its only
  * callee keeps both address registers and adds the original second float. */
@@ -88,7 +90,7 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
 {
-    if (!r || !host || !host->bytes || !host->worker || area > 1) return -1;
+    if (!r || !host || !host->bytes || !host->worker || area > 2) return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
     r->area = area;
@@ -98,6 +100,7 @@ int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *h
     r->overlay00.ctx = r; r->overlay00.view = bytes;
     overlay00_workers(r); r->overlay00.w_callback = overlay_callback;
     revisit_workers(r);
+    overlay02_workers(r); r->overlay02.w_callback = overlay_callback;
     r->sys.ctx = r; r->sys.view = bytes; r->sys.call = sys_call;
     r->exita.ctx = r; r->exita.view = bytes; r->exita.call = exita_call;
     r->exitb.ctx = r; r->exitb.view = bytes; r->exitb.call = exitb_call;
@@ -147,12 +150,138 @@ static int dispatch_overlay00(EmArea01Runtime *r, EmArea01Call *c)
     }
 }
 
+/* AREA02's overlay entries the route reaches (docs/AREA02_PRETRANS.md).
+ * Each takes its original arguments; the entries with stack locals take
+ * the caller's sp. Nested hooks get the entry's sp less the deepest chain
+ * of original frames below it (0x823930 0x10 -> 0x824020 0x20 -> 0x8242F0
+ * 0x40 -> 0x824CD0 0x60 -> 0x824C40 0x20; read from each function's first
+ * instruction), so no callee frame overlaps a local the module writes.
+ * 0x825520 (reached only through 0x825100 with D_0081083F == 2, not on the
+ * route) and any other overlay address go to the host's workers. */
+static int dispatch_overlay02(EmArea01Runtime *r, EmArea01Call *c)
+{
+    static const struct { uint32_t fn, frame; } frames[] = {
+        {0x00823580u, 0x30u}, {0x00823900u, 0}, {0x00823930u, 0x110u}, {0x00823980u, 0x60u},
+        {0x00823D70u, 0x20u}, {0x00824020u, 0x100u}, {0x008242F0u, 0xC0u}, {0x00824800u, 0x40u},
+        {0x00824910u, 0x60u}, {0x00824AC0u, 0x40u}, {0x00824C40u, 0x20u}, {0x00824CD0u, 0x80u},
+        {0x00824D50u, 0x30u}, {0x00824FA0u, 0x30u}, {0x00825100u, 0x30u}};
+    uint32_t frame = 0xFFFFFFFFu;
+    for (unsigned i = 0; i < sizeof frames / sizeof frames[0]; ++i)
+        if (frames[i].fn == c->function) frame = frames[i].frame;
+    if (frame == 0xFFFFFFFFu) return r->host.worker(r->host.ctx, c);
+    const unsigned na = c->function == 0x00823900u ? 0u : 1u;
+    if (c->na < na || c->nf || c->sp < frame) return fail(r, c->function);
+    r->sp = c->sp - frame;
+    const EmArea02OvlHooks *h = &r->overlay02;
+    EmArea02OvlFault *f = &r->overlay02_fault;
+    const uint32_t a0 = (uint32_t)c->a[0];
+    int32_t result = 0;
+    int rc;
+    switch (c->function) {
+    case 0x00823580u: return em_area02_ovl_00823580(h, a0, f);
+    case 0x00823900u: return em_area02_ovl_00823900(h, f);
+    case 0x00823930u: return em_area02_ovl_00823930(h, a0, c->sp, f);
+    case 0x00823980u: return em_area02_ovl_00823980(h, a0, f);
+    case 0x00823D70u: return em_area02_ovl_00823D70(h, a0, f);
+    case 0x00824020u: return em_area02_ovl_00824020(h, a0, c->sp, f);
+    case 0x00824910u: return em_area02_ovl_00824910(h, a0, c->sp, f);
+    case 0x00824AC0u: return em_area02_ovl_00824AC0(h, a0, f);
+    case 0x00824C40u: return em_area02_ovl_00824C40(h, a0, f);
+    case 0x00824CD0u: return em_area02_ovl_00824CD0(h, a0, c->sp, f);
+    case 0x00824FA0u: return em_area02_ovl_00824FA0(h, a0, f);
+    case 0x00825100u: return em_area02_ovl_00825100(h, a0, f);
+    case 0x008242F0u: rc = em_area02_ovl_008242F0(h, a0, c->sp, &result, f); break;
+    case 0x00824800u: rc = em_area02_ovl_00824800(h, a0, &result, f); break;
+    default:          rc = em_area02_ovl_00824D50(h, a0, &result, f); break;
+    }
+    if (rc == 0) c->v0 = (uint64_t)(int64_t)result;
+    return rc;
+}
+
+/* em_area02_math's boot routines (docs/AREA02_MATH.md: the node
+ * behaviours, use tests, script callbacks and draw methods the revisit and
+ * AREA02 run), over this runtime's bytes; every callee re-enters the runtime.
+ * Dispatched for AREA02 only (area 2): AREA00 / AREA01 keep their existing
+ * live paths. Not 001C7EB0 / 001C8140 (the revisit's spawn module; the
+ * duplicate pair is to be merged). Returns 1
+ * when `function` is one of them (*rc set). */
+static uint8_t *math02_view(void *ctx, uint32_t address, uint32_t size)
+{
+    return bytes(ctx, address, size, 0);
+}
+static int math02_call(void *ctx, EmArea02MathCall *in)
+{
+    EmArea01Call c = {.function = in->fn, .sp = in->sp, .na = in->na, .nf = in->nf};
+    if (in->na > 4 || in->nf > 4) return fail(ctx, in->fn);
+    memcpy(c.a, in->a, sizeof in->a);
+    memcpy(c.f, in->f, sizeof in->f);
+    int rc = em_area01_runtime_call(ctx, &c);
+    if (rc == 0) { in->v0 = c.v0; in->f0 = c.f0; }
+    return rc;
+}
+static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
+{
+    static const struct { uint32_t fn; unsigned na; } entries[] = {
+        {0x001575E0u, 1}, {0x00157B30u, 2}, {0x00157F30u, 1}, {0x00158050u, 1}, {0x001582E0u, 1},
+        {0x00158EC0u, 1}, {0x00159210u, 1}, {0x00159620u, 1}, {0x00159970u, 1}, {0x00159E70u, 1}, {0x00183C40u, 2},
+        {0x001B18F0u, 3}, {0x001BC960u, 1}, {0x001BD560u, 1}, {0x001BDFC0u, 1}, {0x001C48C0u, 1},
+        {0x001C4960u, 1}, {0x001C4AF0u, 1}, {0x001C4CB0u, 1}, {0x001CAE40u, 2}, {0x001CAF60u, 1},
+        {0x001CB4F0u, 2}, {0x001CB580u, 1}};
+    unsigned na = 99;
+    for (unsigned i = 0; i < sizeof entries / sizeof entries[0]; ++i)
+        if (entries[i].fn == c->function) na = entries[i].na;
+    if (na == 99) return 0;
+    if (c->na < na || c->nf) { *rc = fail(r, c->function); return 1; }
+    EmArea02Math m;
+    memset(&m, 0, sizeof m);
+    m.call = math02_call;
+    m.ctx = r;
+    m.sp = c->sp;
+    m.view = math02_view;
+    const uint32_t a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1], a2 = (uint32_t)c->a[2];
+    int32_t out = 0;
+    int x;
+    switch (c->function) {
+    case 0x001575E0u: x = em_area02_math_001575E0(&m, a0, &out); break;
+    case 0x00157B30u: x = em_area02_math_00157B30(&m, a0, a1, &out); break;
+    case 0x00157F30u: x = em_area02_math_00157F30(&m, a0, &out); break;
+    case 0x00158050u: x = em_area02_math_00158050(&m, a0, &out); break;
+    case 0x001582E0u: x = em_area02_math_001582E0(&m, a0); break;
+    case 0x00158EC0u: x = em_area02_math_00158EC0(&m, a0); break;
+    case 0x00159210u: x = em_area02_math_00159210(&m, a0); break;
+    case 0x00159620u: x = em_area02_math_00159620(&m, a0); break;
+    case 0x00159970u: x = em_area02_math_00159970(&m, a0); break;
+    case 0x00159E70u: x = em_area02_math_00159E70(&m, a0); break;
+    case 0x00183C40u: x = em_area02_math_00183C40(&m, a0, a1); break;
+    case 0x001B18F0u: x = em_area02_math_001B18F0(&m, a0, a1, a2, &out); break;
+    case 0x001BC960u: x = em_area02_math_001BC960(&m, a0); break;
+    case 0x001BD560u: x = em_area02_math_001BD560(&m, a0); break;
+    case 0x001BDFC0u: x = em_area02_math_001BDFC0(&m, a0); break;
+    case 0x001C48C0u: x = em_area02_math_001C48C0(&m, a0); break;
+    case 0x001C4960u: x = em_area02_math_001C4960(&m, a0); break;
+    case 0x001C4AF0u: x = em_area02_math_001C4AF0(&m, a0); break;
+    case 0x001C4CB0u: x = em_area02_math_001C4CB0(&m, a0); break;
+    case 0x001CAE40u: x = em_area02_math_001CAE40(&m, a0, a1); break;
+    case 0x001CAF60u: x = em_area02_math_001CAF60(&m, a0); break;
+    case 0x001CB4F0u: x = em_area02_math_001CB4F0(&m, a0, a1); break;
+    default:          x = em_area02_math_001CB580(&m, a0); break;
+    }
+    if (x < 0) { *rc = fail(r, m.fault_address ? m.fault_address : c->function); return 1; }
+    c->v0 = (uint64_t)(int64_t)out;
+    *rc = 0;
+    return 1;
+}
+
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
 {
     if (r->area == 0 && c->function >= 0x00823500u)
         return dispatch_overlay00(r, c);
+    if (r->area == 2 && c->function >= 0x00823500u)
+        return dispatch_overlay02(r, c);
     int rc;
     if (dispatch_revisit(r, c, &rc))
+        return rc;
+    if (r->area == 2 && dispatch_math02(r, c, &rc))
         return rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;
@@ -277,6 +406,7 @@ int em_area01_runtime_call(EmArea01Runtime *r, EmArea01Call *c)
         else if (r->side.fault) address = r->side.fault_address;
         else if (r->revisit_fault.code) address = r->revisit_fault.address;
         else if (r->ret_fault.code) address = r->ret_fault.address;
+        else if (r->overlay02_fault.code) address = r->overlay02_fault.address;
         return fail(r, address);
     }
     return r->fault ? -1 : 0;

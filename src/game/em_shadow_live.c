@@ -194,6 +194,8 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     if (area == 1 && subarea == 0) path = EM_SHADOW_LIVE_AREA01_RECEIVERS_PATH;
     if (area == 0 && subarea == 0) path = EM_SHADOW_LIVE_AREA00_SUB0_RECEIVERS_PATH;
     if (area == 0 && subarea == 1) path = EM_SHADOW_LIVE_AREA00_SUB1_RECEIVERS_PATH;
+    if (area == 2 && subarea == 0) path = EM_SHADOW_LIVE_AREA02_SUB0_RECEIVERS_PATH;
+    if (area == 2 && subarea == 1) path = EM_SHADOW_LIVE_AREA02_SUB1_RECEIVERS_PATH;
     if (!path || S.fault) return -1;
     for (u32 k = 0; k < S.pass_count; ++k)
         if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;

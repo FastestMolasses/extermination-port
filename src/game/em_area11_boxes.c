@@ -1226,6 +1226,27 @@ int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t 
     return 1;
 }
 
+/* 001CA5E0(owner, handle, kind) on a bound world owner: +0x44 = handle's
+ * model (the world bank's, or for a world/library owner the library's, as
+ * 001CA6E0 above), then 001CA5F0(owner, kind): +0x4C = kind's method. */
+int em_area11_boxes_owner_001CA5E0(EmActor *actor, uint32_t handle, uint32_t kind)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    uint32_t model = 0, method = 0;
+    if (!b || em_owner_services_model_001CA5E0(&model, &method, handle, kind) < 0) return -1;
+    const EmWorldModels *bank = &S.bank;
+    const EmWorldModel *m = em_world_models_at(&S.bank, model);
+    if (!m && (b->world || b->husk)) {
+        bank = &S.library;
+        m = library_model(model);
+    }
+    if (!m) return report("001CA5E0: the handle is no model of the world bank or the library");
+    b->view.model = &m->model;   /* +0x44 */
+    b->method = method;          /* +0x4C */
+    b->bank = bank;
+    return 0;
+}
+
 int em_area11_boxes_owner_fields(const EmActor *actor, uint32_t *anim, uint32_t *model,
                                   uint32_t *method)
 {

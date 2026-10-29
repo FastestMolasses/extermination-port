@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "game/em_area00_state.h"
+#include "game/em_area02_state.h"
 
 #define EM_AREA01_STATE_GLOBALS 0x00275C18u
 #define EM_AREA01_STATE_GLOBAL_SIZE 0x18u
@@ -27,6 +28,7 @@ typedef struct {
     uint32_t fault; /* first failing original address; zero while healthy */
     unsigned area;
     EmArea00State area00; /* borrows globals above and loader allocations */
+    EmArea02State area02; /* the same borrowing for AREA02 (area 2) */
 } EmArea01State;
 
 /* Start with a zero-initialized object. Binding validates the delivered
@@ -34,7 +36,7 @@ typedef struct {
  * Return 0, or -1 with the first fault latched. A fault stays latched until
  * the host explicitly discards this binding with detach. */
 int em_area01_state_bind(EmArea01State *s, EmArea01StateMemory memory, void *ctx);
-/* Select AREA00 or AREA01 without introducing a second globals owner. */
+/* Select AREA00, AREA01 or AREA02 without introducing a second globals owner. */
 int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void *ctx, unsigned area);
 void em_area01_state_detach(EmArea01State *s);
 
@@ -48,8 +50,9 @@ uint8_t *em_area01_state_bytes(EmArea01State *s, uint32_t address, uint32_t size
  * 001E7780 below supplies the original surrounding zero/record-clear order.
  * Both return 0, or -1 with a latched original address. */
 int em_area01_state_00823A50(EmArea01State *s);
-/* Shared dispatcher for the selected AREA00/01. AREA00 sub 0/1/2 and
- * AREA01 sub 0/1 initialize; other sub bytes only clear the six globals.
+/* Shared dispatcher for the selected AREA00/01/02. AREA00 sub 0/1/2,
+ * AREA01 sub 0/1 and AREA02 sub 0/1/2 (0x823900) initialize; other sub
+ * bytes only clear the six globals.
  * A different area fails before changing globals. */
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub);
 

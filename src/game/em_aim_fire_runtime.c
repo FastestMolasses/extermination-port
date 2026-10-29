@@ -243,6 +243,14 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
             TRY(append(out,capacity,count,particles[k].address,(uint32_t)particles[k].size,particles[k].bytes,1));
     }
     {
+        /* D_0081070A, the area's progress byte (the scene state's one
+         * home), read only: the spat hazard 001E2E80 picks its damage
+         * table by it (the AREA01 revisit's creatures reach that branch). */
+        EmSceneState *scene=em_scene_state();
+        uint8_t *b70A=scene ? em_scene_progress_at(scene,0x0081070Au,1) : NULL;
+        TRY(append(out,capacity,count,0x0081070Au,1,b70A,0));
+    }
+    {
         /* The render context's storage (the muzzle node's lines read the
          * context, the clip matrix 001CD370 names and the scratchpad
          * view-projection; 001CB5F0 / 001CB6B0 / 001CB900 write the arena). */

@@ -85,6 +85,10 @@ CREATURE_EFFECT_WINDOWS = ((0x002571B0, 0x1B0), (0x0025D800, 0x90),
                            # the flash node 001E7310's ramp (a00_09): 001DEE80's three
                            # words D_0026E970 and 001DF180's 001D6B60 colour D_0026E860
                            (0x0026E860, 0x10), (0x0026E970, 0x10))
+# The AREA01 revisit's effect handler 001ECEF0 (byte-matched decomp C; after
+# the event, a01r_01 / a01r_02) submits D_00257090 or D_00257120 by its node's
+# +0x38: one window, only read.
+REVISIT_EFFECT_WINDOWS = ((0x00257090, 0x120),)
 HAZARD_EFFECT_ROWS = {0x00257530: struct.pack('<8f', 8, 24, 8, 0, 0, 0, 0, 0),
                       0x00257650: struct.pack('<8f', 24, 112, 24, 128, 24, 112, 24, 0)}
 
@@ -133,7 +137,8 @@ def blocks(elf):
         raise ValueError('Not the pinned SCUS-97112 boot ELF')
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
-               *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS)
+               *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
+               *REVISIT_EFFECT_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -174,7 +179,8 @@ def verify_windows(data, paths):
     for path in paths:
         ram = path.read_bytes()
         for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS,
-                              *FOOTSTEP_WINDOWS, *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *CREATURE_EFFECT_WINDOWS):
+                              *FOOTSTEP_WINDOWS, *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *CREATURE_EFFECT_WINDOWS,
+                              *REVISIT_EFFECT_WINDOWS):
             if ram[address:address + size] != wanted[address]:
                 raise ValueError('AREA00 immutable table differs from pinned ELF')
         verify_hazard_effects(wanted, ram)

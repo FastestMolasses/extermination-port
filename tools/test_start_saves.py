@@ -117,7 +117,7 @@ def main():
     t0 = time.time()
     names = list(B.START_POINTS)
     # refusals before anything runs
-    refused(lambda: B.arrival('area02'), 'unknown start point')
+    refused(lambda: B.arrival('area03'), 'unknown start point')
     wrong = {'area01': dict(B.START_POINTS['area01'], area=0)}
     refused(lambda: B.arrival('area01', wrong), 'area byte is 1, not 0')
     missing = {'area01': dict(B.START_POINTS['area01'], route='s87/route_none')}
@@ -137,7 +137,7 @@ def main():
             assert status == 'written' and folder == out / n, (n, status)
             assert commands == 26 and entries > 0, (n, commands, entries)
             slots[n] = check_card(n, folder)
-        assert len(set(slots.values())) == 3, 'two start points saved the same block'
+        assert len(set(slots.values())) == len(names), 'two start points saved the same block'
         # the write is file by file and refuses what it does not own
         a = B.at_terminal(B.arrival('area01'))
         files = MH.card_files(out / 'area01', 0)

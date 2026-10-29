@@ -661,7 +661,7 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
     }
     int status;int32_t result=0;
     if(c->function==0x00183C40u) {
-        EmArea02Math s={b.math,b.count,math_call,&b,c->sp,0,0,0};b.math_state=&s;
+        EmArea02Math s={b.math,b.count,math_call,&b,c->sp,0,0,0,NULL};b.math_state=&s;
         status=em_area02_math_00183C40(&s,a,d);
         if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
     } else if(c->function==0x001B41F0u) {

@@ -51,6 +51,11 @@ static uint8_t *span(Run *r, uint32_t address, uint32_t size)
         if (g->bytes && address >= g->base && size <= g->size && address - g->base <= g->size - size)
             return g->bytes + (address - g->base);
     }
+    if (s->view && size) {
+        uint8_t *p = s->view(s->ctx, address, size);
+        if (p)
+            return p;
+    }
     fault(r, EM_AREA02_MATH_FAULT_UNMAPPED, address);
     return NULL;
 }
@@ -559,6 +564,147 @@ static void f_158EC0(Run *r, uint32_t sp, uint32_t node)
             }
             break;
         default:
+            break;
+        }
+        (void)call1(r, sp, FN_1B17A0, node);
+        method(r, sp, node);
+        return;
+    case 2:
+        st8(r, node + 4, st + 1);
+        return;
+    case 3:
+        (void)call1(r, sp, FN_1AFC10, node);
+        return;
+    default:
+        return;
+    }
+}
+
+/* ------------------------------------------------------------------------
+ * 00159210(node), by the state byte +4 (s = node + 0x1F0):
+ *   0: nothing unless 001B0FD0(node, s, 0, 2) is 0. Then 001C6380(node),
+ *      word +0x20 = 0, byte +0x0A = 0; type +3 0x2C: word +0x30 =
+ *      0x275478, +5 = 0, +0 = 1, 0x700038A0 = (0, 1.0, 0, 1.0), word +0x20
+ *      = 001C5570(node, 0x700038A0, 0x74, 1); other types: word +0x30 =
+ *      0x275480; when the room-mask byte has bit (halfword +0x2E): +0 = 2,
+ *      +5 = 3; else halfword +0x34 = 2 / 4 / 6 for +3 = 0x24 / 0x25 /
+ *      other, +0 = 1, 0x700038A0 = (1.0, 0, 0, 1.0), word +0x20 =
+ *      001C5570(node, 0x700038A0, 0x75, 1);
+ *   1: sub-state +5 (0..6, jump table; 7 and up do nothing), then 001B17A0
+ *      and the node's method:
+ *      0: r = 00157860(node, s, 0): 0 nothing, 2 -> +5 = 4, 3 -> +5 += 1,
+ *         other -> +5 = 5;
+ *      1: +0x0A == 0: +5 = 4, 001BA1A0(s, D_002470E0 for type 0x2C else
+ *         D_00247DA0, 1, 2); else +5 = 2, 001BA1A0(s, D_00247BA0, 1, 2),
+ *         001BA1F0(node);
+ *      2: when 001BA1F0(node): +0x0B = 0; type 0x2C: +0 = 1, +5 = 0; other:
+ *         +0 = 2, +5 += 1, and a nonzero word +0x20 gets its byte +4 = 3 and
+ *         is cleared;
+ *      3: nothing;
+ *      4: when 001BA1F0(node): +0 = 1, +0x0B = 0, +5 = 0;
+ *      5: when 001BA1F0(node): +5 = 6;
+ *      6: +0x0A == 0: as 1 (with 6 as the third argument); else +5 = 2,
+ *         001BA1A0(s, D_00247BE0, 6, 2), 001BA1F0(node);
+ *   2: +4 += 1; 3: 001AFC10(node); other: nothing.
+ * The frame is 0x20 bytes. (The AREA11 host runs this owner as the scalar
+ * em_panel core; this is the translation over the record's bytes.)
+ * ---------------------------------------------------------------------- */
+static void f_159210(Run *r, uint32_t sp, uint32_t node)
+{
+    uint32_t st = u8(r, node + 4);
+    uint32_t s = node + 0x1F0;
+    uint32_t sub;
+    sp -= 0x20;
+    switch (st) {
+    case 0:
+        if (call4(r, sp, FN_1B0FD0, node, s, st, 2) != 0)
+            return;
+        (void)call1(r, sp, FN_1C6380, node);
+        st32(r, node + 0x20, 0);
+        st8(r, node + 0x0A, 0);
+        if (u8(r, node + 3) == 0x2C) {
+            st32(r, node + 0x30, 0x00275478u);
+            st8(r, node + 5, 0);
+            st8(r, node + 0, 1);
+            st32(r, SPR(0x38A0), 0);
+            st32(r, SPR(0x38A4), F_ONE);
+            st32(r, SPR(0x38A8), 0);
+            st32(r, SPR(0x38AC), F_ONE);
+            st32(r, node + 0x20, (uint32_t)call4(r, sp, FN_1C5570, node, SPR(0x38A0), 0x74, 1));
+        } else {
+            uint32_t t;
+            st32(r, node + 0x30, 0x00275480u);
+            if (u8(r, G_MASK + u8(r, G_AREA)) & bit(u16(r, node + 0x2E))) {
+                st8(r, node + 0, 2);
+                st8(r, node + 5, 3);
+                return;
+            }
+            t = u8(r, node + 3);
+            st16(r, node + 0x34, t == 0x24 ? 2 : t == 0x25 ? 4 : 6);
+            st8(r, node + 0, 1);
+            st32(r, SPR(0x38A0), F_ONE);
+            st32(r, SPR(0x38A4), 0);
+            st32(r, SPR(0x38A8), 0);
+            st32(r, SPR(0x38AC), F_ONE);
+            st32(r, node + 0x20, (uint32_t)call4(r, sp, FN_1C5570, node, SPR(0x38A0), 0x75, 1));
+        }
+        return;
+    case 1:
+        sub = u8(r, node + 5);
+        switch (sub) {
+        case 0: {
+            uint64_t v = call3(r, sp, FN_157860, node, s, 0);
+            if (v == 0)
+                break;
+            if (v == 2)
+                st8(r, node + 5, 4);
+            else if (v == 3)
+                st8(r, node + 5, u8(r, node + 5) + 1);
+            else
+                st8(r, node + 5, 5);
+            break;
+        }
+        case 1:
+        case 6:
+            if (u8(r, node + 0x0A) == 0) {
+                st8(r, node + 5, 4);
+                (void)call4(r, sp, FN_1BA1A0, s, u8(r, node + 3) == 0x2C ? 0x002470E0u : 0x00247DA0u, sub, 2);
+            } else {
+                st8(r, node + 5, 2);
+                (void)call4(r, sp, FN_1BA1A0, s, sub == 1 ? 0x00247BA0u : 0x00247BE0u, sub, 2);
+                (void)call1(r, sp, FN_1BA1F0, node);
+            }
+            break;
+        case 2:
+            if (call1(r, sp, FN_1BA1F0, node) != 0) {
+                st8(r, node + 0x0B, 0);
+                if (u8(r, node + 3) == 0x2C) {
+                    st8(r, node + 0, 1);
+                    st8(r, node + 5, 0);
+                } else {
+                    uint32_t h;
+                    st8(r, node + 0, 2);
+                    st8(r, node + 5, u8(r, node + 5) + 1);
+                    h = w32(r, node + 0x20);
+                    if (h != 0) {
+                        st8(r, h + 4, 3);
+                        st32(r, node + 0x20, 0);
+                    }
+                }
+            }
+            break;
+        case 4:
+            if (call1(r, sp, FN_1BA1F0, node) != 0) {
+                st8(r, node + 0, 1);
+                st8(r, node + 0x0B, 0);
+                st8(r, node + 5, 0);
+            }
+            break;
+        case 5:
+            if (call1(r, sp, FN_1BA1F0, node) != 0)
+                st8(r, node + 5, 6);
+            break;
+        default: /* 3, and 7 and up */
             break;
         }
         (void)call1(r, sp, FN_1B17A0, node);
@@ -1870,7 +2016,7 @@ static void f_1CB4F0(Run *r, uint32_t sp, uint32_t a0, uint32_t a1)
     run.entry = (fn);                                                                                                \
     if (setjmp(run.out))                                                                                             \
         return -1;                                                                                                   \
-    if (!s->regions)                                                                                                 \
+    if (!s->regions && !s->view)                                                                                     \
         fault(&run, EM_AREA02_MATH_FAULT_NULL, 0)
 
 static void put(int32_t *out, int32_t v)
@@ -1925,6 +2071,7 @@ int em_area02_math_00158050(EmArea02Math *s, uint32_t a0, int32_t *out)
 
 VOID1(001582E0, f_1582E0)
 VOID1(00158EC0, f_158EC0)
+VOID1(00159210, f_159210)
 VOID1(00159620, f_159620)
 VOID1(00159970, f_159970)
 VOID1(00159E70, f_159E70)

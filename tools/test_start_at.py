@@ -187,7 +187,7 @@ def fix_check(block):
 
 def refusals(src, tmp):
     done = []
-    done.append(why_of('unknown name', 'an unknown start point', EM_START_AT='area02'))
+    done.append(why_of('unknown name', 'an unknown start point', EM_START_AT='area03'))
     for k, v, expect in (('EM_NEW_GAME', '1', 'EM_NEW_GAME'), ('EM_SKIP_STARTUP', '1', 'EM_SKIP_STARTUP'),
                          ('EM_STARTUP_TEST', 'loadgame', 'EM_STARTUP_TEST'),
                          ('EM_TEST_MEMCARD_ROOT', str(src), 'EM_TEST_MEMCARD_ROOT'),

@@ -1,6 +1,7 @@
 /* Resource and forwarding contract; interpreter behavior has the separate
  * original-instruction corpus. The loader mock models replacement delivery. */
 #include "game/em_area01_script_live.h"
+#include "game/em_area11_roger.h"
 #include "game/em_area11_boxes.h"
 #include <assert.h>
 #include <stdlib.h>

@@ -779,7 +779,7 @@ static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
     const unsigned area=l->runtime.area;
-    if(area==0 && c->function>=0x00823500u) {
+    if((area==0 || area==2) && c->function>=0x00823500u) {
         if(em_area01_script_worker_handles_area(c->function,area)) {
             const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
             int rc=em_area01_script_worker_call_area(&host,c,&fault,area);
@@ -984,6 +984,19 @@ static int worker(void *ctx,EmArea01Call *c)
             if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
             EmActorPool *pool=l->host.pool;
             int rc=pool && pool->w_001AF800 ? pool->w_001AF800(pool->worker_ctx,a) : -1;
+            if(em_area01_live_resume(l)<0)return -1;
+            c->v0=0;return rc<0 ? -1 : 0;
+        }
+    }
+    if(c->function==0x001CA5E0u && c->na>=3) {
+        /* 001CA5E0 on a typed shared owner (AREA02's 001C4AF0 re-installs
+         * the owner's model with kind 1): +0x44 and +0x4C are the owner's
+         * canonical view, read-only in the record view, so the store is the
+         * boxes' 001CA5E0 over it, with the views published around it. */
+        EmActor *a=actor(l,c->a[0]);
+        if(a && em_area11_boxes_owner_view(a)) {
+            if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
+            int rc=em_area11_boxes_owner_001CA5E0(a,c->a[1],c->a[2]);
             if(em_area01_live_resume(l)<0)return -1;
             c->v0=0;return rc<0 ? -1 : 0;
         }
@@ -1364,7 +1377,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
        !h->resource_epoch || !h->rebind)
         return -1;
     const unsigned area=h->scene->d810700;
-    if(area>1 || h->area->area!=area)return -1;
+    if(area>2 || h->area->area!=area)return -1;
     memset(l,0,sizeof *l);l->host=*h;
     EmPoseHost *pose=player_pose_record_host();
     EmStatusSceneLoader *ld=em_module_loader_state(h->loader);

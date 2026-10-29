@@ -36,6 +36,8 @@ route's manifest: its first beat's source state):
                    the AREA00 arrival (block area 0)
   area01-revisit   s87/route_a01r's a01r_00 source, AREA00's progression
                    exit: the AREA01 revisit arrival (block area 1)
+  area02           s87/route_a02's a02_00 source, the revisit's door [16]
+                   (a01r_03): the AREA02 arrival (block area 2)
 
 Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
 host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
@@ -92,6 +94,7 @@ START_POINTS = {
     'area01': {'route': 's87/route_a01', 'first': 'a01_00_', 'area': 1},
     'area00': {'route': 's87/route_a00', 'first': 'a00_00_', 'area': 0},
     'area01-revisit': {'route': 's87/route_a01r', 'first': 'a01r_00_', 'area': 1},
+    'area02': {'route': 's87/route_a02', 'first': 'a02_00_', 'area': 2},
 }
 
 
