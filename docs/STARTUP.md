@@ -406,6 +406,7 @@ start-point save through the original's own load path. Off by default
 | `area01` | AREA01, the arrival from AREA11 (41.0, 0.0, -565.6) | `build/start_saves/area01` |
 | `area00` | AREA00, the arrival from AREA01 | `build/start_saves/area00` |
 | `area01-revisit` | AREA01 again, the arrival from AREA00 | `build/start_saves/area01-revisit` |
+| `area02` | AREA02 sub 1, the arrival through the revisit's door [16] (a01r_03) | `build/start_saves/area02` |
 
 The cards are the start-point saves `make start-saves` builds with the
 original save writer (docs/SAVE_GAME.md section 7); they are disc- and
