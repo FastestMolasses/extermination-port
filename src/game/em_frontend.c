@@ -941,9 +941,28 @@ static void start_at_give_up(const char *why)
     lt.phase = 6;
 }
 
+/* EM_START_AT_PAD's clock steps once per frame: in a world frame at its
+ * head (below), in a status frame (frame-machine state 3, the world frozen:
+ * no world-frame head runs) at its close-out, so a recorded press on the
+ * status screen (Triangle closing the revisit's item page) is played. */
+static int start_at_pad_stepped;
+
+void em_frontend_start_at_after_frame(void)
+{
+    if (f.start_at && lt.phase == 6 && !start_at_pad_stepped)
+        (void)em_start_at_pad_frame(em_frame_counter(), NULL, g.cam.fwd);
+    start_at_pad_stepped = 0;
+}
+
 void em_frontend_load_test_before_frame(void)
 {
-    if (f.start_at && lt.phase == 6 && em_start_at_pad_frame(em_frame_counter(), g.pos, g.cam.fwd) == 0 &&
+    start_at_pad_stepped = 1;
+    /* EM_START_AT_PATH follows the path only while the player has control
+     * (0x70003B8D clear): a scripted stretch moves the player itself, so
+     * the clock does not wait on the recorded position there. */
+    const int path_control = f.start_at && lt.phase == 6 && ((const EmSceneState *)em_scene_state())->spad3B8D == 0;
+    if (f.start_at && lt.phase == 6 &&
+        em_start_at_pad_frame(em_frame_counter(), path_control ? g.pos : NULL, g.cam.fwd) == 0 &&
         em_start_at_pad_progress(em_frame_counter())) {
         /* EM_START_AT_PAD's progress line every 300 frames: where the player
          * is and the AREA01 revisit's story bytes (D_008107DF event stage,
