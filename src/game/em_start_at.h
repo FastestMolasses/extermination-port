@@ -58,7 +58,7 @@ int em_start_at_report(void);
 void em_start_at_pad_control(unsigned counter);
 /* pos / fwd: the player's position and the camera's forward (with
  * EM_START_AT_PATH the stick steers toward the recorded path). */
-int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3]);
+int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3], const float *heading);
 /* 1 on every 100th frame of a running pad script (its progress line). */
 int em_start_at_pad_progress(unsigned counter);
 /* The pad script's clock (its frame; it waits for a lagging player). */

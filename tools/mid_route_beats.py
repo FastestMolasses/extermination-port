@@ -128,14 +128,14 @@ def prepare(name, beats):
             if value != sent or (rows and rows[-1][0] == r['f'] + off):
                 rows.append((r['f'] + off, *value))
                 sent = value
-        path += [(r['pos'][0], r['pos'][2]) for r in t['rows']]
+        path += [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
         marks.append(off + t['frames'])
     last = marks.pop()
     assert rows and len(rows) <= 4096 and all(0 <= f <= last for f, *_ in rows), name
     pad = pads / f'{name}.pad'
     pad.write_text('\n'.join([f'EMA1 1 {last} 1'] + [f'{f} {b:x} {lx} {ly}' for f, b, lx, ly in rows]) + '\n')
     path_file = pads / f'{name}.path'
-    path_file.write_text('\n'.join(f'{i} {x!r} {z!r}' for i, (x, z) in enumerate(path)) + '\n')
+    path_file.write_text('\n'.join(f'{i} {x!r} {z!r} {y!r}' for i, (x, z, y) in enumerate(path)) + '\n')
     return pad, path_file, marks, traces
 
 
@@ -251,7 +251,9 @@ CHAINS = {
     'a01u_s0': ('a01u_s0', ('a01u_s0',)),
     'a01u_s1': ('a01u', ('a01u_s1',)),
     'a06': ('area06', ('a06_00', 'a06_01', 'a06_02', 'a06_03', 'a06_04', 'a06_05')),
-    'a06b': ('a06b', ('a06b_00', 'a06b_01')),
+    # a06b_00's source is a06_03's end: the chain from the arrival, as the
+    # loaded game's own card restarts the cable 0x823B50 at another phase
+    'a06b': ('area06', ('a06_00', 'a06_01', 'a06_02', 'a06_03', 'a06b_00', 'a06b_01')),
     'a01v': ('a01v', ('a01v_00', 'a01v_01', 'a01v_02')),
     'a22b': ('a22b', ('a22b_00', 'a22b_01')),
     'a04b': ('a04b_00', ('a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_04')),

@@ -48,6 +48,37 @@ Bound here (each through its one translation):
 - **The dynamic-object table** (slot 0x45) is bound for AREA06 as for
   AREA01; the effect-table window cap is 128 (the EMET limit) and the
   overlay source cache holds 16 blocks.
+- **The player's other models and texture packets** (0015C1F0's kinds 0x3D
+  .. 0x40, 00200890's slots 9 .. 0xC): `tools/export_player_model_variants.py`
+  (each model equals RAM in 27 fork snapshots) and
+  `tools/export_player_texture_variants.py --profile 06 / 22` (the (0, 0)
+  decode equals the installed catalog; the (1, 0) catalog's 380 textures
+  equal the fork a06_05 recording's GS memory; the other pairs have no
+  recording). em_player_draw_live adds them beside 0x3B; 00200890 selects the
+  catalog (em_world_textures_live_player_packet).
+- **The infection node 001F8350** (0x80000048, em_area06_port_node.c): dispatch_a06,
+  its 001CD070 / 001CD2B0 / 001CFAE0 / 001F4A00 / 001CFBE0 through the flame
+  services. Oracle: the node of the fork a06_05 recording (state 1, the
+  player infected) plus designed states; coverage 251 / 251 words. Its boot BSS
+  D_0081F970..D_0081FE6F is one block in em_area01_live, D_0025D890 an ELF
+  window.
+- **The spark contact 0x823B10** (the cable 0x823B50's +0x34, byte-matched C)
+  and **the spark node 0021AE90** (0x80000044; D_00266AE0 / D_00266B00 ELF
+  windows).
+- **001E4CE0** runs in AREA06 too (00219870's 001EFD20).
+- **The third ramp twin 001E7570** (0x80000063, em_area00_low) with
+  **001DF9D0 / 001DF600** (em_area00_hud: the radial warp grid, 001DF180's
+  sibling, byte-matched C).
+- **The passcode keypads**: 0020CDC0's no-request route (em_status_page.c):
+  D_008106C5 opens page 4 or 5, modules 0x25 / 0x26 load through the module
+  loader (their GS uploads in status_pages.emsp), and em_status_pages_live
+  runs em_area06_port's 002072C0 and node 00207350 over its views. a06_02
+  from its card types the code and its end block equals the recording's.
+  The page's picture has not been compared with a capture.
+- **001F3E30 of the world bank** (slot 0x43, AREA06's beam pieces):
+  D_0028A59C and 001C6120 / 001CA940 reach the area's bank.
+- **001BB310** (the door records' camera callback, em_area01_room, oracle) and
+  **D_00275380** (the bugs' countdown halfwords, ELF window).
 - **Representation glue**: 0x7000368C (001CE860's scratch word) in the
   aim/fire composition; 0x700031D4 after an aim/fire probe hit the player
   names that composition's player proxy, which the AREA01 collision view

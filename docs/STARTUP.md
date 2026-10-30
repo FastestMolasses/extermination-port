@@ -535,7 +535,8 @@ recording-derived and stay in the ignored `build/`.
   2026-10-30): the loaded game's placement clip runs about 65 frames after
   control and ignores the stick, so a route's pad replayed from control
   starts that much early (a02_05's recorded pad reaches door [25] only
-  delayed by 66 frames); and the steering turns a recorded turn in place
+  delayed by 66 frames; EM_START_AT_FADE, below, starts the script after
+  it); and the steering turns a recorded turn in place
   into a walk, so a Use that needs a facing (a door's cone, 00183EF0) may
   not be taken; a progress
   line every 100 script frames prints the position, the revisit's story

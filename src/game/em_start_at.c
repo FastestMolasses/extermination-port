@@ -115,6 +115,9 @@ static struct {
     unsigned mark_count, mark_next;
     int mark[64];
     float path[PATH_MAX_ROWS][2];
+    float path_yaw[PATH_MAX_ROWS];
+    int path_has_yaw;
+    unsigned turn;             /* frames spent turning for the coming press */
 } pad;
 
 static int refuse(const char *why, const char *detail)
@@ -501,10 +504,15 @@ int em_start_at_check(void)
             if (!g) return refuse("EM_START_AT_PATH: no such file", path);
             float x, z;
             int fr;
-            while (pad.path_count < PATH_MAX_ROWS && fscanf(g, "%d %f %f", &fr, &x, &z) == 3 &&
-                   fr == (int)pad.path_count) {
+            char line[96];
+            while (pad.path_count < PATH_MAX_ROWS && fgets(line, sizeof line, g)) {
+                float yaw = 0.0f;
+                const int n = sscanf(line, "%d %f %f %f", &fr, &x, &z, &yaw);
+                if (n < 3 || fr != (int)pad.path_count) break;
                 pad.path[pad.path_count][0] = x;
                 pad.path[pad.path_count][1] = z;
+                pad.path_yaw[pad.path_count] = yaw;
+                pad.path_has_yaw |= n == 4;
                 pad.path_count++;
             }
             const int good = feof(g) && pad.path_count;
@@ -560,7 +568,7 @@ void em_start_at_pad_control(unsigned counter)
     pad.fade_wait = 1;
 }
 
-int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3])
+int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3], const float *heading)
 {
     if (!pad.active) return 0;
     /* The level smoke's rule: a recorded command is submitted two frames
@@ -596,10 +604,39 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         pad.last_pos[1] = pos[2];
         const int stick = pad.now.lx * pad.now.lx + pad.now.ly * pad.now.ly > 0.01f;
         /* A player ahead of the recorded position along the recorded path
-         * is not lagging either: only a player behind it is waited for. */
+         * is not lagging either: only a player behind it is waited for (or
+         * short of a recorded stop). */
         const unsigned ahead_at = (unsigned)t + 4u < pad.path_count ? (unsigned)t + 4u : pad.path_count - 1u;
         const float tx = pad.path[ahead_at][0] - pad.path[t][0], tz = pad.path[ahead_at][1] - pad.path[t][1];
-        const int behind = hx * tx + hz * tz > 0.0f;
+        const int behind = tx * tx + tz * tz < 1e-4f || hx * tx + hz * tz > 0.0f;
+        /* The rows' fourth column, the recorded heading: a press the next
+         * step gives waits (up to 90 frames at a press) while the player
+         * stands more than 0.6 from the recorded place (a walk there) or
+         * faces more than 0.25 from the recorded heading (a light stick
+         * toward it, a turn in place): a Use's cone, a strike's reach. */
+        int press = 0;
+        for (unsigned i = 0; i < pad.count; ++i)
+            if (pad.row[i].f == t - 1 && pad.row[i].buttons && (!i || !pad.row[i - 1].buttons)) press = 1;
+        if (!press) pad.turn = 0;
+        if (press && pad.path_has_yaw && heading && fwd && d2 < 20.0f * 20.0f && pad.turn < 90u) {
+            float off = pad.path_yaw[t] - *heading;
+            while (off > 3.14159265f) off -= 6.2831853f;
+            while (off < -3.14159265f) off += 6.2831853f;
+            const float n = sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2]);
+            if (d2 > 0.6f * 0.6f && n > 0.0f) {
+                const float fx = fwd[0] / n, fz = fwd[2] / n, d = sqrtf(d2);
+                pad.turn++;
+                pad.now = (EmPadState){0, 0.5f * (-hx * fz + hz * fx) / d, -0.5f * (hx * fx + hz * fz) / d, 0, 0};
+                return 0;
+            }
+            if (fabsf(off) > 0.25f && n > 0.0f) {
+                const float fx = fwd[0] / n, fz = fwd[2] / n;
+                const float wx = sinf(pad.path_yaw[t]), wz = cosf(pad.path_yaw[t]);
+                pad.turn++;
+                pad.now = (EmPadState){0, 0.5f * (-wx * fz + wz * fx), -0.5f * (wx * fx + wz * fz), 0, 0};
+                return 0;
+            }
+        }
         if (d2 > 2.5f * 2.5f && d2 < 20.0f * 20.0f && (moving || stick) && behind) pad.hold++;
         else {
             /* A wait of 10 frames or more is reported (where the native
@@ -628,6 +665,15 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
     if (pad.path_count && pos && fwd && m > 0.1f && t >= 0) {
         unsigned k = (unsigned)t + 8u;
         if (k >= pad.path_count) k = pad.path_count - 1u;
+        /* A player ahead of that point takes the first recorded position
+         * still ahead of him (up to 48 rows on): a target behind a running
+         * player is a reversal, a wide turn (door [6]: 6 units along the
+         * wall, a Use short of its place). */
+        for (unsigned step = 0; step < 48u && k + 1u < pad.path_count; ++step, ++k) {
+            const float ax = pad.path[k + 1u][0] - pad.path[k][0], az = pad.path[k + 1u][1] - pad.path[k][1];
+            if (ax * ax + az * az < 1e-6f ||
+                (pad.path[k][0] - pos[0]) * ax + (pad.path[k][1] - pos[2]) * az > 0.0f) break;
+        }
         const float dx = pad.path[k][0] - pos[0], dz = pad.path[k][1] - pos[2];
         const float d = sqrtf(dx * dx + dz * dz);
         float fx = fwd[0], fz = fwd[2];
