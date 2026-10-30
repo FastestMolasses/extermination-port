@@ -3346,6 +3346,35 @@ int em_scene_bindings_actor_snapshot(uint32_t address, uint32_t size, void *out)
     return arrival_scene() && s_area01_live.bound ?
         em_area01_actor_view_snapshot(&s_area01_live.actors, address, size, out) : -1;
 }
+uint8_t *em_scene_bindings_device_bytes(uint32_t address, uint32_t size)
+{
+    if (!s_area01_live.bound || address < EM_ACTOR_POOL_BASE + 0x0Au || !size)
+        return NULL;
+    const uint32_t index = (address - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE;
+    const uint32_t offset = (address - EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE;
+    if (index >= EM_ACTOR_POOL_CAPACITY || offset < 0x0Au || offset + size > 0x0Cu)
+        return NULL;
+    EmActor *a = &s_pool.records[index];
+    if (!a->status || a->self != a)
+        return NULL;
+    return &a->u0A[offset - 0x0Au];
+}
+int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
+{
+    if (!value || !s_area01_live.bound || owner < EM_ACTOR_POOL_BASE ||
+        (owner - EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE ||
+        (owner - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE >= EM_ACTOR_POOL_CAPACITY ||
+        !((offset == 3 && size == 1) || (offset == 0x34 && size == 2)))
+        return -1;
+    const EmActor *a = &s_pool.records[(owner - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE];
+    if (!a->status || a->self != a || a->callback != 0x00158EC0u)
+        return -1;
+    uint8_t b[2];
+    if (em_area01_actor_view_snapshot(&s_area01_live.actors, owner + offset, size, b) < 0)
+        return -1;
+    *value = size == 1 ? b[0] : (int16_t)((uint16_t)b[0] | (uint16_t)b[1] << 8);
+    return 0;
+}
 int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
                                           int32_t *value)
 {

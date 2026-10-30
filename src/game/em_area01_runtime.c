@@ -66,6 +66,10 @@ static uint8_t *math02_view(void *ctx, uint32_t address, uint32_t size)
 {
     return bytes(ctx, address, size, 0);
 }
+static uint8_t *misc_view(void *ctx, uint32_t address, uint32_t size, int write)
+{
+    return bytes(ctx, address, size, write);
+}
 static int math02_call(void *ctx, EmArea02MathCall *in)
 {
     EmArea01Call c = {.function = in->fn, .sp = in->sp, .na = in->na, .nf = in->nf};
@@ -300,6 +304,33 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     int rc;
     if (dispatch_revisit(r, c, &rc))
         return rc;
+    if (r->area == 2 && c->function == 0x001F4E40u) {
+        /* 001F4E40(pos, colour, rate; f12): em_area02_misc's translation
+         * over this runtime's bytes (0x70003B68 and the scratch blocks). */
+        if (c->na < 3 || c->nf < 1) return fail(r, c->function);
+        EmArea02Misc m;
+        memset(&m, 0, sizeof m);
+        m.call = rv_misc_call;
+        m.ctx = r;
+        m.sp = c->sp;
+        if (em_area02_misc_view_001F4E40(&m, misc_view, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2],
+                                         c->f[0]) < 0)
+            return fail(r, m.fault_address ? m.fault_address : c->function);
+        return 0;
+    }
+    if (r->area == 2 && c->function == 0x001AA700u) {
+        /* 001AA700(car): em_area02_misc's translation over this runtime's
+         * bytes (D_00275B7C / D_00275B84 and the records they name). */
+        if (c->na < 1 || c->nf) return fail(r, c->function);
+        EmArea02Misc m;
+        memset(&m, 0, sizeof m);
+        m.call = rv_misc_call;
+        m.ctx = r;
+        m.sp = c->sp;
+        if (em_area02_misc_view_001AA700(&m, misc_view, (uint32_t)c->a[0]) < 0)
+            return fail(r, m.fault_address ? m.fault_address : c->function);
+        return 0;
+    }
     if (r->area == 2 && dispatch_math02(r, c, &rc))
         return rc;
     int32_t i32 = 0;

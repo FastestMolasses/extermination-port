@@ -266,6 +266,14 @@ int em_scene_bindings_001FBC50(void) { return 0; }
 int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
 { (void)owner; (void)offset; (void)size; (void)value; return -1; }
 int em_scene_bindings_terminal_reset(void) { return -1; }
+/* The AREA01 / AREA02 device and battery-panel views (HEALING's device,
+ * AREA02's [24]) and the vitals publish of 0015C700: no AREA02 record in
+ * these fixtures. */
+uint8_t *em_scene_bindings_device_bytes(uint32_t address, uint32_t size) { (void)address; (void)size; return NULL; }
+int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
+{ (void)owner; (void)offset; (void)size; (void)value; return -1; }
+void player_states_vitals_publish(void) {}
+const EmPlayerLiveActor *player_states_actor(void) { return &player_record; }
 int em_scene_bindings_001FABB0(void) { ++stream_stops; return 0; }
 int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)
 {

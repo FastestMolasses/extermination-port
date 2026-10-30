@@ -148,7 +148,8 @@ def main():
     # Phase 3: the module of each page id, and the page ticks and hub returns.
     for screen, transition, busy in itertools.product((0, 1, 2, 3, 6, 8, 9, 0x63), (0, 1), (0, 1)):
         cases.append((3, 1, transition, busy, 0, 0, 0, screen, 1, 0, 0, 0, 0x82))
-    for screen, buttons, busy in itertools.product((1, 2, 3, 6, 7, 9, 0x62, 0x63, 0xFF),
+    # Page id 8 (HEALING kinds 2..4's Yes) goes to phase 2, the count-up.
+    for screen, buttons, busy in itertools.product((1, 2, 3, 6, 7, 8, 9, 0x62, 0x63, 0xFF),
                                                    (0, 0x810), (0, 1)):
         cases.append((3, 2, 0, busy, 0, 0, buttons, screen, 1, 0, 0, 0, 0x82))
     for case in cases:
@@ -169,11 +170,11 @@ def main():
     # The branches that reach untranslated pages fault before any side
     # effect (none is reachable in AREA11, docs/STATUS_PAGES.md section 1):
     # accepted-save phase 6, a nonzero D_008106C5 without a request (the
-    # passcode pages 002072C0), and phase 3 on page ids 4, 5 and 8.
+    # passcode pages 002072C0), and phase 3 on page ids 4 and 5.
     faults = 0
     for phase, step, request, status, screen in ((6, 0, 6, 0, 0), (0, 0, 0, 2, 0), (0, 0, 0, 0xFF, 0),
                                                  (0, 0, 0, 1, 0), (3, 1, 0, 0, 4), (3, 1, 0, 0, 5),
-                                                 (3, 2, 0, 0, 4), (3, 2, 0, 0, 5), (3, 2, 0, 0, 8)):
+                                                 (3, 2, 0, 0, 4), (3, 2, 0, 0, 5)):
         state = State(1, phase, step, 0, 1, 0, request, 0x82, status, 0, 0, 0, -1,
                       Item(2, 0, 5, screen, 3, 3, 0x21, 0, 4, 1, 7, 1))
         before = bytes(state)

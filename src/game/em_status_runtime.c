@@ -7,6 +7,7 @@
 #include "game/em_frame.h"
 #include "game/em_gs_texture.h"
 #include "game/em_status_gs_page.h"
+#include "game/em_ee_float.h"
 #include "em_gfx.h"
 
 #include <stdlib.h>
@@ -47,6 +48,11 @@ struct EmStatusRuntime {
     unsigned triangle_count, draw_kind, draw_hover, slot_kind;
     int draw_help, pending_module;
     int message_view; /* the page tick runs over the live block's words */
+    /* heal_tick's D_00810858 / D_0081085C while they count toward the
+     * targets: the original's progress-block copies, which the hub draws;
+     * the player record's +0x220 / +0x228 (the port's scene words) keep
+     * their values until the commit stores both (binary32 bits). */
+    uint32_t heal_health, heal_infection;
     int queued, consumed, rendered, failed;
 };
 
@@ -448,14 +454,146 @@ static int hub_worker(void *context, EmStatusPage *page, EmStatusHubEvent event,
     return 0;
 }
 
-/* 0020CDC0 phase 1 (em_status_hub). Phase 2, the health count-up, is
- * reached only from page id 8, which the first level never selects: it
- * faults. */
+static int16_t ui16(const uint8_t *p) { return (int16_t)(uint16_t)(p[0] | p[1] << 8); }
+static void ui16_put(uint8_t *p, int16_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)((uint16_t)v >> 8);
+}
+static uint32_t ui32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* 0020CDC0 phases 1 / 2 sub-state 2: the health count-up page id 8 (the
+ * ITEM child HEALING 002160B0's Yes for kinds 2..4) opens (decomp
+ * src/func_0020CDC0.c, NEARMISS: logic recovered). Over the UI block t =
+ * D_00810130 (runtime->ui): t[3] its sub-step, t[4] the arrival flags,
+ * t+0x34 / +0x38 the health / infection targets 002160B0 stored, t+0x3C
+ * the three-frame tick, t+0x3E the 0x78-frame timeout.
+ *   t[3] 0: t+0x3C = 3, t+0x3E = 0x78, t[3] = 1; with D_008106B0 == 2,
+ *      D_002821B4 = 1, D_00282240 = 5, D_002821B8 = 0x14; on into 1.
+ *   t[3] 1: t[4] = 0; 0020A7A0, 001B0000, 00209DF0(t); sound 0xA when
+ *      (0x70003B64 & 0x3F) == 0; t+0x3C -= 1; health += 1.0 when the tick
+ *      reached 0 and health is not its target (else t[4] = 1), infection
+ *      -= 1.0 the same way (else t[4] |= 2); with both there the timeout
+ *      counts down; at timeout 0 or a D_00810E74 & 0x870 edge: health =
+ *      D_008104D0 = target, infection = D_008104D8 = target, 0015C700,
+ *      0020CD60 on the edge, then D_008106B0 == 1: B0 = 0, D_002821B0 = 4,
+ *      B4 = 0, 2240 = 0, phase 1 sub-state 1; else B0 = 0, B4 = 0, phase 5
+ *      (sub-states 0). Otherwise a tick at 0 restarts at 3.
+ * The counting D_00810858 / D_0081085C are this runtime's heal_health /
+ * heal_infection (the hub draws them); the port's scene words are the
+ * player record's +0x220 / +0x228, which the original leaves until the
+ * commit (a02_s0: the record's health stays 90 through the count-up). */
+static int heal_tick(EmStatusRuntime *runtime)
+{
+    EmStatusPage *page = &runtime->page;
+    EmStatusPagesFrame frame;
+    memset(&frame, 0, sizeof frame);
+    EmStatusHubDisplay display;
+    memset(&display, 0, sizeof display);
+    if (!runtime->pages || !runtime->hooks.pages_frame || !runtime->hooks.hub_display ||
+        runtime->hooks.pages_frame(runtime->hooks.context, &frame) != 1 || !frame.health ||
+        !frame.infection)
+        return 0;
+    uint8_t *t = runtime->ui;
+    switch (page->transition_step) {
+    case 0:
+        memcpy(&runtime->heal_health, frame.health, 4);
+        memcpy(&runtime->heal_infection, frame.infection, 4);
+        ui16_put(t + 0x3C, 3);
+        ui16_put(t + 0x3E, 0x78);
+        page->transition_step = 1;
+        if (page->request == 2) {
+            page->item.message_phase = 1;
+            page->item.message_group = 5;
+            page->item.message_line = 0x14;
+        }
+        /* fall through */
+    case 1:
+        break;
+    default:
+        return 1;
+    }
+    page->item.state = 0;
+    if (runtime->hooks.hub_display(runtime->hooks.context, &display) != 1 ||
+        !em_item_stick_sample(&runtime->hub_stick, runtime->input.stick_x, runtime->input.stick_y,
+                              &runtime->math))
+        return 0;
+    memcpy(&display.health, &runtime->heal_health, 4);
+    memcpy(&display.infection, &runtime->heal_infection, 4);
+    runtime->hub_display = display;
+    if (!hub_worker(runtime, page, EM_STATUS_HUB_BACKGROUND, 0) ||
+        !hub_worker(runtime, page, EM_STATUS_HUB_ACTORS_TICK, 0) ||
+        !hub_worker(runtime, page, EM_STATUS_HUB_DRAW, 0))
+        return 0;
+    if (!(frame.counter & 0x3Fu) && !sound(runtime, 0xA))
+        return 0;
+    const int16_t tick = (int16_t)(ui16(t + 0x3C) - 1);
+    ui16_put(t + 0x3C, tick);
+    uint32_t health = runtime->heal_health, infection = runtime->heal_infection;
+    const uint32_t health_target = ui32(t + 0x34), infection_target = ui32(t + 0x38);
+    if (!em_ee_c_eq_bits(health_target, health)) {
+        if (tick == 0)
+            health = em_ee_add_bits(health, 0x3F800000u);
+    } else {
+        page->item.state = 1;
+    }
+    if (!em_ee_c_eq_bits(infection_target, infection)) {
+        if (tick == 0)
+            infection = em_ee_sub_bits(infection, 0x3F800000u);
+    } else {
+        page->item.state |= 2;
+    }
+    runtime->heal_health = health;
+    runtime->heal_infection = infection;
+    int16_t timeout = ui16(t + 0x3E);
+    if (page->item.state == 3 && timeout != 0)
+        ui16_put(t + 0x3E, timeout = (int16_t)(timeout - 1));
+    const unsigned edge = runtime->input.pressed & 0x870u;
+    if (timeout == 0 || edge) {
+        /* D_00810858 = D_008104D0 = target, D_0081085C = D_008104D8 =
+         * target: the port's one copy each (em_player.c vitals_load), which
+         * the host's 0015C700 publishes to the player record first. */
+        runtime->heal_health = health_target;
+        runtime->heal_infection = infection_target;
+        memcpy(frame.health, &health_target, 4);
+        memcpy(frame.infection, &infection_target, 4);
+        if (em_status_pages_live_0015C700(runtime->pages) < 0)
+            return 0;
+        if (edge && !sound(runtime, 1))
+            return 0;
+        if (page->request == 1) {
+            page->request = 0;
+            page->item.message_mode = 4;
+            page->item.message_phase = 0;
+            page->item.message_group = 0;
+            page->phase = 1;
+            page->step = 1;
+        } else {
+            page->request = 0;
+            page->item.message_phase = 0;
+            page->phase = 5;
+            page->step = 0;
+        }
+        page->transition_step = 0;
+        return 1;
+    }
+    if (tick == 0)
+        ui16_put(t + 0x3C, 3);
+    return 1;
+}
+
+/* 0020CDC0 phase 1 (em_status_hub) and phase 2 (page id 8: its sub-state
+ * 0 there, then heal_tick). */
 static int hub_tick(EmStatusRuntime *runtime)
 {
     EmStatusPage *page = &runtime->page;
-    if (page->phase != 1 || !runtime->hooks.hub_display)
+    if ((page->phase != 1 && page->phase != 2) || !runtime->hooks.hub_display)
         return 0;
+    if (page->step == 2)
+        return heal_tick(runtime);
     EmStatusHubDisplay display;
     memset(&display, 0, sizeof display);
     if (runtime->hooks.hub_display(runtime->hooks.context, &display) != 1 ||

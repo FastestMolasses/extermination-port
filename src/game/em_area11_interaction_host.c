@@ -626,7 +626,10 @@ static int page_owner_read(void *context, uint32_t owner, uint32_t offset, uint3
     (void)context;
     if (em_scene_state()->req[EM_SCENE_REQ_B0] == 6)
         return em_scene_bindings_terminal_owner_read(owner, offset, size, value);
-    if (!world.panel_address || owner != world.panel_address || !world.panel_record) return -1;
+    /* An AREA01 / AREA02 battery panel (00158EC0, AREA02's [24]). */
+    if (!world.panel_address || owner != world.panel_address)
+        return em_scene_bindings_panel_owner_read(owner, offset, size, value);
+    if (!world.panel_record) return -1;
     if (offset == 3 && size == 1) { *value = world.panel_record->subtype; return 0; }
     if (offset == 0x34 && size == 2) { *value = (int16_t)world.panel.owner.cost; return 0; }
     return -1;
@@ -635,7 +638,15 @@ static int page_owner_read(void *context, uint32_t owner, uint32_t offset, uint3
 static int page_owner_write(void *context, uint32_t owner, uint32_t offset, uint8_t value)
 {
     (void)context;
-    if (!world.panel_address || owner != world.panel_address) return -1;
+    if (!world.panel_address || owner != world.panel_address) {
+        /* An AREA01 / AREA02 battery panel's +0xA / +0xB (EmActor's). */
+        int32_t type;
+        uint8_t *p = em_scene_bindings_panel_owner_read(owner, 3, 1, &type) == 0 && (offset == 0xA || offset == 0xB)
+                         ? em_scene_bindings_device_bytes(owner + offset, 1) : NULL;
+        if (!p) return -1;
+        *p = value;
+        return 0;
+    }
     if (offset == 0xA) { world.panel.owner.charged = value; return 0; }
     if (offset == 0xB) { world.panel.owner.armed = value; return 0; }
     return -1;
@@ -698,6 +709,9 @@ static int page_player_0015C700(void *context, int (*table16)(void *, uint32_t, 
     const uint8_t *c8 = em_scene_req_at(em_scene_state(), 0x008106C8u);
     const uint32_t word = (uint32_t)c8[0] | (uint32_t)c8[1] << 8 | (uint32_t)c8[2] << 16 |
                           (uint32_t)c8[3] << 24;
+    /* Both callers stored D_008104D0 (and the count-up D_008104D8) just
+     * before: the record's +0x220 / +0x228 take the scene words now. */
+    player_states_vitals_publish();
     return player_pose_0015C700(em_scene_state()->d810858, word, table16, table_context) ? 0 : -1;
 }
 
@@ -780,6 +794,7 @@ static int pages_frame(void *context, EmStatusPagesFrame *frame)
     frame->player_position = g.pos;
     frame->player_yaw = &g.yaw;
     frame->area = &scene->d810700;
+    frame->device_bytes = em_scene_bindings_device_bytes;
     return frame->message && frame->c62 && frame->cb4 ? 1 : 0;
 }
 
@@ -2037,10 +2052,15 @@ int em_area11_interaction_host_status_open(void)
             int32_t type;
             if (em_scene_bindings_terminal_owner_read(address, 3, 1, &type) < 0)
                 return fail("0020E060: D_008106D0 is not a live terminal");
-        } else {
-            if (!world.panel_address || address != world.panel_address)
-                return fail("0020E060: D_008106D0 is not the bound panel");
+        } else if (world.panel_address && address == world.panel_address) {
             owner = &world.panel.owner;
+        } else {
+            /* An AREA01 / AREA02 battery panel (00158EC0): the BATTERY
+             * page's typed owner reads resolve D0 directly, as for the
+             * terminal; it has no EmPanel owner. */
+            int32_t type;
+            if (em_scene_bindings_panel_owner_read(address, 3, 1, &type) < 0)
+                return fail("0020E060: D_008106D0 is neither the bound panel nor a live battery panel");
         }
     }
     if (em_status_runtime_page_open(world.status, owner) != 1) return fail("0020E060");

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export AREA11, AREA01 and AREA00 stream sectors from the user's own disc.
+"""Export AREA11, AREA01, AREA00, AREA02 and AREA04 stream sectors from the user's own disc.
 
 The port's IOP stream backend (src/game/em_iop_stream.c, docs/IOP_STREAM.md)
 reads music and voice sectors by disc sector number, exactly as the lanes
@@ -47,6 +47,11 @@ AREA00 recordings read voices 19..28 at the arrival, 30 at door [51] and
 31 / 32 at the cage terminal). A record whose voice row is empty (cue 0: no
 sectors) has nothing to export.
 
+AREA02 and AREA04 (since 2026-10-29: the AREA02 route through door [25]
+into AREA04's arrival) add their D_0026EC60 rows (area 2 has none, area 4
+five) and each voice of their message-record tables D_00264DD0[3] and [5],
+derived the same way.
+
 EMST layout (little endian):
   0x00  'EMST', u32 version 1
   0x08  u32 music_lsn, u32 voice_lsn, u32 music_sectors, u32 voice_sectors
@@ -72,16 +77,17 @@ MUSIC_ROWS, VOICE_ROWS = 68, 179
 MUSIC_TABLE, VOICE_TABLE = 0x25DD30, 0x25E170
 SEARCH_NAMES = (0x26EBB0, 0x26EBD0)
 STREAM_TABLE = 0x26EC60
-AREAS = (11, 1, 0)
+AREAS = (11, 1, 0, 2, 4)
 # D_00264DD0 indices of the exported areas' message-record tables.
-MESSAGE_TABLES = {2: 'AREA01', 1: 'AREA00'}
+MESSAGE_TABLES = {2: 'AREA01', 1: 'AREA00', 3: 'AREA02', 5: 'AREA04'}
 # Cues named by original code paths (see the module docstring).
 MUSIC_EXTRA = {25: '001FAE70 AREA11 selection (captured D_00282178[0] = 25)',
                0x18: '001FAE70 override cue (D_008104E4 == 1)',
                0x1B: 'game over 001FA790(0, 0x1B)',
                13: 'AREA01 sub-0 spawn selection (also captured at the AREA11 exit)',
                22: 'AREA01 sub-1 spawn selection (spawn music word 0x9600)',
-               20: 'AREA01 overlay 00826BA0, script 0082BAD0 completion: 001FB0B0(20)'}
+               20: 'AREA01 overlay 00826BA0, script 0082BAD0 completion: 001FB0B0(20)',
+               0x13: 'AREA02 overlay 0x823980 (switch [31]), script 0x826780 completion: 001FA790(0, 0x13)'}
 VOICE_CUES = {c: 'director / Roger voiced lines (docs/STREAM_LANES.md item 6)'
               for c in range(143, 152)}
 VOICE_CUES[1] = ('line 0x13: Roger\'s talk after the encounter (script 0x828810, BRANCH br_14); '

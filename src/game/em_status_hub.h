@@ -19,7 +19,8 @@ typedef enum {
 
 typedef int (*EmStatusHubWorker)(void *, EmStatusPage *, EmStatusHubEvent, unsigned argument);
 
-/* Original normal phase1 only. The item/page fields are the same UI object,
+/* 0020CDC0 phase 1 (sub-states 0 and 1) and phase 2's sub-state 0 (which
+ * goes on to sub-state 2, the health count-up: em_status_runtime's). The item/page fields are the same UI object,
  * not a fabricated second hub. Return0 for an accepted callback,−1 for a
  * missing worker or unsupported phase. Infection is original81085C in0..100.
  * The caller supplies one original normalized stick sample for this frame.

@@ -43,8 +43,10 @@ int main(int argc,char **argv)
     loader_state.d28A490[0x96]=0x1300200u;loader_state.d28A490[0x97]=0x1300080u;
     loader_state.d28A490[0x98]=0x1300100u;
     assert(em_area01_script_player_banks(&s,map_bank,banks)==0 && mapped==1);
-    loader_state.d28A490[0x98]=0;
-    assert(em_area01_script_player_banks(&s,map_bank,banks)<0 && mapped==1);
+    loader_state.d28A490[0x98]=0;     /* a row never relocated: skipped */
+    assert(em_area01_script_player_banks(&s,map_bank,banks)==0 && mapped==2);
+    loader_state.d28A490[0x98]=0x1400000u;  /* a row outside the delivery */
+    assert(em_area01_script_player_banks(&s,map_bank,banks)<0 && mapped==2);
     EmScriptImage *im=area.image(area.ctx,0x24DE40u);assert(im==&s.boot[1]);
     uint8_t *p=em_area01_script_bytes(&s,0x24DCC4u,4,1);assert(p);
     assert(p==em_script_image_read(im,0x24DCC4u,4));

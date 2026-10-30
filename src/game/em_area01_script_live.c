@@ -43,7 +43,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
         if (!p) continue;
         /* The walk table and door sound descriptors are read-only. The
          * script windows contain mutable op00 targets and kickoff patches. */
-        if (write && !(contains(a,n,0x00246C20u,0x00247E20u) ||
+        if (write && !(contains(a,n,0x00246C20u,0x00248120u) ||
                        contains(a,n,0x0024D900u,0x0024DB80u) ||
                        contains(a,n,0x0024DBC0u,0x0024DF80u) ||
                        contains(a,n,0x002482C0u,0x00248540u) ||
@@ -97,17 +97,26 @@ int em_area01_script_player_banks(EmArea01Script *s,
     if(!s || !s->bound || !map)return -1;
     EmStatusSceneLoader *ld=em_module_loader_state(s->loader);
     if(!ld)return -1;
+    /* A row the area files never relocated is 0: there is no bank to map
+     * (the LOAD GAME path straight into AREA02 leaves 0x97 / 0x98 clear;
+     * the route from AREA01 keeps AREA01's rows). A read through a zero
+     * row still faults at the pose host. */
     struct Span { uint32_t a,n;const uint8_t *p; } span[3];
+    unsigned live=0;
     for(unsigned i=0;i<3;++i) {
-        span[i].a=ld->d28A490[0x96+i];span[i].n=0;
-        span[i].p=em_module_loader_memory_rest(s->loader,span[i].a,&span[i].n);
-        if(!span[i].p || !span[i].n || span[i].a>UINT32_MAX-span[i].n)return -1;
+        const uint32_t a=ld->d28A490[0x96+i];
+        if(!a)continue;
+        span[live].a=a;span[live].n=0;
+        span[live].p=em_module_loader_memory_rest(s->loader,a,&span[live].n);
+        if(!span[live].p || !span[live].n || a>UINT32_MAX-span[live].n)return -1;
+        ++live;
     }
-    for(unsigned i=1;i<3;++i)for(unsigned j=i;j && span[j].a<span[j-1].a;--j) {
+    if(!live)return 0;
+    for(unsigned i=1;i<live;++i)for(unsigned j=i;j && span[j].a<span[j-1].a;--j) {
         struct Span tmp=span[j];span[j]=span[j-1];span[j-1]=tmp;
     }
     unsigned count=1;
-    for(unsigned i=1;i<3;++i) {
+    for(unsigned i=1;i<live;++i) {
         struct Span *last=&span[count-1];
         if(span[i].a<last->a+last->n) {
             if(span[i].a+span[i].n!=last->a+last->n ||
@@ -161,6 +170,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x001B6EA0u: /* shared pickup take callback */
     case 0x00158130u: case 0x00158050u: case 0x001580C0u:
     case 0x00157F60u: case 0x001575B0u: /* shared panel callbacks */
+    case 0x00157F30u: case 0x001575E0u: /* the medical station's (D_00247F60, D_00247FE0) */
     case 0x001BB400u: case 0x001BB310u: case 0x001BBAE0u: case 0x001BBBF0u:
         break;
     case 0x00825130u: case 0x00825240u: case 0x00825910u: case 0x00826950u:
@@ -196,7 +206,8 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
 {
     if (!s || !host || !host->worker || !loader || s->bound || area_id>2) return -1;
     const uint32_t lo[4]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u};
-    const uint32_t hi[4]={0x00247E20u,0x0024DF80u,0x00248540u,0x002668A0u};
+    /* panels: through the medical station's scripts (export_area01_boot_scripts.py). */
+    const uint32_t hi[4]={0x00248120u,0x0024DF80u,0x00248540u,0x002668A0u};
     const uint32_t entry[4]={0x00246C20u,0x0024D900u,0x002482C0u,0x00266620u};
     const char *name[4]={"panels.emsc","doors.emsc","pickup.emsc","take.emsc"};
     char path[1024];

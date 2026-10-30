@@ -1392,6 +1392,25 @@ int em_area02_misc_001AA700(EmArea02Misc *s, uint32_t a0)
     return 0;
 }
 
+int em_area02_misc_view_001F4E40(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0, uint32_t a1, uint32_t a2,
+                                 uint32_t f12)
+{
+    ENTER(0x001F4E40u)
+    if (!view) { s->fault = EM_AREA02_MISC_FAULT_NULL; s->fault_function = 0x001F4E40u; return -1; }
+    r->view = view;
+    f_1F4E40(r, s->sp, a0, a1, a2, f12);
+    return 0;
+}
+
+int em_area02_misc_view_001AA700(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0)
+{
+    ENTER(0x001AA700u)
+    if (!view) { s->fault = EM_AREA02_MISC_FAULT_NULL; s->fault_function = 0x001AA700u; return -1; }
+    r->view = view;
+    f_1AA700(r, s->sp, a0);
+    return 0;
+}
+
 int em_area02_misc_001B6AE0(EmArea02Misc *s, uint32_t a1, uint32_t a2, int32_t *out)
 {
     ENTER(0x001B6AE0u)

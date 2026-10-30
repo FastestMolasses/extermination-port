@@ -44,6 +44,16 @@ EmSceneState *em_scene_state(void);
 
 /* Request-6 status boundary: borrow live type-38 terminal fields and run
  * the existing 00225A00 reset on scene-owned 00810040..00810113. No card I/O. */
+/* The status pages' device record bytes (002160B0 HEALING kind 2's Yes
+ * stores the device's +0x0A = 1 and +0x0B = 5; the device is the AREA01 /
+ * AREA02 pool record 00185420 or D_008106D0 named): the EmActor storage of
+ * +0x0A..+0x0B of an allocated record, or NULL. */
+uint8_t *em_scene_bindings_device_bytes(uint32_t address, uint32_t size);
+/* The BATTERY page's typed reads of an AREA01 / AREA02 battery panel (the
+ * pool owner 00158EC0, AREA02's [24]) that D_008106D0 names: +3 (1 byte)
+ * and +0x34 (2 bytes, signed), through the canonical actor view. 0, or -1
+ * for any other record or field. */
+int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value);
 int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
                                           int32_t *value);
 int em_scene_bindings_terminal_reset(void);

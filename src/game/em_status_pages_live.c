@@ -279,6 +279,11 @@ static void build_views(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
     view(l, 0x70003B68u, 0x70003B8Du - 0x70003B68u, l->spad + (0x70003B68u - SPAD_BASE));
     view(l, 0x70003B8Eu, SPAD_BASE + SPAD_SIZE - 0x70003B8Eu, l->spad + (0x70003B8Eu - SPAD_BASE));
     view(l, 0x010202B0u, 1, &l->probe);
+    if (f->device_bytes && f->ui) {
+        const uint32_t device = get32(f->ui + 0x30);
+        if (device)
+            view(l, device + 0x0Au, 2, f->device_bytes(device + 0x0Au, 2));
+    }
     if (f->models) {
         /* MAP (0020F950, its nodes' 002101C0 and helpers). A source the
          * port does not hold leaves its view out, so a read faults. */
@@ -1366,6 +1371,13 @@ void em_status_pages_live_deactivate(EmStatusPagesLive *l)
 {
     if (l)
         em_page_draw_deactivate(l->draw);
+}
+
+int em_status_pages_live_0015C700(EmStatusPagesLive *l)
+{
+    if (!l || !l->host.player_0015C700)
+        return -1;
+    return l->host.player_0015C700(l->host.context, table16, l) >= 0 ? 0 : -1;
 }
 
 unsigned em_status_pages_live_calls(const EmStatusPagesLive *l, uint32_t callee)

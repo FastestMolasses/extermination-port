@@ -183,11 +183,17 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
                 /* 0020F950 MAP, 00211970 SPR4, 00214020 DATABASE. */
                 if (!emit(worker, context, state, EM_STATUS_PAGE_PAGE_TICK, state->item.screen))
                     return -1;
-            } else if (state->item.screen == 4 || state->item.screen == 5 ||
-                       state->item.screen == 8) {
-                /* The passcode pages and page 8 (phase 2, the health count-up
-                 * of HEALING kinds 2..4): not reachable in AREA11. */
+            } else if (state->item.screen == 4 || state->item.screen == 5) {
+                /* The passcode pages: not reachable in AREA11. */
                 return -1;
+            } else if (state->item.screen == 8) {
+                /* Page 8 (HEALING kinds 2..4's Yes): D_002821B4 = 0, phase
+                 * 2 (the hub's health count-up), 00200970(1). */
+                state->item.message_phase = 0;
+                state->phase = 2;
+                state->step = state->transition_step = 0;
+                if (!emit(worker, context, state, EM_STATUS_PAGE_PLAYER_TEXTURE, 1))
+                    return -1;
             } else {
                 /* 0x63 and every other page id return to the hub. */
                 state->item.message_phase = 0;

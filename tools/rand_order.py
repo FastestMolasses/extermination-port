@@ -60,6 +60,8 @@ PORT_FN = {
     'em_point_light_tick': 0x1D7C30,
     'em_effect_kinds_001F54E0': 0x1F54E0,
     'em_effect_manager_001F4D40': 0x1F4D40,
+    'f_1F4E40': 0x1F4E40,                        # em_area02_misc's 001F4E40 (AREA02's switch lamps, 001C4CB0)
+    'em_area02_misc_view_001F4E40': 0x1F4E40,    # its entry (f_1F4E40 inlined)
     'em_effect_manager_aura_draw': 0x1F1180,     # 001F1180's draw (0x1F14F0)
     'em_pickup_aura_001F1110': 0x1F1110,
     'em_pickup_aura_001F1180': 0x1F1180,
@@ -165,7 +167,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
-NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'glow marker 001F4D40',
+NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'glow marker 001F4D40', 0x1F4E40: 'switch lamp 001F4E40',
          0x1FAE70: 'music 001FAE70', 0x1F1110: 'item 001F1110', 0x8235F0: 'effect owner 008235F0',
          0x825940: 'security gun 00825940', 0x1D0720: 'face 001D0720', 0x1E2560: 'head sprite 001E2560',
          0x1E55F0: 'weather 001E55F0', 0x1F1180: 'aura 001F1180', 0x179B90: 'step 00179B90',

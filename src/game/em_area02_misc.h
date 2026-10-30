@@ -167,6 +167,14 @@ int em_area02_misc_001A8E80(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001A9360(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001AA640(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001AA700(EmArea02Misc *s, uint32_t a0);
+/* 001AA700 over a call-local view (AREA02's car 0x8242F0: the list
+ * D_00275B7C and the pool records it names, through the runtime). */
+int em_area02_misc_view_001AA700(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0);
+/* 001F4E40 over a call-local view (AREA02's switch lamps, 001C4CB0's six
+ * points while D_00810761 == 1); its 00122BB8 and 001CD520 re-enter the
+ * runtime. */
+int em_area02_misc_view_001F4E40(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0, uint32_t a1, uint32_t a2,
+                                 uint32_t f12);
 int em_area02_misc_001B6AE0(EmArea02Misc *s, uint32_t a1, uint32_t a2, int32_t *out);
 int em_area02_misc_001D3A30(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001D3AC0(EmArea02Misc *s, uint32_t a0);

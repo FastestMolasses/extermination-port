@@ -12,7 +12,8 @@ static int emit(EmStatusHubWorker worker, void *context, EmStatusPage *page, EmS
 int em_status_hub_tick(EmStatusPage *page, float infection, unsigned buttons,
                        const EmItemStick *stick, EmStatusHubWorker worker, void *context)
 {
-    if (!page || !stick || !worker || page->phase != 1 || !isfinite(infection) || infection < 0 ||
+    if (!page || !stick || !worker || (page->phase != 1 && page->phase != 2) || !isfinite(infection) ||
+        infection < 0 ||
         infection > 100 || !isfinite(stick->magnitude) || !isfinite(stick->angle))
         return -1;
     switch (page->step) {
@@ -26,9 +27,13 @@ int em_status_hub_tick(EmStatusPage *page, float infection, unsigned buttons,
         page->item.message_mode = 4;
         page->item.message_phase = 0;
         page->item.message_group = 0;
-        page->step = 1;
+        /* Phase 2 (page id 8) skips the hub to its count-up, sub-state 2
+         * (the caller's). */
+        page->step = page->phase == 2 ? 2 : 1;
         return 0;
     case 1: {
+        if (page->phase != 1)
+            return -1;
         if (!emit(worker, context, page, EM_STATUS_HUB_BACKGROUND, 0) ||
             !emit(worker, context, page, EM_STATUS_HUB_ACTORS_TICK, 0))
             return -1;

@@ -33,6 +33,8 @@
  *   0x70003B64 / 0x70003B8D    the main-loop counter and the mode byte
  *   0x70003400..0x70003C00     the scratchpad work area
  *   0x010202B0                 002160B0 state 4's s0 probe (below)
+ *   device +0x0A..+0x0B        HEALING's device record (word T_UI + 0x30),
+ *                              when the frame's device_bytes resolves it
  *   the EE stack               0x01FF0000..0x02000000 (the frames the
  *                              routines carve and hand to callees)
  *   MAP (0020F950 / 002101C0 / 00210030 / 00210F30 / 00211400):
@@ -152,6 +154,10 @@ typedef struct {
      * copy of that relocation (tools/export_status_pages.py; the
      * fixtures and tests that bind no loader). */
     const uint32_t *d28A570;
+    /* HEALING's device (the page's t + 0x30, t = D_00810130): the storage
+     * of its +0x0A..+0x0B (kind 2's Yes stores both), or NULL for none (a
+     * store to them then faults). */
+    uint8_t *(*device_bytes)(uint32_t address, uint32_t size);
 } EmStatusPagesFrame;
 
 /* Loads the data (assets/status_pages/status_pages.emsp). NULL when it is
@@ -167,6 +173,10 @@ int em_status_pages_live_tick(EmStatusPagesLive *live, uint32_t page, const EmSt
 /* The frame's draw stream (em_page_draw). */
 int em_status_pages_live_render(EmStatusPagesLive *live, EmGfx *gfx);
 void em_status_pages_live_deactivate(EmStatusPagesLive *live);
+/* 0015C700(D_008102B0) through the host's player_0015C700, with the .data
+ * windows' halfwords: 0020CDC0's health count-up commit (em_status_runtime).
+ * 0, or -1. */
+int em_status_pages_live_0015C700(EmStatusPagesLive *live);
 /* For tests: the calls the last tick made, by original callee address. */
 unsigned em_status_pages_live_calls(const EmStatusPagesLive *live, uint32_t callee);
 
