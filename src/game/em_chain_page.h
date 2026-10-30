@@ -150,7 +150,7 @@ enum {
 };
 
 #define EM_CHAIN_PAGE_SKIP_MAX 64u
-#define EM_CHAIN_PAGE_UNITS_MAX 32u
+#define EM_CHAIN_PAGE_UNITS_MAX 128u
 #define EM_CHAIN_PAGE_AGAIN_MAX 16u      /* environment-again marks of a pass */
 #define EM_CHAIN_PAGE_PASSES_MAX 4u      /* slot-0xFFF CALLs of one page       */
 #define EM_CHAIN_PAGE_DRAW_ENV 0x190u    /* one draw environment of bank A    */

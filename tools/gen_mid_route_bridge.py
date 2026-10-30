@@ -2,7 +2,9 @@
 """Generate src/game/em_mid_route_bridge.inc: typed hook adapters into the
 shared area runtime (em_area01_runtime_call) for the standalone level
 ports the middle of the route binds (em_area04_port.h's EmArea04PortHooks,
-em_area06_port.h's EmArea06PortHooks, em_area22_port.h's EmArea22PortHooks).
+em_area06_port.h's EmArea06PortHooks, em_area22_port.h's EmArea22PortHooks,
+em_level8_port.h's EmLevel8PortHooks) and the later levels' translations of
+the first boss's family (levels 10..15: docs/LEVEL3_BINDING.md, lane F1).
 
 Each hook re-enters em_area01_runtime_call by its original address with
 the argument registers in the hook's parameter order: integer parameters
@@ -23,7 +25,13 @@ OUT = ROOT / 'src/game/em_mid_route_bridge.inc'
 SOURCES = (('src/game/em_area22_port.h', 'EmArea22PortHooks', 'm22'),
            ('src/game/em_area04_port.h', 'EmArea04PortHooks', 'm04'),
            ('src/game/em_area06_port.h', 'EmArea06PortHooks', 'm06'),
-           ('src/game/em_level8_port.h', 'EmLevel8PortHooks', 'm08'))
+           ('src/game/em_level8_port.h', 'EmLevel8PortHooks', 'm08'),
+           ('src/game/em_level10_port.h', 'EmLevel10PortHooks', 'm10'),
+           ('src/game/em_level11_port.h', 'EmLevel11PortHooks', 'm11'),
+           ('src/game/em_level12_port.h', 'EmLevel12PortHooks', 'm12'),
+           ('src/game/em_level13_port.h', 'EmLevel13PortHooks', 'm13'),
+           ('src/game/em_level14_port.h', 'EmLevel14PortHooks', 'm14'),
+           ('src/game/em_level15_creatures.h', 'EmLevel15CreaturesHooks', 'm15'))
 HOOK = re.compile(r'int \(\*w_([0-9A-F]{8}|callback)\)\(void \*ctx(?:, )?([^)]*)\);')
 
 

@@ -17,6 +17,8 @@ uint32_t *em_aim_fire_runtime_scratch_38C0(void);
 void em_aim_fire_runtime_attach(EmActorPool *pool);
 /* Called after the effect owner's area attach; detach clears its callback. */
 int em_aim_fire_runtime_effects_attach(void);
+/* 001F3620 (2 arguments) / 001F3E30 (5) through the composition. */
+int em_aim_fire_runtime_particle(uint32_t function, const uint32_t a[5]);
 /* The AREA11 binder's hook: binds a record the composition allocated
  * (001861C0's 001AFA90, the impact marker) to its pool behaviour by its
  * +0x10 once the root call that allocated it returns. Cleared by attach. */

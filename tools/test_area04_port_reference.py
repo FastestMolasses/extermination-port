@@ -160,27 +160,30 @@ FUNCS = {
     0x825D60: ('em_area04_port_00825D60', 0x90, 'owner'),
     0x825DF0: ('em_area04_port_00825DF0', 0x2D0, 'owner'),
     0x8260C0: ('em_area04_port_008260C0', 0x4F8, 'owner'),
+    0x824A40: ('em_area04_port_00824A40', 0x48, 'sp_ret'),
+    0x824A90: ('em_area04_port_00824A90', 0x330, 'camera_ret'),
     0x1BE5F0: ('em_area04_port_001BE5F0', 0xC4, 'triple_ret'),
     0x1C1A80: ('em_area04_port_001C1A80', 0x27C, 'owner'),
 }
-NARGS = {'owner': 1, 'owner_sp': 2, 'talk': 2, 'void_ret': 0, 'triple_ret': 3}
-SELF_KINDS = ('owner', 'owner_sp', 'talk')
-RESULT_KINDS = ('talk', 'void_ret', 'triple_ret')
-SP_KINDS = ('owner_sp',)
+NARGS = {'owner': 1, 'owner_sp': 2, 'talk': 2, 'void_ret': 0, 'triple_ret': 3, 'sp_ret': 1, 'camera_ret': 4}
+SELF_KINDS = ('owner', 'owner_sp', 'talk', 'camera_ret')
+RESULT_KINDS = ('talk', 'void_ret', 'triple_ret', 'sp_ret', 'camera_ret')
+SP_KINDS = ('owner_sp', 'sp_ret', 'camera_ret')
 BOOT_ENTRIES = (0x1BE5F0, 0x1C1A80)
 
 
 def original_args(entry, native_args):
     """The original's argument registers: the stack-pointer entries take sp
     as a native argument only (the original gets it in $sp)."""
-    return native_args[:1] if FUNCS[entry][2] in SP_KINDS else native_args
+    return native_args[:-1] if FUNCS[entry][2] in SP_KINDS else native_args
 
 
 def entry_args(entry, node):
     """The native arguments of `entry` for an actor node."""
     kind = FUNCS[entry][2]
     return {'owner': [node], 'owner_sp': [node, STACK_TOP], 'talk': [node, node + 0x1F0], 'void_ret': [],
-            'triple_ret': [PLAYER, node, node + 0x1F0]}[kind]
+            'triple_ret': [PLAYER, node, node + 0x1F0], 'sp_ret': [STACK_TOP],
+            'camera_ret': [node, node + 0x1F0, 0x828850, STACK_TOP]}[kind]
 
 
 # Hooks, in the field order of EmArea04PortHooks (after ctx and bytes).
@@ -1772,6 +1775,25 @@ def targeted_cases(add):
         add('824930 sub%X' % sub, beat, 0x824930, [r3], [(r3 + 6, b8(sub))])
     add('824930 sub0 scribble', beat, 0x824930, [r3], [(r3 + 6, b8(0)), (r3 + 0x240, w32(0))],
         queues={0x1B6660: [Scribble(0, [(r3 + 6, b8(9))])]})
+
+    # ---- 0x824A40 / 0x824A90: script 0x8286D0's callbacks
+    add('824A40', beat, 0x824A40, [STACK_TOP])
+    for results in ((0, 0, 0), (0x7C4000, 0x7C4100, 0x7C4200), (0, 0x7C4100, 0)):
+        add('824A40 %s' % (results,), beat, 0x824A40, [STACK_TOP],
+            queues={0x1B6660: [results[0]], 0x1EFD20: list(results[1:])})
+    cam = [r3, r3 + 0x1F0, 0x828850, STACK_TOP]
+    for w in (0.0, 214.0, 215.0, 216.0, 259.5, 260.0, 261.0, 304.5, 305.0, 306.0, 400.0):
+        for step in (0, 1, 2, 3, 0xFF):
+            add('824A90 z %g step %X' % (w, step), beat, 0x824A90, cam,
+                [(r3 + 0x2EC, f32b(w)), (r3 + 0x2E0, f32b(545.0)), (r3 + 0x2E4, f32b(54.9)), (r3 + 0x2E8, f32b(w)),
+                 (r3 + 0x1F4, b8(step)), (0x828860, f32b(240.0))])
+    for n, lim in ((0.0, 240.0), (1.0, 240.0), (239.0, 240.0), (240.0, 240.0), (241.0, 240.0), (0.5, 2.0),
+                   (1.0, 1.0), (0.0, 0.0)):
+        add('824A90 run %g of %g' % (n, lim), beat, 0x824A90, cam,
+            [(r3 + 0x2EC, f32b(280.0)), (r3 + 0x2E0, f32b(545.0)), (r3 + 0x2E4, f32b(54.9)), (r3 + 0x2E8, f32b(280.0)),
+             (r3 + 0x1F4, b8(1)), (r3 + 0x200, f32b(500.0)), (r3 + 0x204, f32b(70.0)), (r3 + 0x208, f32b(300.0)),
+             (r3 + 0x210, f32b(545.0)), (r3 + 0x214, f32b(60.0)), (r3 + 0x218, f32b(280.0)),
+             (0x82885C, f32b(lim)), (0x828860, f32b(n))])
 
     # ---- 0x824DC0 [4]
     for st in (2, 3, 4, 0xFF):

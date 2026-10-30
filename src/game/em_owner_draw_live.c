@@ -34,7 +34,7 @@
 #define CTX EM_RCL_CONTEXT
 #define ARENA_END 0x007635C0u    /* the packet arena ends where the chain table starts */
 #define POINT_LIGHT_WORDS (32u * 32u)
-#define EM_OWNER_DRAW_LIVE_PAGE_UNITS 64u
+#define EM_OWNER_DRAW_LIVE_PAGE_UNITS 128u
 
 static struct {
     /* D_00817BC0, the rig record 001D8130 loads and 001D8340 / 001D8690

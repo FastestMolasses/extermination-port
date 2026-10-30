@@ -46,7 +46,9 @@ static uint32_t cable_points[12][4];       /* D_00821400..D_008214BF */
  * normal 0x700038C0..0x700038EF (001861C0), and 0x700031E8, the shot's
  * flag (only 001861C0 and 00186A60 address it; each stores it before
  * reading it). */
-static uint32_t scratch_38C0[16];          /* 0x700038C0..0x700038FF */
+static uint32_t scratch_38C0[20];          /* 0x700038C0..0x7000390F (00186A60: the muzzle at 0x70003900) */
+static uint32_t scratch_37A0[16];          /* 0x700037A0..0x700037DF: 00186A60's look-at matrix */
+static uint32_t scratch_3A38[2];           /* 0x70003A38..0x70003A3F: its spread and first angle */
 static uint32_t shot_flag;                 /* 0x700031E8 */
 /* 0x70003600..0x7000363F: the sight sprite 001CD520 (0x70003600..1F), the
  * beam 001E2BA0 and the hit call 001B41F0 (0x70003600 / 0x70003610) write
@@ -86,7 +88,7 @@ typedef struct {
 static struct {
     EmActorPool *pool;
     AimRecord rec[EM_ACTOR_POOL_CAPACITY];
-    EmActor *pending[8];
+    EmActor *pending[16];       /* 00186A60 spawns ten markers a shot */
     unsigned npending;
     int (*bind)(EmActor *);
     EmAimFireWorldLive world;
@@ -95,6 +97,8 @@ static struct {
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
     EmPoseRegion bss[24];
+    uint32_t piece_start;                /* 001F3E30 mode 2: its unit's start */
+    int piece_model;
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
     uint32_t d28A59C;                    /* D_0028A490[0x43], the world bank's word */
 } R;
@@ -416,6 +420,13 @@ static int flash_call(void *ctx,EmArea00LowCall *in)
     TRY(em_aim_fire_live_call(ctx,&c));
     in->v0=c.v0;in->f0=c.f0;return 0;
 }
+static const uint8_t *piece_resource(void *ctx,uint32_t a,uint32_t n)
+{
+    (void)ctx;
+    const uint8_t *p=em_rcl_bytes(a,n);
+    return p ? p : em_area11_roger_resource(a,n);
+}
+
 static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *f)
 {
     (void)context;
@@ -644,7 +655,36 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
         return f->function==0x1D4F30 ? em_rcl_001D4F30((int32_t)f->a[0],(uint32_t)f->a[1],head)
                                      : em_rcl_001D4A90((int32_t)f->a[0],(uint32_t)f->a[1],head);
     }
-    case 0x1CB760: return em_rcl_001CB760((uint32_t)f->a[0],(int32_t)f->a[1],(uint32_t)f->a[2]);
+    case 0x1CB760:
+        R.piece_start=(uint32_t)f->a[2];
+        R.piece_model=0;
+        return em_rcl_001CB760((uint32_t)f->a[0],(int32_t)f->a[1],(uint32_t)f->a[2]);
+    case 0x1D3990:
+        /* 001D3990(entry): a library model's resource (the death effect's
+         * pieces, 001F3E30 mode 2): the owner draw's translation. */
+    {
+        const uint8_t *word=em_area11_roger_resource((uint32_t)f->a[0]+4u,4);
+        if (!word) { fprintf(stderr,"em_aim_fire: 001D3990 of a model outside the export (%08X)\n",(unsigned)f->a[0]); return -1; }
+        uint32_t w04;
+        memcpy(&w04,word,4);
+        R.piece_model=1;
+        return em_owner_draw_live_001D3990_at((uint32_t)f->a[0],w04);
+    }
+    case 0x1D8C20: {
+        /* 001F3E30 mode 2's bracket: its unit (CALLed by the depth entry
+         * 001CB760 made, ending in the RET it wrote) registers on the page
+         * as a raw-model unit when the bracket closes. */
+        const int mode=(int32_t)f->a[0];
+        if (mode==0 && R.piece_model) {
+            R.piece_model=0;
+            const uint8_t *cursor=em_rcl_bytes(EM_RCL_CONTEXT+0x1Cu,4);
+            if (!cursor) return -1;
+            uint32_t end;
+            memcpy(&end,cursor,4);
+            if (em_owner_draw_live_page_register(R.piece_start,end,piece_resource,NULL)<0) return -1;
+        }
+        return em_owner_draw_live_light_mode(mode);
+    }
     case 0x1D2830:
         /* 001D2830(flag, value): the render context's flag (the flash node
          * 001E7310's ramp 9; em_render_context_live, its one owner). */
@@ -797,7 +837,9 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
     /* D_00275C3C: the count 001F0190 keeps of its 0021B9A0 calls, which
      * 001F0290 tests (the bone burst's fog bracket; no other reader). */
     R.bss[5]=(EmPoseRegion){0x275C3C,sizeof d275C3C,(uint8_t *)&d275C3C,1};
-    R.world.regions=R.bss;R.world.region_count=6;
+    R.bss[6]=(EmPoseRegion){0x700037A0,sizeof scratch_37A0,(uint8_t *)scratch_37A0,1};
+    R.bss[7]=(EmPoseRegion){0x70003A38,sizeof scratch_3A38,(uint8_t *)scratch_3A38,1};
+    R.world.regions=R.bss;R.world.region_count=8;
     R.render.map=render_map;R.render.call=render_forward;
     R.render.vu=&R.vu;R.render.vf23_valid=&R.vf23_valid;
     em_aim_fire_binding_set_extension(external_call,external_map,NULL);
@@ -951,7 +993,7 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
 static int add_windows(void)
 {
     static const uint32_t windows[][2]={{0x25A350,0x34B0},{0x26EA80,0x64},{0x267310,0x1830}};
-    unsigned n=6;
+    unsigned n=8;
     for (unsigned k=0;k<3;++k) {
         const uint8_t *p=em_effects_live_window(windows[k][0],windows[k][1]);
         if (!p) return -1;
@@ -1000,6 +1042,7 @@ static int particle_call(void *context,uint32_t function,const uint32_t a[5])
     for (unsigned k=0;k<frame.na;++k) frame.a[k]=(uint64_t)(int64_t)(int32_t)a[k];
     return em_aim_fire_binding_frame(&frame)<0 ? -1 : 0;
 }
+int em_aim_fire_runtime_particle(uint32_t function, const uint32_t a[5]) { return particle_call(NULL, function, a); }
 int em_aim_fire_runtime_effects_attach(void)
 {
     if (add_windows()<0) return -1;

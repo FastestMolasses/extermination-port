@@ -4,6 +4,8 @@
 #include "game/em_frame.h"
 #include "game/em_random.h"
 #include "em_input.h"
+#include "game/em_scene_bindings.h"
+
 
 #include <dirent.h>
 #include <math.h>
@@ -72,6 +74,7 @@ static const struct {
     {"a04b_02", 0x04},
     {"a04b_03", 0x04},
     {"a04b_04", 0x04},
+    {"boss", 0x04},
 };
 
 static struct {
@@ -111,6 +114,23 @@ static struct {
      * put in place then, so the world's draws start with the script. */
     int fade_given, fade_wait;
     unsigned fade_level;
+    /* EM_START_AT_RANDS=<file> ("f state" lines, f increasing): the
+     * recording's state word at those script frames (comparison only). */
+    unsigned rands, rand_next;
+    struct { int f; uint32_t state; } rand_at[8192];
+    /* EM_START_AT_RESTORE=<ram image>:<f>:<clock>: at that script frame the
+     * hall bugs, the items' glow timers and the NPC's face take the image's
+     * bytes and 0x70003B68 the recording's value (the actors' staggered
+     * periods read it; comparison only; em_scene_restore_bugs). */
+    const char *restore;
+    int restore_f, restored;
+    unsigned restore_clock;
+    /* EM_START_AT_SYNC=<byte address>:<value>:<f>: when that progress byte
+     * first holds the value the script's clock is set to f (a scripted
+     * stretch started off the recording's frame keeps the recording's rows
+     * after it; comparison only). */
+    unsigned sync_address, sync_value;
+    int sync_f, sync_done;
     /* EM_START_AT_MARKS: the script frames to report the block at. */
     unsigned mark_count, mark_next;
     int mark[64];
@@ -498,6 +518,32 @@ int em_start_at_check(void)
             pad.rand_set = 1;
             pad.rand_state = (uint32_t)v;
         }
+        const char *rands = getenv("EM_START_AT_RANDS");
+        if (rands && rands[0]) {
+            FILE *g = fopen(rands, "r");
+            if (!g) return refuse("EM_START_AT_RANDS: no such file", rands);
+            int fr;
+            unsigned st;
+            while (pad.rands < sizeof pad.rand_at / sizeof pad.rand_at[0] && fscanf(g, "%d %x", &fr, &st) == 2) {
+                pad.rand_at[pad.rands].f = fr;
+                pad.rand_at[pad.rands++].state = st;
+            }
+            fclose(g);
+        }
+        const char *sync = getenv("EM_START_AT_SYNC");
+        if (sync && sync[0]) {
+            if (sscanf(sync, "%x:%x:%d", &pad.sync_address, &pad.sync_value, &pad.sync_f) != 3)
+                return refuse("EM_START_AT_SYNC: not <address>:<value>:<frame>", sync);
+        } else {
+            pad.sync_done = 1;
+        }
+        const char *restore = getenv("EM_START_AT_RESTORE");
+        if (restore && restore[0]) {
+            const char *colon = strchr(restore, ':');
+            if (!colon || sscanf(colon + 1, "%d:%x", &pad.restore_f, &pad.restore_clock) != 2)
+                return refuse("EM_START_AT_RESTORE: not <image>:<frame>:<0x70003B68 hex>", restore);
+            pad.restore = restore;
+        }
         const char *path = getenv("EM_START_AT_PATH");
         if (path && path[0]) {
             FILE *g = fopen(path, "r");
@@ -583,7 +629,6 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
      * path the script's clock waits (up to 300 frames at a time) while the
      * player is more than 2.5 units behind the recorded position, so the
      * presses stay where the recording made them. */
-    const int t = pad.t;
     if (pad.fade_wait) {
         const EmTransitionFade *fade = em_frame_transition();
         if (em_frame_fade_active() && fade && (fade->substate != 1 || (unsigned)fade->level > pad.fade_level))
@@ -595,6 +640,34 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
             em_random_seed(pad.rand_state);
             printf("startup: EM_START_AT_RAND: rand() state %08x (comparison only)\n", pad.rand_state);
         }
+    }
+    if (!pad.sync_done) {
+        const uint8_t *b = em_scene_progress_at(em_scene_state(), pad.sync_address, 1);
+        if (b && *b == pad.sync_value) {
+            printf("startup: EM_START_AT_SYNC: script frame %d is the recording's %d (comparison only)\n", pad.t,
+                   pad.sync_f);
+            pad.t = pad.sync_f;
+            pad.sync_done = 1;
+        }
+    }
+    const int t = pad.t;
+    if (pad.rand_next < pad.rands && t >= pad.rand_at[pad.rand_next].f) {
+        em_random_seed(pad.rand_at[pad.rand_next].state);
+        printf("startup: EM_START_AT_RANDS: rand() state %08x at script frame %d (comparison only)\n",
+               pad.rand_at[pad.rand_next].state, t);
+        pad.rand_next++;
+    }
+    if (pad.restore && !pad.restored && t >= pad.restore_f) {
+        pad.restored = 1;
+        char path[512];
+        snprintf(path, sizeof path, "%.*s", (int)(strchr(pad.restore, ':') - pad.restore), pad.restore);
+        static uint8_t ram[0x2000000];
+        FILE *g = fopen(path, "rb");
+        const size_t got = g ? fread(ram, 1, sizeof ram, g) : 0;
+        if (g) fclose(g);
+        const int n = got == sizeof ram ? em_scene_restore_bugs(ram) : -1;
+        em_scene_state()->spad3B68 = (int32_t)pad.restore_clock;
+        printf("startup: EM_START_AT_RESTORE: %d bugs at script frame %d (comparison only)\n", n, t);
     }
     if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u) {
         /* A recorded position more than 20 units away is another room's
@@ -673,7 +746,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         pad.now = (EmPadState){pad.row[i].buttons, (pad.row[i].lx - 128) / 128.0f,
                                (pad.row[i].ly - 128) / 128.0f, 0, 0};
     const float m = sqrtf(pad.now.lx * pad.now.lx + pad.now.ly * pad.now.ly);
-    if (pad.path_count && pos && fwd && m > 0.1f && t >= 0) {
+    if (pad.path_count && pos && fwd && m > 0.1f && t >= 0 && (unsigned)t < pad.path_count) {
         unsigned k = (unsigned)t + 8u;
         if (k >= pad.path_count) k = pad.path_count - 1u;
         /* A player ahead of that point with a recorded stop in front (up to

@@ -411,8 +411,10 @@ static int drive_read(void *ctx, uint32_t lsn, uint32_t sectors, uint32_t buf,
         return fail(&ml->io_fault, 0x00112440u, EM_STATUS_SCENE_FAULT_BAD_INDEX);
     if (sectors) {
         const uint8_t *src = pack_sectors(ml, lsn, sectors);
-        if (!src) /* sectors the pack does not hold: fail-stop */
+        if (!src) { /* sectors the pack does not hold: fail-stop */
+            fprintf(stderr, "em_module_loader: the pack does not hold lsn %u (%u sectors)\n", lsn, sectors);
             return fail(&ml->io_fault, 0x00112440u, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+        }
         uint8_t *dst = region_for(ml, buf, sectors * SECTOR);
         if (!dst)
             return fail(&ml->io_fault, buf, EM_STATUS_SCENE_FAULT_BAD_INDEX);

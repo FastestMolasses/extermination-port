@@ -26,7 +26,7 @@ BIN     := build/extermination
 # The reference tests build their libraries with -O2: change them with it.
 CFLAGS  := -O2 -ffp-contract=off -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
-           src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
+           src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_level14_port_creature.c src/game/em_level10_port_boot.c src/game/em_level11_port_boot.c src/game/em_level12_port_boot.c src/game/em_level13_port_boot.c src/game/em_level15_creatures.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_movie_field.c src/game/em_movie_sound.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \

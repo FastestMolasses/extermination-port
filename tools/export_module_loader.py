@@ -90,7 +90,11 @@ SCREEN_MODULES = (0x27, 0x2A, 0x2B)
 # state 6; AREA00's switch, a00_08, docs/THIRD_LEVEL_ROUTE.md): 001FF830
 # kind 2, delivered at D_0028A5A0.
 SUBAREA_MODULES = (0x1D,)
-DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES
+# 001FEF70's bank of the fitted attachment (D_00810CA4 / CA6; the SHOTGUN UNIT
+# is 0x32): the load's 00175770-side resident read of a loaded game that holds
+# one, and the part page's reload.
+ATTACHMENT_MODULES = (0x32, 0x33, 0x34, 0x35)
+DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES + ATTACHMENT_MODULES
 # (area, room): AREA11 (the New Game's 001FF080(1, 0)), AREA01 sub 0 (the
 # level exit's load: Roger's departure requests 001B0C60(1, 0, 4); route beat
 # 15, docs/FIRST_LEVEL_EXIT.md) and AREA00 sub 0 (the second level's exit:

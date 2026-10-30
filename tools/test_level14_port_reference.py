@@ -144,6 +144,11 @@ FUNCS = {
     0x826B30: ('em_level14_port_00826B30', 0xE0, [U], I),
     0x827540: ('em_level14_port_00827540', 0xC, [U], I),
     # boot: the 0012E3A0 creatures' state handlers and pieces
+    0x12F980: ('em_level14_port_0012F980', 0xD0, [U, U], None),
+    0x12FA50: ('em_level14_port_0012FA50', 0x1C0, [U, U], None),
+    0x131210: ('em_level14_port_00131210', 0x300, [U, U], None),
+    0x131510: ('em_level14_port_00131510', 0x140, [U, U], None),
+    0x131940: ('em_level14_port_00131940', 0x1D0, [U, U], None),
     0x131650: ('em_level14_port_00131650', 0xEC, [U, U], None),
     0x131740: ('em_level14_port_00131740', 0x1F4, [U, U], None),
     0x131B10: ('em_level14_port_00131B10', 0x368, [U, U], None),
@@ -182,18 +187,20 @@ HOOKS = [
 # BEGIN GENERATED HOOKS
     ('w_001026A0', 0x1026A0, [(U, 4), (U, 5), (U, 6)], None),
     ('w_00102948', 0x102948, [(U, 4), (U, 5)], None),
+    ('w_001028B8', 0x1028B8, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001029C0', 0x1029C0, [(U, 4)], None),
     ('w_00102C58', 0x102C58, [(U, 4), (U, 5), (U, 6)], None),
     ('w_00103230', 0x103230, [(U, 4), (U, 5), (F, 12)], None),
     ('w_0011DF78', 0x11DF78, [(F, 12)], F),
     ('w_0011E2A8', 0x11E2A8, [(F, 12)], F),
+    ('w_0011E620', 0x11E620, [(F, 12), (F, 13)], F),
     ('w_0011E748', 0x11E748, [(F, 12)], F),
     ('w_00122BB8', 0x122BB8, [], I),
     ('w_001281C0', 0x1281C0, [(F, 12)], I),
-    ('w_00131940', 0x131940, [(U, 4), (U, 5)], None),
     ('w_00131ED0', 0x131ED0, [(U, 4)], None),
     ('w_00132490', 0x132490, [(U, 4), (U, 5)], None),
     ('w_001328D0', 0x1328D0, [(U, 4), (U, 5)], None),
+    ('w_001333F0', 0x1333F0, [(U, 4), (U, 5)], I),
     ('w_00133A20', 0x133A20, [(U, 4), (U, 5)], None),
     ('w_00153B50', 0x153B50, [(U, 4), (U, 5)], None),
     ('w_00153EA0', 0x153EA0, [(U, 4), (U, 5)], None),
@@ -236,6 +243,7 @@ HOOKS = [
     ('w_001CA6F0', 0x1CA6F0, [(U, 4), (I, 5)], None),
     ('w_001CFB50', 0x1CFB50, [(U, 4), (I, 5), (U, 6), (F, 12), (F, 13), (F, 14), (F, 15), (F, 16)], None),
     ('w_001CFBE0', 0x1CFBE0, [(I, 4), (I, 5), (U, 6), (U, 7), (I, 8)], None),
+    ('w_001E8B90', 0x1E8B90, [(U, 4), (F, 12)], None),
     ('w_001EFD90', 0x1EFD90, [(I, 4), (U, 5), (U, 6)], None),
     ('w_001EFE00', 0x1EFE00, [(I, 4), (U, 5)], U),
     ('w_001F5940', 0x1F5940, [(I, 4), (U, 5), (I, 6)], None),
@@ -1986,6 +1994,41 @@ def creature_cases(add, rng):
         add('cr 131B10 s3 %X %X' % (ea, r), B, 0x131B10, [n, e], base + [(n + 6, b8(3)), (0x8107EA, b8(ea))],
             queues={0x122BB8: [r], 0x1EFE00: [0x7A9000]})
     add('cr 131B10 s4', B, 0x131B10, [n, e], base + [(n + 6, b8(4))])
+    # The boss's states (lane F1): 0012F980, 0012FA50, 00131210, 00131510, 00131940
+    for st, f58 in ((0, 0), (0, 0x1000), (1, 0), (1, 0x1000), (1, 0xEFFF), (2, 0x1000), (0xFF, 0x1000)):
+        add('cr 12F980 s%X %X' % (st, f58), B, 0x12F980, [n, e], base + [(n + 6, b8(st)), (e + 0x58, h16(f58))])
+    for st in (0, 1, 2, 3, 0xFF):
+        for f69, f38, f60, f58, p20 in ((0, 1.0, 0, 0, 0), (1, 1.0, 0, 0, 0), (3, 1.0, 0, 0, NODE_A), (0x81, 0.0, 2, 0, NODE_A),
+                                        (1, -1.0, 2, 0x1000, 0), (2, 0.0, 3, 0xEFFF, 0), (0, -0.0, 2, 0x1000, 0),
+                                        (0, 0.5, 2, 0x1000, 0), (0, -1.0, 1, 0, 0)):
+            add('cr 12FA50 s%X %X %g %X %X %X' % (st, f69, f38, f60, f58, p20), B, 0x12FA50, [n, e],
+                base + [(n + 6, b8(st)), (e + 0x69, b8(f69)), (e + 0x38, f32b(f38)), (e + 0x60, b8(f60)),
+                        (e + 0x58, h16(f58)), (n + 0x20, w32(p20)), (NODE_A + 4, b8(1)), (e + 0x40, f32b(55.5))])
+    for st in (0, 1, 2, 3, 4, 5, 0xFF):
+        for f58 in (0, 0x1000, 0xEFFF):
+            for scale, dd, a70 in ((1.0, 3, 0), (1.3, 3, 1), (1.2951, 0, 0), (1.296, 1, 1), (1.31, 2, 1), (1.295, 0x83, 0)):
+                add('cr 131210 s%X %X %g %X %X' % (st, f58, scale, dd, a70), B, 0x131210, [n, e],
+                    base + [(n + 6, b8(st)), (e + 0x58, h16(f58)), (n + 0x60, f32b(scale)), (n + 0xD, b8(dd)),
+                            (0x81070A, b8(a70))], queues={0x1EFE00: [0x7A9000]})
+    for st in (0, 1, 2, 3, 4, 0xFF):
+        for f58, r in ((0, 0), (0x1000, 0), (0x1000, 1), (0xEFFF, 2), (0, -1), (0, 0x10000)):
+            add('cr 131510 s%X %X %X' % (st, f58, r & MASK), B, 0x131510, [n, e],
+                base + [(n + 6, b8(st)), (e + 0x58, h16(f58))], queues={0x1333F0: [r]})
+    for yaw, dirx, dirz in ((0.0, 0.0, 1.0), (0.0, 0.0, -1.0), (1.5, 1.0, 0.0), (-3.0, 1.0, 0.2), (3.1, -1.0, -0.1),
+                            (0.7, 0.0, 0.0), (-1.5708, 0.7, 0.7), (2.0, -0.2, 0.9)):
+        add('cr 131940 s0 %g %g %g' % (yaw, dirx, dirz), B, 0x131940, [n, e],
+            base + [(n + 6, b8(0)), (n + 0xC4, f32b(yaw)), (n + 0x70, f32b(dirx)), (n + 0x78, f32b(dirz))])
+    for v in (1.5707963, 1.5707964, 1.5707965, -1.5707964):
+        add('cr 131940 s0 pi/2 %g' % v, B, 0x131940, [n, e],
+            base + [(n + 6, b8(0)), (n + 0xC4, f32b(0.0)), (n + 0x70, f32b(1.0)), (n + 0x78, f32b(0.0))],
+            queues={0x11E620: [fbits(v)]})
+    for f60, f54, f58, s34 in ((0, 1, 0x1000, 1), (2, 1, 0, 1), (2, 0, 0, 1), (2, 1, 0x1000, 1), (2, 0, 0x1000, 0),
+                               (3, 0x100, 0x1000, 0x8000), (0xFD, 1, 0x1000, 1), (2, 0, 0xEFFF, 1)):
+        add('cr 131940 s1 %X %X %X %X' % (f60, f54, f58, s34), B, 0x131940, [n, e],
+            base + [(n + 6, b8(1)), (e + 0x60, b8(f60)), (e + 0x54, h16(f54)), (e + 0x58, h16(f58)), (n + 0x34, h16(s34)),
+                    (n + 0x36, h16(0x1234))])
+    for st in (2, 0xFF):
+        add('cr 131940 s%X' % st, B, 0x131940, [n, e], base + [(n + 6, b8(st))])
     # 001339E0, 00131E80
     for f65 in (0, 1, 0xFF):
         add('cr 1339E0 %X' % f65, B, 0x1339E0, [n, e], [(e + 0x65, b8(f65))])
@@ -2860,6 +2903,10 @@ DEFAULT_KEEP = frozenset([
 SURVIVORS = ('survivor ', 'bound ')
 
 
+# Lane F1's entries: their designed cases all run by default.
+BOSS_CASES = ('cr 12F980', 'cr 12FA50', 'cr 131210', 'cr 131510', 'cr 131940')
+
+
 def select_cases(elf):
     """The mode's case list (EM_TEST_FULL=1: all; the default run keeps
     every capture case, the designed cases of DEFAULT_KEEP and the mutation
@@ -2868,7 +2915,7 @@ def select_cases(elf):
     total = len(cases)
     if not reference_mode.FULL and not os.environ.get('EM_LEVEL14_PORT_ALL'):
         kept = cases[:captured] + [c for c in cases[captured:]
-                                   if c[0] in DEFAULT_KEEP or c[0].startswith(SURVIVORS)]
+                                   if c[0] in DEFAULT_KEEP or c[0].startswith(SURVIVORS + BOSS_CASES)]
         # every entry keeps at least one case of its own (the hook
         # contract's `bytes` target): the first designed one
         have = {c[2] for c in kept}

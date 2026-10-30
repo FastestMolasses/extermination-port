@@ -1048,6 +1048,65 @@ static void log_area02(FILE *f)
  * from the a02_05 arrival script's end; a02_05's own rows keep the "a02"
  * nodes), and on through door [37]'s AREA22 load (a04_05), whose recorded
  * rows keep reading the same addresses. The second visit's nodes follow. */
+/* EM_START_AT_RESTORE (em_start_at.h; comparison only): the fight's source
+ * state holds AREA04's hall bugs where the route left them, a loaded game
+ * where the load placed them. Their records (nodes running 0012A5D0, at the
+ * same pool addresses in both) take the recording's bytes, but for the pool
+ * links and the model and collision pointers a load owns. */
+int em_scene_restore_bugs(const uint8_t *ram)
+{
+    if (!s_area01_live.bound) return -1;
+    EmArea01ActorView *v = &s_area01_live.actors;
+    int count = 0;
+    /* A taken item never allocates its record in a loaded game, so the
+     * pool addresses can differ: each record pairs with the image's next
+     * record of its behaviour (the pool order is the placement order). */
+    static const uint32_t kinds[] = {0x0012A5D0u, 0x0015AFA0u, 0x001581A0u, 0x00824320u};
+    for (unsigned k = 0; k < sizeof kinds / sizeof kinds[0]; ++k) {
+        uint32_t from = EM_ACTOR_POOL_BASE;
+        for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
+            const EmActor *a = &s_pool.records[i];
+            if (!a->allocated || a->callback != kinds[k]) continue;
+            const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
+            for (;; from += EM_ACTOR_RECORD_SIZE) {
+                if (from >= EM_ACTOR_POOL_BASE + EM_ACTOR_POOL_CAPACITY * EM_ACTOR_RECORD_SIZE) return -1;
+                uint32_t cb;
+                memcpy(&cb, ram + from + 0x10, 4);
+                if (ram[from] && cb == kinds[k]) break;
+            }
+            const uint32_t src = from;
+            from += EM_ACTOR_RECORD_SIZE;
+            if (kinds[k] == 0x00824320u) {
+                /* NPC [2]'s face: the blink and mouth timers (001D0720's rand()) */
+                uint32_t face = 0, image;
+                if (em_area01_actor_view_snapshot(v, at + 0x90, 4, &face) < 0) return -1;
+                memcpy(&image, ram + src + 0x90, 4);
+                uint8_t *slot = em_area01_model_slot_bytes(&s_area01_live.model, face, EM_ROGER_ACTOR_SLOT_BYTES);
+                if (slot && image < 0x2000000u - EM_ROGER_ACTOR_SLOT_BYTES) {
+                    memcpy(slot + 0x40, ram + image + 0x40, 0x20);
+                    memcpy(slot + 0x70, ram + image + 0x70, 0x38);
+                }
+                continue;
+            }
+            if (em_area01_actor_view_begin(v) < 0 || em_area01_actor_view_touch(v, at) < 0) return -1;
+            /* the bugs' records; the items' glow countdowns (001F1180) */
+            static const uint16_t bug[][2] = {{0x00, 0x0C}, {0x20, 0x20}, {0x48, 0x10}, {0x5C, 0x34}, {0xB0, 0x60},
+                                              {0x14C, 0x44}, {0x1F0, 0x100}};
+            static const uint16_t item[][2] = {{0x2D0, 0x10}};
+            const uint16_t (*spans)[2] = k == 0 ? bug : item;
+            const unsigned n = k == 0 ? sizeof bug / sizeof bug[0] : 1;
+            for (unsigned j = 0; j < n; ++j) {
+                uint8_t *to = em_area01_actor_view_bytes(v, at + spans[j][0], spans[j][1], 1);
+                if (!to) return -1;
+                memcpy(to, ram + src + spans[j][0], spans[j][1]);
+            }
+            if (em_area01_actor_view_commit(v) < 0) return -1;
+            if (k == 0) ++count;
+        }
+    }
+    return count;
+}
+
 static void log_area04(FILE *f)
 {
     if (s_state.d810700 != 4 && s_state.d810700 != 0x16)
@@ -1072,8 +1131,34 @@ static void log_area04(FILE *f)
             continue;
         const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
         log_area_owners(f, "a04c", &at, 1);
+        /* The whole record (tools/boss_fight_rows.py compares it with the
+         * capture's per-tick table). */
+        uint8_t raw[EM_ACTOR_RECORD_SIZE];
+        if (s_area01_live.bound && em_area01_actor_view_snapshot(&s_area01_live.actors, at, sizeof raw, raw) == 0) {
+            fputs(", \"a04r\": ", f);
+            log_hex(f, raw, sizeof raw);
+        }
         break;
     }
+    /* The bugs (0012A5D0): the spawned four and the hall's. */
+    fputs(", \"a04b\": [", f);
+    int first = 1;
+    for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
+        const EmActor *a = &s_pool.records[i];
+        if (!a->allocated || a->callback != 0x0012A5D0u)
+            continue;
+        const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
+        uint8_t raw[0xC0];
+        if (!s_area01_live.bound || em_area01_actor_view_snapshot(&s_area01_live.actors, at, sizeof raw, raw) != 0)
+            continue;
+        fprintf(f, "%s[%u, ", first ? "" : ", ", (unsigned)at);
+        log_hex(f, raw, 16);
+        fputs(", ", f);
+        log_hex(f, raw + 0xB0, 12);
+        fputc(']', f);
+        first = 0;
+    }
+    fputc(']', f);
 }
 
 /* AREA22's recorded owners (SIXTH_LEVEL_ROUTE.md section 1.1, A22_OWNERS),
@@ -3659,7 +3744,10 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
-    if ((s_state.d810700 == 2 || s_state.d810700 == 6) && fn == 0x001E4CE0u)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6) && fn == 0x001E4CE0u)
+        goto bind;
+    /* The creature's death effect (001B4CF0's 001EFD90: em_level11_port). */
+    if (s_state.d810700 == 4 && fn == 0x001F4840u)
         goto bind;
     /* AREA04's pool owners (em_area04_port through em_area01_runtime area
      * 4; docs/AREA04_PORT.md) and its boot owner 001C1A80. */

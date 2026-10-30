@@ -210,6 +210,12 @@ int em_area04_port_001C1A80(const EmArea04PortHooks *h, uint32_t self, EmArea04P
 int em_area04_port_00823580(const EmArea04PortHooks *h, uint32_t self, uint32_t who, int32_t *result,
                             EmArea04PortFault *fault);
 int em_area04_port_00823B40(const EmArea04PortHooks *h, int32_t *result, EmArea04PortFault *fault);
+/* Script 0x8286D0's two op09 callbacks (the second stage of [3]). `sp` is
+ * the stack pointer at entry; 0x824A40's frame slot sp - 0x10 is read by
+ * 001EFD20, 0x824A90 keeps its vectors in its frame. */
+int em_area04_port_00824A40(const EmArea04PortHooks *h, uint32_t sp, int32_t *result, EmArea04PortFault *fault);
+int em_area04_port_00824A90(const EmArea04PortHooks *h, uint32_t self, uint32_t st, uint32_t prm, uint32_t sp,
+                            int32_t *result, EmArea04PortFault *fault);
 int em_area04_port_001BE5F0(const EmArea04PortHooks *h, uint32_t player, uint32_t actor, uint32_t block,
                             int32_t *result, EmArea04PortFault *fault);
 

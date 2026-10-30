@@ -109,6 +109,15 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_area06_port.h"
 #include "game/em_area22_port.h"
 #include "game/em_level8_port.h"
+#include "game/em_level10_port.h"
+#include "game/em_level11_port.h"
+#include "game/em_level12_port.h"
+#include "game/em_level13_port.h"
+#include "game/em_level14_port.h"
+#include "game/em_level15_creatures.h"
+#include "game/em_pose_host_workers.h"
+#include "game/em_aim_fire_binding.h"
+#include "game/em_aim_fire_runtime.h"
 #include "game/em_mid_route_bridge.inc"
 
 /* Boot routines of AREA22 / AREA06 that only the level ports translate:
@@ -372,13 +381,15 @@ static int dispatch_overlay04(EmArea01Runtime *r, EmArea01Call *c)
         {0x00823EE0u, 0x20u}, {0x00824100u, 0x20u}, {0x008241F0u, 0x20u}, {0x00824320u, 0x90u},
         {0x00824490u, 0x70u}, {0x008246B0u, 0x50u}, {0x00824830u, 0x30u}, {0x00824930u, 0x30u},
         {0x00824DC0u, 0x20u}, {0x00825510u, 0x30u}, {0x00825880u, 0x30u}, {0x00825B00u, 0x20u},
-        {0x00825D60u, 0x20u}, {0x00825DF0u, 0x30u}, {0x008260C0u, 0x20u}};
+        {0x00825D60u, 0x20u}, {0x00825DF0u, 0x30u}, {0x008260C0u, 0x20u}, {0x00824A40u, 0x20u},
+        {0x00824A90u, 0xC0u}};
     uint32_t frame = 0xFFFFFFFFu;
     for (unsigned i = 0; i < sizeof frames / sizeof frames[0]; ++i)
         if (frames[i].fn == c->function) frame = frames[i].frame;
     if (c->function == 0x001C1A80u) frame = 0;
     if (frame == 0xFFFFFFFFu) return r->host.worker(r->host.ctx, c);
-    const unsigned na = c->function == 0x00823B40u ? 0u : c->function == 0x00823580u ? 2u : 1u;
+    const unsigned na = c->function == 0x00823B40u ? 0u : c->function == 0x00823580u ? 2u :
+                        c->function == 0x00824A90u ? 3u : 1u;
     if (c->na < na || c->nf || c->sp < frame) return fail(r, c->function);
     r->sp = c->sp - frame;
     const EmArea04PortHooks *h = &r->overlay04;
@@ -406,6 +417,10 @@ static int dispatch_overlay04(EmArea01Runtime *r, EmArea01Call *c)
     case 0x008260C0u: return em_area04_port_008260C0(h, a0, f);
     case 0x001C1A80u: return em_area04_port_001C1A80(h, a0, f);
     case 0x00823580u: rc = em_area04_port_00823580(h, a0, (uint32_t)c->a[1], &result, f); break;
+    case 0x00824A40u: rc = em_area04_port_00824A40(h, c->sp, &result, f); break;
+    case 0x00824A90u:
+        rc = em_area04_port_00824A90(h, a0, (uint32_t)c->a[1], (uint32_t)c->a[2], c->sp, &result, f);
+        break;
     default:          rc = em_area04_port_00823B40(h, &result, f); break;
     }
     if (rc == 0) c->v0 = (uint64_t)(int64_t)result;
@@ -579,6 +594,8 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     return 1;
 }
 
+#include "game/em_area01_runtime_boss.inc"
+
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
 {
     if (r->area == 0 && c->function >= 0x00823500u)
@@ -587,6 +604,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return dispatch_overlay02(r, c);
     int rc;
     if (r->area == 4 && dispatch_level8(r, c, &rc))
+        return rc;
+    if (r->area == 4 && dispatch_boss(r, c, &rc))
         return rc;
     if (r->area == 4 && (c->function >= 0x00823500u || c->function == 0x001C1A80u))
         return dispatch_overlay04(r, c);
@@ -664,10 +683,10 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
-    if ((r->area == 2 || r->area == 6) && c->function == 0x001E4CE0u) {
+    if ((r->area == 2 || r->area == 4 || r->area == 6) && c->function == 0x001E4CE0u) {
         /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20,
-         * and by AREA06's g[11] 00219870): em_area02_misc's translation
-         * over this runtime's bytes. */
+         * by a drum's in AREA04 and by AREA06's g[11] 00219870):
+         * em_area02_misc's translation over this runtime's bytes. */
         if (c->na < 1 || c->nf) return fail(r, c->function);
         EmArea02Misc m;
         memset(&m, 0, sizeof m);

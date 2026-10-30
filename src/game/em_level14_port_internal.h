@@ -250,11 +250,35 @@ static inline int l14_c_001281C0(L14 *o, uint32_t f0, int32_t *result)
     return o->h->w_001281C0(o->h->ctx, l14_float(f0), result) < 0 ? l14_latch(o, 0x001281C0u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
-static inline int l14_c_00131940(L14 *o, uint32_t a0, uint32_t a1)
+static inline int l14_c_001028B8(L14 *o, uint32_t a0, uint32_t a1, uint32_t a2)
 {
     if (l14_failed(o)) return -1;
-    if (!o->h->w_00131940) return l14_latch(o, 0x00131940u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
-    return o->h->w_00131940(o->h->ctx, a0, a1) < 0 ? l14_latch(o, 0x00131940u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
+    if (!o->h->w_001028B8) return l14_latch(o, 0x001028B8u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001028B8(o->h->ctx, a0, a1, a2) < 0 ? l14_latch(o, 0x001028B8u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l14_c_0011E620(L14 *o, uint32_t f0, uint32_t f1, uint32_t *result)
+{
+    float out = 0;
+    if (l14_failed(o)) return -1;
+    if (!o->h->w_0011E620) return l14_latch(o, 0x0011E620u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
+    if (o->h->w_0011E620(o->h->ctx, l14_float(f0), l14_float(f1), &out) < 0) return l14_latch(o, 0x0011E620u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED);
+    *result = l14_bits(out);
+    return 0;
+}
+
+static inline int l14_c_001333F0(L14 *o, uint32_t a0, uint32_t a1, int32_t *result)
+{
+    if (l14_failed(o)) return -1;
+    if (!o->h->w_001333F0) return l14_latch(o, 0x001333F0u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001333F0(o->h->ctx, a0, a1, result) < 0 ? l14_latch(o, 0x001333F0u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l14_c_001E8B90(L14 *o, uint32_t a0, uint32_t f1)
+{
+    if (l14_failed(o)) return -1;
+    if (!o->h->w_001E8B90) return l14_latch(o, 0x001E8B90u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001E8B90(o->h->ctx, a0, l14_float(f1)) < 0 ? l14_latch(o, 0x001E8B90u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l14_c_00131ED0(L14 *o, uint32_t a0)
@@ -690,6 +714,7 @@ static inline int l14_c_00824C90(L14 *o, uint32_t a0)
 
 /* Translations called by other translations (direct calls, no hook). */
 void l14_00131740(L14 *o, uint32_t self, uint32_t ent);
+void l14_00131940(L14 *o, uint32_t self, uint32_t ent);
 void l14_00131B10(L14 *o, uint32_t self, uint32_t ent);
 void l14_001339E0(L14 *o, uint32_t a0, uint32_t ent);
 void l14_00153A10(L14 *o, uint32_t self, uint32_t ent);

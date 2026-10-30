@@ -878,6 +878,117 @@ int em_area04_port_00824930(const EmArea04PortHooks *h, uint32_t self, EmArea04P
 }
 
 /* ------------------------------------------------------------------------
+ * 0x824A40 (link 00824A00): op09 callback of script 0x8286D0 (record
+ * 0x8289D0). 001B6660(0x827230), the group of the creature's drop;
+ * 001EFD20(0x8000005B, 0x828B90); 001EFD20(0x80000004, sp - 0x10), a frame
+ * slot the original never writes (its bytes are what the last call left
+ * there). Returns 1.
+ * ---------------------------------------------------------------------- */
+int em_area04_port_00824A40(const EmArea04PortHooks *h, uint32_t sp, int32_t *result, EmArea04PortFault *fault)
+{
+    A04 o;
+    uint32_t r = 0;
+    if (!result || a04_begin(&o, h, fault)) return -1;
+    if (a04_c_001B6660(&o, 0x00827230u, &r)) return a04_end(&o);
+    if (a04_c_001EFD20(&o, (int32_t)0x8000005Bu, 0x00828B90u, &r)) return a04_end(&o);
+    if (a04_c_001EFD20(&o, (int32_t)0x80000004u, sp - 0x10u, &r)) return a04_end(&o);
+    if (a04_end(&o)) return -1;
+    *result = 1;
+    return 0;
+}
+
+/* ------------------------------------------------------------------------
+ * 0x824A90 (link 00824A50): op09 callback of script 0x8286D0 (record
+ * 0x828850), self = [3], st = the script block, prm = the record. The four
+ * points 0x828BA0..D0 go to the frame (quadwords, sp - 0x50..-0x10), one is
+ * picked by self +0x2EC (the +0xBC word of the copy of the creature's
+ * position +0x2E0: 260, 215, 305). st +4 0: the point and +0x2E0 go to
+ * D_008105D0 / D_008105E0, D_008101E0 +0x10 / +0x20 and st +0x10 / +0x20,
+ * prm +0x10 = 0, st +4 = 1. st +4 1: when prm +0x10 < prm +0xC it steps by
+ * 1, the midpoint of the point and +0x2E0 goes to the frame (sp - 0x10),
+ * t = prm +0x10 / prm +0xC, and D_008105D0 moves from st +0x10 to the
+ * midpoint, D_008105E0 from st +0x20 to +0x2E0 by t (x, y, z), both copied
+ * to D_008101E0 +0x10 / +0x20; otherwise it returns 1. Returns 0 else.
+ * ---------------------------------------------------------------------- */
+#define D_008101E0 0x008101E0u
+#define D_008105D0 0x008105D0u
+#define D_008105E0 0x008105E0u
+
+static uint32_t a04_q_copy(A04 *o, uint32_t to, uint32_t from)
+{
+    uint64_t lo = a04_u64(o, from), hi = a04_u64(o, from + 8);
+    a04_w64(o, to, lo);
+    a04_w64(o, to + 8, hi);
+    return to;
+}
+
+static void a04_824A90_lerp(A04 *o, uint32_t at, uint32_t base, uint32_t t)
+{
+    uint32_t v = a04_u32(o, at);
+    uint32_t b = a04_u32(o, base);
+    a04_w32(o, at, em_ee_add_bits(b, em_ee_mul_bits(v, t)));
+}
+
+int em_area04_port_00824A90(const EmArea04PortHooks *h, uint32_t self, uint32_t st, uint32_t prm, uint32_t sp,
+                            int32_t *result, EmArea04PortFault *fault)
+{
+    A04 state, *o = &state;
+    if (!result || a04_begin(o, h, fault)) return -1;
+    const uint32_t frame = sp - 0xC0u, pos = self + 0x2E0;
+    const uint32_t a = a04_q_copy(o, frame + 0x70, 0x00828BA0u), b = a04_q_copy(o, frame + 0x80, 0x00828BB0u),
+                   c = a04_q_copy(o, frame + 0x90, 0x00828BC0u), d = a04_q_copy(o, frame + 0xA0, 0x00828BD0u);
+    uint32_t sel, w = a04_u32(o, self + 0x2EC);
+    if (em_ee_c_lt_bits(w, 0x43820000u))
+        sel = em_ee_c_lt_bits(w, 0x43570000u) ? a : b;
+    else
+        sel = em_ee_c_lt_bits(w, 0x43988000u) ? c : d;
+    int32_t ret = 0;
+    switch (a04_u8(o, st + 4)) {
+    case 0:
+        if (a04_c_00102948(o, D_008105D0, sel)) break;
+        if (a04_c_00102948(o, D_008105E0, pos)) break;
+        if (a04_c_00102948(o, D_008101E0 + 0x10, sel)) break;
+        if (a04_c_00102948(o, D_008101E0 + 0x20, pos)) break;
+        if (a04_c_00102948(o, st + 0x10, sel)) break;
+        if (a04_c_00102948(o, st + 0x20, pos)) break;
+        a04_w32(o, prm + 0x10, 0);
+        a04_w8(o, st + 4, 1);
+        break;
+    case 1: {
+        uint32_t n = a04_u32(o, prm + 0x10), lim = a04_u32(o, prm + 0xC);
+        if (!em_ee_c_lt_bits(n, lim)) {
+            ret = 1;
+            break;
+        }
+        a04_w32(o, prm + 0x10, em_ee_add_bits(n, 0x3F800000u));
+        for (uint32_t k = 0; k < 16; k += 4) {
+            uint32_t x = a04_u32(o, sel + k);
+            uint32_t y = a04_u32(o, pos + k);
+            a04_w32(o, frame + 0xB0 + k, em_ee_mul_bits(0x3F000000u, em_ee_add_bits(x, y)));
+        }
+        uint32_t top = a04_u32(o, prm + 0x10);
+        uint32_t t = em_ee_div_bits(top, a04_u32(o, prm + 0xC));
+        if (a04_c_001028D0(o, D_008105D0, frame + 0xB0, st + 0x10)) break;
+        if (a04_c_001028D0(o, D_008105E0, pos, st + 0x20)) break;
+        a04_824A90_lerp(o, D_008105D0, st + 0x10, t);
+        a04_824A90_lerp(o, D_008105D0 + 4, st + 0x14, t);
+        a04_824A90_lerp(o, D_008105D0 + 8, st + 0x18, t);
+        a04_824A90_lerp(o, D_008105E0, st + 0x20, t);
+        a04_824A90_lerp(o, D_008105E0 + 4, st + 0x24, t);
+        a04_824A90_lerp(o, D_008105E0 + 8, st + 0x28, t);
+        if (a04_c_00102948(o, D_008101E0 + 0x10, D_008105D0)) break;
+        a04_c_00102948(o, D_008101E0 + 0x20, D_008105E0);
+        break;
+    }
+    default:
+        break;
+    }
+    if (a04_end(o)) return -1;
+    *result = ret;
+    return 0;
+}
+
+/* ------------------------------------------------------------------------
  * 0x8246B0 (link 00824670): [3]. State 0: 001BA1C0(self, 0x12) -> state 3,
  * else model setup and state 1. State 1 while D_0081076A: by D_008107EA
  * 0 / 0x10 -> 0x824830, 1 / 2 / 0x20 / 0xFF -> 0x824930; then, with

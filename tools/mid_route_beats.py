@@ -56,6 +56,7 @@ BLOCK, SIZE = 0x810700, 0x640
 OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
+BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -88,9 +89,19 @@ BEATS = {
     'a04b_02': ('a04b_02', A04B_ROUTE, 'a04b_02_door45_out'),
     'a04b_03': ('a04b_03', A04B_ROUTE, 'a04b_03_reader'),
     'a04b_04': ('a04b_04', A04B_ROUTE, 'a04b_04_lift'),
+    # The first boss (tools/capture_boss_fight.py): from a04b_03's end the
+    # fight, the drop, the lift with flag 0x12 = 0xFF.
+    'a04b_s5': ('a04b_03', BOSS_ROUTE, 'a04b_s5_fight'),
+    'a04b_s6': ('a04b_03', BOSS_ROUTE, 'a04b_s6_drop'),
+    'a04b_s7': ('a04b_03', BOSS_ROUTE, 'a04b_s7_lift'),
+    # The intended win: the SHOTGUN UNIT fitted (card boss, a04b_g2's source).
+    'a04b_g2': ('boss', BOSS_ROUTE, 'a04b_g2_reader'),
+    'a04b_g3': ('boss', BOSS_ROUTE, 'a04b_g3_fight'),
+    'a04b_g4': ('boss', BOSS_ROUTE, 'a04b_g4_drop'),
+    'a04b_g5': ('boss', BOSS_ROUTE, 'a04b_g5_lift'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
-          'a22b': ('a22b_',), 'a04b': ('a04b_',)}
+          'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -257,6 +268,8 @@ CHAINS = {
     'a01v': ('a01v', ('a01v_00', 'a01v_01', 'a01v_02')),
     'a22b': ('a22b', ('a22b_00', 'a22b_01')),
     'a04b': ('a04b_00', ('a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_04')),
+    'boss': ('a04b_03', ('a04b_03', 'a04b_s5', 'a04b_s6', 'a04b_s7')),
+    'bossg': ('boss', ('a04b_g2', 'a04b_g3', 'a04b_g4', 'a04b_g5')),
 }
 
 

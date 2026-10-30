@@ -15,6 +15,7 @@
 #include "game/em_area02_misc.h"
 #include "game/em_area06_port.h"
 #include "game/em_level8_port.h"
+#include "game/em_level14_port.h"
 #include "game/em_collision_world.h"
 #include "game/em_diag.h"
 #include "game/em_effect_kinds.h"
@@ -842,6 +843,45 @@ static int handler_001ED100(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* The handler 001EDE40 (the creature's death effect, 001B4CF0's 0x80000070 /
+ * 0x8000006F through the node 001F4840): em_level14_port's translation over
+ * the work block and the three record tables it rewrites. */
+static uint8_t *death_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    SkidCall *c = ctx;
+    if (address == 0x00275C34u && size == 4) return (uint8_t *)&c->d275C34;
+    if (address == c->d275C34 + 4u && size == 4) return (uint8_t *)&c->work->seed_copy;
+    if (address == c->d275C34 + 8u && size == 4) return (uint8_t *)&c->work->step;
+    if (address == c->d275C34 + 0x54u && size == 4) return (uint8_t *)&c->work->accumulator;
+    if (address >= 0x00257510u && address + size <= 0x002576C0u)
+        return (uint8_t *)(uintptr_t)em_effects_live_window(address, size);
+    return NULL;
+}
+
+static int death_001CFB50(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4, float f5, float f6,
+                          float f7)
+{
+    return skid_001CFB50(ctx, a0, n1, (int32_t)a2, f3, f4, f5, f6, f7);
+}
+
+static int handler_001EDE40(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(0x001EDE40u, "001EDE40 without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    SkidCall c = {node, work, at, at + 0x1F0u};
+    EmLevel14PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &c;
+    h.bytes = death_bytes;
+    h.w_001CFB50 = death_001CFB50;
+    h.w_001CFBE0 = skid_001CFBE0;
+    EmLevel14PortFault fault = {0, 0};
+    if (em_level14_port_001EDE40(&h, at + 0xD0u, (uint32_t)depth, &fault) < 0)
+        return fail(fault.address ? fault.address : 0x001EDE40u, "001EDE40 faulted (em_level14_port)");
+    return 0;
+}
+
 /* The splash handlers 001EAF00 / 001EAF80 / 001EB020 / 001EB7F0 / 001EC270 (D_00255434
  * entries, reached in AREA01 when the player wades a floor field:
  * 001A8840's contact event 6): em_area01_render_hud's translations, their
@@ -1371,6 +1411,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EBD20u) return handler_001EBD20(node, depth, work);
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
     if (handler == 0x001ED100u) return handler_001ED100(node, depth, work);
+    if (handler == 0x001EDE40u) return handler_001EDE40(node, depth, work);
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);

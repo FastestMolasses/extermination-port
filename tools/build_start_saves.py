@@ -172,6 +172,9 @@ START_POINTS = {
     'a04b_02': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_02_', 'area': 4},
     'a04b_03': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_03_', 'area': 4},
     'a04b_04': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_04_', 'area': 4},
+    # The first boss (tools/capture_boss_fight.py): the shotgun chain's
+    # reader beat, door [45] behind the player and the SHOTGUN UNIT fitted.
+    'boss': {'route': 'boss_fight_20261030/s87/route_a04b', 'first': 'a04b_g2_', 'area': 4},
 }
 
 

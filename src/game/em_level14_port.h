@@ -75,18 +75,20 @@ typedef struct {
 /* BEGIN GENERATED HOOKS */
     int (*w_001026A0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00102948)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001028B8)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_001029C0)(void *ctx, uint32_t a0);
     int (*w_00102C58)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00103230)(void *ctx, uint32_t a0, uint32_t a1, float f2);
     int (*w_0011DF78)(void *ctx, float f0, float *result);
     int (*w_0011E2A8)(void *ctx, float f0, float *result);
+    int (*w_0011E620)(void *ctx, float f0, float f1, float *result);
     int (*w_0011E748)(void *ctx, float f0, float *result);
     int (*w_00122BB8)(void *ctx, int32_t *result);
     int (*w_001281C0)(void *ctx, float f0, int32_t *result);
-    int (*w_00131940)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_00131ED0)(void *ctx, uint32_t a0);
     int (*w_00132490)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001328D0)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001333F0)(void *ctx, uint32_t a0, uint32_t a1, int32_t *result);
     int (*w_00133A20)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_00153B50)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_00153EA0)(void *ctx, uint32_t a0, uint32_t a1);
@@ -129,6 +131,7 @@ typedef struct {
     int (*w_001CA6F0)(void *ctx, uint32_t a0, int32_t n1);
     int (*w_001CFB50)(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4, float f5, float f6, float f7);
     int (*w_001CFBE0)(void *ctx, int32_t n0, int32_t n1, uint32_t a2, uint32_t a3, int32_t n4);
+    int (*w_001E8B90)(void *ctx, uint32_t a0, float f1);
     int (*w_001EFD90)(void *ctx, int32_t n0, uint32_t a1, uint32_t a2);
     int (*w_001EFE00)(void *ctx, int32_t n0, uint32_t a1, uint32_t *result);
     int (*w_001F5940)(void *ctx, int32_t n0, uint32_t a1, int32_t n2);
@@ -184,7 +187,12 @@ int em_level14_port_00827540(const H14 *h, uint32_t a0, int32_t *result, F14 *fa
 /* ---- boot: the 0012E3A0 creatures' state handlers (ent = self + 0x1F0)
  * and the AREA15 enemy 00153950 ---- */
 int em_level14_port_00131650(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
+int em_level14_port_0012F980(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
+int em_level14_port_0012FA50(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
+int em_level14_port_00131210(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
+int em_level14_port_00131510(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
 int em_level14_port_00131740(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
+int em_level14_port_00131940(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
 int em_level14_port_00131B10(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
 int em_level14_port_00131E80(const H14 *h, uint32_t self, F14 *fault);
 int em_level14_port_00131F20(const H14 *h, uint32_t self, uint32_t a1, uint32_t a2, F14 *fault);

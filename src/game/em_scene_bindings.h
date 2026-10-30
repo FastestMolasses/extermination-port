@@ -41,6 +41,8 @@ extern "C" {
 /* The canonical coordinator state (design 3.2). Every module reads and
  * writes the original bytes it owns through this pointer; none keeps a copy. */
 EmSceneState *em_scene_state(void);
+/* EM_START_AT_RESTORE (comparison only): the hall bugs' records from a RAM image. */
+int em_scene_restore_bugs(const uint8_t *ram);
 
 /* Request-6 status boundary: borrow live type-38 terminal fields and run
  * the existing 00225A00 reset on scene-owned 00810040..00810113. No card I/O. */

@@ -194,6 +194,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
         if (s->area!=1) return -1;
         break;
     case 0x00823B40u: /* AREA04 script 0x8278D0's op09 (em_area04_port) */
+    case 0x00824A40u: case 0x00824A90u: /* AREA04 script 0x8286D0's (em_area04_port) */
         if (s->area!=4) return -1;
         break;
     case 0x008242C0u: /* AREA06's op09 callback (em_area06_port) */

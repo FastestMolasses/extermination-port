@@ -279,6 +279,7 @@ EmPlayerStageScene *player_states_scene(void);
  * legacy struggle, a scene without an original world): 0015CF90 then reads
  * the record (em_player_0015BCF0). */
 void player_states_vitals_publish(void);
+void player_states_pending_infection_collect(void);
 /* The live mirror (for the coordinator's D_008104C4 readers, e.g.
  * EmTruckWorld.ground_kind = the +0x0D of link_owner). */
 const EmPlayerLiveActor *player_states_actor(void);
