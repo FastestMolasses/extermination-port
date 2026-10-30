@@ -84,6 +84,11 @@ Bound here (each through its one translation):
   names that composition's player proxy, which the AREA01 collision view
   now encodes as 0x008102B0.
 
+Since lane E1 (2026-10-30) AREA06's beats are row-exact from New Game
+(LEVEL3_BINDING.md "2026-10-30, lane E1"): the a06_01 bite and a06_05's turn were
+two fixes (the spat hazard's +0x22C, the +1C object's +4), not card effects alone.
+The notes below are the start-card status.
+
 Where AREA06 stands (2026-10-30, after the second pass):
 
 - **The chain `a06`** (a06_00 .. a06_05 in one run from the arrival card)

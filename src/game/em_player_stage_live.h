@@ -60,8 +60,8 @@
  *              translated (em_player_floor) but unwired: their 001662D0
  *              (the ladder climb lane) and 00175900 are the closure
  *              binder's, and 001834E0's 0016BAE0 is not bound there
- *   fail-stop  link1C (the +1C object; 0 in every AREA11 capture) and the
- *              unwired major[5] routines. The effect, atan2, link20 and
+ *   fail-stop  the unwired major[5] routines (link1C, the +1C object, is the
+ *              infection node's +4 through em_scene_bindings_pool_set_u4). The effect, atan2, link20 and
  *              0015C9D0 paths are reached only by a hit, pending damage or
  *              infection, a low health latch or the area-8 room-2 effect;
  *              none occurs on the first-level route (every route capture:

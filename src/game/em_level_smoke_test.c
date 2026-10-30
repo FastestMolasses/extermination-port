@@ -5451,7 +5451,9 @@ static void a01_route_begin(void)
     }
     int frame, fields;unsigned buttons,lx,ly;
     while((fields=fscanf(f,"%d %x %u %u",&frame,&buttons,&lx,&ly))==4) {
-        if(s_a01_pad_count==A01_PAD_MAX || frame<0 || frame>s_a01_last_frame ||
+        /* f -1: the command before a beat's own first (the bed branch's
+         * a04_05 ends a carried stick on its row 1). */
+        if(s_a01_pad_count==A01_PAD_MAX || frame<-1 || frame>s_a01_last_frame ||
            buttons>65535 || lx>255 || ly>255 ||
            (s_a01_pad_count && frame<s_a01_pad[s_a01_pad_count-1].f)) {
             fclose(f);fail("invalid AREA01 pad-script entry");return;

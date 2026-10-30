@@ -173,6 +173,8 @@ int em_scene_bindings_fan_cycle(uint32_t address, uint8_t *phase, int16_t *timer
 /* The original record address of a pool record (0 outside the pool; test
  * instrumentation: the level smoke's player-ground check). */
 uint32_t em_scene_bindings_pool_address(const void *actor);
+/* A pool record's byte +4 from outside the walk (the player's +1C object). */
+int em_scene_bindings_pool_set_u4(uint32_t address, uint8_t value);
 /* The original-layout image of the pool record at original address
  * `address` (D_007A5640 + i * 0x2F0; em_actor_pool_record_image): 1, else 0
  * (test instrumentation: the level smoke's BRANCH side runs read the boxes'

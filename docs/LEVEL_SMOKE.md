@@ -36,14 +36,17 @@ main line a04_00..a04_05: 56 live phases, `--until a04_05` (about 13 minutes
 headless), with `build/drive_replay/route_a04_20261030` and the anchors of
 `build/rand_replay/route_a04_05_20261030` (LEVEL3_BINDING.md "2026-10-30, lane
 D1"). a04_05 is a return phase: its boundary is AREA22 entry 0's state 0, 205
-rows after it to the trace end. Lane E1 added AREA22, AREA01's upper floor and
-AREA06's first walk (a22_00..02, a01u_00..02, a06_00): 63 live phases, `--until
-a06_00` (about 13.5 minutes headless), with
-`build/drive_replay/route_a22_a06_20261030` and the anchors of
-`build/rand_replay/route_a01u_02_20261030` (LEVEL3_BINDING.md "2026-10-30, lane
-E1"). a22_02 (boundary: AREA01 entry 6) and a01u_02 (AREA06 entry 0) are return
-phases, 205 rows after state 0; from AREA22 on each beat's end also compares the
-whole progress block with its end RAM (`check_block_end`).
+rows after it to the trace end. Lane E1 carried the line on: canonical `--until a22b_01`
+(73 live phases, about 14.5 minutes; drive tables `route_a22_a06_20261030` and
+`route_a06_a22b_20261030`, anchors `build/rand_replay/route_a22b_01_20261030`),
+the sides a06_04 and a06_05 (`--until a06_05`), and the bed branch `--until
+a04b_03` (78 live phases, about 17.5 minutes; drive tables `build/drive_replay_bed`,
+anchors `build/rand_replay_bed/route_bed_20261030/route.txt`): a run `--until
+a04b_*` plays the bed a02_s0 and compares a02_00 on with the fork continuation,
+the only recording of AREA04's second visit (LEVEL3_BINDING.md "2026-10-30, lane
+E1"). Each run writes about 3 to 4 GB of tick log. a22_02, a01u_02, a06b_01,
+a01v_02 and a22b_01 are return phases; from AREA22 on each beat's end also
+compares the whole progress block with its end RAM (`check_block_end`).
 Since lane B2
 (2026-10-30) three more side beats, fork recordings of HEALING's menu use
 (tools/capture_heal_beats.py), are phases: a01r_s2 (from a01r_02: item

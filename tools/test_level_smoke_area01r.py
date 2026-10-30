@@ -215,6 +215,12 @@ def verify_checker():
         ram = a01r.capture_path(phase).with_name('eeMemory.bin').read_bytes()
         ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in a01.CAMERA_BLOCKS]
         later = okey in a01r.LATER_KEYS
+        if phase == 'a04b_03':
+            node = next(n for n in range(0x7A5640, 0x7A5640 + 0x2F0 * 0x100, 0x2F0)
+                        if struct.unpack_from('<I', ram, n + 0x10)[0] == 0x0012E3A0)
+            ticks[-2]['a04c'] = dict(owners={str(node): [ram[node:node + 16].hex(), ram[node + 0xB0:node + 0xBC].hex(),
+                                                         ram[node + 0x1F0:node + 0x200].hex(),
+                                                         ram[node + 0x2DC:node + 0x2F0].hex(), 0x0012E3A0]})
         if later:
             ticks[-2]['blk'] = ram[a01r.BLOCK:a01r.BLOCK + a01r.BLOCK_SIZE].hex()
         gap = a01r.source_gap(phase, capture)

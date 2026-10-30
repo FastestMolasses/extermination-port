@@ -67,7 +67,17 @@ is port behaviour.
   AREA19), nor the second half of the order. AREA13 from this arrival to
   AREA19 entry 9 is recorded in `NINTH_LEVEL_ROUTE.md` (group `a13`).
 
-**Native status (lane D1, 2026-10-30).** The a04b beats play from start
+**Native status (lane E1, 2026-10-30).** From New Game the port plays this
+route row for row: canonically a06b_00 780 rows, a06b_01 822, a01v_00 555,
+a01v_01 177, a01v_02 771, a22b_00 1,099, a22b_01 886 (`--until a22b_01`, 73
+live phases), and on the bed branch through a04b_00 1,242, a04b_01 8,690,
+a04b_02 714 and a04b_03 2,414 (`--until a04b_03`, 78 live phases): the reader,
+event [3], and the creature's record equal to the end RAM at the last row, with
+each beat's progress block equal, health and infection included
+(LEVEL3_BINDING.md "2026-10-30, lane E1"). a04b_04 is not a phase. The table
+below is the earlier start-card status.
+
+**Start cards (lane D1, 2026-10-30).** The a04b beats play from start
 cards (`python3 tools/mid_route_beats.py a04b`, card a04b_00; the fork
 continuation levels-recordings-20261018-10). A loaded game is not the
 route's machine state, so these are not whole-beat row comparisons:
@@ -81,9 +91,7 @@ route's machine state, so these are not whole-beat row comparisons:
 | a04b_04 | the creature and the bugs fight; the Use at [54] | health falls by the creature's bites (action 0x3E, 20 or 25 a hit; the recordings show the same two amounts) and the bugs' grabs, at other rows than the recording's. From the card the recorded pad leaves the player facing away from [54]; with a scratch pad that turns and presses (never committed), the Use is taken and the ride plays: the lift's sub-states 3, 7, 5 / 6 at the recording's spacing (111 and 499 ticks), flag 0x14 = 0xFF, the player at (575, 55, 256), the fade, the request to AREA13. There the run stops: AREA13's module is not in the loader's table (`the screen-module loader faulted at 00112440`) and AREA13 has no host yet |
 
 The creature's rows cannot be row-exact from a card: its choices draw
-rand() and the loaded game's bugs and position differ. The whole-beat
-comparison needs the New Game chain through the bed branch's a22b_01
-(a06 / a06b stop from their cards today, LEVEL8_PORT.md "Start-card runs").
+rand() and the loaded game's bugs and position differ.
 
 In-game text (messages, prompts, item names) is described, never quoted.
 Positions are world units; yaw is the player's +0xC4 (X = sin, Z = cos).

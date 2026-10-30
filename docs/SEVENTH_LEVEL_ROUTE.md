@@ -56,13 +56,12 @@ In-game text (messages, prompts, title cards, item descriptions, the
 keypad's expected string) is described, never quoted. Positions are world
 units; yaw is the player's +0xC4 (X = sin, Z = cos).
 
-**Native status (lane E1, 2026-10-30).** From New Game the port plays
-a01u_00 235 rows, a01u_01 1,446, a01u_02 1,064 (door [19], the AREA06 load,
-control) and a06_00 357 row for row against the fork recordings, each with
-the whole progress block equal to its end RAM but for the frame count:
-`python3 tools/test_level_smoke_area01r.py --run --until a06_00`, 63 live
-phases (LEVEL3_BINDING.md "2026-10-30, lane E1"). a06_01 on run from start
-cards (tools/mid_route_beats.py; LEVEL8_PORT.md "Start-card runs").
+**Native status (lane E1, 2026-10-30).** From New Game the port plays a01u_00
+235 rows, a01u_01 1,446, a01u_02 1,064, a06_00 357, a06_01 719, a06_02 1,699,
+a06_03 395 and the sides a06_04 526, a06_05 1,011 row for row against the fork
+recordings, each with the whole progress block equal to its end RAM but for the
+frame count: `python3 tools/test_level_smoke_area01r.py --run --until a06_05`
+(LEVEL3_BINDING.md "2026-10-30, lane E1").
 
 ## 1. Tool, outputs and conventions
 

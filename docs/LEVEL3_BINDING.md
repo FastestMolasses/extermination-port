@@ -14,46 +14,101 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
-**2026-10-30, lane E1 (branch `route-chain`): AREA22, AREA01's upper floor
-and AREA06's first walk row-exact from New Game.** The whole-run checker
-passes 63 live phases through a06_00 (`--run --until a06_00`, about 13.5
-minutes headless):
+**2026-10-30, lane E1 (branch `route-chain`): New Game row-exact through
+AREA04's second visit, to the creature at the lift.** Two whole-run checks,
+each with the rand() order and rand-replay anchors:
 
-| Beat | Rows | What it covers |
-|---|---|---|
-| a22_00 | 626 / 626 | the north arm, door [7] (a room move, entry 1) |
-| a22_01 | 663 / 663 | the corridor with its bugs, the south arm |
-| a22_02 | 683 / 683 | door [8], the AREA01 load (entry 6), the arrival, control |
-| a01u_00 | 235 / 235 | the running jump over the gap |
-| a01u_01 | 1,446 / 1,446 | the catwalk event (placement [45], script 0x82B590) |
-| a01u_02 | 1,064 / 1,064 | door [19], the AREA06 load (entry 0), the arrival, control |
-| a06_00 | 357 / 357 | the east floor, over the beam [11] to the west pad |
+- `--run --until a22b_01` (canonical recordings): 73 live phases, about 14.5
+  minutes; `--until a06_05` adds the beam's collapse (sides a06_04, a06_05).
+- `--run --until a04b_03` (the bed branch below): 78 live phases, about 17.5
+  minutes. Every row equal, every beat's end progress block equal, and at
+  a04b_03's last row the creature's record (0012E3A0 at 0x7C2660) equal to the
+  end RAM.
 
-Tables: drive `build/drive_replay/route_a22_a06_20261030` (0 replay
-differences on all seven beats), rand() `build/rand_replay/route_a01u_02_20261030`
-(the earlier anchors plus `entry01.3`, a22_02, and `entry06`, a01u_02). Pass
-`--rand-replay` with that table.
+| Beat | Canonical rows | Bed branch rows | What it covers |
+|---|---|---|---|
+| a22_00 | 626 | 626 | the north arm, door [7] (a room move, entry 1) |
+| a22_01 | 663 | 663 | the corridor with its bugs, the south arm |
+| a22_02 | 683 | 683 | door [8], the AREA01 load (entry 6), control |
+| a01u_00 | 235 | 235 | the running jump over the gap |
+| a01u_01 | 1,446 | 1,446 | the catwalk event (placement [45], script 0x82B590) |
+| a01u_02 | 1,064 | 1,064 | door [19], the AREA06 load (entry 0), control |
+| a06_00 | 357 | 357 | the east floor, over the beam [11] |
+| a06_01 | 719 | 679 | the crate, a bug's spit hits (infection +10), door [2] |
+| a06_02 | 1,699 | 1,617 | the keypad [6]: D_00810845 bit 5 |
+| a06_03 | 395 | 314 | door [2] back out |
+| a06_04 (side) | 526 | - | the beam's collapse |
+| a06_05 (side) | 1,011 | - | the pit, the turn at infection 100, door [3] locked |
+| a06b_00 | 780 | 780 | the running jump over the beam's trigger |
+| a06b_01 | 822 | 740 | door [1], the AREA01 load (entry 7), control |
+| a01v_00 | 555 | 555 | the catwalk east |
+| a01v_01 | 177 | 177 | the jump north over the gap |
+| a01v_02 | 771 | 690 | door [18], the AREA22 load (entry 5), control |
+| a22b_00 | 1,099 | 1,018 | the corridor back, door [7] from the south |
+| a22b_01 | 886 | 886 | door [6], the AREA04 load (entry 1), control |
+| a04b_00 | - | 1,242 | door [45] (entry 9) |
+| a04b_01 | - | 8,690 | the NPC's script 0x827D90, item 0x23, counter 0x11 |
+| a04b_02 | - | 714 | door [45] out (entry 8) |
+| a04b_03 | - | 2,414 | reader [50], lock bit 7, event [3], the creature |
 
-No gameplay port change was needed: lane C1's bindings (AREA22_PORT.md and
-AREA06_PORT.md "Live binding", em_mid_route_bridge.inc), which start cards
-had only checked at the beats' ends, hold row for row. What the beats added
-is on the harness side:
+Before them the bed path plays a01r_03, a02_s0 (the bed, 1,008) and its own
+recordings a02_00 (1,448), a02_01 (630), a02_02 (1,016), a02_03 (831), a02_04
+(1,114), a02_05 (1,726), a04_00 (3,615), a04_01 (1,818), a04_02 (942), a04_03
+(1,015), a04_04 (553), a04_05 (829).
 
-- **Phases and owners**: A22_OWNERS, A01U_OWNERS, A06_OWNERS in
-  level_smoke_area01r; the tick log's `a22`, `a01u`, `a06` observations
-  (em_scene_bindings.c) with D_00810768..6B, D_00810857, the counts
-  D_00810C87 / C88 and, in AREA06, D_00810CCA. a22_02 and a01u_02 are return
-  phases (205 rows after the destination's state 0).
-- **The whole progress block at each beat's end** (`check_block_end`, the
-  tick log's `blk`): D_00810700..D_00810D3F equals the beat's end RAM on all
-  seven beats, only the frame count D_00810750..53 excluded (the first
-  level is navigated). The start-card runs could not hold this (a loaded
-  game's pose, flag and check bytes); the infection word is covered here.
-- **rand_order**: AREA06's overlay callers (0x823580 with its spawn,
-  0x823B50, 0x8240E0, 0x824560) and the adapters `m06_w_00122BB8`, `a6_rand`.
+**The bed branch.** AREA04's second visit is recorded only on the fork
+continuation `levels-recordings-20261018-10` (EIGHTH_LEVEL_ROUTE.md "Fork
+continuation work"), which leaves the canonical line at the bed a02_s0 (health
+100, infection 0) and re-records a02_00 .. a22b_01 from there. A run `--until
+a04b_*` plays that path: C `side_played` adds a02_s0, Python selects BED_ROOT's
+recordings for BED_PHASES, drive tables from `build/drive_replay_bed` (34 beats,
+0 replay differences), anchors from
+`build/rand_replay_bed/route_bed_20261030/route.txt`. Any other `--until` keeps
+the canonical recordings. Two recording facts of that branch are modelled in the
+harness, never in the game:
+
+- a02_00's row 0 is a02_s0's last row (gap 0; `a01_route_begin` aligns on that
+  tick).
+- The a04_04 -> a04_05 join: a04_04's last row sets a stick, then neutral. The
+  canonical a04_05 stops on row 1 (m1F1 2); this one keeps row 0's stick through
+  row 1 (m1F1 1, yaw unchanged) and stops on row 2.
+
+**The one gameplay fault in the seven-plus-twelve beats:** the spat hazard
+001E2E80 hit the player and did nothing. A bug's spit reaches the head at
+a06_01 row 217 on both sides (hull test equal, rand() equal to the state word
+through row 217, the sampled bone positions equal). Original: 001E3378 stores +0x22C =
+10.0 (fork memwatch on 0x8104DC), the next stage's 0021C2A8 moves it to the
+infection and action 0x3E follows. Port: the store landed in the record's byte
+copy, which the stage's vitals_load overwrites from g.pd_pend_inf. The aim/fire
+world's views now map +0x220..+0x22F to their storages (the record's word is
+not the storage between two stages, em_area11_bindings player_vitals) first.
+
+**00182D70's +1C object** (a06_05 row 775, the takeover at door [3] after the
+turn): 0021C190 stores the infection node (0x80000048) in the player's +0x1C;
+00182D70 sets its +4 to 2 and 00183090 to 1. It was a fail-stop;
+em_scene_bindings_pool_set_u4 writes the pool record's byte.
+
+**Harness:**
+
+- A22 / A01U / A06 / A01V / A22B / A04B owner tables; tick log observations
+  `a22`, `a01u`, `a06`, `a01v`, `a22b`, `a04b` with D_00810768..6B, D_00810857,
+  D_00810C87 / C88, D_00810CCA, D_0081076C..6F.
+- `check_block_end` (tick log `blk`): D_00810700..D_00810D3F equals each beat's
+  end RAM, only the frame count D_00810750..53 excluded (the first level is
+  navigated). This covers health and the infection word, the start cards'
+  differences, and D_0081084C (the a04b rows' `l84c` is empty, the recorder's
+  span ends before it).
+- `check_creature_end`: a04b_03's creature against the end RAM.
+- The return phases a22_02, a01u_02, a06b_01, a01v_02, a22b_01; the C driver
+  reads a return's tail from the version 2 pad header.
+- rand_order: AREA06's owners, 0021AE90, 001B8AB0, 001BF6B0, 0012A5D0,
+  0x8239A0, 00133640.
 
 The rows do not sample the keypad's page object (`kpad`) or the owners'
-rotations (`rot`). a06_01 on is lane C1's (AREA06's faults).
+rotations (`rot`), and pixels and sound are not compared. a04b_02's and
+a04b_03's Cross presses are door [45] and the reader: no pickup is taken on the
+route (the shotguns behind door [45] are lane F1's). a04b_04 (the lift, the
+fight) is not a phase: AREA13 has no host yet.
 
 **2026-10-30, lane D1 (branch `area04-boss`): AREA04's main line row-exact
 from New Game, through door [37] into AREA22.** The whole-run checker passes

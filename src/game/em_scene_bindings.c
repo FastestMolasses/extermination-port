@@ -5486,6 +5486,16 @@ int em_scene_bindings_fan_cycle(uint32_t address, uint8_t *phase, int16_t *timer
     return 0;
 }
 
+int em_scene_bindings_pool_set_u4(uint32_t address, uint8_t value)
+{
+    const uint32_t off = address - EM_ACTOR_POOL_BASE;
+    if (address < EM_ACTOR_POOL_BASE || off % EM_ACTOR_RECORD_SIZE ||
+        off / EM_ACTOR_RECORD_SIZE >= EM_ACTOR_POOL_CAPACITY)
+        return -1;
+    s_pool.records[off / EM_ACTOR_RECORD_SIZE].u04[0] = value;
+    return 0;
+}
+
 uint32_t em_scene_bindings_pool_address(const void *actor)
 {
     return em_actor_pool_address(&s_pool, (const EmActor *)actor);

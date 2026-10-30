@@ -4,8 +4,8 @@
 AREA22 (a22_00..02, SIXTH_LEVEL_ROUTE.md), AREA01's upper floor (a01u_00..02,
 a01u_s0 / s1) and AREA06 (a06_00..05, SEVENTH_LEVEL_ROUTE.md), and the way
 back (a06b, a01v, a22b: EIGHTH_LEVEL_ROUTE.md). The New Game route smoke
-reaches a06_00 (tools/test_level_smoke_area01r.py); the beats past it, and
-any beat alone, run from the start-point card built from its fork recording's source state (tools/build_start_saves.py,
+compares them row for row through a04b_03 (tools/test_level_smoke_area01r.py);
+here any beat runs alone, from the start-point card built from its fork recording's source state (tools/build_start_saves.py,
 EM_START_AT): the boot title's LOAD GAME of that state's progress block,
 placed at the recorded player position, then the beat's recorded pad
 (EM_START_AT_PAD, the recorder's effective pad: no recorded corrections on

@@ -205,10 +205,12 @@ static int w_0015C9D0(void *c, EmPlayerLiveActor *a)
 {
     return em_player_0015C9D0(a, r_table16, NULL, c9d0_request, c);
 }
-static int stub_link1C(void *c, uint32_t word, uint8_t value)
+/* The +1C object's +4: 0021C190 stores the infection node (0x80000048) there;
+ * 00182D70 sets its +4 to 2 at a takeover and 00183090 to 1 at its end. */
+static int w_link1C(void *c, uint32_t word, uint8_t value)
 {
-    (void)c; (void)word; (void)value;
-    return unbound("the +1C object's +4 (00182D70; the port keeps no +1C object)");
+    (void)c;
+    return em_scene_bindings_pool_set_u4(word, value) < 0 ? unbound("the +1C object's +4 outside the pool") : 0;
 }
 
 /* 0015B530 with 0x70003B8D clear: 00182DF0 on the stage's own takeover
@@ -488,7 +490,7 @@ int em_player_stage_live_bind(void)
      * record pose's regions, which map the exported D_00248AB0 rows). */
     c->clip_lookup = em_player_closure_live_0017B490;
     c->w0015C9D0 = w_0015C9D0;
-    c->link1C = stub_link1C;
+    c->link1C = w_link1C;
     c->sound_stop = w_sound_stop;
 
     live.major4.stage = player_states_scene();

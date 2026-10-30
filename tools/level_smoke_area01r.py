@@ -255,6 +255,14 @@ def command_rows(phase, capture):
     with until then (route_capture: the pad as the session left it,
     cleared), which is the C driver's pad before its first command."""
     commands = capture['inputs']
+    # The bed branch's a04_04 -> a04_05 join: a04_04's last row sets a stick,
+    # then neutral. The canonical recording's neutral reaches a04_05's row 1
+    # (m1F1 2); on this recording neither reaches it: row 1 keeps row 0's stick
+    # (m1F1 1, the yaw unchanged) and the neutral comes at row 2. So the two
+    # last commands go, row 0's stick carries, and a04_05 opens with the
+    # neutral at f -1 (its row 1's command).
+    if BED and phase == 'a04_04':
+        commands = commands[:-2]
     corrections = PAD_CORRECTIONS.get(phase, [])
     assert commands and (commands[0]['f'] == 0 or not corrections)
     assert all(a['f'] <= b['f'] for a, b in zip(commands, commands[1:])), (phase, 'backward command')
@@ -277,6 +285,8 @@ def command_rows(phase, capture):
             if changed or effective != sent:
                 out.append(dict(f=frame, buttons=effective[0], lx=effective[1], ly=effective[2]))
                 sent = effective
+    if BED and phase == 'a04_05':
+        out.insert(0, dict(f=-1, buttons=0, lx=127, ly=127))
     return out
 
 
@@ -296,7 +306,7 @@ def prepare_pads(out):
         rows = command_rows(phase, capture)
         frames, gap = capture['frames'], source_gap(phase, capture)
         assert 0 < len(rows) <= 2048 and 1 <= frames <= 20000
-        assert all(0 <= r['f'] <= frames and 0 <= r['buttons'] <= 65535 and
+        assert all(-1 <= r['f'] <= frames and 0 <= r['buttons'] <= 65535 and
                    0 <= r['lx'] <= 255 and 0 <= r['ly'] <= 255 for r in rows)
         header = f'EMA1 1 {frames} {gap}'
         if phase in a00.RETURN_TICKS:
@@ -347,6 +357,20 @@ def check_block_end(tick, phase):
     differ = [i for i in range(BLOCK_SIZE) if got[i] != want[i] and i not in BLOCK_CLOCK]
     assert not differ, (phase, 'ending progress block differs',
                         [(hex(BLOCK + i), got[i], want[i]) for i in differ[:24]], len(differ))
+
+
+def check_creature_end(tick, phase):
+    """a04b_03's end: the creature event [3] spawned at the lift (callback
+    0012E3A0, the tick log's a04c) equals its record in the end RAM."""
+    observed = tick.get('a04c')
+    assert observed and len(observed['owners']) == 1, (phase, 'missing creature observation')
+    (address, value), = observed['owners'].items()
+    node = int(address)
+    ram = capture_path(phase).with_name('eeMemory.bin').read_bytes()
+    want = [ram[node:node + 16].hex(), ram[node + 0xB0:node + 0xBC].hex(), ram[node + 0x1F0:node + 0x200].hex(),
+            ram[node + 0x2DC:node + 0x2F0].hex(), struct.unpack_from('<I', ram, node + 0x10)[0]]
+    assert value == want and want[4] == 0x0012E3A0, (phase, 'the creature differs', hex(node), value, want)
+    return node
 
 
 def compare_route_row(smoke, ticks, i, row, phase):
@@ -448,6 +472,8 @@ def check_route(smoke, ticks, run, state, phase):
     check_camera_end(ticks[end], phase)
     if owners_of(phase)[1] in LATER_KEYS:
         check_block_end(ticks[end], phase)
+    if phase == 'a04b_03':
+        print(f'a04b_03: the creature at {check_creature_end(ticks[end], phase):#x} equals its end RAM record')
     state['cursor'] = end + 1
     state.setdefault('a01r_ends', {})[phase] = ticks[end]['counter']
     last = rows[-1]

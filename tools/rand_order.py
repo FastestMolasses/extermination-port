@@ -153,6 +153,11 @@ PORT_FN = {
     'em_area06_port_00824560': 0x824560, 'a6_00824560': 0x824560,
     # The way back: the creature at the gap and the bugs (a06b_01 on)
     'em_level8_port_001BF6B0': 0x1BF6B0, 'em_area01_exita_0012A5D0': 0x12A5D0,
+    'em_area00_low_001B8AB0': 0x1B8AB0, 'shake_draw2': 0x1B8AB0,  # the beam's camera shake (a06_04)
+    'em_area06_port_0021AE90': 0x21AE90,         # the spark node (a06_05)
+    'em_area06_port_001F8350': 0x1F8350,         # the infection node (a06_05's turn)
+    # AREA04's second visit: pool owner 0x8239A0, the creature's 00133640
+    'em_level8_port_008239A0': 0x8239A0, 'l8_00133640': 0x133640,
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -184,7 +189,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
-            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'm08_w_00122BB8', 'a6_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'm08_w_00122BB8', 'a6_rand', 'l8_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

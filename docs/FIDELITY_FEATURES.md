@@ -2817,38 +2817,35 @@ shooting and knifing anywhere also run without a fault.
   count-up as 0x1E); a01_s8's rand() stream is anchored at its row 0 (the native
   stream leaves a01_s5 at another state).
 
-**AREA22, AREA01's upper floor and AREA06 on the way to the first boss**
+**The way to the first boss: AREA22, AREA01's upper floor, AREA06, back to AREA04's lift**
 
 - What: AREA22 (door [7], the corridor with its bugs and the two pushing
   model-0x52 owners, door [8] up to AREA01 entry 6), AREA01's upper floor
-  (the gap jump, the catwalk event, door [19] into AREA06), AREA06's beam
-  room, and on the way back AREA01's catwalk with the creature AREA06's
-  event wakes (001C02E0's bit-5 branch) and AREA22 back to door [7].
-- How: AREA22 and AREA06 in the shared area composition; their area
-  inits, overlay owners and the boot routines they reach are the level
-  ports' translations checked against the original instructions
-  (test_area22_port_reference.py, test_area06_port_reference.py,
-  test_level8_port_reference.py, test_area04_port_reference.py for
-  001C1A80, test_area00_low_reference.py for 001E7440);
-  AREA22_PORT.md / AREA06_PORT.md "Live binding", LEVEL8_PORT.md.
-- Evidence: from New Game, seven fork recordings compared row for row by
-  `python3 tools/test_level_smoke_area01r.py --run --until a06_00`: a22_00
-  (626 rows), a22_01 (663), a22_02 (683), a01u_00 (235), a01u_01 (1,446),
-  a01u_02 (1,064), a06_00 (357), with the whole progress block equal to each
-  beat's end RAM but for the frame count. Beyond those, `tools/mid_route_beats.py`
-  from start-point cards built from the fork recordings' source states (the
-  recording's pad, path and rand() word): a01u_s0, a01u_s1, a01v_00, a22b_00
-  and a22b_01 reach their ends without a fault, with the end position within 4 units of the
-  recording's and the progress block equal to the recording's end snapshot
-  (but the load pose, the loaded flag, the frame count and the check byte).
-- Status: **VERIFIED** from New Game through a06_00 (AREA06's first walk);
-  **PARTIAL** beyond it. The card runs are not row by row (a loaded game is
-  not the route's machine state). a06_01 .. a06_05 play to their ends from
-  the arrival card, their blocks differing in creature results (the bites,
-  taken bits: AREA06_PORT.md "Where AREA06 stands"), and the keypad page, the
-  beam's collapse and door [3] run on translations; the way back (a06b) misses
-  its jump. The (1, 0) player packet equals the a06_05 recording's GS memory.
-  Not compared: pixels (the keypad page included) and sound.
+  (the gap jump, the catwalk event, door [19]), AREA06 (the beam, the crate, a
+  bug's spit, door [2], the keypad, the jump back over the beam's trigger, and
+  on the side line the beam's collapse, the player turning at infection 100 and
+  the locked door [3]), the way back (door [1], AREA01's catwalk with the creature
+  AREA06's event wakes, door [18], AREA22, door [6]), and AREA04's second visit:
+  door [45], the NPC's long script with item 0x23, the reader [50], event [3] and
+  the creature it brings down at the lift.
+- How: AREA22 and AREA06 in the shared area composition; their area inits, overlay
+  owners and the boot routines they reach are the level ports' translations
+  checked against the original instructions (test_area22_port_reference.py,
+  test_area06_port_reference.py, test_level8_port_reference.py,
+  test_area04_port_reference.py for 001C1A80, test_area00_low_reference.py for
+  001E7440); AREA22_PORT.md / AREA06_PORT.md "Live binding", LEVEL8_PORT.md.
+- Evidence: from New Game, fork recordings compared row for row with the rand()
+  order: `python3 tools/test_level_smoke_area01r.py --run --until a22b_01`
+  (73 live phases), `--until a06_05` (the side line) and `--until a04b_03` (78
+  live phases, the fork continuation from the bed: the only recording of the
+  second visit). Each beat's whole progress block equals its end RAM but for the
+  frame count (health and infection included), and at a04b_03's last row the
+  creature's record equals the end RAM. LEVEL3_BINDING.md "2026-10-30, lane E1"
+  has the row counts.
+- Status: **VERIFIED** for these beats on the recorded paths. Not compared:
+  pixels, sound, the keypad page's picture. The comparison runs with the recorded
+  rand() anchors at area entries and the recorded drive timing. The fight itself
+  and a04b_04 (the lift to AREA13) are not covered.
 
 **The first boss at AREA04's lift, the shotgun and the dog tag**
 
