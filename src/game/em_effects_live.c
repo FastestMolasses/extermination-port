@@ -30,6 +30,8 @@
 #include "game/em_pose_host_workers.h"
 #include "game/em_random.h"
 #include "game/em_render_context_live.h"
+#include "game/em_module_loader.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_scene_workers.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_sfx.h"
@@ -1476,6 +1478,67 @@ static int w_001F5CA0(void *ctx, u32 *list)
     return 0;
 }
 
+/* 001F6210's list loop (an area with a 001F5CA0 list: AREA04's model
+ * sprites). The display-list cursor is the context's +0x1C word, the one
+ * storage: the manager's copy goes there before each worker that reads or
+ * advances it and comes back after (the original re-reads +0x1C). */
+static int cursor_out(void)
+{
+    uint8_t *p = em_rcl_bytes_mut(CTX + 0x1Cu, 4);
+    if (!p) return -1;
+    memcpy(p, &S.mglobals.list_cursor, 4);
+    return 0;
+}
+static int cursor_in(void)
+{
+    const uint8_t *p = em_rcl_bytes(CTX + 0x1Cu, 4);
+    if (!p) return -1;
+    memcpy(&S.mglobals.list_cursor, p, 4);
+    return 0;
+}
+static int w_m_001D8C20(void *ctx, int32_t mode)
+{
+    (void)ctx;
+    return em_owner_draw_live_light_mode(mode);
+}
+/* 001C6120(bank, id) (byte-matched C): bank + ((bank[1 + (id & 0x7FFF)] >> 2) << 2),
+ * over the bank the area load delivered (D_0028A59C's). */
+static int w_m_001C6120(void *ctx, u32 bank, int32_t id, u32 *handle)
+{
+    (void)ctx;
+    const u32 index = (u32)id & 0xFFFFu & 0xFFFF7FFFu;
+    const uint8_t *e = em_module_loader_memory(em_module_loader_live(), bank + 4u + 4u * index, 4);
+    if (!e) return -1;
+    *handle = bank + (u32)(((int32_t)rd32(e) >> 2) << 2);
+    return 0;
+}
+static int w_m_001D3D90(void *ctx, u32 handle)
+{
+    (void)ctx;
+    const uint8_t *w04 = em_module_loader_memory(em_module_loader_live(), handle + 4u, 4);
+    if (!w04 || cursor_out() < 0) return -1;
+    if (em_owner_draw_live_001D3D90_at(handle, rd32(w04)) < 0) return -1;
+    return cursor_in();
+}
+static const uint8_t *m_resource(void *ctx, u32 a, u32 n)
+{
+    (void)ctx;
+    const uint8_t *p = em_rcl_bytes(a, n);
+    return p ? p : em_module_loader_memory(em_module_loader_live(), a, n);
+}
+static int w_m_001CAAC0(void *ctx, const u32 position[4], u32 cursor, u32 context)
+{
+    (void)ctx;
+    if (context != CTX || cursor_out() < 0) return -1;
+    if (em_owner_draw_live_001CAAC0_sprite(position, cursor, m_resource, NULL) < 0) return -1;
+    return cursor_in();
+}
+static uint8_t *w_m_list_at(void *ctx, u32 address, u32 size)
+{
+    (void)ctx;
+    return em_rcl_bytes_mut(address, size);
+}
+
 /* 001CD520(bucket, mode, position, tex0, rgb, w, h, zbias):
  * em_player_equipment_sprite's translation. */
 static int w_001CD520(void *ctx, int32_t a0, int32_t a1, u32 position, uint64_t tex0, u32 rgb, u32 f12,
@@ -1666,6 +1729,13 @@ static void wire(EmPacketChain *pc)
     mw->w_0021B9A0 = w_0021B9A0_bits;
     mw->w_0011E2A8 = w_0011E2A8;
     mw->w_001CD520 = w_001CD520;
+    /* 001F6210's list loop (AREA04's area model sprites; AREA11, AREA01,
+     * AREA00 and AREA02 have no 001F5CA0 list). */
+    mw->w_001D8C20 = w_m_001D8C20;
+    mw->w_001C6120 = w_m_001C6120;
+    mw->w_001D3D90 = w_m_001D3D90;
+    mw->w_001CAAC0 = w_m_001CAAC0;
+    mw->w_list_at = w_m_list_at;
     /* 001F6210's list loop, the selectors' point-light paths and the sweep's
      * live entities are not reached in AREA11: NULL. */
     S.mglobals.d275670 = CTX;
@@ -2353,6 +2423,15 @@ int em_effects_live_001F0360(void)
         S.entities[i].kind = (int16_t)(uint16_t)(r[0x82] | r[0x83] << 8);
     }
     S.mglobals.d275C44 = S.kglobals.d275C44;
+    /* 001F6210's D_0028A59C (the area's world-model bank, loader slot 0x43)
+     * and the context's +0x1C cursor (001F6210 runs first in 001F0360; its
+     * last worker call leaves the final cursor in the context). */
+    {
+        EmModuleLoader *ml = em_module_loader_live();
+        EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+        S.mglobals.d28A59C = ld ? ld->d28A490[(0x0028A59Cu - 0x0028A490u) / 4u] : 0;
+        if (cursor_in() < 0) return fail(CTX + 0x1Cu, "the context's display-list cursor has no view");
+    }
     S.recording = 1;
     S.npk = 0;
     S.nsp = 0;

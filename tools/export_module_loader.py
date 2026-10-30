@@ -100,7 +100,9 @@ DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES
 # are delivered in full; the drive's missing-range fault is unchanged.
 # AREA02 sub 1 (the revisit's door [16], a01r_03: area 2 entry 1 sub 1) and
 # sub 0 (the AREA02 main line, a02_00 on; docs/FOURTH_LEVEL_ROUTE.md).
-DEFAULT_AREAS = ((0x0B, 0), (0x01, 0), (0x00, 0), (0x00, 1), (0x02, 1), (0x02, 0))
+# AREA04 sub 0 (AREA02's door [25], a02_05: area 4 entry 0 sub 0;
+# docs/FIFTH_LEVEL_ROUTE.md).
+DEFAULT_AREAS = ((0x0B, 0), (0x01, 0), (0x00, 0), (0x00, 1), (0x02, 1), (0x02, 0), (0x04, 0))
 HEADER = 0x120
 AREA_FILES = 0x17
 D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890
@@ -286,7 +288,7 @@ def main():
     ap.add_argument('--modules', default=','.join(f'{m:#x}' for m in DEFAULT_MODULES),
                     help='comma-separated module ids (default 3 and PAGE_MODULES)')
     ap.add_argument('--areas', default=','.join(f'{a:#x}:{r}' for a, r in DEFAULT_AREAS),
-                    help='comma-separated area[:room] for 001FF080(1, 0) (default 0xb:0,0x1:0,0x0:0,0x0:1,0x2:1,0x2:0)')
+                    help='comma-separated area[:room] for 001FF080(1, 0) (default 0xb:0,0x1:0,0x0:0,0x0:1,0x2:1,0x2:0,0x4:0)')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/module_loader/modules.emml')
     args = ap.parse_args()
     modules = [int(m, 0) for m in args.modules.split(',') if m.strip()]

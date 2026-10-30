@@ -66,15 +66,16 @@ int em_area01_shared_services_call(const EmArea01RuntimeHost *h,EmSdkMathContext
 }
 int em_area01_shared_services_publish(EmActorPool *pool,EmArea01Call *c)
 {
-    if(!pool || !c || (c->function!=0x001B1B70u && c->function!=0x001B1DE0u) || c->na!=1 || c->nf)return -1;
+    if(!pool || !c || (c->function!=0x001B1B70u && c->function!=0x001B1DE0u && c->function!=0x001B1D20u) ||
+       c->na!=1 || c->nf)return -1;
     uint32_t node=(uint32_t)c->a[0];
     if(node<EM_ACTOR_POOL_BASE || (node-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE)return -1;
     uint32_t i=(node-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE;
     if(i>=EM_ACTOR_POOL_CAPACITY)return -1;
     EmActor *a=&pool->records[i];
     if(!a->allocated || a->self!=a)return -1;
-    int rc=c->function==0x001B1DE0u
-        ? em_collision_world_push80_001B1DE0(a)
-        : em_collision_world_publish_001B1B70(a);
+    int rc=c->function==0x001B1DE0u ? em_collision_world_push80_001B1DE0(a)
+         : c->function==0x001B1D20u ? em_collision_world_push4_001B1D20(a)
+                                    : em_collision_world_publish_001B1B70(a);
     if(rc<0)return -1;c->v0=(uint64_t)(int64_t)rc;return 0;
 }

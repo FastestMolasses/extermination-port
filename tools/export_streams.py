@@ -87,7 +87,8 @@ MUSIC_EXTRA = {25: '001FAE70 AREA11 selection (captured D_00282178[0] = 25)',
                13: 'AREA01 sub-0 spawn selection (also captured at the AREA11 exit)',
                22: 'AREA01 sub-1 spawn selection (spawn music word 0x9600)',
                20: 'AREA01 overlay 00826BA0, script 0082BAD0 completion: 001FB0B0(20)',
-               0x13: 'AREA02 overlay 0x823980 (switch [31]), script 0x826780 completion: 001FA790(0, 0x13)'}
+               0x13: 'AREA02 overlay 0x823980 (switch [31]), script 0x826780 completion: 001FA790(0, 0x13)',
+               0xF: 'AREA04 overlay 0x823B90 (the director [1]), after the arrival script 0x8275A0: 001FB0B0(0xF)'}
 VOICE_CUES = {c: 'director / Roger voiced lines (docs/STREAM_LANES.md item 6)'
               for c in range(143, 152)}
 VOICE_CUES[1] = ('line 0x13: Roger\'s talk after the encounter (script 0x828810, BRANCH br_14); '

@@ -32,11 +32,17 @@ def main():
     elf=read_elf();read=A.static_reader(elf,A.read_overlay());caps=A.captures()
     caps=caps if FULL else [caps[0],caps[2],caps[-1]]
     total=boundaries=0;visited=set()
-    for ci,cap in enumerate(caps):
-      for scene,row,clip in ((2,0x96,2),(35,0x98,0)):
+    # AREA01's scenes 2 and 35 (their tracks from the bank rows 0x96 / 0x98),
+    # and AREA04's arrival scene 3 (script 0x8275A0; the track the fork's
+    # a02_05 end still holds at the camera's +0x70; no event track).
+    cases=[(ci,cap,scene,row,clip) for ci,cap in enumerate(caps) for scene,row,clip in ((2,0x96,2),(35,0x98,0))]
+    a04=A.Capture(A.DECOMP/'build/fork_refs/s87/route_a02/a02_05_progression_exit')
+    cases.append((len(caps),a04,3,None,None))
+    for ci,cap,scene,row,clip in cases:
         o=FallEE(elf);o.mem[:]=cap.ram;o.spad[:]=cap.spad
         for a,size in ((0x26AAE0,32),(0x26AC80,32),(0x26C598,52)):o.write(a,read(a,size))
-        bank=o.load(0x28A490+4*row);track=bank+(o.load(bank+4+4*clip)&~3)
+        if row is None:track=o.load(CAM+0x70)
+        else:bank=o.load(0x28A490+4*row);track=bank+(o.load(bank+4+4*clip)&~3)
         duration=struct.unpack('<f',o.read(track,4))[0]
         assert 1<=duration<65536 and duration==int(duration)
         o.save(CAM+0x6E,scene,2);o.save(CAM+0x70,track);o.save(CAM+0x78,bits(duration))
@@ -116,5 +122,5 @@ def main():
     struct.pack_into('<I',ram,CAM+0x84,0x26AAC0);rejected(0x22EEF0,0x26AAC0)
     struct.pack_into('<I',ram,CAM+0x84,0)
     struct.pack_into('<I',ram,CAM+0x78,bits(duration+1));rejected(0x22EEF0,track)
-    banner(f'{total} AREA01 timeline ticks',f'{boundaries} exact service boundaries','6 fail-stop checks',f'{time.monotonic()-start:.1f}s')
+    banner(f'{total} AREA01 / AREA04 timeline ticks',f'{boundaries} exact service boundaries','6 fail-stop checks',f'{time.monotonic()-start:.1f}s')
 if __name__=='__main__':main()

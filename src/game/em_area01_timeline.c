@@ -137,7 +137,10 @@ int em_area01_timeline_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_
     Frame f={h,c->sp-(c->function==0x0022EC30u ? 0x20u : 0x30u),0,(uint32_t)c->a[0]};
     const uint8_t *p=bytes(&f,f.cam+0x6E,2,0);int16_t scene=0;
     if(p)memcpy(&scene,p,2);
-    if(scene!=2 && scene!=35)f.fault=f.cam+0x6E;
+    /* Scenes 2 and 35 (AREA01), and 3 (AREA04's arrival script 0x8275A0):
+     * 0022EC30 binds no track for 3 and 0022EEF0's scene switch has no case
+     * for it, so its tick is the common one. */
+    if(scene!=2 && scene!=3 && scene!=35)f.fault=f.cam+0x6E;
     if(!f.fault && c->function==0x0022EC30u) {
         uint64_t start=call(&f,0x0021BAB0u,0,0,0,0,0,0);
         store(&f,0x00275C98u,&start,sizeof start);

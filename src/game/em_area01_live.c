@@ -1139,7 +1139,7 @@ static int worker(void *ctx,EmArea01Call *c)
         if(!after)return -1;
         c->v0=*after;return 0;
     }
-    case 0x001B1B70u: case 0x001B1DE0u: {
+    case 0x001B1B70u: case 0x001B1DE0u: case 0x001B1D20u: {
         if(c->na!=1 || em_area01_actor_view_touch(&l->actors,(uint32_t)c->a[0])<0 ||
            em_area01_live_suspend(l)<0)return -1;
         int rc=em_area01_shared_services_publish(l->host.pool,c);
@@ -1443,7 +1443,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
        !h->resource_epoch || !h->rebind)
         return -1;
     const unsigned area=h->scene->d810700;
-    if(area>2 || h->area->area!=area)return -1;
+    if((area>2 && area!=4) || h->area->area!=area)return -1;
     memset(l,0,sizeof *l);l->host=*h;
     EmPoseHost *pose=player_pose_record_host();
     EmStatusSceneLoader *ld=em_module_loader_state(h->loader);

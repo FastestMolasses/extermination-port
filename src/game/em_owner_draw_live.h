@@ -102,6 +102,9 @@ int em_owner_draw_live_001CA940_library(int32_t flags, uint32_t model);
 /* Raw-model channel-3 worker used by 001F5F60. The caller reads the model's
  * +04 word from its canonical resource before its native boundary. */
 int em_owner_draw_live_001D3990_at(uint32_t model, uint32_t model_w04);
+/* The same for 001D3D90 (001D3CF0 on channel 3): 001F6210's area model
+ * sprites (em_effect_manager through em_effects_live). */
+int em_owner_draw_live_001D3D90_at(uint32_t model, uint32_t model_w04);
 /* Register a complete channel-3 object unit ending in RET after its caller
  * has inserted the original page CALL. Parses borrowed canonical bytes into
  * the existing frame cache; writes no packet, cursor or chain state. REF
@@ -111,6 +114,10 @@ int em_owner_draw_live_page_register(uint32_t start, uint32_t end,
 /* 001CAAC0 for a complete 001F5F60 class-2 unit ending in RET.
  * Uses the existing depth/page owner and keeps the parsed unit in the same
  * frame cache as 001CABA0. Resolver bytes must outlive the frame flush. */
+/* The same for 001F6210's area model sprite (a 001D3D90 unit, clip pass
+ * allowed: em_object_unit_parse_light_clip). */
+int em_owner_draw_live_001CAAC0_sprite(const uint32_t position[4], uint32_t start,
+                                      EmObjectUnitResolve resolver, void *ctx);
 int em_owner_draw_live_001CAAC0_packet(const uint32_t position[4], uint32_t start,
                                       EmObjectUnitResolve resolver, void *ctx);
 

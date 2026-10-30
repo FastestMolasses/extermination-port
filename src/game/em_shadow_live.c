@@ -50,6 +50,7 @@ typedef struct {
     EmShadowOriginalBox box[2];
     uint32_t box_count;
     int32_t sil_kind;
+    uint32_t sil_count;                    /* the actor's nodes (+0x0C): 21, or 20 for kind 0x2A */
     float sil_vp[16], sil_nodes[NODES * 16];
     float uv[16], camera[16];
     EmShadowOriginalReceiver recv[EM_SHADOW_RECEIVER_MAX];
@@ -64,6 +65,8 @@ static struct {
     unsigned receiver_area, receiver_subarea;
     int receiver_selected;
     EmModel proxy, proxy_29;               /* D_0028A490[0x28] (the player), [0x29] (Roger) */
+    EmModel proxy_2a;                      /* D_0028A490[0x2A] (AREA04's NPC [2]), loaded at first use */
+    int proxy_2a_tried;
     uint8_t *elf;                               /* the D_0025DAE0 window, placed */
     EmShadowActorRouteTables route_tables;
     /* D_00817FF0 (BSS: zero at boot; never reset). */
@@ -74,6 +77,7 @@ static struct {
     EmShadowOriginalFault sfault;
     EmShadowOriginalWorkers workers;
     const uint8_t *nodes[NODES];
+    uint32_t node_count;                   /* the running call's actor nodes */
     /* The recorded 001DA6A0 calls of the frame (their draw workers), in
      * call order; `cur` is the running call's. */
     uint32_t frame;
@@ -196,6 +200,7 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     if (area == 0 && subarea == 1) path = EM_SHADOW_LIVE_AREA00_SUB1_RECEIVERS_PATH;
     if (area == 2 && subarea == 0) path = EM_SHADOW_LIVE_AREA02_SUB0_RECEIVERS_PATH;
     if (area == 2 && subarea == 1) path = EM_SHADOW_LIVE_AREA02_SUB1_RECEIVERS_PATH;
+    if (area == 4 && subarea == 0) path = EM_SHADOW_LIVE_AREA04_SUB0_RECEIVERS_PATH;
     if (!path || S.fault) return -1;
     for (u32 k = 0; k < S.pass_count; ++k)
         if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;
@@ -327,6 +332,21 @@ static const EmModel *proxy_of(int32_t kind)
 {
     if (kind == EM_SHADOW_ORIGINAL_KIND_PLAYER) return &S.proxy;
     if (kind == EM_SHADOW_LIVE_KIND_ROGER) return &S.proxy_29;
+    if (kind == EM_SHADOW_LIVE_KIND_2A) {
+        /* AREA04's NPC [2] (0x824320, +0x96 = 0x2A, 20 nodes): the chunk03
+         * file id 0x2A (export_shadow_proxy.py --kind 0x2A), loaded the
+         * first time an actor of that kind draws its silhouette. */
+        if (!S.proxy_2a_tried) {
+            S.proxy_2a_tried = 1;
+            if (em_model_load(&S.proxy_2a, EM_SHADOW_LIVE_PROXY_2A_PATH) != 0 || !S.proxy_2a.verts ||
+                !S.proxy_2a.indices || S.proxy_2a.index_count % 3) {
+                fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
+                                "export_shadow_proxy.py --kind 0x2A)\n", EM_SHADOW_LIVE_PROXY_2A_PATH);
+                memset(&S.proxy_2a, 0, sizeof S.proxy_2a);
+            }
+        }
+        return S.proxy_2a.verts ? &S.proxy_2a : NULL;
+    }
     return NULL;
 }
 
@@ -336,8 +356,9 @@ static int w_silhouette(void *ctx, int32_t kind, const float vp[16])
     Pass *p = S.cur;
     if (!p || !proxy_of(kind) || !vp) return -1;
     p->sil_kind = kind;
+    p->sil_count = S.node_count;
     memcpy(p->sil_vp, vp, sizeof p->sil_vp);
-    for (unsigned i = 0; i < NODES; ++i) memcpy(p->sil_nodes + 16 * i, S.nodes[i] + 0x90, 0x40);
+    for (unsigned i = 0; i < S.node_count; ++i) memcpy(p->sil_nodes + 16 * i, S.nodes[i] + 0x90, 0x40);
     return push(CMD_SIL, 0);
 }
 
@@ -576,6 +597,7 @@ static int call_001DA6A0(const EmPlayerLiveActor *player)
                   EM_SHADOW_ROUTE_001DA6A0);
     if (begin_pass(0, EM_SHADOW_LIVE_PLAYER) < 0) return -1;
     S.sfault = (EmShadowOriginalFault){ 0, 0 };
+    S.node_count = NODES;
     const int r = em_shadow_original_001DA6A0(player->bytes, S.nodes, NODES, &S.scene, &S.state, &S.plan,
                                               &S.workers, &S.sfault);
     if (r < 0) return fail(S.sfault.address, "001DA6A0 faulted");
@@ -672,12 +694,15 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
 {
     if (S.fault) return -1;
     if (!S.bound) return fail(0x001DA6A0u, "the shadow is not bound");
-    if (!bytes || size < 0x100u || !nodes || node_count != NODES)
+    /* 21 nodes (the player, Roger), or AREA04's 20-node kind 0x2A actor. */
+    if (!bytes || size < 0x100u || !nodes || !node_count || node_count > NODES ||
+        (node_count != NODES && !(node_count == 20u && rd32(bytes + 0x94) >> 16 == EM_SHADOW_LIVE_KIND_2A)))
         return fail(0x001DA6A0u, "an actor record or its node records are not mapped");
     for (unsigned i = 0; i < NODES; ++i) {
-        if (!nodes[i]) return fail(0x001DA6A0u, "an actor node record is not mapped");
-        S.nodes[i] = nodes[i];
+        if (i < node_count && !nodes[i]) return fail(0x001DA6A0u, "an actor node record is not mapped");
+        S.nodes[i] = i < node_count ? nodes[i] : NULL;
     }
+    S.node_count = node_count;
     if (load_scene() < 0) return -1;
     const EmShadowLiveActorLog keep = S.alog;
     memset(&S.alog, 0, sizeof S.alog);
@@ -689,7 +714,7 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
     S.asampled = 1;
     if (begin_pass(1, record) < 0) return -1;
     S.sfault = (EmShadowOriginalFault){ 0, 0 };
-    const int r = em_shadow_original_001DA6A0(bytes, S.nodes, NODES, &S.scene, &S.state, &S.aplan, &S.workers,
+    const int r = em_shadow_original_001DA6A0(bytes, S.nodes, node_count, &S.scene, &S.state, &S.aplan, &S.workers,
                                               &S.sfault);
     if (r < 0) return fail(S.sfault.address, "001DA6A0 faulted (an actor)");
     S.asample.plan = &S.aplan;
@@ -728,7 +753,7 @@ static int flush_pass(EmGfx *gfx, const float viewproj[16], Pass *p)
             const EmModel *m = proxy_of(p->sil_kind);
             if (!m) break;
             r = em_gfx_shadow_silhouette(gfx, m->verts, m->vert_count, m->indices, m->index_count, p->sil_nodes,
-                                         NODES, p->sil_vp);
+                                         p->sil_count, p->sil_vp);
             break;
         }
         case CMD_BEGIN:

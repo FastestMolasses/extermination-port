@@ -217,6 +217,9 @@ static const char *area02_file(unsigned sub, const char *name)
     snprintf(out, sizeof path[0], AREA02_SCENE_DIR "/sub%u%s%s", sub, name[0] ? "/" : "", name);
     return out;
 }
+/* AREA04 (tools/export_area04_level / _tables / _sfx): sub 0 only (no
+ * capture loads sub 1; docs/AREA04_ASSETS.md). */
+#define AREA04_SCENE_DIR "assets/area04/sub0"
 
 static const uint8_t *closure_spawn_read(uint32_t address, uint32_t size);
 
@@ -2388,13 +2391,15 @@ static int rcl_bind(void)
     static const EmRclWorkers workers = {NULL, rcl_point_light, rcl_sqrt, rcl_tan, rcl_weather};
     /* The static-object bank and 001E1E60's upload block (the area's
      * static world, docs/STATIC_WORLD.md): fail-stop without the export. */
-    const int area01 = strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0;
+    /* AREA04 sub 0 delivers a dynamic list at slot 0x45 too (54 entries,
+     * docs/AREA04_ASSETS.md). */
+    const int area01 = strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0 || strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0;
     if (!arrival_scene() && em_rcl_static_world_load(NULL) < 0)
         return -1;
     if (em_rcl_bind(views, sizeof views / sizeof views[0], &workers) < 0)
         return -1;
     if (area01) {
-        /* AREA01's dynamic pass reads the resource delivered at slot 0x45.
+        /* AREA01's (and AREA04's) dynamic pass reads the resource delivered at slot 0x45.
          * Rebind after em_rcl_bind invalidates the previous area's views. */
         const uint8_t *word = (const uint8_t *)&ld->d28A490[0x45];
         uint32_t size = 0;
@@ -2430,7 +2435,8 @@ static int arrival_scene(void)
     return strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0 ||
            strcmp(g.scene_dir, AREA00_SCENE_DIR) == 0 ||
            strcmp(g.scene_dir, AREA02_SCENE_DIR "/sub0") == 0 ||
-           strcmp(g.scene_dir, AREA02_SCENE_DIR "/sub1") == 0;
+           strcmp(g.scene_dir, AREA02_SCENE_DIR "/sub1") == 0 ||
+           strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -2555,6 +2561,7 @@ static int state0_001AF8E0(void *ctx)
         if (!ld || em_area11_boxes_bind_world_bank(
                 s_state.d810700 == 0 ? AREA00_SCENE_DIR "/world_models.emwm" :
                 s_state.d810700 == 2 ? area02_file(s_state.d810701, "world_models.emwm") :
+                s_state.d810700 == 4 ? AREA04_SCENE_DIR "/world_models.emwm" :
                 arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
                                 : EM_AREA11_WORLD_MODELS_PATH,
                 ld->d28A490[0x43]) < 0)
@@ -2642,7 +2649,8 @@ static int w_001AFCA0(void *ctx)
          * the global SDK tables used by 001B07C0's 001B0460. */
         if (em_collision_world_load(&g.coll, g.coll_path,
                                     s_state.d810700 == 0 ? AREA00_CELLS_PATH :
-                                    s_state.d810700 == 2 ? area02_file(s_state.d810701, "area02_cells.bin")
+                                    s_state.d810700 == 2 ? area02_file(s_state.d810701, "area02_cells.bin") :
+                                    s_state.d810700 == 4 ? AREA04_SCENE_DIR "/area04_cells.bin"
                                                          : AREA01_CELLS_PATH,
                                     EM_COLLISION_WORLD_SDK_PATH) != 0)
             return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
@@ -2686,6 +2694,7 @@ static int w_001AFCA0(void *ctx)
              * export_area02_tables refuses it), and the selection is per
              * area (em_message_live_select_area), so sub 1 keeps sub 0's. */
             s_state.d810700 == 2 ? area02_file(0, "message_data.emmd") :
+            s_state.d810700 == 4 ? AREA04_SCENE_DIR "/message_data.emmd" :
             arrival_scene() ? AREA01_SCENE_DIR "/message_data.emmd"
                             : "assets/message/message_data.emmd", s_state.d810700))
         return em_scene_fault(&s_state, 0x001FD790u, EM_SCENE_FAULT_NULL_WORKER);
@@ -3173,6 +3182,8 @@ static int area_read(void)
         scene = AREA00_SCENE_DIR;
     if (s_state.d810700 == 2 && s_state.d810701 <= 1)
         scene = area02_file(s_state.d810701, "");
+    if (s_state.d810700 == 4 && s_state.d810701 == 0)
+        scene = AREA04_SCENE_DIR;
     if (scene) {
         if (area01_scratch_detach() < 0)
             return -1;
@@ -3482,6 +3493,18 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     }
     if (s_state.d810700 == 2 && fn == 0x001E4CE0u)
         goto bind;
+    /* AREA04's pool owners (em_area04_port through em_area01_runtime area
+     * 4; docs/AREA04_PORT.md) and its boot owner 001C1A80. */
+    if (s_state.d810700 == 4 && (fn >= 0x00823500u || fn == 0x001C1A80u)) {
+        switch (fn) {
+        case 0x00823700u: case 0x00823B90u: case 0x00823EE0u: case 0x00824100u: case 0x008241F0u:
+        case 0x00824320u: case 0x008246B0u: case 0x00824DC0u: case 0x00825510u: case 0x00825880u:
+        case 0x00825B00u: case 0x00825D60u: case 0x00825DF0u: case 0x008260C0u: case 0x001C1A80u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
     /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
@@ -3528,7 +3551,7 @@ static int area00_spawned_fallback(EmActor *a)
     /* AREA02: any boot owner the area runtime runs too, e.g. the car's
      * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
-    if (s_state.d810700 == 2 && a)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4) && a)
         return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
@@ -3649,6 +3672,8 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 2u, 0x00828A00u, 0x0082CD00u);
     if (s_state.d810700 == 2 && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 3u, 0x00825680u, 0x00829280u);
+    if (s_state.d810700 == 4 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 5u, 0x00826600u, 0x0082C900u);
     fprintf(stderr, "em_area01: unbound worker %08X from live composition\n", call->function);
     return -1;
 }
@@ -3803,10 +3828,11 @@ static int area01_bind_roster(void *ctx, EmActor *a, const EmActorRosterSpawned 
 static int spawn_area01(void)
 {
     const unsigned area = s_state.d810700, sub = s_state.d810701;
-    if (!((area == 1 && sub == 0) || ((area == 0 || area == 2) && sub <= 1)))
+    if (!((area == 1 && sub == 0) || ((area == 0 || area == 2) && sub <= 1) || (area == 4 && sub == 0)))
         return em_scene_fault(&s_state, 0x001B6990u, EM_SCENE_FAULT_BAD_INDEX);
     const char *path = area == 1 ? AREA01_ROSTER_PATH :
                        area == 2 ? area02_file(sub, "roster.emro") :
+                       area == 4 ? AREA04_SCENE_DIR "/roster.emro" :
                        sub == 0 ? AREA00_SCENE_DIR "/sub0/roster.emro" :
                                   AREA00_SCENE_DIR "/sub1/roster.emro";
     if (s_roster01_loaded && (s_roster01.area != area || s_roster01.sub != sub)) {

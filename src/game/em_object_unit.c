@@ -414,6 +414,16 @@ int em_object_unit_parse_light(const uint8_t *unit, uint32_t size, EmObjectUnitR
     return 0;
 }
 
+int em_object_unit_parse_light_clip(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                                    EmObjectUnitPieces *out, const char **why)
+{
+    if (parse_unit(unit, size, resolve, ctx, out, why, 0, 1)) return -1;
+    if (out->bytes != size || out->unit.node_count != 1 || out->unit.gs_class != 2 ||
+        out->unit.program != EM_GFX_OBJECT_KERNEL)
+        return refuse(why, "not a complete 001F6210 light unit");
+    return 0;
+}
+
 /* ------------------------------------------------------------ running -- */
 
 static int fail(EmObjectUnitResult *r, const char *why, uint32_t block)

@@ -26,14 +26,16 @@ ROUTE_DIR = refs.capture('s87/route_a01r')
 A02_ROUTE_DIR = refs.capture('s87/route_a02')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
-              'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel'}
+              'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel',
+              'a02_05': 'a02_05_progression_exit'}
 SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed'}
 # em_level_smoke_test.c's phase order: each side right after its source.
 ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_03', 'a02_s0', 'a02_00', 'a02_01',
-                'a02_02', 'a02_03', 'a02_04')
+                'a02_02', 'a02_03', 'a02_04', 'a02_05')
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
            'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a02_00': 'a01r_03', 'a02_s0': 'a01r_03',
-           'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03'}
+           'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03',
+           'a02_05': 'a02_04'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,

@@ -44,6 +44,8 @@ uint8_t *em_area01_state_bytes(EmArea01State *s, uint32_t address, uint32_t size
         return em_area00_state_bytes(&s->area00, address, size);
     if (s && !s->fault && s->area == 2)
         return em_area02_state_bytes(&s->area02, address, size);
+    if (s && !s->fault && s->area == 4)
+        return em_area04_state_bytes(&s->area04, address, size);
     if (!valid(s)) return NULL;
     if (inside(address, size, EM_AREA01_STATE_GLOBALS, EM_AREA01_STATE_GLOBAL_SIZE))
         return s->globals + address - EM_AREA01_STATE_GLOBALS;
@@ -61,7 +63,7 @@ int em_area01_state_bind(EmArea01State *s, EmArea01StateMemory memory, void *ctx
 int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void *ctx, unsigned area)
 {
     if (!s || s->fault) return -1;
-    if (area > 2) return fail(s, OVERLAY_BASE);
+    if (area > 2 && area != 4) return fail(s, OVERLAY_BASE);
     s->memory = memory;
     s->ctx = ctx;
     s->area = area;
@@ -73,6 +75,11 @@ int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void
     if (area == 2) {
         if (em_area02_state_bind(&s->area02, memory, ctx, s->globals) < 0)
             return fail(s, s->area02.fault);
+        return 0;
+    }
+    if (area == 4) {
+        if (em_area04_state_bind(&s->area04, memory, ctx, s->globals) < 0)
+            return fail(s, s->area04.fault);
         return 0;
     }
     if (!valid(s)) return fail(s, OVERLAY_BASE);
@@ -121,7 +128,7 @@ int em_area01_state_00823A50(EmArea01State *s)
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
 {
     if (!s || s->fault) return -1;
-    if (area > 2 || area != s->area) return fail(s, 0x001E7780u);
+    if ((area > 2 && area != 4) || area != s->area) return fail(s, 0x001E7780u);
     STORE(0x00275C24u, 0);
     STORE(0x00275C28u, 0);
     STORE(0x00275C2Cu, 0);
@@ -136,6 +143,9 @@ int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
     } else if (area == 2 && sub <= 2) {
         if (em_area02_state_00823900(&s->area02) < 0)
             return fail(s, s->area02.fault);
+    } else if (area == 4 && sub <= 1) {
+        if (em_area04_state_00823B10(&s->area04) < 0)
+            return fail(s, s->area04.fault);
     }
     /* Original 001E7780 walks the initializer's canonical pointer/count,
      * rather than clearing either overlay's whole BSS on a rebuild. */

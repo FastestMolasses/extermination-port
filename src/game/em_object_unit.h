@@ -93,6 +93,11 @@ int em_object_unit_parse(const uint8_t *unit, uint32_t size, EmObjectUnitResolve
  * object submit. One node, no clip pass. Other parser entries stay strict. */
 int em_object_unit_parse_light(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
                                EmObjectUnitPieces *out, const char **why);
+/* The same colour/node VIF ordering as 001F6210 builds it (its 001D3D90 is
+ * 001D3CF0 on channel 3: the object pass and, when the model asks for it,
+ * the clip pass, parsed as every class-2 unit's). One node. */
+int em_object_unit_parse_light_clip(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                                    EmObjectUnitPieces *out, const char **why);
 /* The same for the first unit of a sequence (001CAA00 appends 001CB3C0's
  * face unit after the owner's own): out->bytes is where it ended. */
 int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,

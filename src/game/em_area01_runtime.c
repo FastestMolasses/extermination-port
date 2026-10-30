@@ -100,6 +100,7 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_area00_runtime_overlay.inc"
 #include "game/em_area01_runtime_revisit.inc"
 #include "game/em_area02_runtime_overlay.inc"
+#include "game/em_area04_runtime_overlay.inc"
 
 /* 001F4E20 is already translated by the AREA00 FX owner. Its only
  * callee keeps both address registers and adds the original second float. */
@@ -129,7 +130,7 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
 {
-    if (!r || !host || !host->bytes || !host->worker || area > 2) return -1;
+    if (!r || !host || !host->bytes || !host->worker || (area > 2 && area != 4)) return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
     r->area = area;
@@ -140,6 +141,7 @@ int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *h
     overlay00_workers(r); r->overlay00.w_callback = overlay_callback;
     revisit_workers(r);
     overlay02_workers(r); r->overlay02.w_callback = overlay_callback;
+    overlay04_workers(r); r->overlay04.w_callback = overlay_callback;
     r->sys.ctx = r; r->sys.view = bytes; r->sys.call = sys_call;
     r->exita.ctx = r; r->exita.view = bytes; r->exita.call = exita_call;
     r->exitb.ctx = r; r->exitb.view = bytes; r->exitb.call = exitb_call;
@@ -237,6 +239,61 @@ static int dispatch_overlay02(EmArea01Runtime *r, EmArea01Call *c)
     return rc;
 }
 
+/* AREA04's overlay entries (em_area04_port: the 21 owners and callees the
+ * AREA04 census found; docs/AREA04_PORT.md) and the boot owner 001C1A80.
+ * Each takes its original arguments; 0x824320 and 0x824490 take the
+ * caller's sp. Nested hooks get the entry's sp less the deepest chain of
+ * original frames below it (0x823700 0x20 -> 0x823580 0x40; 0x8246B0 0x20
+ * -> 0x824830 / 0x824930 0x30; 0x824320 0x20 -> 0x824490 0x70; read from
+ * each function's first instruction). Any other overlay address goes to
+ * the host's workers (an unbound one is the fail-stop). */
+static int dispatch_overlay04(EmArea01Runtime *r, EmArea01Call *c)
+{
+    static const struct { uint32_t fn, frame; } frames[] = {
+        {0x00823580u, 0x40u}, {0x00823700u, 0x60u}, {0x00823B40u, 0x10u}, {0x00823B90u, 0x30u},
+        {0x00823EE0u, 0x20u}, {0x00824100u, 0x20u}, {0x008241F0u, 0x20u}, {0x00824320u, 0x90u},
+        {0x00824490u, 0x70u}, {0x008246B0u, 0x50u}, {0x00824830u, 0x30u}, {0x00824930u, 0x30u},
+        {0x00824DC0u, 0x20u}, {0x00825510u, 0x30u}, {0x00825880u, 0x30u}, {0x00825B00u, 0x20u},
+        {0x00825D60u, 0x20u}, {0x00825DF0u, 0x30u}, {0x008260C0u, 0x20u}};
+    uint32_t frame = 0xFFFFFFFFu;
+    for (unsigned i = 0; i < sizeof frames / sizeof frames[0]; ++i)
+        if (frames[i].fn == c->function) frame = frames[i].frame;
+    if (c->function == 0x001C1A80u) frame = 0;
+    if (frame == 0xFFFFFFFFu) return r->host.worker(r->host.ctx, c);
+    const unsigned na = c->function == 0x00823B40u ? 0u : c->function == 0x00823580u ? 2u : 1u;
+    if (c->na < na || c->nf || c->sp < frame) return fail(r, c->function);
+    r->sp = c->sp - frame;
+    const EmArea04PortHooks *h = &r->overlay04;
+    EmArea04PortFault *f = &r->overlay04_fault;
+    const uint32_t a0 = (uint32_t)c->a[0];
+    int32_t result = 0;
+    int rc;
+    switch (c->function) {
+    case 0x00823700u: return em_area04_port_00823700(h, a0, f);
+    case 0x00823B90u: return em_area04_port_00823B90(h, a0, f);
+    case 0x00823EE0u: return em_area04_port_00823EE0(h, a0, f);
+    case 0x00824100u: return em_area04_port_00824100(h, a0, f);
+    case 0x008241F0u: return em_area04_port_008241F0(h, a0, f);
+    case 0x00824320u: return em_area04_port_00824320(h, a0, c->sp, f);
+    case 0x00824490u: return em_area04_port_00824490(h, a0, c->sp, f);
+    case 0x008246B0u: return em_area04_port_008246B0(h, a0, f);
+    case 0x00824830u: return em_area04_port_00824830(h, a0, f);
+    case 0x00824930u: return em_area04_port_00824930(h, a0, f);
+    case 0x00824DC0u: return em_area04_port_00824DC0(h, a0, f);
+    case 0x00825510u: return em_area04_port_00825510(h, a0, f);
+    case 0x00825880u: return em_area04_port_00825880(h, a0, f);
+    case 0x00825B00u: return em_area04_port_00825B00(h, a0, f);
+    case 0x00825D60u: return em_area04_port_00825D60(h, a0, f);
+    case 0x00825DF0u: return em_area04_port_00825DF0(h, a0, f);
+    case 0x008260C0u: return em_area04_port_008260C0(h, a0, f);
+    case 0x001C1A80u: return em_area04_port_001C1A80(h, a0, f);
+    case 0x00823580u: rc = em_area04_port_00823580(h, a0, (uint32_t)c->a[1], &result, f); break;
+    default:          rc = em_area04_port_00823B40(h, &result, f); break;
+    }
+    if (rc == 0) c->v0 = (uint64_t)(int64_t)result;
+    return rc;
+}
+
 static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
     static const struct { uint32_t fn; unsigned na; } entries[] = {
@@ -303,10 +360,16 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return dispatch_overlay00(r, c);
     if (r->area == 2 && c->function >= 0x00823500u)
         return dispatch_overlay02(r, c);
+    if (r->area == 4 && (c->function >= 0x00823500u || c->function == 0x001C1A80u))
+        return dispatch_overlay04(r, c);
     int rc;
+    if (r->area == 4 && c->function == 0x001BAC00u)
+        return rv_001BAC00(r, c);          /* AREA04's arrival script op14 */
+    if (r->area == 4 && c->function == 0x001BB0E0u)
+        return rv_001BB0E0(r, c);          /* the script actors it places */
     if (dispatch_revisit(r, c, &rc))
         return rc;
-    if (r->area == 2 && c->function == 0x001F4E40u) {
+    if ((r->area == 2 || r->area == 4) && c->function == 0x001F4E40u) {
         /* 001F4E40(pos, colour, rate; f12): em_area02_misc's translation
          * over this runtime's bytes (0x70003B68 and the scratch blocks). */
         if (c->na < 3 || c->nf < 1) return fail(r, c->function);
@@ -346,7 +409,9 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
-    if (r->area == 2 && dispatch_math02(r, c, &rc))
+    /* The boot routines em_area02_math holds serve AREA04 too (the same
+     * boot functions; area-independent). */
+    if ((r->area == 2 || r->area == 4) && dispatch_math02(r, c, &rc))
         return rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;
@@ -367,6 +432,30 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         EmArea00Fx owner = {.call = switch_marker, .ctx = r, .sp = c->sp};
         rc = em_area00_fx_001F4E20(&owner, c->a[0], c->a[1], c->f[0], &c->v0);
         if (rc < 0) return fail(r, owner.core.fault.address ? owner.core.fault.address : c->function);
+        break;
+    }
+    case 0x001FB0B0u: {
+        /* 001FB0B0(cue) (byte-matched C): D_00810D38 = cue; 001FAE70(1). */
+        if (c->na != 1 || c->nf) return fail(r, c->function);
+        uint8_t *cue = bytes(r, 0x00810D38u, 4, 1);
+        if (!cue) return fail(r, 0x00810D38u);
+        const int32_t v = (int32_t)c->a[0];
+        memcpy(cue, &v, 4);
+        EmArea01Call music = {.function = 0x001FAE70u, .sp = c->sp, .na = 1, .nf = 0, .a = {1}};
+        rc = em_area01_runtime_call(r, &music);
+        break;
+    }
+    case 0x001B6F80u: {
+        /* 001B6F80(point; f12 yaw) (byte-matched C): D_00810374 (the
+         * player's +0xC4) = yaw, then 00182F90(D_008102B0, point). */
+        if (c->na != 1 || c->nf != 1) return fail(r, c->function);
+        uint8_t *yaw = bytes(r, 0x00810374u, 4, 1);
+        if (!yaw) return fail(r, 0x00810374u);
+        memcpy(yaw, &c->f[0], 4);
+        EmArea01Call align = {.function = 0x00182F90u, .sp = c->sp, .na = 2, .nf = 0};
+        align.a[0] = 0x008102B0u;
+        align.a[1] = (uint64_t)(int64_t)(int32_t)(uint32_t)c->a[0];
+        rc = em_area01_runtime_call(r, &align);
         break;
     }
     case 0x00188610u:

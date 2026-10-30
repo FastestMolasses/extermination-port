@@ -498,6 +498,9 @@ static const Phase k_phases[] = {
     {"a02_04", "a02_04_panel", 0,
      "AREA02 recorded pad route: the battery panel [24]", "LEVEL3_BINDING.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a02_05", "a02_05_progression_exit", 0,
+     "AREA02 recorded pad route: door [25] into AREA04, its arrival script and control", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -5418,26 +5421,31 @@ static int a01_route_frame(void)
             fail("AREA00 arrival state 0 did not follow the AREA01 exit");return 0;
         }
     } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0") ||
-              !strcmp(k_phases[t.current].name,"a01r_03") || !strcmp(k_phases[t.current].name,"a02_00")) {
+              !strcmp(k_phases[t.current].name,"a01r_03") || !strcmp(k_phases[t.current].name,"a02_00") ||
+              !strcmp(k_phases[t.current].name,"a02_05")) {
         /* The return's only variable duration is its asynchronous loader.
          * The checker compares every gameplay row, every emitted loader
          * row and the fixed suffix after the destination's state 0
          * independently (AREA01 for a00_10 / a00_s0; AREA02 sub 1 for
          * a01r_03, door [16]: 205 rows after state 0; AREA02 sub 0 for
-         * a02_00, the duct's sub change: 143 rows). */
+         * a02_00, the duct's sub change: 143 rows; AREA04 entry 0 for
+         * a02_05, door [25]: 1076 rows, the arrival script to control). */
         const EmSceneState *s=em_scene_state();
         const int to02=!strcmp(k_phases[t.current].name,"a01r_03");
         const int to020=!strcmp(k_phases[t.current].name,"a02_00");
-        const int after=to02 ? 205 : to020 ? 143 : !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
+        const int to04=!strcmp(k_phases[t.current].name,"a02_05");
+        const int after=to02 ? 205 : to020 ? 143 : to04 ? 1076 : !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
         if(s_a00_return_frame<0 &&
            (to02 ? s->d810700==2 && s->d810701==1 :
             to020 ? s->d810700==2 && s->d810701==0 :
+            to04 ? s->d810700==4 && s->d810701==0 && s->d810702==0 :
                     s->d810700==1 && s->d810701==0 && s->d810702==0) &&
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
             s_a00_return_frame=t.frames;
             fprintf(stderr,"level smoke: %s: boundary counter=%u (%s state 0)\n",
-                    k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : to020 ? "AREA02 sub 0" : "AREA01 return");
+                    k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : to020 ? "AREA02 sub 0" :
+                    to04 ? "AREA04 entry 0" : "AREA01 return");
         }
         if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
             pad_apply(0,0,0);

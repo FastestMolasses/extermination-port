@@ -72,7 +72,11 @@ def refusal_reasons(caps, refused):
     return out
 
 
-def export_sub(sub, out):
+def sub_binding(sub):
+    """(binding {(4, sub): ...}, caps, data, parsed, bound, refused, why,
+    report, label, names, first) of AREA04 sub `sub` from its captures: the
+    global rows and the sub's area container, as export_sub writes them (and
+    export_sfx_registry merges them into the one registry)."""
     A4.configure(sub)
     caps = C.captures()
     gdata = (C.DECOMP / X.GLOBAL_CONTAINER).read_bytes()
@@ -98,6 +102,12 @@ def export_sub(sub, out):
     why = {k: f'{v} in AREA04 sub {sub}' for k, v in refusal_reasons(caps, refused).items()}
     binding = {(C.AREA, sub): dict(groups=groups, binding=f'AREA04 sub {sub} captures (D_00281D50/D_0027C6C0)',
                                    refused=why)}
+    return binding, caps, data, parsed, bound, refused, why, report, label, names, first
+
+
+def export_sub(sub, out):
+    binding, caps, data, parsed, bound, refused, why, report, label, names, first = sub_binding(sub)
+    name = container_name(sub)
     ids = list(range(0x3E8, 0x5DC)) + list(range(0x7D0, 0x9C4))
     saved = X.area_bindings, X.scene_ids, X.census_report
     X.area_bindings = lambda _elf: binding

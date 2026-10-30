@@ -33,7 +33,7 @@
 #define CTX EM_RCL_CONTEXT
 #define ARENA_END 0x007635C0u    /* the packet arena ends where the chain table starts */
 #define POINT_LIGHT_WORDS (32u * 32u)
-#define EM_OWNER_DRAW_LIVE_PAGE_UNITS 16u
+#define EM_OWNER_DRAW_LIVE_PAGE_UNITS 64u
 
 static struct {
     /* D_00817BC0, the rig record 001D8130 loads and 001D8340 / 001D8690
@@ -707,6 +707,21 @@ int em_owner_draw_live_001D3990_at(uint32_t model, uint32_t w04)
     return ch3_store();
 }
 
+int em_owner_draw_live_001D3D90_at(uint32_t model, uint32_t w04)
+{
+    if (em_rcl_fault() || ch3_open()<0) return -1;
+    EmOwnerDraw draw={0};
+    draw.world.ctx_0C=words(CTX+0x0Cu,4);
+    draw.world.ctx_9C=words(CTX+0x9Cu,4);
+    draw.world.d00275674=words(D_00275674,4);
+    draw.world.ctx_50=words_mut(CTX+0x50u,16);
+    draw.world.ctx_50_count=4;
+    draw.world.channel=L.channels; draw.world.channel_count=4;
+    if (em_owner_draw_001D3CF0(&draw,3,model,w04,ch3_1F80,NULL)<0)
+        return report(draw.fault.address,"001D3D90 raw-model submit faulted");
+    return ch3_store();
+}
+
 /* Parse into the next slot, but publish its address only after the caller's
  * original work succeeds. This cache owns no original packet bytes. */
 static int page_parse(uint32_t start, uint32_t end, EmObjectUnitResolve resolver, void *ctx, int light)
@@ -725,7 +740,8 @@ static int page_parse(uint32_t start, uint32_t end, EmObjectUnitResolve resolver
         return report(start,"raw-model page unit cache is full");
     const char *why=NULL;
     EmObjectUnitPieces *q=&L.page_units[L.page_count];
-    int rc=light ? em_object_unit_parse_light(unit,size-16,resolver,ctx,q,&why)
+    int rc=light==2 ? em_object_unit_parse_light_clip(unit,size-16,resolver,ctx,q,&why)
+         : light ? em_object_unit_parse_light(unit,size-16,resolver,ctx,q,&why)
                  : em_object_unit_parse(unit,size-16,resolver,ctx,q,&why);
     if (rc<0 || q->unit.gs_class!=2u) {
         fprintf(stderr,"em_owner_draw_live: raw-model unit at %08X refused: %s\n",(unsigned)start,
@@ -743,14 +759,26 @@ int em_owner_draw_live_page_register(uint32_t start, uint32_t end,
     return 0;
 }
 
+static int caac0_packet(const uint32_t position[4], uint32_t start, EmObjectUnitResolve resolver, void *ctx,
+                        int light);
 int em_owner_draw_live_001CAAC0_packet(const uint32_t position[4], uint32_t start,
                                       EmObjectUnitResolve resolver, void *ctx)
+{
+    return caac0_packet(position, start, resolver, ctx, 1);
+}
+int em_owner_draw_live_001CAAC0_sprite(const uint32_t position[4], uint32_t start,
+                                      EmObjectUnitResolve resolver, void *ctx)
+{
+    return caac0_packet(position, start, resolver, ctx, 2);
+}
+static int caac0_packet(const uint32_t position[4], uint32_t start, EmObjectUnitResolve resolver, void *ctx,
+                        int light)
 {
     const uint32_t *cursor=words(CTX+0x1Cu,4), *vp=words(SPR_3AC0,64);
     EmPacketChain *pc=em_rcl_packet_chain();
     if (!position || !cursor || !vp || !pc)
         return report(0x001CAAC0u,"raw-model page insertion has missing inputs");
-    if (page_parse(start,*cursor,resolver,ctx,1)<0) return -1;
+    if (page_parse(start,*cursor,resolver,ctx,light)<0) return -1;
     EmOwnerServicesScratch scratch={0}; memcpy(scratch.s3AC0,vp,64);
     EmAnimRest rest={0};
     rest.world.region[0]=(EmPoseRegion){0x7F000000u,16,(uint8_t *)(const void *)position,0};
