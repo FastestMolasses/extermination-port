@@ -14,6 +14,39 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-30, lane B2 (branch `a02-items`): HEALING from the menu, the
+medicines' count-up and the car's sound.** Three fork recordings of the
+menu use (tools/capture_heal_beats.py, run with the decomp's venv; beats
+in `../Extermination/build/fork_refs/s87/route_*/`, drive tables in
+`build/drive_replay/route_heal_20261030`) are side phases, each row-exact
+from New Game:
+
+| Beat (source) | Rows | What it covers |
+|---|---|---|
+| a02_s1 (a01r_03) | 963 / 963 | at the bed: START, ITEM, HEALING, Cross on 0x20 (00185420 finds the bed), Yes: the bed, health 90 -> 100, infection 40 -> 0 through 0020CDC0 phase 2 with the HEALING hover |
+| a01r_s2 (a01r_02) | 461 / 461 | AREA01: the same use finds no device: the banner 0x19, back out, START |
+| a01_s8 (a01_s5) | 1,028 / 1,028 | out of the control room, the fire's burn (health 95), START, ITEM, HEALING, 0x1E, Yes: D_00810858 counts 95 -> 100 while +0x220 (the tick log's health) stays 95 until the commit |
+
+- **00185420 / 00184D20** for every item id (em_item_device_find;
+  ITEM_DEVICE_LOOKUP.md, 7,594 oracle cases).
+- **HEALING state 5:** em_status_pages_live keeps the counted D_00810858
+  apart from the scene word (+0x220) while the page stays in state 5;
+  the commit's 0015C700 hands the target over (STATUS_PAGES.md).
+- **The hub with UI+0x11 = 5** (0020CDC0 phase 2 after HEALING's Yes):
+  twelve hub layouts (STATUS_HUB.md; re-export status_hub.emhs).
+- **00184BA0 after a crawling take** (the duct's 0x1E): the port's owner
+  token, never released (no 00182DF0 for a crawling player), ended the next
+  claim with a fault; it now ends at that claim, which also no longer tests
+  3B8F (the original's is 1 there too).
+- **The car's 0x8B4** (and AREA00's 0x89E / 0x8A0): the B0 07 volume slide
+  (SFX_SEQUENCER.md pass V: lockstep with the original). In the a02_04 run
+  the engine's two voices in the tick log equal the original's voice
+  records (a fork re-drive of a02_02 sampling D_0027CCC0) on all 1,016 rows.
+  Re-export sfx_registry.emsr / .json.
+- a01_s8 runs with `--rand-replay` (the recording's rand() state at its
+  row 0): the native stream leaves a01_s5 at another state, and the burn's
+  reaction draws rand() & 1 for its clip.
+
 **2026-10-30, lane B1 (branch `a02-exit`): a02_05 row-exact, door [25]
 into AREA04 to control.** From New Game the whole-run checker passes 50
 live phases through a02_05 (`--run --until a02_05`; `a02_05: PASS 1726
