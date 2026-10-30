@@ -506,42 +506,44 @@ def write_manifest():
              set=str(OUT.relative_to(DECOMP)), beats=beats), indent=1) + '\n')
 
 
-def anchors():
-    """The comparison anchors tools/test_boss_fight.py uses, from g_store,
-    all at the row reader [50]'s lock byte is set (a04b_g2): the script's
-    clock (sync.txt), build/boss_fight/anchor.bin (that row's RAM, restore.txt
-    with the clock word) and the rand() word (rands.txt). Disc-derived;
-    ignored. The row is the first the native run can hold exactly: until the
-    lock the loaded game's hall bugs run on other draws (one bit the player
-    at about f800 and died at f1230 in a native run)."""
+def anchors(chain):
+    """The comparison anchors of tools/test_boss_fight.py, from the replay's
+    store, under build/boss_fight/<chain>/ (disc-derived; ignored): the RAM at
+    the reader beat's first row (anchor0.bin) and at the row reader [50]'s lock
+    byte is set (anchor.bin), restore.txt with each one's script frame and
+    clock word, rands.txt (the rand() word at the lock), sync.txt (the script's
+    clock at the lock). A loaded game puts every bug back at its placement, one
+    beside the reader, so the first restore keeps them where the recording has
+    them; the lock is the first row the native run can hold exactly."""
     sys.path.insert(0, str(DECOMP.parent / 'pcsx2-fork/extermination/python'))
     from pcsx2dbg import pxfs
-    names = ('a04b_g0_shotgun', 'a04b_g1_door45', 'a04b_g2_reader')
-    first = json.loads((OUT / names[0] / 'trace.json').read_text())['first_counter']
-    reader = json.loads((OUT / names[2] / 'trace.json').read_text())
+    if chain == 'shotgun':
+        first_beat, reader_path, store_name, rows_name = (OUT / 'a04b_g0_shotgun', OUT / 'a04b_g2_reader',
+                                                          'g_store', 'g_rand_rows.json')
+    else:
+        first_beat, reader_path, store_name, rows_name = (ROUTE / 'a04b_03_reader', ROUTE / 'a04b_03_reader',
+                                                          'store', 'rand_rows.json')
+    first = json.loads((first_beat / 'trace.json').read_text())['first_counter']
+    reader = json.loads((reader_path / 'trace.json').read_text())
     lock = next(r for r in reader['rows'] if r['l845'] == 'a8')
-    store = pxfs.Store(OUT.parent / 'g_store')
+    store = pxfs.Store(OUT.parent / store_name)
     frame = lock['counter'] - first
     if store.read_addr('ee', 0x810845, frame, 1)[0] != 0xA8 or store.read_addr('ee', 0x810845, frame - 1, 1)[0] == 0xA8:
         raise SystemExit('the store frames are not the rows')
-    out = Path(__file__).resolve().parents[1] / 'build/boss_fight'
+    out = Path(__file__).resolve().parents[1] / 'build/boss_fight' / chain
     out.mkdir(parents=True, exist_ok=True)
     (out / 'anchor.bin').write_bytes(store.image('ee_ram', frame))
-    rows = json.loads((OUT.parent / 'g_rand_rows.json').read_text())
+    rows = json.loads((OUT.parent / rows_name).read_text())
     # the script's clock is the row + 1 once the row has run
     f = lock['f'] + 1
     (out / 'rands.txt').write_text(f'{f} {rows[str(lock["counter"])]:08x}\n')
     (out / 'sync.txt').write_text(f'810845:a8:{f}\n')
     clock = struct.unpack('<I', store.read('ee_scratch', frame, 0x3B68, 4))[0]
-    # A loaded game puts every bug back at its placement, one beside the
-    # reader: a first restore at the script's start keeps them where the
-    # recording has them until the lock.
     start = reader['rows'][0]['counter'] - first
     (out / 'anchor0.bin').write_bytes(store.image('ee_ram', start))
     clock0 = struct.unpack('<I', store.read('ee_scratch', start, 0x3B68, 4))[0]
-    (out / 'restore.txt').write_text(f'build/boss_fight/anchor0.bin:1:{clock0:x},'
-                                     f'build/boss_fight/anchor.bin:{f}:{clock:x}\n')
-    print('anchors at rows', reader['rows'][0]['f'], lock['f'])
+    (out / 'restore.txt').write_text(f'{out / "anchor0.bin"}:1:{clock0:x},{out / "anchor.bin"}:{f}:{clock:x}\n')
+    print(chain, 'anchors at rows', reader['rows'][0]['f'], lock['f'])
 
 
 def rand_log():
@@ -583,7 +585,8 @@ if __name__ == '__main__':
         if w == 'manifest':
             write_manifest()
         elif w == 'anchors':
-            anchors()
+            anchors('shotgun')
+            anchors('pistol')
         elif w == 'replay':
             replay()
         elif w == 'rand':

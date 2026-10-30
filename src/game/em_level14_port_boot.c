@@ -333,7 +333,7 @@ static const uint32_t EDE40_SLOTS[24][2] = {
     {0x00257660u, 0x42C00000u}, {0x00257664u, 0}, {0x00257668u, 0x42C00000u}, {0x0025766Cu, 0},
 };
 
-int em_level14_port_001EDE40(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
+static int ede40_body(const H14 *h, uint32_t a0, uint32_t a1, const uint32_t slots[24][2], F14 *fault)
 {
     static const uint32_t records[3] = {0x00257510u, 0x002575A0u, 0x00257630u};
     L14 o;
@@ -341,7 +341,7 @@ int em_level14_port_001EDE40(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
     uint32_t st = 0;
     for (int i = 0; i < 24; i++) {
         if (i == 23) st = l14_u32(&o, 0x00275C34u);   /* the state pointer is read before the last slot */
-        l14_w32(&o, EDE40_SLOTS[i][0], EDE40_SLOTS[i][1]);
+        l14_w32(&o, slots[i][0], slots[i][1]);
     }
     for (int k = 0; k < 3; k++) {
         if (k) st = l14_u32(&o, 0x00275C34u);
@@ -360,6 +360,27 @@ int em_level14_port_001EDE40(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
     if (L14_LT(v, 0x3CA3D70Au)) v = 0x3CA3D70Au;
     l14_w32(&o, st + 8, v);
     return l14_end(&o);
+}
+
+int em_level14_port_001EDE40(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
+{
+    return ede40_body(h, a0, a1, EDE40_SLOTS, fault);
+}
+
+/* 001EF1C0, the twin of 001EDE40 with other rows (lane F1: the critical hit's
+ * effect 0x80000076; byte-matched decomp C, checked against the instructions). */
+static const uint32_t EF1C0_SLOTS[24][2] = {
+    {0x00257530u, 0x41C00000u}, {0x00257534u, 0x41C00000u}, {0x00257538u, 0x42400000u}, {0x0025753Cu, 0},
+    {0x00257540u, 0}, {0x00257544u, 0}, {0x00257548u, 0}, {0x0025754Cu, 0},
+    {0x002575C0u, 0x42C00000u}, {0x002575C4u, 0x42C00000u}, {0x002575C8u, 0x43400000u}, {0x002575CCu, 0x42C00000u},
+    {0x002575D0u, 0x42800000u}, {0x002575D4u, 0x42800000u}, {0x002575D8u, 0x43200000u}, {0x002575DCu, 0},
+    {0x00257650u, 0x42C00000u}, {0x00257654u, 0x42C00000u}, {0x00257658u, 0x43400000u}, {0x0025765Cu, 0x42C00000u},
+    {0x00257660u, 0x42800000u}, {0x00257664u, 0x42800000u}, {0x00257668u, 0x43200000u}, {0x0025766Cu, 0},
+};
+
+int em_level14_port_001EF1C0(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
+{
+    return ede40_body(h, a0, a1, EF1C0_SLOTS, fault);
 }
 
 /* ------------------------------------------------------------------------
