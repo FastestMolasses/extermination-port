@@ -21,10 +21,9 @@ captured D_0028A57C / D_0028A580 / D_0028A56C, and its pool records 0..6
 bind exactly these models. With --capture DIR (optional, developers) the
 tool re-checks that and that the capture's GS memory gives the same files.
 
-Only the models the capture showed are exported: the menu player of
-variant 0 / costume 0 and the single-node glyph models the captured
-inventory spawns ('/', '@', '0', '1', '2', '8'). Any other selection is a
-missing asset the port faults on (em_status_models.c).
+Exported: the menu player of variant 0 / costume 0 and the equipment parts
+0020E3A0 can name (the capture showed '/', '@', '0', '1', '2', '8'). Any other
+selection is a missing asset the port faults on (em_status_models.c).
 
 Writes (ignored, disc-derived):
   assets/status_models/menu_player.emdl   mesh + texels, 21 nodes
@@ -51,7 +50,12 @@ LIBRARY_FILE = 'extract/chunk27/f01_id37.bin'  # D_0028A56C
 CLIPS = (0x1C2, 0x0A)                          # 0020E6F0's two clips
 # The glyph models the status-hub capture's pool records 1..6 bind
 # (CA4..CA7 = FF 05 00 07 through 0020E250 / 0020E3A0).
-GLYPHS = (0x2F, 0x40, 0x30, 0x31, 0x32, 0x38)
+CAPTURED_GLYPHS = (0x2F, 0x40, 0x30, 0x31, 0x32, 0x38)
+# Every part 0020E3A0 can name, as 0020E250 spawns them for D_00810CA4..A7: the
+# fitted attachment is CA6 (the SHOTGUN UNIT's model 0x33); em_status_models.c
+# lists the same. Models of two nodes whose second node's bind is the unit
+# matrix are one rigid piece here.
+GLYPHS = CAPTURED_GLYPHS + (0x33, 0x34, 0x35, 0x36, 0x37, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x6D)
 POOL, STRIDE = 0x28B020, 0x2F0
 
 
@@ -133,7 +137,11 @@ def write(output: Path, extract: Path, texels: Path) -> tuple:
     for glyph in GLYPHS:
         offset = directory[glyph]
         count, nodes = skeleton(library[offset:])
-        assert count == 1, 'multi-node library models are not exported'
+        unit = struct.pack('<16f', 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+        if count > 1 and any(bind[48:60] != unit[48:60] for _, bind in nodes):
+            print(f'  model {glyph:#x}: {count} nodes with binds of their own: not exported')
+            continue
+        count, nodes = 1, nodes[:1]
         sections, tex_table, _n = ep.build_placed_mesh(library, {glyph: [ep.lvl.IDENT34]})
         tex_entries, tex_blob = en.build_texture_blob(None, tex_table, texels)
         out = output / f'letter_{glyph:02x}.emdl'
@@ -185,9 +193,9 @@ def verify_capture(capture: Path, extract: Path) -> dict:
         record = POOL + i * STRIDE
         if ram[record] and word(ram, record + 0x10) == 0x0020E460:
             captured[ram[record + 0xD]] = word(ram, record + 0x44)
-    assert sorted(captured) == sorted(GLYPHS), ('captured glyphs', sorted(captured))
+    assert sorted(captured) == sorted(CAPTURED_GLYPHS), ('captured glyphs', sorted(captured))
     directory = ep.read_directory(library)
-    for glyph in GLYPHS:
+    for glyph in CAPTURED_GLYPHS:
         offset = directory[glyph]
         assert captured[glyph] == a56c + offset, 'record +0x44 is not 001C6120(D_0028A56C, glyph)'
         count, _nodes = skeleton(library[offset:])

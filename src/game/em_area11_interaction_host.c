@@ -507,8 +507,8 @@ static int status_sound(void *context, uint32_t cue)
  *   CB2 / CB7      em_pickup's battery charge / capacity (half-units)
  *   CA4 / CA6      the canonical D2 equipment bytes
  *   CB4            em_weapon_reserve (the weapon state's reserve)
- * CA8..CB0 have no port storage: 00209860 reads them only for primary 2
- * or secondary 1..4, which fault here. */
+ *   CA8..CB0       the progress block's words (00209860: the attachment's
+ *                  shells and the like, primary 2 or secondary 1..4). */
 static int hub_display(void *context, EmStatusHubDisplay *display)
 {
     (void)context;
@@ -522,13 +522,9 @@ static int hub_display(void *context, EmStatusHubDisplay *display)
     display->capacity = (uint8_t)em_pickup_battery_capacity();
     display->ammo.primary = equipment[0];
     display->ammo.secondary = equipment[2];
-    if (display->ammo.primary == 2 ||
-        (display->ammo.secondary >= 1 && display->ammo.secondary <= 4)) {
-        fprintf(stderr, "AREA11 interaction: 00209860 needs D_00810CA8..CB0 (primary %u, "
-                "secondary %u), which the port does not hold\n",
-                (unsigned)display->ammo.primary, (unsigned)display->ammo.secondary);
-        return 0;
-    }
+    const uint8_t *amounts = em_scene_progress_at(em_scene_state(), 0x00810CA8u, 10);
+    if (!amounts) return 0;
+    memcpy(display->ammo.amount, amounts, sizeof display->ammo.amount);
     display->ammo.reserve = em_weapon_reserve();
     return 1;
 }

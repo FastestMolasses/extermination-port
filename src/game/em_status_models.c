@@ -810,7 +810,8 @@ static int load_skeletons(EmStatusModels *m, const char *path)
 
 EmStatusModels *em_status_models_load(const char *directory)
 {
-    static const uint8_t glyphs[] = {0x2F, 0x40, 0x30, 0x31, 0x32, 0x38};
+    static const uint8_t glyphs[] = {0x2F, 0x40, 0x30, 0x31, 0x32, 0x38, 0x33, 0x34, 0x36, 0x37, 0x39, 0x3A,
+                                     0x3B, 0x3C, 0x3D, 0x6D};
     char path[1024];
     EmStatusModels *m = calloc(1, sizeof *m);
     if (!m || !directory)
