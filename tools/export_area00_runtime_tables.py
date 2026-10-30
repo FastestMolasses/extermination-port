@@ -89,6 +89,13 @@ CREATURE_EFFECT_WINDOWS = ((0x002571B0, 0x1B0), (0x0025D800, 0x90),
 # the event, a01r_01 / a01r_02) submits D_00257090 or D_00257120 by its node's
 # +0x38: one window, only read.
 REVISIT_EFFECT_WINDOWS = ((0x00257090, 0x120),)
+# AREA02 (a02_01 / a02_02, the car's run after switch [31]): the effect
+# handler 001EC9A0's source block D_00256D30 (one 0x90-byte record); the
+# burst emitter 001E4CE0 / 001E4A00 the car spawns: the frame doublewords
+# D_00253C50[10], the colour ramps D_002541F0 / D_00254210, its parameter
+# rows D_00254230..D_002542BC and mesh sets D_002542D0..D_00254D80 (the
+# last 0x1B0 bytes long).
+AREA02_EFFECT_WINDOWS = ((0x00256D30, 0x90), (0x00253C50, 0x50), (0x002541F0, 0xD40))
 # AREA02 sub 0 (key 0x200): 0022DCD0 state 0 fills its tables from
 # D_00269680, six 64-byte records and the word -1 (decomp NEARMISS C; the
 # light owner of a02_00 onwards). Sub 1 (0x201) has no list (state 3).
@@ -143,7 +150,7 @@ def blocks(elf):
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
-               *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS)
+               *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -205,7 +212,7 @@ def verify_windows(data, paths):
         ram = path.read_bytes()
         for address, size in (*AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS,
                               *FOOTSTEP_WINDOWS, *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *CREATURE_EFFECT_WINDOWS,
-                              *REVISIT_EFFECT_WINDOWS):
+                              *REVISIT_EFFECT_WINDOWS, *AREA02_EFFECT_WINDOWS):
             if ram[address:address + size] != wanted[address]:
                 raise ValueError('AREA00 immutable table differs from pinned ELF')
         verify_hazard_effects(wanted, ram)

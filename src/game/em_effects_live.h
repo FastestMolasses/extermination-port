@@ -107,6 +107,10 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size);
  * em_rcl_001D80B0. Needs only the load and the render context (no attach).
  * 0, or -1 (reported, latched as em_effects_live_fault). */
 int em_effects_live_room_lights(EmSceneState *scene);
+/* 001F6B30(): 001F6640(001F6760()) over the room lists (AREA02's car). */
+int em_effects_live_001F6B30(EmSceneState *scene);
+/* Writable exported .data (the burst emitter's mesh sets D_002542D0..D_00254F2F), or NULL. */
+uint8_t *em_effects_live_window_mutable(uint32_t address, uint32_t size);
 
 /* 001D0660's 001F0310 (001AFCA0, the area build): 001F3FA0 and 001F03D0
  * for lanes 0, 1, 3, 4, 5, 6. */

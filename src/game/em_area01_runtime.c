@@ -318,6 +318,19 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
+    if (r->area == 2 && c->function == 0x001E4CE0u) {
+        /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20):
+         * em_area02_misc's translation over this runtime's bytes. */
+        if (c->na < 1 || c->nf) return fail(r, c->function);
+        EmArea02Misc m;
+        memset(&m, 0, sizeof m);
+        m.call = rv_misc_call;
+        m.ctx = r;
+        m.sp = c->sp;
+        if (em_area02_misc_view_001E4CE0(&m, misc_view, (uint32_t)c->a[0]) < 0)
+            return fail(r, m.fault_address ? m.fault_address : c->function);
+        return 0;
+    }
     if (r->area == 2 && c->function == 0x001AA700u) {
         /* 001AA700(car): em_area02_misc's translation over this runtime's
          * bytes (D_00275B7C / D_00275B84 and the records they name). */

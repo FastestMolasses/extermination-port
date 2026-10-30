@@ -1392,6 +1392,15 @@ int em_area02_misc_001AA700(EmArea02Misc *s, uint32_t a0)
     return 0;
 }
 
+int em_area02_misc_view_001E4CE0(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0)
+{
+    ENTER(0x001E4CE0u)
+    if (!view) { s->fault = EM_AREA02_MISC_FAULT_NULL; s->fault_function = 0x001E4CE0u; return -1; }
+    r->view = view;
+    f_1E4CE0(r, s->sp, a0);
+    return 0;
+}
+
 int em_area02_misc_view_001F4E40(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0, uint32_t a1, uint32_t a2,
                                  uint32_t f12)
 {

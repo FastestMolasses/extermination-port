@@ -62,6 +62,10 @@ typedef struct {
      * draw owner stops at 34BF; the player closure's 001C9D50 words are
      * its own write-first storage on the player stage. */
     uint32_t scratch_34C0[16];
+    /* 0x70003A24..0x70003A37: the burst emitter 001E4CE0's settings words
+     * (written before every read inside each call; 0x70003A20 is the pose
+     * host's). */
+    uint32_t scratch_3A24[5];
     /* 001CD2B0 writes its integer screen-distance result before the flame
      * caller reads it. This word has no earlier live storage owner. */
     uint32_t d275C00;

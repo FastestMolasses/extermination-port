@@ -306,6 +306,16 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
     return em_aim_fire_tables_bytes(address, size);
 }
 
+/* The exported .data the original writes at run time, writable in place
+ * (the one copy, kept from load to load as the original's .data): the burst
+ * emitter 001E4CE0's mesh sets D_002542D0..D_00254F2F (state 1 stores the
+ * set's +0x70 doubleword). Only inside an exported window. */
+uint8_t *em_effects_live_window_mutable(uint32_t address, uint32_t size)
+{
+    if (!size || address < 0x002542D0u || address > 0x00254F30u - size) return NULL;
+    return (uint8_t *)(uintptr_t)em_effects_live_window(address, size);
+}
+
 /* ------------------------------------------------------------ views */
 
 /* The views the routines read, from the render context as it stands (the
@@ -1178,6 +1188,32 @@ static int handler_001ECEF0(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* 001EC9A0 (decomp NEARMISS C, logic recovered; AREA02's car run after
+ * switch [31]): em_area02_misc's translation (test_area02_misc_reference.py):
+ * one packet of the node's matrix with the work block's accumulator +0x244
+ * and fraction +0x24C and 30.0, then 001CFBE0 kind 2 of D_00256D30
+ * (export_area00_runtime_tables.py AREA02_EFFECT_WINDOWS). Views as
+ * handler_001ECEF0's. */
+static int handler_001EC9A0(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001EC9A0u,"effect 001EC9A0 without its node");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea02MiscRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {at+0x24Cu,4,(uint8_t *)&work->fraction},
+    };
+    ImpactCall call={node,at};
+    EmArea02Misc owner;
+    memset(&owner,0,sizeof owner);
+    owner.regions=regions;owner.region_count=sizeof regions/sizeof *regions;
+    owner.call=misc_impact_worker;owner.ctx=&call;owner.sp=HANDLER_SP;
+    if(em_area02_misc_001EC9A0(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001EC9A0u,"effect 001EC9A0 fault (em_area02_misc)");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
@@ -1195,6 +1231,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EF510u) return handler_001EF510(node, depth, work);
     if (handler == 0x001EDAF0u) return handler_001EDAF0(node, depth, work);
     if (handler == 0x001ECEF0u) return handler_001ECEF0(node, depth, work);
+    if (handler == 0x001EC9A0u) return handler_001EC9A0(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -1268,6 +1305,7 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00256EE0u || source == 0x00256F70u ||
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               source == 0x00257090u || source == 0x00257120u || /* 001ECEF0's */
+                              source == 0x00256D30u ||                          /* 001EC9A0's */
                               source == 0x00257510u || source == 0x002575A0u || /* 001EDAF0's middle row */
                               source == 0x00257630u || source == 0x00257870u ||
                               source == 0x00257900u || source == 0x002571B0u || source == 0x00257240u ||
@@ -1678,6 +1716,31 @@ int em_effects_live_room_lights(EmSceneState *scene)
         fprintf(stderr, "effects: the room point-light lists faulted at %08X (code %d)\n",
                 (unsigned)k.fault.address, (int)k.fault.code);
         S.fault = k.fault.address ? k.fault.address : 0x001D7BB0u;
+        return -1;
+    }
+    return 0;
+}
+
+/* 001F6B30() (byte-matched C: 001F6640(001F6760())): the room's point-light
+ * list registered again (AREA02's car past x 140, 0x8242F0, key 0x200):
+ * em_effect_kinds' translations of both over the same lists window and
+ * workers as em_effects_live_room_lights. */
+int em_effects_live_001F6B30(EmSceneState *scene)
+{
+    if (!scene || em_effects_live_load() < 0 || !em_rcl_point_lights()) return -1;
+    EmEffectKindsGlobals globals;
+    memset(&globals, 0, sizeof globals);
+    globals.d810700 = scene->d810700;
+    globals.d810701 = scene->d810701;
+    EmEffectKindsWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.w_001D7FA0 = w_room_001D7FA0;
+    workers.w_001D80B0 = w_room_001D80B0;
+    EmEffectKinds k = {&S.ktables, &globals, NULL, NULL, &workers, {0, 0}};
+    if (em_effect_kinds_001F6640(&k, em_effect_kinds_001F6760(scene->d810700, scene->d810701)) < 0) {
+        fprintf(stderr, "effects: 001F6B30's point-light list faulted at %08X (code %d)\n",
+                (unsigned)k.fault.address, (int)k.fault.code);
+        S.fault = k.fault.address ? k.fault.address : 0x001F6B30u;
         return -1;
     }
     return 0;

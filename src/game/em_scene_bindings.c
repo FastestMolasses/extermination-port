@@ -3473,6 +3473,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
+    if (s_state.d810700 == 2 && fn == 0x001E4CE0u)
+        goto bind;
     /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
@@ -3516,6 +3518,11 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
  * other callback, the AREA11 rows decide as before. */
 static int area00_spawned_fallback(EmActor *a)
 {
+    /* AREA02: any boot owner the area runtime runs too, e.g. the car's
+     * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
+     * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
+    if (s_state.d810700 == 2 && a)
+        return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
     return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;

@@ -192,6 +192,9 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if(overlaps(a,n,0x700034C0u,sizeof l->scratch_34C0))
         return l->active && contains(a,n,0x700034C0u,sizeof l->scratch_34C0)
             ? (uint8_t *)l->scratch_34C0+a-0x700034C0u : NULL;
+    if(overlaps(a,n,0x70003A24u,sizeof l->scratch_3A24))
+        return l->active && contains(a,n,0x70003A24u,sizeof l->scratch_3A24)
+            ? (uint8_t *)l->scratch_3A24+a-0x70003A24u : NULL;
     if(overlaps(a,n,0x700036E0u,sizeof l->scratch_36E0))
         return l->active && contains(a,n,0x700036E0u,sizeof l->scratch_36E0)
             ? (uint8_t *)l->scratch_36E0+a-0x700036E0u : NULL;
@@ -293,6 +296,7 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return write ? NULL : (uint8_t *)ld->d28A490+a-0x0028A490u;
     if((p=write ? em_rcl_bytes_mut(a,n) : (uint8_t *)(void *)em_rcl_bytes(a,n)))return p;
     if(l->host.bytes && (p=l->host.bytes(l->host.ctx,a,n,write)))return p;
+    if((p=em_effects_live_window_mutable(a,n)))return p;
     if(write)return NULL;
     const uint8_t *q=em_collision_world_contact_bytes(a,n);
     if(!q)q=em_effects_live_window(a,n);
@@ -471,6 +475,33 @@ static int low_call(void *ctx,EmArea00LowCall *in)
     EmArea01Call c={.function=in->fn,.sp=in->sp,.na=in->na,.nf=in->nf};
     memcpy(c.a,in->a,sizeof c.a);memcpy(c.f,in->f,sizeof c.f);
     int rc=nested(ctx,&c);in->v0=c.v0;in->f0=c.f0;return rc;
+}
+/* 001F02C0(point, id; f12): em_area00_fx's translation (the one; the aim /
+ * fire world binds it too) over this composition's bytes: the point is
+ * copied to the frame's +0xE0, which is +0xB0 of the frame's +0x30 block,
+ * then 001FBD50(block, id, 0; f12) comes back through the live worker (the
+ * AREA02 car's sounds, 0x8242F0). */
+static int fx_nested(void *ctx,uint32_t target,uint32_t sp,const EmArea00FxRegs *in,uint64_t *v0,uint32_t *f0)
+{
+    EmArea01Call c={.function=target,.sp=sp};
+    for(unsigned i=4;i<12;++i)if(in->imask&(1u<<i))c.na=i-3u;
+    for(unsigned i=0;i<c.na;++i)c.a[i]=in->r[4+i];
+    for(unsigned i=12;i<20;++i)if(in->fmask&(1u<<i))c.nf=i-11u;
+    for(unsigned i=0;i<c.nf;++i)c.f[i]=in->f[12+i];
+    int rc=nested(ctx,&c);
+    if(rc>=0){ if(v0)*v0=c.v0; if(f0)*f0=c.f0; }
+    return rc;
+}
+static int fx_001F02C0(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<2 || c->nf<1)return worker_result(l,-1,c->function);
+    EmArea00Fx s;memset(&s,0,sizeof s);
+    s.core.world.view=bytes;s.core.world.view_ctx=l;
+    s.call=fx_nested;s.ctx=l;s.sp=c->sp;
+    int rc=em_area00_fx_001F02C0(&s,c->a[0],c->a[1],c->f[0]);
+    if(rc<0 || s.core.fault.code)
+        return worker_result(l,-1,s.core.fault.address ? s.core.fault.address : c->function);
+    return worker_result(l,0,0);
 }
 /* 0012D580(a0, a1, a2): 00128C10's sub-state machine at a0 +7 (reached
  * through em_area01_exita's 00128C10 state 8). */
@@ -949,6 +980,13 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_script_worker_call_area(&host,c,&fault,area);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x001F02C0u)return fx_001F02C0(l,c);
+    if(c->function==0x001F6B30u) {
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_effects_live_001F6B30(em_scene_state());
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,c->function);
+    }
     if(c->function==0x0012D580u)return low_0012D580(l,c);
     if(c->function==0x001288D0u)return low_001288D0(l,c);
     if(low_entry_handles(c->function))return low_entry(l,c);
@@ -1275,6 +1313,9 @@ static int worker(void *ctx,EmArea01Call *c)
     case 0x001281C0u:
         if(c->nf<1)return -1;
         c->v0=(uint64_t)(int64_t)em_stream_lanes_001281C0(c->f[0]);return 0;
+    case 0x00128250u: /* the soft-float float -> unsigned (the burst emitter's colour lanes) */
+        if(c->nf<1)return -1;
+        c->v0=(uint64_t)(int64_t)(int32_t)em_stream_lanes_00128250(c->f[0]);return 0;
     case 0x001B1470u:
         return c->nf<1 ? -1 : em_player_recovery_wrap(c->f[0],&c->f0);
     case 0x0011DF78u:

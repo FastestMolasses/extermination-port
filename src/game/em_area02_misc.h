@@ -170,6 +170,9 @@ int em_area02_misc_001AA700(EmArea02Misc *s, uint32_t a0);
 /* 001AA700 over a call-local view (AREA02's car 0x8242F0: the list
  * D_00275B7C and the pool records it names, through the runtime). */
 int em_area02_misc_view_001AA700(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0);
+/* 001E4CE0 (the burst emitter node AREA02's car spawns) over a call-local
+ * view. */
+int em_area02_misc_view_001E4CE0(EmArea02Misc *s, EmArea02MiscView view, uint32_t a0);
 /* 001F4E40 over a call-local view (AREA02's switch lamps, 001C4CB0's six
  * points while D_00810761 == 1); its 00122BB8 and 001CD520 re-enter the
  * runtime. */
