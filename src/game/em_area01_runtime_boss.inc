@@ -105,7 +105,7 @@ static int dispatch_boss(EmArea01Runtime *r, EmArea01Call *c, int *out)
         {0x00131F20u, 0x40u, 3, 0}, {0x001339E0u, 0x10u, 2, 0}, {0x001B2F70u, 0x80u, 2, 0},
         {0x001B3250u, 0x40u, 2, 1}, {0x001B3390u, 0x50u, 3, 1}, {0x001B37D0u, 0x60u, 1, 2},
         {0x001B3F10u, 0x30u, 1, 2}, {0x001B4CF0u, 0x40u, 1, 0},
-        {0x001F4840u, 0x30u, 1, 0}};
+        {0x001F4840u, 0x30u, 1, 0}, {0x001B2D00u, 0x30u, 2, 0}};
     unsigned k = 0, n = sizeof entries / sizeof entries[0];
     while (k < n && entries[k].fn != c->function) ++k;
     if (k == n) return 0;
@@ -196,6 +196,10 @@ static int dispatch_boss(EmArea01Runtime *r, EmArea01Call *c, int *out)
         case 0x00131E80u: rc = em_level14_port_00131E80(&h, a0, &f); break;
         case 0x00131F20u: rc = em_level14_port_00131F20(&h, a0, a1, a2, &f); break;
         case 0x001B4CF0u: rc = em_level14_port_001B4CF0(&h, a0, &f); break;
+        case 0x001B2D00u:
+            rc = em_level14_port_001B2D00(&h, a0, a1, &i, &f);
+            has_i = 1;
+            break;
         default:          rc = em_level14_port_001339E0(&h, a0, a1, &f); break;
         }
         where = f.address;

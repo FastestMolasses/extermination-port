@@ -341,6 +341,9 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
         if(c->na<3)return -1;
         for(int k=0;k<2;k++){uint32_t at=(uint32_t)c->a[k];if(at<0x700031B0u&&at+12u>0x70003190u)return fail(v,at,3);}
         if(get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;break;
+    /* 0019A6F0's steps (em_level11_port, the creature's sight 001B3F10): the
+     * query is staged in the scratchpad the view owns. */
+    case 0x1A0B10:case 0x19D330:case 0x1A7280:break;
     case 0x19F1A0:
         if(c->na<2||get(v,(uint32_t)c->a[0],a,12)<0)return -1;break;
     case 0x19ED80:
@@ -354,6 +357,17 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
     const EmCollSegment *seg=v->host.segment;EmCollProbeState *s=seg->state;
     switch(c->function){
     case 0x19A570:r=em_coll_segment_0019A570(seg,a,b,(uint32_t)c->a[2],(int32_t)c->a[3]);break;
+    case 0x1A0B10:r=em_coll_segment_001A0B10(seg->world,seg->math,s,seg->face);break;
+    case 0x19D330:r=em_coll_segment_0019D330(seg->world->grid,s);break;
+    case 0x1A7280:{
+        PlayerHull ph;memset(&ph,0,sizeof ph);ph.v=v;
+        const void *player=decode(v,0x008102B0u);
+        if(c->na<1||!player||!v->host.player_chain||v->host.player_chain(v->host.ctx,&ph.actor,NULL)<0)
+            return fail(v,0x1A7280,4);
+        const EmCollHullWorld hw={&ph,player_hull_chain,&ph.actor};
+        memcpy(a,s->start,12);memcpy(b,s->end,12);
+        r=em_coll_segment_0019AA80(s,seg->face,&hw,a,b,(uint32_t)c->a[0],player);
+        break;}
     case 0x19A910:r=em_coll_segment_0019A910(seg,a,b,(uint32_t)c->a[2]);break;
     case 0x19B6C0:{EmCollProbeWorkers w={(void *)seg,em_coll_segment_face_worker,em_coll_segment_round_worker};r=em_coll_probe_0019B6C0(seg->world,&w,s,a,b);break;}
     case 0x19AB20:{EmActorCollisionHit hit;r=em_actor_collision_ground_state_0019AB20(seg->world->cells,&query,a,b,(uint32_t)c->a[3],&hit,s);if(r>=0&&feet_out)memcpy(feet_out,&feet,4);break;}
