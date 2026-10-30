@@ -7241,6 +7241,17 @@ static int m14_w_001026A0(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2)
     return rc;
 }
 
+static int m14_w_001026D0(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001026D0u, .sp = r->sp, .na = 3, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    c.a[2] = (uint64_t)(int64_t)(int32_t)a2;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
 static int m14_w_00102948(void *ctx, uint32_t a0, uint32_t a1)
 {
     EmArea01Runtime *r = ctx;
@@ -7267,6 +7278,17 @@ static int m14_w_001029C0(void *ctx, uint32_t a0)
     EmArea01Runtime *r = ctx;
     EmArea01Call c = {.function = 0x001029C0u, .sp = r->sp, .na = 1, .nf = 0};
     c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_00102BB0(void *ctx, uint32_t a0, uint32_t a1, float f2)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x00102BB0u, .sp = r->sp, .na = 2, .nf = 1};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    c.f[0] = em_ee_bits(f2);
     int rc = em_area01_runtime_call(r, &c);
     return rc;
 }
@@ -7501,6 +7523,15 @@ static int m14_w_001AEE10(void *ctx, int32_t n0, int32_t n1)
     c.a[0] = (uint64_t)(int64_t)n0;
     c.a[1] = (uint64_t)(int64_t)n1;
     int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_001AF780(void *ctx, uint32_t *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001AF780u, .sp = r->sp, .na = 0, .nf = 0};
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = (uint32_t)c.v0;
     return rc;
 }
 
@@ -7776,6 +7807,27 @@ static int m14_w_001C68C0(void *ctx, uint32_t a0)
     return rc;
 }
 
+static int m14_w_001C9E40(void *ctx, uint32_t a0, uint32_t a1)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001C9E40u, .sp = r->sp, .na = 2, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_001CA1C0(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CA1C0u, .sp = r->sp, .na = 3, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    c.a[2] = (uint64_t)(int64_t)(int32_t)a2;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
 static int m14_w_001CA5F0(void *ctx, uint32_t a0, int32_t n1)
 {
     EmArea01Runtime *r = ctx;
@@ -7792,6 +7844,38 @@ static int m14_w_001CA6F0(void *ctx, uint32_t a0, int32_t n1)
     EmArea01Call c = {.function = 0x001CA6F0u, .sp = r->sp, .na = 2, .nf = 0};
     c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
     c.a[1] = (uint64_t)(int64_t)n1;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_001CB5F0(void *ctx, uint32_t a0, int32_t n1, int32_t n2, uint32_t *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CB5F0u, .sp = r->sp, .na = 3, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)n1;
+    c.a[2] = (uint64_t)(int64_t)n2;
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = (uint32_t)c.v0;
+    return rc;
+}
+
+static int m14_w_001CB5B0(void *ctx, int32_t n0)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CB5B0u, .sp = r->sp, .na = 1, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)n0;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_001CB900(void *ctx, uint32_t a0, int32_t n1, int32_t n2)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CB900u, .sp = r->sp, .na = 3, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)n1;
+    c.a[2] = (uint64_t)(int64_t)n2;
     int rc = em_area01_runtime_call(r, &c);
     return rc;
 }
@@ -7821,6 +7905,19 @@ static int m14_w_001CFBE0(void *ctx, int32_t n0, int32_t n1, uint32_t a2, uint32
     c.a[2] = (uint64_t)(int64_t)(int32_t)a2;
     c.a[3] = (uint64_t)(int64_t)(int32_t)a3;
     c.a[4] = (uint64_t)(int64_t)n4;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_001D04B0(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001D04B0u, .sp = r->sp, .na = 3, .nf = 2};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)n1;
+    c.a[2] = (uint64_t)(int64_t)(int32_t)a2;
+    c.f[0] = em_ee_bits(f3);
+    c.f[1] = em_ee_bits(f4);
     int rc = em_area01_runtime_call(r, &c);
     return rc;
 }
@@ -8013,9 +8110,11 @@ static inline void m14_hooks(EmArea01Runtime *r, EmLevel14PortHooks *h)
     h->ctx = r;
     h->bytes = m14_view;
     h->w_001026A0 = m14_w_001026A0;
+    h->w_001026D0 = m14_w_001026D0;
     h->w_00102948 = m14_w_00102948;
     h->w_001028B8 = m14_w_001028B8;
     h->w_001029C0 = m14_w_001029C0;
+    h->w_00102BB0 = m14_w_00102BB0;
     h->w_00102C58 = m14_w_00102C58;
     h->w_00103230 = m14_w_00103230;
     h->w_0011DF78 = m14_w_0011DF78;
@@ -8039,6 +8138,7 @@ static inline void m14_hooks(EmArea01Runtime *r, EmLevel14PortHooks *h)
     h->w_0019C6F0 = m14_w_0019C6F0;
     h->w_001A2370 = m14_w_001A2370;
     h->w_001AEE10 = m14_w_001AEE10;
+    h->w_001AF780 = m14_w_001AF780;
     h->w_001AFC10 = m14_w_001AFC10;
     h->w_001B0CD0 = m14_w_001B0CD0;
     h->w_001B0FD0 = m14_w_001B0FD0;
@@ -8066,10 +8166,16 @@ static inline void m14_hooks(EmArea01Runtime *r, EmLevel14PortHooks *h)
     h->w_001C64F0 = m14_w_001C64F0;
     h->w_001C67E0 = m14_w_001C67E0;
     h->w_001C68C0 = m14_w_001C68C0;
+    h->w_001C9E40 = m14_w_001C9E40;
+    h->w_001CA1C0 = m14_w_001CA1C0;
     h->w_001CA5F0 = m14_w_001CA5F0;
     h->w_001CA6F0 = m14_w_001CA6F0;
+    h->w_001CB5F0 = m14_w_001CB5F0;
+    h->w_001CB5B0 = m14_w_001CB5B0;
+    h->w_001CB900 = m14_w_001CB900;
     h->w_001CFB50 = m14_w_001CFB50;
     h->w_001CFBE0 = m14_w_001CFBE0;
+    h->w_001D04B0 = m14_w_001D04B0;
     h->w_001E8B90 = m14_w_001E8B90;
     h->w_001EFD90 = m14_w_001EFD90;
     h->w_001EFE00 = m14_w_001EFE00;

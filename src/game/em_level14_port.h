@@ -74,9 +74,11 @@ typedef struct {
      * its header_checks compares this block with HOOKS on every run) ---- */
 /* BEGIN GENERATED HOOKS */
     int (*w_001026A0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
+    int (*w_001026D0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00102948)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001028B8)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_001029C0)(void *ctx, uint32_t a0);
+    int (*w_00102BB0)(void *ctx, uint32_t a0, uint32_t a1, float f2);
     int (*w_00102C58)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00103230)(void *ctx, uint32_t a0, uint32_t a1, float f2);
     int (*w_0011DF78)(void *ctx, float f0, float *result);
@@ -100,6 +102,7 @@ typedef struct {
     int (*w_0019C6F0)(void *ctx, int32_t n0, int32_t n1);
     int (*w_001A2370)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001AEE10)(void *ctx, int32_t n0, int32_t n1);
+    int (*w_001AF780)(void *ctx, uint32_t *result);
     int (*w_001AFC10)(void *ctx, uint32_t a0);
     int (*w_001B0CD0)(void *ctx, uint32_t a0, int32_t n1);
     int (*w_001B0FD0)(void *ctx, uint32_t a0, int32_t *result);
@@ -127,10 +130,16 @@ typedef struct {
     int (*w_001C64F0)(void *ctx, uint32_t a0, float f1, int32_t *result);
     int (*w_001C67E0)(void *ctx, uint32_t a0, int32_t n1, float f2, float f3);
     int (*w_001C68C0)(void *ctx, uint32_t a0);
+    int (*w_001C9E40)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001CA1C0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_001CA5F0)(void *ctx, uint32_t a0, int32_t n1);
     int (*w_001CA6F0)(void *ctx, uint32_t a0, int32_t n1);
+    int (*w_001CB5F0)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, uint32_t *result);
+    int (*w_001CB5B0)(void *ctx, int32_t n0);
+    int (*w_001CB900)(void *ctx, uint32_t a0, int32_t n1, int32_t n2);
     int (*w_001CFB50)(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4, float f5, float f6, float f7);
     int (*w_001CFBE0)(void *ctx, int32_t n0, int32_t n1, uint32_t a2, uint32_t a3, int32_t n4);
+    int (*w_001D04B0)(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4);
     int (*w_001E8B90)(void *ctx, uint32_t a0, float f1);
     int (*w_001EFD90)(void *ctx, int32_t n0, uint32_t a1, uint32_t a2);
     int (*w_001EFE00)(void *ctx, int32_t n0, uint32_t a1, uint32_t *result);
@@ -197,6 +206,15 @@ int em_level14_port_00131B10(const H14 *h, uint32_t self, uint32_t ent, F14 *fau
 int em_level14_port_00131E80(const H14 *h, uint32_t self, F14 *fault);
 int em_level14_port_00131F20(const H14 *h, uint32_t self, uint32_t a1, uint32_t a2, F14 *fault);
 int em_level14_port_001339E0(const H14 *h, uint32_t a0, uint32_t ent, F14 *fault);
+/* The first boss's spores (lane F1): the effect node 001F88C0 on a creature
+ * (self +0x24), with its bone slots 001F87E0 and ring cursor 001F8880. */
+int em_level14_port_001F88C0(const H14 *h, uint32_t self, F14 *fault);
+/* The grey veil after its death (effect 0x8000005B, lane F1): the node
+ * 001F7E40, 32 screen sprites a frame through 001F7CF0. */
+int em_level14_port_001F7CF0(const H14 *h, uint32_t a0, uint32_t a1, uint32_t a2, F14 *fault);
+int em_level14_port_001F7E40(const H14 *h, uint32_t self, F14 *fault);
+int em_level14_port_001F87E0(const H14 *h, uint32_t self, uint32_t n, int32_t *result, F14 *fault);
+int em_level14_port_001F8880(const H14 *h, int32_t k, uint32_t *result, F14 *fault);
 int em_level14_port_00153950(const H14 *h, uint32_t self, F14 *fault);
 int em_level14_port_00153A10(const H14 *h, uint32_t self, uint32_t ent, F14 *fault);
 int em_level14_port_00153A90(const H14 *h, uint32_t self, uint32_t out, F14 *fault);

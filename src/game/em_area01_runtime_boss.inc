@@ -10,6 +10,30 @@
  * 0 when the address is not one of them. */
 static int dispatch_boss(EmArea01Runtime *r, EmArea01Call *c, int *out)
 {
+    if (c->function == 0x001F88C0u || c->function == 0x001F7E40u) {
+        /* The creature's spores and the veil after its death (effect nodes;
+         * em_level14_port's; frames 0x60 and 0x50 bytes). */
+        if (c->na < 1 || c->nf || c->sp < 0x100u) {
+            *out = fail(r, c->function);
+            return 1;
+        }
+        EmLevel14PortHooks h;
+        m14_hooks(r, &h);
+        EmLevel14PortFault f = {0, 0};
+        const uint32_t saved = r->sp;
+        r->sp = c->sp - 0x60u;
+        const int x = c->function == 0x001F88C0u ? em_level14_port_001F88C0(&h, (uint32_t)c->a[0], &f)
+                                                 : em_level14_port_001F7E40(&h, (uint32_t)c->a[0], &f);
+        r->sp = saved;
+        if (x < 0) {
+            fprintf(stderr, "em_area01: em_level14_port %08X fault code %d at %08X\n", (unsigned)c->function,
+                    (int)f.code, (unsigned)f.address);
+            *out = fail(r, f.address ? f.address : c->function);
+        } else {
+            *out = 0;
+        }
+        return 1;
+    }
     if (c->function == 0x001CA1C0u) {
         /* 001CA1C0(m, q, t): the death effect's rotation (em_pose_host's). */
         const uint8_t *q = c->na >= 3 ? bytes(r, (uint32_t)c->a[1], 16, 0) : NULL;

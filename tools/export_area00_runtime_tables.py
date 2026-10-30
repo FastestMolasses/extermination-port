@@ -167,6 +167,10 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # D_00275388 / limit bytes D_00275398 (its +0x30); the hit
                # effects' sources D_0025DB20..D_0025DCF0 (001ED100)
                (0x00243320, 0x245140 - 0x243320), (0x00275388, 0x14), (0x0025DB00, 0x280),
+               # the first boss's spores 001F88C0 (00131650's effect): its
+               # 001D04B0 record D_0025D920 and bone lists D_0025DA40.. (-1
+               # terminated, kinds 1, 2, 9, 3)
+               (0x0025D920, 0x120), (0x0025DA40, 0xA0),
                # the lift's inner call button [54]'s descriptor D_00275610
                # (001BC960 stores it at +0x30; the Use scan reads it)
                (0x00275610, 0x18),

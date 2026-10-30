@@ -629,3 +629,323 @@ int em_level14_port_00153950(const H14 *h, uint32_t self, F14 *fault)
     if (l14_u8(&o, ent + 0x10) != 0) l14_c_001B5360(&o, self);
     return l14_end(&o);
 }
+
+/* ------------------------------------------------------------------------
+ * 001F88C0 (NEARMISS; the translation follows the instructions), the effect
+ * node on a creature's bones (lane F1: the first boss's spores, spawned by
+ * 00131650 through 001EFE00). obj = self +0x24, q = self +0x1F0 (q[0] the
+ * LCG seed, q[1] the variant, always 0 once set up, q[2] the ring cursor,
+ * q[3] the bone count, q[4..] the bones). By +4:
+ *  0  q[1] = obj +3 == 9; the bone list by obj +3 (1, 2, 3, 9: the -1
+ *     terminated tables D_0025DA40 / 60 / C0 / A0), else 2, 3.. in steps of
+ *     rand % 2 + 1 below obj +0xC, at most 12; 001F87E0(self, 0x38), 0 ends
+ *     it here; the 0x150 ring slots' +0x1C = -1; q[2] = q[1] = 0; q[0] =
+ *     rand; then 1.
+ *  1  obj +4 == 3: +4 = 3. Every fourth frame each listed bone gets a ring
+ *     slot: unit matrix at 0x700036A0, rotated by a random angle within
+ *     +-90 degrees (00102BB0), times the bone's matrix (001026D0), its
+ *     quaternion (001C9E40) and position at the slot, age 0. Then for all
+ *     0x150 slots, the LCG word w (q[0], never stored back; w * 37 + 11 per
+ *     slot) gives 0x70003A20 = ((w >> 16) & 0xFFFF) / 65535 + 1e-4, and a
+ *     slot of age >= 0 draws: 001CA1C0, 001D04B0(m, 1, D_0025D920 + q[1] *
+ *     0x90, age, phase), age + 0.05, above 1.5 it ends (-1).
+ *  2, 3  001AFC10(self); others return.
+ * 001F8880(k) is the ring slot: word (D_00275B40)[k / 6] + (k % 6) * 32.
+ * 001F87E0(self, n): +0xC = n; above the halfword D_00275BCC: +4 = 3, 0;
+ * else +0x110 + 4 i = 001AF780() below +0xC (re-read), 001CB5B0(the last
+ * count), +9 = +0xC, +4 = 1, 1.
+ * ---------------------------------------------------------------------- */
+#define D_0025D920 0x0025D920u
+#define D_00275B40 0x00275B40u
+#define D_00275BCC 0x00275BCCu
+#define S_700036A0 0x700036A0u
+#define S_700036D0 0x700036D0u
+#define S_70003A20 0x70003A20u
+#define S_70003B68 0x70003B68u
+#define F_M1 0xBF800000u
+#define F_PI 0x40490FDBu
+#define F_90 0x42B40000u
+#define F_180 0x43340000u
+
+static uint32_t l14_001F8880(L14 *o, uint32_t k)
+{
+    const uint32_t table = l14_u32(o, D_00275B40);
+    return l14_u32(o, table + 4u * (k / 6u)) + ((k % 6u) << 5);
+}
+
+static int l14_001F87E0(L14 *o, uint32_t self, uint32_t n)
+{
+    l14_w8(o, self + 0x0C, n);
+    uint32_t count = l14_u8(o, self + 0x0C);
+    if (l14_s16(o, D_00275BCC) < (int32_t)count) {
+        l14_w8(o, self + 4, 3);
+        return 0;
+    }
+    uint32_t i = 0;
+    for (count = l14_u8(o, self + 0x0C); i < count; count = l14_u8(o, self + 0x0C)) {
+        uint32_t slot = 0;
+        if (l14_c_001AF780(o, &slot)) return 0;
+        l14_w32(o, self + 0x110 + 4u * i, slot);
+        i++;
+    }
+    if (l14_c_001CB5B0(o, (int32_t)count)) return 0;
+    l14_w8(o, self + 9, l14_u8(o, self + 0x0C));
+    l14_w8(o, self + 4, 1);
+    return 1;
+}
+
+int em_level14_port_001F87E0(const H14 *h, uint32_t self, uint32_t n, int32_t *result, F14 *fault)
+{
+    L14 state, *o = &state;
+    if (l14_begin(o, h, fault)) return -1;
+    *result = l14_001F87E0(o, self, n & 0xFFu);
+    return l14_end(o);
+}
+
+int em_level14_port_001F8880(const H14 *h, int32_t k, uint32_t *result, F14 *fault)
+{
+    L14 state, *o = &state;
+    if (l14_begin(o, h, fault)) return -1;
+    *result = l14_001F8880(o, (uint32_t)k);
+    return l14_end(o);
+}
+
+int em_level14_port_001F88C0(const H14 *h, uint32_t self, F14 *fault)
+{
+    L14 state, *o = &state;
+    if (l14_begin(o, h, fault)) return -1;
+    const uint32_t st = l14_u8(o, self + 4);
+    const uint32_t obj = l14_u32(o, self + 0x24);
+    const uint32_t q = self + 0x1F0;
+    int32_t r = 0;
+    if (st == 2 || st == 3) {
+        l14_c_001AFC10(o, self);
+        return l14_end(o);
+    }
+    if (st > 1) return l14_end(o);
+    if (st == 0) {
+        const uint32_t kind = l14_u8(o, obj + 3);
+        l14_w32(o, q + 4, kind == 9);
+        uint32_t list = 0;
+        switch (l14_u8(o, obj + 3)) {
+        case 1: list = 0x0025DA40u; break;
+        case 2: list = 0x0025DA60u; break;
+        case 3: list = 0x0025DAC0u; break;
+        case 9: list = 0x0025DAA0u; break;
+        default: break;
+        }
+        if (!l14_001F87E0(o, self, 0x38)) return l14_end(o);
+        l14_w32(o, q + 0xC, 0);
+        if (list) {
+            for (uint32_t b = l14_u32(o, list); b != 0xFFFFFFFFu && !l14_failed(o);) {
+                list += 4;
+                l14_w32(o, q + 0x10 + 4u * l14_u32(o, q + 0xC), b);
+                l14_w32(o, q + 0xC, l14_u32(o, q + 0xC) + 1u);
+                b = l14_u32(o, list);
+            }
+        } else {
+            for (int32_t b = 2; b < (int32_t)l14_u8(o, obj + 0xC) && !l14_failed(o);) {
+                l14_w32(o, q + 0x10 + 4u * l14_u32(o, q + 0xC), (uint32_t)b);
+                l14_w32(o, q + 0xC, l14_u32(o, q + 0xC) + 1u);
+                if ((int32_t)l14_u32(o, q + 0xC) >= 0xC) break;
+                if (l14_c_00122BB8(o, &r)) return l14_end(o);
+                b += r % 2 + 1;
+            }
+        }
+        for (uint32_t k = 0; k < 0x150u; k++) l14_w32(o, l14_001F8880(o, k) + 0x1C, F_M1);
+        l14_w32(o, q + 8, 0);
+        l14_w32(o, q + 4, 0);
+        if (l14_c_00122BB8(o, &r)) return l14_end(o);
+        l14_w32(o, q, (uint32_t)r);
+    }
+    if (l14_u8(o, obj + 4) == 3) {
+        l14_w8(o, self + 4, 3);
+        return l14_end(o);
+    }
+    if ((int32_t)l14_u32(o, S_70003B68) % 4 == 0) {
+        for (uint32_t i = 0; (int32_t)i < (int32_t)l14_u32(o, q + 0xC) && !l14_failed(o); i++) {
+            if (l14_c_001029C0(o, S_700036A0) || l14_c_00122BB8(o, &r)) return l14_end(o);
+            const uint32_t u = L14_DIV(L14_CVT_S_W(r), 0x4F000000u);
+            const uint32_t d = L14_SUB(L14_MUL(F_180, u), F_90);
+            const uint32_t angle = L14_DIV(L14_MUL(F_PI, d), F_180);
+            if (l14_c_00102BB0(o, S_700036A0, S_700036A0, angle)) return l14_end(o);
+            const uint32_t bone = l14_u32(o, q + 0x10 + 4u * i);
+            const uint32_t node = l14_u32(o, obj + 0x110 + 4u * bone);
+            if (l14_c_001026D0(o, S_700036A0, node + 0x90, S_700036A0)) return l14_end(o);
+            const uint32_t ent = l14_001F8880(o, l14_u32(o, q + 8));
+            if (l14_c_001C9E40(o, ent, S_700036A0)) return l14_end(o);
+            l14_w32(o, ent + 0x10, l14_u32(o, S_700036D0));
+            l14_w32(o, ent + 0x14, l14_u32(o, S_700036D0 + 4));
+            l14_w32(o, ent + 0x18, l14_u32(o, S_700036D0 + 8));
+            l14_w32(o, ent + 0x1C, 0);
+            l14_w32(o, q + 8, l14_u32(o, q + 8) + 1u);
+            if ((int32_t)l14_u32(o, q + 8) >= 0x150) l14_w32(o, q + 8, 0);
+        }
+    }
+    uint32_t w = l14_u32(o, q);
+    for (uint32_t k = 0; k < 0x150u && !l14_failed(o); k++) {
+        const uint32_t ent = l14_001F8880(o, k);
+        const uint32_t phase = L14_ADD(L14_DIV(L14_CVT_S_W((w >> 16) & 0xFFFFu), 0x477FFF00u), 0x38D1B717u);
+        l14_w32(o, S_70003A20, phase);
+        w = w * 37u + 11u;
+        if (L14_LT(l14_u32(o, ent + 0x1C), F_ZERO)) continue;
+        if (l14_c_001CA1C0(o, S_700036A0, ent, ent + 0x10)) return l14_end(o);
+        const uint32_t table = D_0025D920 + l14_u32(o, q + 4) * 0x90u;
+        const uint32_t age = l14_u32(o, ent + 0x1C);
+        if (l14_c_001D04B0(o, S_700036A0, 1, table, age, l14_u32(o, S_70003A20))) return l14_end(o);
+        const uint32_t grown = L14_ADD(l14_u32(o, ent + 0x1C), 0x3D4CCCCDu);
+        l14_w32(o, ent + 0x1C, grown);
+        if (!L14_LE(grown, 0x3FC00000u)) l14_w32(o, ent + 0x1C, F_M1);
+    }
+    return l14_end(o);
+}
+
+/* ------------------------------------------------------------------------
+ * 001F7E40 (NEARMISS; the translation follows the instructions), the node
+ * of effect 0x8000005B: the grey veil over the screen when the first boss
+ * has fallen (0x824A40). q = self +0x1F0: q[0] the LCG seed (rand at state
+ * 0, stored; the frame's own word w starts from it each frame and is not
+ * stored back), q[1] the hold (0x3C), q[2] the fade (0). State 1 draws 32
+ * sprites: x = int(512 u) + 0x700, y = int(224 u) + 0x790 (the words
+ * 0x700038A0 / A4), width int(320 + 128 u), height int(160 + 64 u) (B0 /
+ * B4), a sign from a draw's low bit (+-192), x = int(x + sign * fade *
+ * (0.7 + 0.3 u)), centred on the size, the colour (0x80, 0x80, 0x80, int(
+ * int(32 + 16 u) * (1 - fade))) at C0..CC; u = ((w >> 16) & 0xFFFF) / 65535
+ * + 1e-4, w = w * 37 + 11 per draw; 001F7CF0(A0, B0, C0). Then q[1] - 1;
+ * below zero the fade grows by 1/180, and above 1.0 +4 = 3. States 2, 3:
+ * 001AFC10(self). 001F7CF0 is one sprite's GS packet at depth 0xFFF000.
+ * ---------------------------------------------------------------------- */
+#define S_700038A0 0x700038A0u
+#define S_700038A4 0x700038A4u
+#define S_700038B0 0x700038B0u
+#define S_700038B4 0x700038B4u
+#define S_700038C0 0x700038C0u
+#define S_700038CC 0x700038CCu
+#define F_65535 0x477FFF00u
+#define F_1EM4 0x38D1B717u
+
+static uint32_t veil_u(uint32_t w)
+{
+    return L14_ADD(L14_DIV(L14_CVT_S_W((w >> 16) & 0xFFFFu), F_65535), F_1EM4);
+}
+
+static void l14_001F7CF0(L14 *o, uint32_t pos, uint32_t end, uint32_t colour)
+{
+    static const uint8_t zero[16] = {0};
+    uint32_t p = 0;
+    if (l14_c_001CB5F0(o, 0x007635C0u, 0xFFF000, 8, &p)) return;
+    l14_wq(o, p, zero);
+    l14_w32(o, p + 0x0C, 0x50000007u);
+    l14_w64(o, p + 0x10, UINT64_C(0x602B400000008001));
+    l14_w64(o, p + 0x18, UINT64_C(0x0000000000424216));
+    l14_w64(o, p + 0x20, UINT64_C(0x2004128555322090));
+    l14_w64(o, p + 0x28, UINT64_C(0x2004128555322090));
+    for (uint32_t k = 0; k < 16; k += 4) l14_w32(o, p + 0x30 + k, l14_u32(o, colour + k));
+    l14_w32(o, p + 0x40, 0);
+    l14_w32(o, p + 0x44, 0);
+    l14_w32(o, p + 0x48, F_ONE);
+    l14_w32(o, p + 0x4C, 0);
+    l14_w32(o, p + 0x50, l14_u32(o, pos) << 4);
+    l14_w32(o, p + 0x54, l14_u32(o, pos + 4) << 4);
+    l14_w32(o, p + 0x58, 0xFFFFFFu);
+    l14_w32(o, p + 0x5C, 0);
+    l14_w32(o, p + 0x60, F_ONE);
+    l14_w32(o, p + 0x64, F_ONE);
+    l14_w32(o, p + 0x68, F_ONE);
+    l14_w32(o, p + 0x6C, 0);
+    l14_w32(o, p + 0x70, l14_u32(o, end) << 4);
+    l14_w32(o, p + 0x74, l14_u32(o, end + 4) << 4);
+    l14_w32(o, p + 0x78, 0xFFFFFFu);
+    l14_w32(o, p + 0x7C, 0);
+    l14_c_001CB900(o, 0x007635C0u, 0xFFF000, 1);
+}
+
+int em_level14_port_001F7CF0(const H14 *h, uint32_t a0, uint32_t a1, uint32_t a2, F14 *fault)
+{
+    L14 state, *o = &state;
+    if (l14_begin(o, h, fault)) return -1;
+    l14_001F7CF0(o, a0, a1, a2);
+    return l14_end(o);
+}
+
+int em_level14_port_001F7E40(const H14 *h, uint32_t self, F14 *fault)
+{
+    L14 state, *o = &state;
+    if (l14_begin(o, h, fault)) return -1;
+    const uint32_t st = l14_u8(o, self + 4);
+    const uint32_t q = self + 0x1F0;
+    int32_t r = 0;
+    if (st == 2 || st == 3) {
+        l14_c_001AFC10(o, self);
+        return l14_end(o);
+    }
+    if (st > 1) return l14_end(o);
+    if (st == 0) {
+        if (l14_c_00122BB8(o, &r)) return l14_end(o);
+        l14_w32(o, q, (uint32_t)r);
+        l14_w32(o, q + 4, 0x3C);
+        l14_w32(o, q + 8, 0);
+        l14_w8(o, self + 4, 1);
+    }
+#define NEXT(w) ((w) * 37u + 11u)
+    uint32_t w = l14_u32(o, q);
+    for (uint32_t i = 0; i < 0x20u && !l14_failed(o); i++) {
+        uint32_t f = L14_MUL(0x44000000u, veil_u(w));       /* 512 */
+        w = NEXT(w);
+        if (l14_c_001281C0(o, f, &r)) return l14_end(o);
+        l14_w32(o, S_700038A0, (uint32_t)r);
+        f = L14_MUL(0x43600000u, veil_u(w));                /* 224 */
+        w = NEXT(w);
+        if (l14_c_001281C0(o, f, &r)) return l14_end(o);
+        l14_w32(o, S_700038A4, (uint32_t)r);
+        f = L14_ADD(0x43A00000u, L14_MUL(0x43000000u, veil_u(w)));   /* 320 + 128 u */
+        w = NEXT(w);
+        l14_w32(o, S_700038A0, l14_u32(o, S_700038A0) + 0x700u);
+        l14_w32(o, S_700038A4, l14_u32(o, S_700038A4) + 0x790u);
+        if (l14_c_001281C0(o, f, &r)) return l14_end(o);
+        l14_w32(o, S_700038B0, (uint32_t)r);
+        f = L14_ADD(0x43200000u, L14_MUL(0x42800000u, veil_u(w)));   /* 160 + 64 u */
+        w = NEXT(w);
+        if (l14_c_001281C0(o, f, &r)) return l14_end(o);
+        l14_w32(o, S_700038B4, (uint32_t)r);
+        l14_w32(o, S_70003A20, ((w >> 16) & 1u) ? 0xC3400000u : 0x43400000u);
+        w = NEXT(w);
+        const uint32_t sign = l14_u32(o, S_70003A20);
+        const uint32_t u = veil_u(w);
+        const uint32_t fade = l14_u32(o, q + 8);
+        w = NEXT(w);
+        const uint32_t x = L14_CVT_S_W(l14_u32(o, S_700038A0));
+        const uint32_t shift = L14_MUL(sign, L14_MUL(fade, L14_ADD(0x3F333333u, L14_MUL(0x3E99999Au, u))));
+        l14_w32(o, S_70003A20, shift);
+        if (l14_c_001281C0(o, L14_ADD(x, shift), &r)) return l14_end(o);
+        l14_w32(o, S_700038A0, (uint32_t)r);
+        const uint32_t width = l14_u32(o, S_700038B0);
+        const uint32_t left = l14_u32(o, S_700038A0);
+        const uint32_t height = l14_u32(o, S_700038B4);
+        l14_w32(o, S_700038C0, 0x80);
+        l14_w32(o, S_700038C0 + 4, 0x80);
+        l14_w32(o, S_700038C0 + 8, 0x80);
+        l14_w32(o, S_700038A0, left - (uint32_t)((int32_t)width >> 1));
+        const uint32_t alpha_u = veil_u(w);
+        w = NEXT(w);
+        l14_w32(o, S_700038A4, l14_u32(o, S_700038A4) - (uint32_t)((int32_t)height >> 1));
+        const uint32_t x0 = l14_u32(o, S_700038A0), y0 = l14_u32(o, S_700038A4);
+        l14_w32(o, S_700038B0, width + x0);
+        l14_w32(o, S_700038B4, l14_u32(o, S_700038B4) + y0);
+        if (l14_c_001281C0(o, L14_ADD(0x42000000u, L14_MUL(0x41800000u, alpha_u)), &r)) return l14_end(o);
+        l14_w32(o, S_700038CC, (uint32_t)r);
+        const uint32_t a = L14_CVT_S_W(l14_u32(o, S_700038CC));
+        const uint32_t faded = L14_MUL(a, L14_SUB(F_ONE, l14_u32(o, q + 8)));
+        if (l14_c_001281C0(o, faded, &r)) return l14_end(o);
+        l14_w32(o, S_700038CC, (uint32_t)r);
+        l14_001F7CF0(o, S_700038A0, S_700038B0, S_700038C0);
+    }
+#undef NEXT
+    l14_w32(o, q + 4, l14_u32(o, q + 4) - 1u);
+    if (l14_s32(o, q + 4) < 0) {
+        const uint32_t fade = L14_ADD(l14_u32(o, q + 8), 0x3BB60B61u);
+        l14_w32(o, q + 8, fade);
+        if (!L14_LE(fade, F_ONE)) l14_w8(o, self + 4, 3);
+    }
+    return l14_end(o);
+}

@@ -283,12 +283,12 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if(em_area01_collision_view_owns(&l->collision,a,n))
         return em_area01_collision_view_bytes(&l->collision,a,n,write);
     if((p=em_area01_scene_view(l->host.scene,a,n)))return p;
-    if(overlaps(a,n,0x0028A9A0u,2)) {
-        /* D_0028A9A0 (D_0028A8E0 + 0xC0): 001AEE70's transition substate,
-         * held by its one owner em_frame_transition(); read-only here
-         * (00184BA0's Use-scan gate). */
+    if(overlaps(a,n,0x0028A9A0u,8)) {
+        /* D_0028A9A0 (D_0028A8E0 + 0xC0): 001AEE70's transition fields,
+         * held by their one owner em_frame_transition(); read-only here
+         * (00184BA0's Use-scan gate, 00131B10's colour byte +2). */
         const EmTransitionFade *fade=em_frame_transition();
-        return !write && fade && contains(a,n,0x0028A9A0u,2)
+        return !write && fade && contains(a,n,0x0028A9A0u,8)
             ? (uint8_t *)(void *)&fade->substate+a-0x0028A9A0u : NULL;
     }
     if((p=em_camera_live_bytes(a,n)))return l->active ? p : NULL;
@@ -995,7 +995,11 @@ static int worker(void *ctx,EmArea01Call *c)
         float matrix[16];uint8_t source[0x90];
         memcpy(matrix,m,64);memcpy(source,src,0x90);
         if(em_area01_live_suspend(l)<0)return -1;
-        int rc=em_effects_live_001D04B0(matrix,(int32_t)c->a[1],(uint32_t)c->a[2],source,c->f[0],c->f[1]);
+        /* the first boss's spores name an ELF block (D_0025D920) */
+        const uint32_t from=(uint32_t)c->a[2];
+        int rc=from>=0x00100000u && from<0x00275B00u
+            ? em_effects_live_001D04B0_elf(matrix,(int32_t)c->a[1],from,c->f[0],c->f[1])
+            : em_effects_live_001D04B0(matrix,(int32_t)c->a[1],from,source,c->f[0],c->f[1]);
         if(em_area01_live_resume(l)<0)return -1;
         return worker_result(l,rc,rc<0 ? em_effects_live_fault() : 0);
     }

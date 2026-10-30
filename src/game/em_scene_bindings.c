@@ -3747,7 +3747,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6) && fn == 0x001E4CE0u)
         goto bind;
     /* The creature's death effect (001B4CF0's 001EFD90: em_level11_port). */
-    if (s_state.d810700 == 4 && fn == 0x001F4840u)
+    if (s_state.d810700 == 4 && (fn == 0x001F4840u || fn == 0x001F88C0u || fn == 0x001F7E40u))
         goto bind;
     /* AREA04's pool owners (em_area04_port through em_area01_runtime area
      * 4; docs/AREA04_PORT.md) and its boot owner 001C1A80. */

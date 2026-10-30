@@ -9,7 +9,7 @@ static int fail(uint32_t *fault, uint32_t address)
 
 int em_area01_rcl_workers_handles(uint32_t fn)
 {
-    return fn==0x001CB5F0u || fn==0x001CB950u || fn==0x001CB6B0u ||
+    return fn==0x001CB5F0u || fn==0x001CB950u || fn==0x001CB6B0u || fn==0x001CB900u ||
            fn==0x001CB760u || fn==0x001D2E00u || fn==0x001D2DE0u;
 }
 
@@ -56,6 +56,8 @@ int em_area01_rcl_workers_call(EmArea01Call *c, uint32_t *fault)
     } else if (fn==0x001CB5F0u) {
         rc=em_packet_chain_001CB5F0(pc,(uint32_t)c->a[0],(int32_t)c->a[1],
                                     (int32_t)c->a[2],&result,NULL);
+    } else if (fn==0x001CB900u) {
+        rc=em_packet_chain_001CB900(pc,(uint32_t)c->a[0],(int32_t)c->a[1],(int32_t)c->a[2]);
     } else if (fn==0x001CB6B0u) {
         rc=em_packet_chain_001CB6B0(pc,(uint32_t)c->a[0],(int32_t)c->a[1],
                                     (int32_t)c->a[2],c->a[3]);

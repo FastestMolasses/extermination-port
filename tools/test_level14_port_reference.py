@@ -168,6 +168,11 @@ FUNCS = {
     0x1B4CF0: ('em_level14_port_001B4CF0', 0x668, [U], None),
     0x1EDE40: ('em_level14_port_001EDE40', 0x34C, [U, U], None),
     0x1F6BA0: ('em_level14_port_001F6BA0', 0xC, [], None),
+    0x1F7CF0: ('em_level14_port_001F7CF0', 0x148, [U, U, U], None),
+    0x1F7E40: ('em_level14_port_001F7E40', 0x508, [U], None),
+    0x1F87E0: ('em_level14_port_001F87E0', 0xA0, [U, U], I),
+    0x1F8880: ('em_level14_port_001F8880', 0x40, [I], U),
+    0x1F88C0: ('em_level14_port_001F88C0', 0x46C, [U], None),
 }
 OVERLAY_OF = {entry: (16 if entry in (0x826B30, 0x827540) else 12) for entry in FUNCS if entry >= ARENA}
 # The entries whose passing cases are all contract sites (they return from
@@ -186,9 +191,11 @@ def has_result(entry):
 HOOKS = [
 # BEGIN GENERATED HOOKS
     ('w_001026A0', 0x1026A0, [(U, 4), (U, 5), (U, 6)], None),
+    ('w_001026D0', 0x1026D0, [(U, 4), (U, 5), (U, 6)], None),
     ('w_00102948', 0x102948, [(U, 4), (U, 5)], None),
     ('w_001028B8', 0x1028B8, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001029C0', 0x1029C0, [(U, 4)], None),
+    ('w_00102BB0', 0x102BB0, [(U, 4), (U, 5), (F, 12)], None),
     ('w_00102C58', 0x102C58, [(U, 4), (U, 5), (U, 6)], None),
     ('w_00103230', 0x103230, [(U, 4), (U, 5), (F, 12)], None),
     ('w_0011DF78', 0x11DF78, [(F, 12)], F),
@@ -212,6 +219,7 @@ HOOKS = [
     ('w_0019C6F0', 0x19C6F0, [(I, 4), (I, 5)], None),
     ('w_001A2370', 0x1A2370, [(U, 4), (U, 5)], None),
     ('w_001AEE10', 0x1AEE10, [(I, 4), (I, 5)], None),
+    ('w_001AF780', 0x1AF780, [], U),
     ('w_001AFC10', 0x1AFC10, [(U, 4)], None),
     ('w_001B0CD0', 0x1B0CD0, [(U, 4), (I, 5)], None),
     ('w_001B0FD0', 0x1B0FD0, [(U, 4)], I),
@@ -239,10 +247,16 @@ HOOKS = [
     ('w_001C64F0', 0x1C64F0, [(U, 4), (F, 12)], I),
     ('w_001C67E0', 0x1C67E0, [(U, 4), (I, 5), (F, 12), (F, 13)], None),
     ('w_001C68C0', 0x1C68C0, [(U, 4)], None),
+    ('w_001C9E40', 0x1C9E40, [(U, 4), (U, 5)], None),
+    ('w_001CA1C0', 0x1CA1C0, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001CA5F0', 0x1CA5F0, [(U, 4), (I, 5)], None),
     ('w_001CA6F0', 0x1CA6F0, [(U, 4), (I, 5)], None),
+    ('w_001CB5F0', 0x1CB5F0, [(U, 4), (I, 5), (I, 6)], U),
+    ('w_001CB5B0', 0x1CB5B0, [(I, 4)], None),
+    ('w_001CB900', 0x1CB900, [(U, 4), (I, 5), (I, 6)], None),
     ('w_001CFB50', 0x1CFB50, [(U, 4), (I, 5), (U, 6), (F, 12), (F, 13), (F, 14), (F, 15), (F, 16)], None),
     ('w_001CFBE0', 0x1CFBE0, [(I, 4), (I, 5), (U, 6), (U, 7), (I, 8)], None),
+    ('w_001D04B0', 0x1D04B0, [(U, 4), (I, 5), (U, 6), (F, 12), (F, 13)], None),
     ('w_001E8B90', 0x1E8B90, [(U, 4), (F, 12)], None),
     ('w_001EFD90', 0x1EFD90, [(I, 4), (U, 5), (U, 6)], None),
     ('w_001EFE00', 0x1EFE00, [(I, 4), (U, 5)], U),
@@ -1937,6 +1951,72 @@ def area19_cases(add, rng):
         add('a19 827540 %s free' % beat, beat, 0x827540, [NODE_A], [(NODE_A + 0x28, h16(0xFFFF))])
 
 
+def veil_cases(add, B):
+    """The veil 001F7E40 on a designed node, its packets in free memory."""
+    node = NODE_A
+    packet = FREE + 0x4000
+    q = node + 0x1F0
+    blocks = {0x1CB5F0: [packet + 0x80 * i for i in range(32)]}
+    for st in (2, 3, 4, 0xFF):
+        add('cr 1F7E40 s%d' % st, B, 0x1F7E40, [node], [(node + 4, b8(st))])
+    for r in (0, 0x12345678, -0x54321):
+        add('cr 1F7E40 s0 %X' % (r & MASK), B, 0x1F7E40, [node], [(node + 4, b8(0))],
+            queues={**blocks, 0x122BB8: [r]})
+    for seed, hold, fade in ((0x9ABCDEF0, 1, 0.0), (0x13572468, 0, 0.5), (0xFFFFFFFF, 0, 0.995), (0, 0, 1.0),
+                             (0x7FFF0001, -5, 0.25), (0x10001, 2, 0.0)):
+        add('cr 1F7E40 s1 %X %d %g' % (seed, hold, fade), B, 0x1F7E40, [node],
+            [(node + 4, b8(1)), (q, w32(seed)), (q + 4, w32(hold & MASK)), (q + 8, f32b(fade))], queues=dict(blocks))
+    add('cr 1F7CF0', B, 0x1F7CF0, [FREE + 0x100, FREE + 0x110, FREE + 0x120],
+        [(FREE + 0x100 + 4 * k, w32(0x1234 + k)) for k in range(12)], queues={0x1CB5F0: [packet]})
+
+
+def spore_cases(add, B, obj):
+    """The spores 001F88C0 on a designed node, obj the captured creature:
+    its 0x38 slots lie in free memory (D_00275B40 = the node's +0x110)."""
+    node = NODE_A
+    slots = FREE + 0x2000
+    words = [(node + 0x110 + 4 * i, w32(slots + 0xC0 * i)) for i in range(0x38)]
+    base = [(0x275B40, w32(node + 0x110)), (node + 0x24, w32(obj))] + words
+    popped = {0x1AF780: [slots + 0xC0 * i for i in range(0x38)]}
+    for st in (2, 3, 4, 0xFF):
+        add('cr 1F88C0 s%d' % st, B, 0x1F88C0, [node], base + [(node + 4, b8(st))])
+    for kind in (1, 2, 3, 9, 0, 5, 0xFF):
+        add('cr 1F88C0 s0 k%d' % kind, B, 0x1F88C0, [node],
+            base + [(node + 4, b8(0)), (obj + 3, b8(kind)), (0x70003B68, w32(7))],
+            queues={**popped, 0x122BB8: [0x12345678]})
+    for count, r in ((0, 3), (2, 3), (3, 4), (6, -3), (6, -2), (40, 1), (40, 0x7FFFFFFF), (255, 0)):
+        add('cr 1F88C0 s0 list %d %X' % (count, r & MASK), B, 0x1F88C0, [node],
+            base + [(node + 4, b8(0)), (obj + 3, b8(0)), (obj + 0xC, b8(count)), (0x70003B68, w32(1))],
+            queues={**popped, 0x122BB8: [r] * 13})
+    for free in (0x37, 0x38, 0, -1):
+        add('cr 1F88C0 s0 free %d' % free, B, 0x1F88C0, [node],
+            base + [(node + 4, b8(0)), (obj + 3, b8(1)), (0x275BCC, h16(free & 0xFFFF)), (0x70003B68, w32(1))],
+            queues={**popped, 0x122BB8: [1]})
+    ages = [(slots + 0xC0 * (k // 6) + (k % 6) * 32 + 0x1C, f32b(a))
+            for k, a in ((0, 0.0), (1, 1.5), (2, 1.44), (3, 1.46), (4, -1.0), (5, -0.0), (6, 1.45), (0x14F, 0.5))]
+    list_of = [(node + 0x1F0, w32(0x9ABCDEF0)), (node + 0x1F4, w32(0)), (node + 0x1F8, w32(0x14E)),
+               (node + 0x1FC, w32(3)), (node + 0x200, w32(1)), (node + 0x204, w32(2)), (node + 0x208, w32(3))]
+    full = [(slots + 0xC0 * (k // 6) + (k % 6) * 32 + 0x1C, f32b(-1.0)) for k in range(0x150)]
+    for clock in (4, 5, 6, 7, -4, -5, -8, 0):
+        add('cr 1F88C0 s1 clock %d' % clock, B, 0x1F88C0, [node],
+            base + full + ages + list_of + [(node + 4, b8(1)), (0x70003B68, w32(clock & MASK))],
+            queues={0x122BB8: [0, 0x7FFFFFFF, -0x80000000]})
+    add('cr 1F88C0 s1 variant', B, 0x1F88C0, [node],
+        base + full + ages + list_of + [(node + 4, b8(1)), (node + 0x1F4, w32(1)), (0x70003B68, w32(1))])
+    add('cr 1F88C0 s1 none', B, 0x1F88C0, [node],
+        base + full + list_of + [(node + 4, b8(1)), (node + 0x1FC, w32(0)), (0x70003B68, w32(4))])
+    add('cr 1F88C0 s1 ends', B, 0x1F88C0, [node],
+        base + full + list_of + [(node + 4, b8(1)), (obj + 4, b8(3)), (0x70003B68, w32(4))])
+    add('cr 1F87E0 fits', B, 0x1F87E0, [node, 0x38], base, queues=popped)
+    add('cr 1F87E0 refused', B, 0x1F87E0, [node, 0x38], base + [(0x275BCC, h16(0x37))])
+    add('cr 1F87E0 none', B, 0x1F87E0, [node, 0], base)
+    for k in (0, 5, 6, 0x14F):
+        add('cr 1F8880 %d' % k, B, 0x1F8880, [k], base)
+    add('cr 1F88C0 s0 ends', B, 0x1F88C0, [node],
+        base + [(node + 4, b8(0)), (obj + 3, b8(1)), (obj + 4, b8(3))],
+        queues={**popped, 0x122BB8: [1]})
+
+
 def creature_cases(add, rng):
     """The 0012E3A0 creatures' handlers on their captured nodes with the
     state bytes patched (a19d_00 / 03 / 07), and the AREA15 enemy
@@ -1952,6 +2032,8 @@ def creature_cases(add, rng):
                 base + [(n + 5, b8(sub)), (n + 6, b8(4)), (n + 0x20, w32(p20)), (e + 0x65, b8(f65)),
                         (NODE_A + 4, b8(1))], queues={0x1C64F0: [0x2468]})
     add('cr 131650 +5 80', B, 0x131650, [n, e], base + [(n + 5, b8(0x80)), (n + 6, b8(4))])
+    spore_cases(add, B, n)
+    veil_cases(add, B)
     # 001B4CF0: every kind with both bits of +0xD
     for kind in range(0, 13):
         for d in ((0, 1, 0x80, 0x81) if kind in (1, 4, 5, 6, 7) else (0, 0x81)):
@@ -2904,7 +2986,7 @@ SURVIVORS = ('survivor ', 'bound ')
 
 
 # Lane F1's entries: their designed cases all run by default.
-BOSS_CASES = ('cr 12F980', 'cr 12FA50', 'cr 131210', 'cr 131510', 'cr 131940')
+BOSS_CASES = ('cr 12F980', 'cr 12FA50', 'cr 131210', 'cr 131510', 'cr 131940', 'cr 1F7CF0', 'cr 1F7E40', 'cr 1F87E0', 'cr 1F8880', 'cr 1F88C0')
 
 
 def select_cases(elf):
