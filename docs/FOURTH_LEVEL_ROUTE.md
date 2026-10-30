@@ -477,9 +477,12 @@ as measurements.
 
 1. The revisit event's cinematic (script 0x82AD90, about 6,900 frames of
    camera path) and its message lines were not decoded record by record.
-2. Which instruction selects sub 0 during the AREA02 duct crawl (a02_00), and
-   what the scripts 0x826B40 / 0x826F40 of [31] (0x824D50's turntable tests)
-   do: not reached on the route.
+2. What the scripts 0x826B40 / 0x826F40 of [31] (0x824D50's turntable
+   tests) do: not reached on the route. (The duct's sub choice, from the
+   code, lane B1 2026-10-30: 00179910 (NEARMISS C, logic recovered; the
+   duct's end test) writes the request D_008106B5..B8 with B6 = 1 from sub
+   0 or 2 (back to sub 1) and, from sub 1, B6 = 2 when D_00810730[2] bit 7 is
+   set, else 0; 001AD010 (byte-matched) then sets D_00810701 = B6.)
 3. Door [14] and AREA02 sub 0's door [22] (the padlock-like 001582E0 [21]
    beside it): which code sets D_00810841[1] bit 1 was not found; AREA02 entry
    0 was not played.
@@ -489,10 +492,28 @@ as measurements.
    tunnel (x < -80) with its nest of 00128C10 / 0012A5D0 creatures, the
    examine owner [40] (0x824FA0), AREA02 sub 2.
 5. What sets D_008107E4 in AREA04's arrival.
-6. Native status (2026-10-30, lane A2): a02_s0 and a02_00..a02_04 are
-   row-exact from New Game (LEVEL3_BINDING.md "2026-10-30, lane A2");
-   a02_05 is not a harness phase yet (its fork drive table and the AREA04
-   boundary in em_level_smoke_test.c are missing).
+6. Native status (2026-10-30): a02_s0 and a02_00..a02_04 are row-exact
+   from New Game (LEVEL3_BINDING.md "2026-10-30, lane A2"), and a02_05
+   too, door [25] through the AREA04 arrival to control and the trace end
+   (lane B1: its fork drive table `build/drive_replay/route_a02_05_20261030`,
+   the rand() anchor entry04, the AREA04 boundary in em_level_smoke_test.c).
+7. **AREA02 sub 2 is not reachable in the original's data** (lane B1,
+   2026-10-30, from the code). Sub 2 (placement table 0x8283D0, 53 records,
+   the "after" population of the floor) is loaded only when D_00810701 = 2.
+   No door record enters AREA02 with sub 2 (D_0024E140's rows into area 2:
+   AREA01's 02 00 00 00 and 02 01 01 01, AREA04's 02 04 00 00; a sub byte
+   0xFF would take D_00810730[2] & 0x7F). The only other selector is the
+   duct's 00179910, which picks sub 2 from sub 1 only when D_00810730[2]
+   bit 7 is set. D_00810730 is written only by 001AF220, 001AD360 and
+   001AD740 (area 0xB at New Game / Continue) and by 001FF030 / 001FEFE0
+   (bit 7 when the request byte has it), which run only on script op 0x11
+   (001B7700: D_008106CF = record +0x14 + 0x80). No op 0x11 record exists in
+   AREA02.BIN (a full scan of the overlay for op words 0x11) nor in the
+   boot ELF's script windows (AREA00.BIN has one, the switch's sub-1
+   request, and AREA04.BIN one, neither run in area 2). So in play the
+   duct always leads to sub 0 and sub 2 stays unloaded; a save could only
+   carry the bit if play had set it. No capture loads sub 2
+   (export_area02_common: SUBS = (0, 1)).
 
 ## 9. Census: what the revisit and AREA02 execute beyond the first level, AREA01 and AREA00
 

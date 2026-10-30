@@ -14,6 +14,78 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-30, lane B1 (branch `a02-exit`): a02_05 row-exact, door [25]
+into AREA04 to control.** From New Game the whole-run checker passes 50
+live phases through a02_05 (`--run --until a02_05`; `a02_05: PASS 1726
+native rows`, the loader's 19 states, 83 original chain steps, 84 veil
+steps, the 25 recorded owners (AREA04's records at those nodes after its
+state 0), ending camera bytes equal to saved RAM). The phase's fork drive
+table is `build/drive_replay/route_a02_05_20261030` (0 replay
+differences) and its rand() anchor `entry04` is in
+`build/rand_replay/route_a02_05_20261030/table.txt` (record_rand_replay.py
+now records the a02_05 beat; the four earlier anchors re-recorded equal).
+The C phase list has the AREA04 boundary: AREA04 entry 0's state 0
+(recorded row 649), then the 1076 recorded rows of the arrival script
+0x8275A0 and control, to the trace end.
+
+AREA04 runs in the shared AREA01 composition (area 4), as AREA02 does
+(docs/AREA02_PRETRANS.md section 2); what it needed, each from original
+code with its evidence:
+
+- **Area state** (`em_area04_state`): the overlay header (MWo3 id 5,
+  text 0x30C0, data 0x6300, BSS 0x14AC80 at 0x82C900) and 001E7780's area
+  init 0x823B10 (decomp func_overlay_AREA04_00823AD0.c: five stores);
+  `tools/test_area04_state_reference.py` runs the original 001E7780 /
+  0x823B10 over the AREA04 fork captures (24 runs, the globals, data and
+  BSS equal).
+- **Runtime** (`em_area01_runtime`, area 4): em_area04_port's 21 owners
+  (AREA04_PORT.md, oracle-checked) through `em_area04_runtime_overlay.inc`,
+  one typed hook per callee, generated from the register map of
+  `test_area04_port_reference.py`'s HOOKS; each entry's frame from its
+  first instruction. em_area02_math's boot routines and 001F4E40 serve
+  area 4 too; 001BAC00 (the arrival script's op14) and the 001BB0E0 script
+  actors run over AREA04's data window 0x826600..0x82C900; 001B6F80 and
+  001FB0B0 (both byte-matched) are translated in the runtime.
+- **Scene**: AREA04 sub 0's collision, cells, roster (deferred groups
+  0x826600 / 0x8268D0 / 0x826930 through 001B6660), world models, message
+  bank, dynamic list (slot 0x45) and pool-owner allowlist; the area script
+  window 0x8272A0..0x82C8D0 (op09 0x823B40).
+- **001F6210's list loop** (AREA04 is the first area with a 001F5CA0 list:
+  its area model sprites; byte-matched, EFFECT_MANAGER.md, oracle over every
+  list): 001D8C20, 001C6120, 001D3D90 (a raw-model channel-3 submit,
+  `em_owner_draw_live_001D3D90_at`) and 001CAAC0 over the context's +0x1C
+  cursor, the one storage; the units carry the clip pass
+  (`em_object_unit_parse_light_clip`); the frame's page-unit cache holds 64.
+- **The drop shadow of AREA04's NPC [2]** (0x824320, +0x96 = 0x2A, 20
+  nodes): em_shadow_live takes the actor's node count (21, or 20 for kind
+  0x2A) and the proxy D_0028A490[0x2A] (`assets/npc2a_shadow.emdl`, the
+  decomp's `export_shadow_proxy.py --kind 0x2A`, verified against the
+  a02_05 end RAM: the captured silhouette pass REFs it).
+- **The camera timeline** accepts scene 3 (AREA04's arrival): 0022EC30
+  binds no track for it and 0022EEF0's scene switch has no case for it;
+  `test_area01_timeline_reference.py` now also runs the original 0022EC30 /
+  0022EEF0 over the arrival's track (78 exact ticks).
+- 001B1D20 (the class-4 list push) through the shared services.
+
+**Why the scripted EM_START_AT runs did not take door [25]** (lane A2):
+door [25] (001BB860, model 0x17, byte-matched) publishes itself to the Use
+scan (001B1DE0) only within 20 units of the player (3D), and only with its
+lock bit D_00810843 bit 3 set; 00183EF0's class-0 kind-5 branch (subtype
+0x17, not 3 / 0x15) then takes a player within 10 units (planar) of the
+door's centre (440.2, 109.9) and within 8 in height, and, from the south
+side, only while the player's yaw is within pi/4 of the door's (0, +z).
+In the run with the recorded pad alone, the loaded game's placement clip
+(the player's clock counts down from 78 for about 65 frames after control)
+swallowed the first 40 frames of stick, so the player ended at (421.3,
+93.97), 24 units away, unpublished. With EM_START_AT_PATH the steering
+aims the stick at the recorded position 8 frames ahead; the recording's
+turn in place before the Use (rows 105..170, yaw -1.96 to -0.06 while the
+position moves 1.4 units) became a walk, and the player pressed Cross at
+(439.24, 102.81), 7.2 units from the centre but facing yaw -2.455, outside
+the cone. With the recorded pad delayed by 66 frames (the clip) the Use is
+taken (3B8D = 2 at (440.2, 106.7)) and the area change, the AREA04 arrival
+and control at (440.1, 14.9, 356.4) follow.
+
 **2026-10-30, lane A2 (branch `area02`): AREA02 row-exact from door [16]
 through the battery panel, and the bed.** From New Game the whole-run
 checker passes 49 live phases through a02_04 (`--run --until a02_04`,
@@ -70,9 +142,8 @@ The fail-stops on the way, each closed with a translation of original code
 
 The a02_03 "4.2 units off the path" stop was an EM_START_AT discovery
 artefact (a loaded game's state, the path clock): from New Game a02_03 is
-row-exact. Not done: a02_05 (door [25] into AREA04) as a harness phase
-(needs its fork drive table and the AREA04 boundary in the C phase list);
-see LEVEL2_CRASHES.md "AREA02 (lane A2)".
+row-exact. a02_05 (door [25] into AREA04) became a harness phase in lane
+B1 (above); see LEVEL2_CRASHES.md "AREA02 (lane A2)".
 
 **2026-10-29, lane G1 (branch `bug-glow`): a kill's dissolve no longer
 fail-stops.** A user run (EM_START_AT=a01_07, through the shaft door into

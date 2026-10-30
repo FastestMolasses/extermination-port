@@ -32,7 +32,7 @@ def build():
     target = OUT / 'bridge.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', '-Isrc',
                     'tests/area02_state_bridge.c', 'src/game/em_area01_state.c', 'src/game/em_area00_state.c',
-                    'src/game/em_area02_state.c', 'src/game/em_area02_overlay.c',
+                    'src/game/em_area02_state.c', 'src/game/em_area02_overlay.c', 'src/game/em_area04_state.c',
                     'src/game/em_status_scene_original.c', 'src/game/em_task.c',
                     '-o', str(target)], cwd=ROOT, check=True)
     lib = C.CDLL(str(target))

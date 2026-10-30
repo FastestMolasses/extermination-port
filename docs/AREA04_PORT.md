@@ -321,7 +321,21 @@ not compile. Of the 2,571 that run:
 
 ## Binding
 
-Nothing calls these entries. To run them live a host must:
+**Live since 2026-10-30 (lane B1, LEVEL3_BINDING.md "2026-10-30, lane
+B1").** AREA04 runs in the shared AREA01 composition (area 4):
+`em_area01_runtime` dispatches the 21 entries (and 001C1A80) for area 4,
+each hook re-entering the runtime by its original address through
+`src/game/em_area04_runtime_overlay.inc` (generated from the HOOKS table
+of `tools/test_area04_port_reference.py`, the register map that test
+checks against the original instructions); every callee is the
+composition's translation of that address or a fail-stop. The area's
+init 0x823B10 is `em_area04_state` (test_area04_state_reference.py). The
+a02_05 route (door [25], the AREA04 load, the arrival script 0x8275A0,
+control) is row-exact from New Game; AREA04 play after control is not
+compared yet. The text below is the pre-binding requirement list, kept
+for the pairing record.
+
+Before 2026-10-30 nothing called these entries. To run them live a host must:
 
 - supply `bytes` over the scene's original-byte storage (actor pool, the
   0x810000 story block and the player block 0x8102B0, boot data such as

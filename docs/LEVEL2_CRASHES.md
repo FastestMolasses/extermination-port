@@ -800,5 +800,25 @@ Open for free play in AREA02:
   port's one copy of +0x220 (the original keeps +0x220 until the end); the
   tick log's health differs from the original's during that count.
 - Door [5] back to AREA01, the save terminal [3], AREA02 sub 2 and the
-  western tunnel's nest were not reached.
+  western tunnel's nest were not reached (lane B1's runs: "AREA02's
+  unreached places" below).
 
+
+## AREA02's unreached places (lane B1, 2026-10-30)
+
+Branch `a02-exit` (port worktree `port-a02-exit`). Free play from the
+start cards with waypoint pads (EM_START_AT_PAD with EM_START_AT_PATH;
+scratch, deleted). As every exploration here, these are runs without a
+fault, not certifications of unrestricted play.
+
+| Run (card) | Input | Result |
+|---|---|---|
+| area02 | walk to (63, -228) east of door [5], facing -x, Use | door [5] taken (00183EF0's kind-5 subtype-3 branch: within 10 units of a centre 5 units behind the door (57, -225.5), facing within pi/4 of -x from inside the room; the shelf pickup 0x825B50[0] (62.2, 14, -216.2) is a candidate within 10 units too and the nearer one wins: s88's (64.5, -222.6) was 6.8 from it and 8.0 from the door centre), the area change to AREA01 entry 5, control at (25.9, 0, -225); no fault |
+| area02 | the same, then east to (45.5, -222.7) facing +x, Use door [16] | back into AREA02 sub 1 (entry 1, the arrival's walk-out to (78.1, -225)), control; no fault |
+| area02 | to (107.4, -184) facing +x, Use the save terminal [3], Cross, Left, Cross | the terminal's line (message 0x80000012), the BATTERY page's save prompt (request 6), Yes: **fail-stop at 0020CDC0** (the status page core has no accepted-save follow-up: 0020CDC0 phase 6 and the card screen in save mode 00225AC0(1); SAVE_GAME.md section 8). Not fixed: it needs the save mode's leaves and a fork recording of a save on a formatted card file (open) |
+| a02_03 | through the junction to (-38, -27), R1 and Circle every 16 frames toward the nest of 00128C10 creatures at (-45..-56, -52..-60), 800 frames | no fault (health 90 throughout) |
+| a02_03 | west along the east-west tunnel to (-150, 10) past gate [36], R1 and Circle | see below |
+
+AREA02 sub 2 is not reachable in the original's data (FOURTH_LEVEL_ROUTE.md
+section 8 item 7: only the duct's 00179910 selects it, from a bit of
+D_00810730[2] that no AREA02 or boot script sets).

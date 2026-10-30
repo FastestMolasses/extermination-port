@@ -137,6 +137,8 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 71 | `python3 tools/export_movie.py --iso /path/to/owned.iso --disc-path /MOVIE/E007.PSS --out assets/movies/e007.mov` (LEVEL3_BINDING.md, "Current state") | `movies/e007.mov` | R for AREA00 (since 2026-10-28: the exit movie's request at a00_10 fails without it; not read by the first level) | em_frontend: AREA00's exit movie (the shaft door's script at a00_10, selector 3) |
 | 72 | `python3 tools/export_movie.py --iso /path/to/owned.iso --disc-path /MOVIE/E008S4.PSS --out assets/movies/e008s4.mov` (AREA01_REVISIT.md) | `movies/e008s4.mov` | R for the AREA01 revisit (the event movie's request at a01r_01 fails without it; not read by the first level) | em_frontend: the revisit's event movie (script 0x82AD10, selector 4) |
 | 73 | `python3 tools/export_movie.py --iso /path/to/owned.iso --disc-path /MOVIE/E010.PSS --out assets/movies/e010.mov` (LEVEL3_BINDING.md, "Current state") | `movies/e010.mov` | R for AREA02 (since 2026-10-29: the car movie's request at switch [31], a02_01, fails without it; not read by the first level) | em_frontend: AREA02's car movie (switch [31]'s script 0x826780, selector 5) |
+| 74 | `python3 tools/export_area04_level.py`, `export_area04_tables.py`, `export_area04_sfx.py` (AREA04_ASSETS.md), then `export_area04_world_textures.py`, `export_area04_shadow_receivers.py` and, after `export_area02_library.py`, `export_area04_library.py` (LEVEL3_BINDING.md "2026-10-30, lane B1"); re-run steps 22 (music cue 0xF), 37 (the sfx scope (4, 0)) and 56 (AREA04 sub 0's area files) | `area04/` (sub 0), `area04_sub0_world_textures.emot`, `area04_sub0_shadow_receivers.emsr` (+ `.json`), the library model 0x41 in `scene_snow/roger/resources.emrs` | R for AREA04 (since 2026-10-30: AREA02's door [25], a02_05; without them the AREA04 load or its first frames fail-stop) | the AREA04 arrival in the shared composition |
+| 75 | `cd ../Extermination && python3 tools/export_shadow_proxy.py --kind 0x2A --player-emdl ../extermination-port/assets/player.emdl --out ../extermination-port/assets/npc2a_shadow.emdl` (optional check: `--verify-ram build/fork_refs/s87/route_a02/a02_05_progression_exit/eeMemory.bin`) | `npc2a_shadow.emdl` | R for AREA04 (the NPC [2]'s silhouette D_0028A490[0x2A], loaded at its first draw) | em_shadow_live |
 
 Not read by the first level (X): `ui.emui`, `ui_page*.emui`, `messages.emsg`,
 `title.emui`, `gameover.emui` (decomp `export_ui.py` / `export_screen_modules.py`,
@@ -522,7 +524,13 @@ recording-derived and stay in the ignored `build/`.
   time), so the presses land where the recording made them; it steers and
   holds only while the player has control (0x70003B8D clear: a scripted
   stretch moves the player itself, and a hold there only stretched the
-  script's clock by 300 frames a step); a progress
+  script's clock by 300 frames a step). Two limits (lane B1, 2026-10-30):
+  the loaded game's placement clip runs about 65 frames after control and
+  ignores the stick, so a route's pad replayed from control starts that
+  much early (a02_05's recorded pad reaches door [25] only delayed by 66
+  frames); and the steering turns a recorded turn in place into a walk, so
+  a Use that needs a facing (a door's cone, 00183EF0) may not be taken; a
+  progress
   line every 300 script frames prints the position and the revisit's story
   bytes.
 - **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):

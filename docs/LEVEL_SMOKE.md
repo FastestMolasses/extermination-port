@@ -25,7 +25,13 @@ The AREA01 revisit and AREA02 run on `tools/test_level_smoke_area01r.py
 --run --until <phase>` (opt-in, from New Game, about 11 minutes to a02_04
 headless): since 2026-10-30 (lane A2) the whole-run checker passes 49 live
 phases through a02_04 and 45 through the side beat a02_s0 (LEVEL3_BINDING.md
-"2026-10-30, lane A2"); a02_05 is not a phase yet.
+"2026-10-30, lane A2"), and (lane B1) 50 through a02_05, door [25] into
+AREA04, its arrival script and control (LEVEL3_BINDING.md "2026-10-30, lane
+B1"). The a02_05 phase is a return phase (as a01r_03 and a02_00): its
+boundary is AREA04 entry 0's state 0, after which the checker compares the
+1076 recorded rows to the trace end; it needs its fork drive table
+(`build/drive_replay/route_a02_05_20261030`) and the rand() anchor
+`entry04` (`build/rand_replay/route_a02_05_20261030`).
 
 AREA00 now has an opt-in input driver and strict checker, but no native
 phase is certified. Its short default verifies the harness only; see

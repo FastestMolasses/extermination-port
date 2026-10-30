@@ -44,7 +44,7 @@ def build():
                 'src/game/em_area01_revisit.c', 'src/game/em_area00_return.c',
                 'src/game/em_script_door_fan.c',
                 'src/game/em_startup_load_gaps.c', 'src/game/em_area02_misc.c',
-                'src/game/em_area02_overlay.c', 'src/game/em_area02_math.c']
+                'src/game/em_area02_overlay.c', 'src/game/em_area02_math.c', 'src/game/em_area04_port.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', *sources, '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
