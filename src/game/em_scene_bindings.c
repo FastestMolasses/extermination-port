@@ -918,7 +918,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         log_hex(f, bytes, windows[i][1]);
     }
     fputc(']', f);
-    if (!strcmp(key, "a01r") || !strcmp(key, "a02")) {
+    if (!strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04")) {
         /* D_00810760..63 (the bridge's event 8 and its neighbours), the
          * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
         uint8_t bytes[4];
@@ -929,7 +929,24 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         fputs(", \"s760\": ", f);
         log_hex(f, bytes, 4);
     }
-    if (!strcmp(key, "a00") || !strcmp(key, "a01r") || !strcmp(key, "a02")) {
+    if (!strcmp(key, "a04")) {
+        /* AREA04's rows (FIFTH_LEVEL_ROUTE.md section 1): story764
+         * (D_00810764..67, the event's end byte) and s830 (D_00810830..3F,
+         * the console's D_0081083B). */
+        static const uint32_t starts[] = {0x00810764u, 0x00810830u};
+        static const unsigned sizes[] = {4, 16};
+        static const char *const names[] = {"s764", "s830"};
+        for (unsigned i = 0; i < 2; ++i) {
+            uint8_t bytes[16];
+            for (unsigned k = 0; k < sizes[i]; ++k) {
+                const uint8_t *p = em_scene_progress_at(&s_state, starts[i] + k, 1);
+                bytes[k] = p ? *p : 0;
+            }
+            fprintf(f, ", \"%s\": ", names[i]);
+            log_hex(f, bytes, sizes[i]);
+        }
+    }
+    if (!strcmp(key, "a00") || !strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04")) {
         static const uint32_t starts[] = {0x00810840u, 0x00810C60u};
         static const char *const names[] = {"locks", "wpn"};
         for (unsigned i = 0; i < 2; ++i) {
@@ -999,6 +1016,29 @@ static void log_area02(FILE *f)
                                      0x7AE630, 0x7AE920, 0x7AEC10, 0x7AF4E0, 0x7AF7D0, 0x7AFAC0, 0x7AFDB0,
                                      0x7B00A0, 0x7B0390, 0x7B0680, 0x7B0970};
     log_area_owners(f, "a02", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* AREA04's recorded owners (FIFTH_LEVEL_ROUTE.md section 1.1, A04_OWNERS),
+ * logged in AREA04 once the director's event has a counter (D_008107E4 != 0:
+ * from the a02_05 arrival script's end; a02_05's own rows keep the "a02"
+ * nodes), and on through door [37]'s AREA22 load (a04_05), whose recorded
+ * rows keep reading the same addresses. The second visit's nodes follow. */
+static void log_area04(FILE *f)
+{
+    if (s_state.d810700 != 4 && s_state.d810700 != 0x16)
+        return;
+    const uint8_t *counter = em_scene_progress_at(&s_state, 0x008107E4u, 1);
+    if (!counter || !*counter)
+        return;
+    static const uint32_t nodes[] = {0x7A9FB0, 0x7AA2A0, 0x7AA590, 0x7AA880, 0x7B0390, 0x7B0970, 0x7B0C60,
+                                     0x7B1240, 0x7B1820, 0x7B20F0, 0x7B26D0, 0x7B29C0, 0x7B2CB0, 0x7B3290,
+                                     0x7B52E0, 0x7B6770, 0x7B6A60, 0x7A6DC0, 0x7A7690,
+                                     /* the second visit's (EIGHTH_LEVEL_ROUTE.md section 1.1,
+                                      * A04B_OWNERS): reader [50], buttons [53] / [54], socket
+                                      * [55], lift [56], button [58]; and the node event [3]'s
+                                      * group 0x826790 gives the creature (section 6) */
+                                     0x7B2FA0, 0x7B3870, 0x7B3B60, 0x7B3E50, 0x7B4140, 0x7B4720, 0x7BF180};
+    log_area_owners(f, "a04", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
 /* Chain step AUDIO: the EE sound state at this tick's main-loop top (the
@@ -1485,6 +1525,7 @@ static void log_tick_end(int rc)
         log_area00(f);
         log_area01r(f);
         log_area02(f);
+        log_area04(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */
@@ -3537,11 +3578,20 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         case 0x00823700u: case 0x00823B90u: case 0x00823EE0u: case 0x00824100u: case 0x008241F0u:
         case 0x00824320u: case 0x008246B0u: case 0x00824DC0u: case 0x00825510u: case 0x00825880u:
         case 0x00825B00u: case 0x00825D60u: case 0x00825DF0u: case 0x008260C0u: case 0x001C1A80u:
+        /* the second visit (em_level8_port through em_area01_runtime area 4;
+         * docs/LEVEL8_PORT.md): the group 0x828260 records' behaviours
+         * 0x823920 / 0x823A90 and the effect node 0x8239A0 (event [3]'s
+         * script 0x828450, a04b_03) */
+        case 0x00823920u: case 0x008239A0u: case 0x00823A90u:
             goto bind;
         default:
             return -1;
         }
     }
+    /* The creature event [3]'s 0x824830 spawns (group 0x826790, a04b_03):
+     * em_level8_port's 0012E3A0. */
+    if (s_state.d810700 == 4 && fn == 0x0012E3A0u)
+        goto bind;
     /* AREA22's overlay has no owner; AREA06's are its placements' and
      * spawns' (em_area01_runtime dispatch_a06). Another overlay callback
      * there faults (never another area's at the same address). */

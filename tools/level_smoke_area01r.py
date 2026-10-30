@@ -24,21 +24,27 @@ ROUTE_DIR = refs.capture('s87/route_a01r')
 # AREA02's beats follow the revisit on the same native path (their pads in
 # the same EM_LEVEL4_PAD_DIR); their recordings are route_a02's.
 A02_ROUTE_DIR = refs.capture('s87/route_a02')
+# AREA04's main line (FIFTH_LEVEL_ROUTE.md) follows a02_05 on the same path.
+A04_ROUTE_DIR = refs.capture('s87/route_a04')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
               'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel',
-              'a02_05': 'a02_05_progression_exit'}
+              'a02_05': 'a02_05_progression_exit', 'a04_00': 'a04_00_door45_event', 'a04_01': 'a04_01_door40',
+              'a04_02': 'a04_02_console', 'a04_03': 'a04_03_back_to_hall', 'a04_04': 'a04_04_conveyor',
+              'a04_05': 'a04_05_progression_exit'}
 SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed',
               # HEALING's item 0x20 from the menu (tools/capture_heal_beats.py)
               'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure'}
 # em_level_smoke_test.c's phase order: each side right after its source.
 ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_s2', 'a01r_03', 'a02_s0', 'a02_s1',
-                'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05')
+                'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05', 'a04_00', 'a04_01', 'a04_02', 'a04_03',
+                'a04_04', 'a04_05')
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
            'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a01r_s2': 'a01r_02', 'a02_00': 'a01r_03',
            'a02_s0': 'a01r_03', 'a02_s1': 'a01r_03',
            'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03',
-           'a02_05': 'a02_04'}
+           'a02_05': 'a02_04', 'a04_00': 'a02_05', 'a04_01': 'a04_00', 'a04_02': 'a04_01', 'a04_03': 'a04_02',
+           'a04_04': 'a04_03', 'a04_05': 'a04_04'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -56,10 +62,20 @@ A02_OWNERS = dict(s1_pick_g0=0x7A5640, s1_pick_g1=0x7A5930, s1_pick_g2=0x7A5C20,
                   s0_turntable_r28=0x7AEC10, s0_r31_823980=0x7AF4E0, s0_k7_r32=0x7AF7D0, s0_k8_r33=0x7AFAC0,
                   s0_k11_r34=0x7AFDB0, s0_k10_r35=0x7B00A0, s0_gate_r36=0x7B0390, s0_gate_r37=0x7B0680,
                   s0_gate_r38=0x7B0970)
+# FIFTH_LEVEL_ROUTE.md section 1.1, A04_OWNERS: the AREA04 sub-0 load's pool
+# nodes (measured in the a02_05 end snapshot). The tick log's "a04"
+# observation (em_scene_bindings.c log_area04) holds the same nodes.
+A04_OWNERS = dict(director_r1=0x7A9FB0, npc_r2=0x7AA2A0, r3_8246B0=0x7AA590, r4_824DC0=0x7AA880,
+                  door35_r35=0x7B0390, door37_r37=0x7B0970, door38_r38=0x7B0C60, door40_r40=0x7B1240,
+                  door42_r42=0x7B1820, door45_r45=0x7B20F0, r47_823EE0=0x7B26D0, lock_r48=0x7B29C0,
+                  door49_r49=0x7B2CB0, lift_r51=0x7B3290, lift_r62=0x7B52E0, console_r69=0x7B6770,
+                  reel_r70=0x7B6A60, pick_g8=0x7A6DC0, pick_g12=0x7A7690)
 
 
 def owners_of(phase):
     """The recorded owner table and the tick log's observation key."""
+    if phase.startswith('a04_'):
+        return A04_OWNERS, 'a04'
     return (A02_OWNERS, 'a02') if phase.startswith('a02_') else (OWNERS, 'a01r')
 
 
@@ -70,7 +86,8 @@ PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)], 'a02_02': [('late', 0, 2)]}
 def capture_path(phase):
     if phase == 'a00_10':
         return a00.capture_path(phase)
-    return (A02_ROUTE_DIR if phase.startswith('a02_') else ROUTE_DIR) / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
+    folder = A04_ROUTE_DIR if phase.startswith('a04_') else A02_ROUTE_DIR if phase.startswith('a02_') else ROUTE_DIR
+    return folder / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
 
 
 def revisit_path(until):
@@ -238,6 +255,12 @@ def compare_route_row(smoke, ticks, i, row, phase):
                locks=observed['locks'], wpn=observed['wpn'], d7dc=observed['progress'][0][8:10])
     want.update(hp=row['hp'], progress=[row['d2'], row['story758'], row['taken'], row['docs']],
                 s760=row['story760'], locks=row['locks'], wpn=row['wpn'], d7dc=row['d7dc'])
+    if key == 'a04':
+        # AREA04's rows: D_00810764..67 (the event's end byte) and
+        # D_00810830..3F (D_0081083B, the console's); D_008107E4 / E5 / E9 /
+        # EA are bytes 12, 13, 17 and 18 of the compared D_008107D8 window.
+        got.update(s764=observed.get('s764'), s830=observed.get('s830'))
+        want.update(s764=row['story764'], s830=row['s830'])
     for name, address in owners.items():
         value = observed['owners'].get(str(address))
         assert value is not None, (phase, row['f'], name, 'missing canonical owner')

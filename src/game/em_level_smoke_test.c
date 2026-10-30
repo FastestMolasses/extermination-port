@@ -510,6 +510,24 @@ static const Phase k_phases[] = {
     {"a02_05", "a02_05_progression_exit", 0,
      "AREA02 recorded pad route: door [25] into AREA04, its arrival script and control", "LEVEL3_BINDING.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04_00", "a04_00_door45_event", 0,
+     "AREA04 recorded pad route: the director's event at door [45] (script 0x8278D0, D_00810845 bit 3)", "FIFTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04_01", "a04_01_door40", 0,
+     "AREA04 recorded pad route: door [40] into the store room (spawn entry 4)", "FIFTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04_02", "a04_02_console", 0,
+     "AREA04 recorded pad route: console [69] sends the reel [70] down the conveyor", "FIFTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04_03", "a04_03_back_to_hall", 0,
+     "AREA04 recorded pad route: door [40] back to the hall (spawn entry 3)", "FIFTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04_04", "a04_04_conveyor", 0,
+     "AREA04 recorded pad route: up the conveyor to the east balcony", "FIFTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04_05", "a04_05_progression_exit", 0,
+     "AREA04 recorded pad route: door [37] into AREA22 entry 0", "FIFTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -5334,7 +5352,8 @@ static void a01_route_begin(void)
     if (a01_explore_begin()) return;
 #endif
     const int area00=!strncmp(k_phases[t.current].name,"a00_",4);
-    const int revisit=!strncmp(k_phases[t.current].name,"a01r_",5) || !strncmp(k_phases[t.current].name,"a02_",4);
+    const int revisit=!strncmp(k_phases[t.current].name,"a01r_",5) || !strncmp(k_phases[t.current].name,"a02_",4) ||
+                      !strncmp(k_phases[t.current].name,"a04_",4);
     const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : revisit ? "EM_LEVEL4_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
     s_a00_return_frame=-1;
     char path[1024];
@@ -5437,30 +5456,34 @@ static int a01_route_frame(void)
         }
     } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0") ||
               !strcmp(k_phases[t.current].name,"a01r_03") || !strcmp(k_phases[t.current].name,"a02_00") ||
-              !strcmp(k_phases[t.current].name,"a02_05")) {
+              !strcmp(k_phases[t.current].name,"a02_05") || !strcmp(k_phases[t.current].name,"a04_05")) {
         /* The return's only variable duration is its asynchronous loader.
          * The checker compares every gameplay row, every emitted loader
          * row and the fixed suffix after the destination's state 0
          * independently (AREA01 for a00_10 / a00_s0; AREA02 sub 1 for
          * a01r_03, door [16]: 205 rows after state 0; AREA02 sub 0 for
          * a02_00, the duct's sub change: 143 rows; AREA04 entry 0 for
-         * a02_05, door [25]: 1076 rows, the arrival script to control). */
+         * a02_05, door [25]: 1076 rows, the arrival script to control;
+         * AREA22 entry 0 for a04_05, door [37]: 205 rows). */
         const EmSceneState *s=em_scene_state();
         const int to02=!strcmp(k_phases[t.current].name,"a01r_03");
         const int to020=!strcmp(k_phases[t.current].name,"a02_00");
         const int to04=!strcmp(k_phases[t.current].name,"a02_05");
-        const int after=to02 ? 205 : to020 ? 143 : to04 ? 1076 : !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
+        const int to22=!strcmp(k_phases[t.current].name,"a04_05");
+        const int after=to02 || to22 ? 205 : to020 ? 143 : to04 ? 1076 :
+                        !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
         if(s_a00_return_frame<0 &&
            (to02 ? s->d810700==2 && s->d810701==1 :
             to020 ? s->d810700==2 && s->d810701==0 :
             to04 ? s->d810700==4 && s->d810701==0 && s->d810702==0 :
+            to22 ? s->d810700==0x16 && s->d810701==0 && s->d810702==0 :
                     s->d810700==1 && s->d810701==0 && s->d810702==0) &&
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
             s_a00_return_frame=t.frames;
             fprintf(stderr,"level smoke: %s: boundary counter=%u (%s state 0)\n",
                     k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : to020 ? "AREA02 sub 0" :
-                    to04 ? "AREA04 entry 0" : "AREA01 return");
+                    to04 ? "AREA04 entry 0" : to22 ? "AREA22 entry 0" : "AREA01 return");
         }
         if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
             pad_apply(0,0,0);

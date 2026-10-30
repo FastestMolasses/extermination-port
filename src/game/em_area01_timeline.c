@@ -61,11 +61,14 @@ static void events(Frame *f,int scene)
     uint32_t d=f->cam;
     if(scene==35 && em_ee_c_eq_bits(read32(f,d+0x74),0x42480000u))
         call(f,0x001B1E20u,2,6,0,0,0,0);
-    /* These two scenes have no audio track. A foreign cursor is an
+    /* No bound scene has an audio track. A foreign cursor is an
      * unsupported timeline, never an apparently successful empty event. */
     if(read32(f,d+0x7C)) { f->fault=d+0x7C;return; }
     uint32_t p=read32(f,d+0x80);
-    if(!cursor(f,p,0x0026AC80u,0x20))return;
+    /* the subtitle tracks the bound scenes use: D_0026AC80 (2, 6) and
+     * D_0026ACA0 (5, AREA04's NPC script 0x827D90) */
+    if(p>=0x0026ACA0u && p<0x0026ACB0u) { if(!cursor(f,p,0x0026ACA0u,0x10))return; }
+    else if(!cursor(f,p,0x0026AC80u,0x20))return;
     if(p) {
         uint32_t t=read32(f,p);
         if(em_ee_c_lt_bits(t,0)) {
@@ -83,7 +86,10 @@ static void events(Frame *f,int scene)
         }
     }
     p=read32(f,d+0x84);
-    if(!cursor(f,p,0x0026AAE0u,0x20))return;
+    /* the letterbox tracks: D_0026AAE0 (2) and D_0026AB00 (6, AREA04's
+     * event [3] script 0x828450) */
+    if(p>=0x0026AB00u && p<0x0026AB18u) { if(!cursor(f,p,0x0026AB00u,0x18))return; }
+    else if(!cursor(f,p,0x0026AAE0u,0x20))return;
     if(p && !em_ee_c_lt_bits(read32(f,d+0x74),read32(f,p))) {
         call(f,0x001D2830u,2,2,read8(f,d+0x8A)==0 ? 1u : 0u,0,0,0);
         write8(f,d+0x8A,(uint8_t)(1-read8(f,d+0x8A)));
@@ -137,16 +143,26 @@ int em_area01_timeline_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_
     Frame f={h,c->sp-(c->function==0x0022EC30u ? 0x20u : 0x30u),0,(uint32_t)c->a[0]};
     const uint8_t *p=bytes(&f,f.cam+0x6E,2,0);int16_t scene=0;
     if(p)memcpy(&scene,p,2);
-    /* Scenes 2 and 35 (AREA01), and 3 (AREA04's arrival script 0x8275A0):
-     * 0022EC30 binds no track for 3 and 0022EEF0's scene switch has no case
-     * for it, so its tick is the common one. */
-    if(scene!=2 && scene!=3 && scene!=35)f.fault=f.cam+0x6E;
+    /* Scenes 2 and 35 (AREA01), and the scenes for which 0022EC30 binds no
+     * track and 0022EEF0's leading switch has no case (decomp
+     * func_0022EC30.c / func_0022EEF0.c: 0, 1, 3, 4, 9, 11, 14, 18 and 36),
+     * whose tick is the common one: 3 is AREA04's arrival script 0x8275A0,
+     * 4 the director's event script 0x8278D0 (a04_00). */
+    if(scene!=2 && scene!=5 && scene!=6 && scene!=35 &&
+       !(scene>=0 && scene<=36 && ((1ull<<scene)&0x1000044a1bull)))
+        f.fault=f.cam+0x6E;
     if(!f.fault && c->function==0x0022EC30u) {
         uint64_t start=call(&f,0x0021BAB0u,0,0,0,0,0,0);
         store(&f,0x00275C98u,&start,sizeof start);
         write32(&f,f.cam+0x7C,0);write32(&f,f.cam+0x80,0);write32(&f,f.cam+0x84,0);
         write8(&f,f.cam+0x88,0);write8(&f,f.cam+0x8A,0);write8(&f,f.cam+0x89,0);
+        /* 0022EC30's bindings (decomp func_0022EC30.c): scene 2 the
+         * letterbox D_0026AAE0 and subtitles D_0026AC80; 5 the subtitles
+         * D_0026ACA0; 6 the letterbox D_0026AB00 and subtitles D_0026AC80.
+         * None of the three has a case in 0022EEF0's leading switch. */
         if(scene==2) { write32(&f,f.cam+0x84,0x0026AAE0u);write32(&f,f.cam+0x80,0x0026AC80u); }
+        else if(scene==5) write32(&f,f.cam+0x80,0x0026ACA0u);
+        else if(scene==6) { write32(&f,f.cam+0x84,0x0026AB00u);write32(&f,f.cam+0x80,0x0026AC80u); }
     } else if(!f.fault)tick(&f,scene);
     if(f.fault) { if(fault)*fault=f.fault;return -1; }
     return 0;

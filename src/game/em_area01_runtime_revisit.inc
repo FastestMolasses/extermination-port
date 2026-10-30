@@ -346,6 +346,23 @@ static int rv_sdf_001C67E0(void *ctx, int16_t clip, float start, float length)
     return rv_actor_call(a, 0x001C67E0u, RV_SDF_SP(a), 1, 1, args, 2, fs, NULL);
 }
 
+/* 001BAD40's command 3 (AREA04's event script 0x8278D0, a04_00): the
+ * camera track's head word *(float *)track and 0022EC30(D_008101E0), the
+ * timeline's bind, through the runtime (em_area01_timeline). */
+static int rv_sdf_track_head(void *ctx, uint32_t address, float *value)
+{
+    RvActor *a = ctx;
+    const uint8_t *p = bytes(a->r, address, 4, 0);
+    if (!p) return -1;
+    memcpy(value, p, 4);
+    return 0;
+}
+static int rv_sdf_0022EC30(void *ctx, uint32_t camera)
+{
+    const uint64_t args[1] = {rv_reg((int32_t)camera)};
+    return rv_sdf_value(ctx, 0x0022EC30u, 1, args, NULL);
+}
+
 static int rv_slg_001BAD40(void *ctx, const EmSlgScriptActor *s, int32_t *ret)
 {
     RvActor *a = ctx;
@@ -358,6 +375,13 @@ static int rv_slg_001BAD40(void *ctx, const EmSlgScriptActor *s, int32_t *ret)
     EmSdfWorld world;
     memset(&world, 0, sizeof world);
     world.d275BCC = &budget;
+    /* The camera block's words command 3 writes (D_008101E0 +0x04, +0x6E,
+     * +0x70..+0x78), each from its one storage. */
+    world.d810250 = (uint32_t *)(void *)bytes(a->r, 0x00810250u, 4, 1);
+    world.d810254 = (float *)(void *)bytes(a->r, 0x00810254u, 4, 1);
+    world.d810258 = (float *)(void *)bytes(a->r, 0x00810258u, 4, 1);
+    world.d8101E4 = bytes(a->r, 0x008101E4u, 1, 1);
+    world.d81024E = (int16_t *)(void *)bytes(a->r, 0x0081024Eu, 2, 1);
     EmSdfWorkers w;
     memset(&w, 0, sizeof w);
     w.ctx = a;
@@ -374,6 +398,8 @@ static int rv_slg_001BAD40(void *ctx, const EmSlgScriptActor *s, int32_t *ret)
     w.w_001C63E0 = rv_sdf_001C63E0;
     w.w_001C61D0 = rv_sdf_001C61D0;
     w.w_001C67E0 = rv_sdf_001C67E0;
+    w.r_track_head = rv_sdf_track_head;
+    w.w_0022EC30 = rv_sdf_0022EC30;
     EmSdfFault f = {0, 0};
     const int r = em_sdf_001BAD40(&v, s->entry, &world, &w, &f);
     if (r < 0) {

@@ -41,6 +41,10 @@ route's manifest: its first beat's source state):
   a02_01 .. a02_05 the source state of route_a02's beat a02_01 .. a02_05
                    (the previous beat's end, AREA02 sub 0): a loaded game
                    placed where that beat starts (discovery runs)
+  a04_00 .. a04_05 the source state of route_a04's beat (AREA04's main line)
+  a04b_00 .. a04b_04
+                   the source state of the fork continuation's route_a04b
+                   beat (AREA04's second visit; a04b_00: a22b_01's end)
   a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01
                    the source state of that route beat: a loaded game
                    placed where the beat starts (the cutscene skip runs,
@@ -152,6 +156,22 @@ START_POINTS = {
     'a01v_02': {'route': 's87/route_a01v', 'first': 'a01v_02_', 'area': 1},
     'a22b': {'route': 's87/route_a22b', 'first': 'a22b_00_', 'area': 0x16},
     'a22b_01': {'route': 's87/route_a22b', 'first': 'a22b_01_', 'area': 0x16},
+    # AREA04's main line (FIFTH_LEVEL_ROUTE.md): the source state of each
+    # beat a04_00 .. a04_05, a loaded game placed where that beat starts.
+    'a04_00': {'route': 's87/route_a04', 'first': 'a04_00_', 'area': 4},
+    'a04_01': {'route': 's87/route_a04', 'first': 'a04_01_', 'area': 4},
+    'a04_02': {'route': 's87/route_a04', 'first': 'a04_02_', 'area': 4},
+    'a04_03': {'route': 's87/route_a04', 'first': 'a04_03_', 'area': 4},
+    'a04_04': {'route': 's87/route_a04', 'first': 'a04_04_', 'area': 4},
+    'a04_05': {'route': 's87/route_a04', 'first': 'a04_05_', 'area': 4},
+    # AREA04's second visit (EIGHTH_LEVEL_ROUTE.md, the fork continuation
+    # levels-recordings-20261018-10): a04b_00 from the end of a22b_01 (door
+    # [6] into AREA04 entry 1), each later one from the previous beat's end.
+    'a04b_00': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_00_', 'area': 4},
+    'a04b_01': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_01_', 'area': 4},
+    'a04b_02': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_02_', 'area': 4},
+    'a04b_03': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_03_', 'area': 4},
+    'a04b_04': {'route': 'levels-recordings-20261018-10/s87/route_a04b', 'first': 'a04b_04_', 'area': 4},
 }
 
 

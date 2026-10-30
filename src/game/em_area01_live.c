@@ -1,4 +1,6 @@
 #include "game/em_area01_live.h"
+#include "game/em_render_verify_rest.h"
+#include "game/em_sdk_soft_float.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_message_live.h"
@@ -842,6 +844,15 @@ static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
     const unsigned area=l->runtime.area;
+    /* The soft-float double and its compare (em_sdk_soft_float's 00128350,
+     * oracle-checked; em_render_verify_rest's 001000E0, byte-matched C):
+     * AREA04's creature family (em_level8_port's hooks). */
+    if(c->function==0x00128350u && c->nf==1 && !c->na) {
+        c->v0=em_sdk_soft_float_00128350(c->f[0]);return 0;
+    }
+    if(c->function==0x001000E0u && c->na==2 && !c->nf) {
+        c->v0=(uint64_t)(int64_t)em_rvr_001000E0(c->a[0],c->a[1]);return 0;
+    }
     if((area==0 || area==2) && c->function>=0x00823500u) {
         if(em_area01_script_worker_handles_area(c->function,area)) {
             const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
@@ -1076,15 +1087,18 @@ static int worker(void *ctx,EmArea01Call *c)
             c->v0=0;return rc<0 ? -1 : 0;
         }
     }
-    if(c->function==0x001CA5E0u && c->na>=3) {
+    if((c->function==0x001CA5E0u && c->na>=3) || (c->function==0x001CA6E0u && c->na>=2)) {
         /* 001CA5E0 on a typed shared owner (AREA02's 001C4AF0 re-installs
          * the owner's model with kind 1): +0x44 and +0x4C are the owner's
          * canonical view, read-only in the record view, so the store is the
-         * boxes' 001CA5E0 over it, with the views published around it. */
+         * boxes' 001CA5E0 over it, with the views published around it.
+         * 001CA6E0(owner, handle) is 001CA5E0(owner, handle, 0) (decomp
+         * func_001CA6E0.c): AREA04's [47] 0x823EE0 rebinds its model so in
+         * its state 2 (a04_00). */
         EmActor *a=actor(l,c->a[0]);
         if(a && em_area11_boxes_owner_view(a)) {
             if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
-            int rc=em_area11_boxes_owner_001CA5E0(a,c->a[1],c->a[2]);
+            int rc=em_area11_boxes_owner_001CA5E0(a,c->a[1],c->function==0x001CA6E0u ? 0u : c->a[2]);
             if(em_area01_live_resume(l)<0)return -1;
             c->v0=0;return rc<0 ? -1 : 0;
         }

@@ -38,9 +38,20 @@ def main():
     cases=[(ci,cap,scene,row,clip) for ci,cap in enumerate(caps) for scene,row,clip in ((2,0x96,2),(35,0x98,0))]
     a04=A.Capture(A.DECOMP/'build/fork_refs/s87/route_a02/a02_05_progression_exit')
     cases.append((len(caps),a04,3,None,None))
+    # AREA04's event scene 4 (the director's script 0x8278D0, a04_00): 0022EC30
+    # binds no track for it and 0022EEF0's switch has no case for it; the
+    # a04_00 end still holds its track at the camera's +0x70.
+    a04e=A.Capture(A.DECOMP/'build/fork_refs/s87/route_a04/a04_00_door45_event')
+    cases.append((len(caps)+1,a04e,4,None,None))
+    # AREA04's second visit: scene 5 (the NPC script 0x827D90, the a04b_01
+    # end holds its track) and scene 6 (the event [3] script 0x828450, the
+    # a04b_03 end), each with its 0022EC30 event tracks.
+    b=A.DECOMP/'build/fork_refs/levels-recordings-20261018-10/s87/route_a04b'
+    cases.append((len(caps)+2,A.Capture(b/'a04b_01_npc'),5,None,None))
+    cases.append((len(caps)+3,A.Capture(b/'a04b_03_reader'),6,None,None))
     for ci,cap,scene,row,clip in cases:
         o=FallEE(elf);o.mem[:]=cap.ram;o.spad[:]=cap.spad
-        for a,size in ((0x26AAE0,32),(0x26AC80,32),(0x26C598,52)):o.write(a,read(a,size))
+        for a,size in ((0x26AAE0,32),(0x26AB00,24),(0x26AC80,32),(0x26ACA0,16),(0x26C598,52)):o.write(a,read(a,size))
         if row is None:track=o.load(CAM+0x70)
         else:bank=o.load(0x28A490+4*row);track=bank+(o.load(bank+4+4*clip)&~3)
         duration=struct.unpack('<f',o.read(track,4))[0]
@@ -85,7 +96,7 @@ def main():
             # and uniformly spaced original camera samples in every capture.
             points={0.,.5,1.,49.5,50.,50.5,duration-.5,duration,duration+1}
             points.update(i*duration/48 for i in range(49))
-            for a,size in ((0x26AAE0,32),(0x26AC80,32)):
+            for a,size in ((0x26AAE0,32),(0x26AB00,24),(0x26AC80,32),(0x26ACA0,16)):
                 for value in struct.unpack('<'+'f'*(size//4),read(a,size)):
                     if 0<value<duration:points.update((max(0,value-.5),value,value+.5))
             for i in range(int(duration)):
@@ -112,7 +123,7 @@ def main():
         call=Call(function=fn,sp=STACK_TOP,na=1);call.a[0]=CAM;fault=C.c_uint32()
         assert n.em_area01_timeline_call(C.byref(rejected_host),C.byref(call),C.byref(fault))<0
         assert fault.value==want,(hex(fault.value),hex(want))
-    struct.pack_into('<h',ram,CAM+0x6E,1);rejected(0x22EC30,CAM+0x6E)
+    struct.pack_into('<h',ram,CAM+0x6E,7);rejected(0x22EC30,CAM+0x6E)   # a scene with an event track not bound here
     struct.pack_into('<h',ram,CAM+0x6E,35);rejected(0x22EC30,0x21BAB0)
     struct.pack_into('<I',ram,CAM+0x74,bits(0.))
     struct.pack_into('<I',ram,CAM+0x7C,0x26AC10);rejected(0x22EEF0,CAM+0x7C)

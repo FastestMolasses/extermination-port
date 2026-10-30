@@ -93,12 +93,26 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a01v_02` | AREA01 (upper floor, the way back) | North of the gap | Door [18], into AREA22 |
 | `a22b` | AREA22 (the way back) | The arrival from AREA01 (entry 5) | Back to door [7] |
 | `a22b_01` | AREA22 (the way back) | At door [7] | Door [6], back into AREA04 |
+| `a04_00` | AREA04 (fifth level) | The arrival from AREA02, in the hall | The event at door [45], which unlocks door [40] |
+| `a04_01` | AREA04 | At door [45], after the event | Door [40] into the store room |
+| `a04_02` | AREA04 | In the store room, inside door [40] | Console [69], which sends the cable reel down the conveyor |
+| `a04_03` | AREA04 | At console [69], after using it | Door [40] back to the hall |
+| `a04_04` | AREA04 | In the hall, outside door [40] | Up the conveyor to the east balcony |
+| `a04_05` | AREA04 | On the east balcony, at door [37] | Door [37] into AREA22 |
+| `a04b_00` | AREA04 (the way back) | The arrival from AREA22 (entry 1), on the east balcony | Down the conveyor to door [45], now unlocked |
+| `a04b_01` | AREA04 (the way back) | Inside door [45] | The NPC's long conversation and the access key |
+| `a04b_02` | AREA04 (the way back) | Inside door [45], with the access key | Door [45] back to the hall |
+| `a04b_03` | AREA04 (the way back) | In the hall, outside door [45] | Up the conveyor to the card reader at the lift; the first boss arrives |
+| `a04b_04` | AREA04 (the way back) | At the card reader, the creature and bugs at the lift | Past the creature into the lift, down to AREA13 |
 
 The AREA02 points start beyond what has been proven to match the original
 row by row, so expect rough edges there. The AREA22, AREA01 upper floor and
 AREA06 points (the middle of the route to the first boss) are discovery
 starts: `python3 tools/mid_route_beats.py` reports which beats play
-through (docs/LEVEL8_PORT.md "Start-card runs").
+through (docs/LEVEL8_PORT.md "Start-card runs"). The AREA04 main line
+(`a04_00`..`a04_05`) is proven row by row from New Game by the route smoke
+(docs/FIFTH_LEVEL_ROUTE.md); the `a04b` points are discovery starts
+(docs/EIGHTH_LEVEL_ROUTE.md).
 
 ## Status
 

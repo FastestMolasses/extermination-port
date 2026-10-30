@@ -37,6 +37,20 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = {0x41, 0x4D, 0x4E, 0x4F, 0x57, 0x58, 0x6C, 0x72}
 OWNER_MODELS = {(0x1C4960, 0x7D)}
 PREVIOUS, MODEL = 0x40, 0x41                  # the retained 0x40 span, extended over 0x41
+# The director's event script 0x8278D0 (a04_00) places a 001BB0E0 script
+# actor with library model 0x5D (its +0x44 in the a04_00 end RAM, node
+# 0x7BE5C0). 0x5A..0x5D follow 0x59 in the library file, so the retained span
+# that export_area00 / export_area02_library leave at 0x57..0x59 grows to
+# 0x5D's end (its address stays; the region count is unchanged).
+SPAN_START, SCRIPT_MODEL = 0x57, 0x5D
+SCRIPT_ACTOR = 0x1BB0E0
+# The event [3] script 0x828450 (a04b_03) places a script actor with library
+# model 0x53 (its 001C6150 reads it; measured on the port's start-card run,
+# the address is D_0028A56C's entry 0x53). 0x53..0x56 precede 0x57 in file
+# order: the span's start moves down to 0x53 (export_area02_library moved it
+# from 0x58 to 0x57 the same way); the region count is unchanged.
+SPAN_FIRST = 0x53
+SECOND_VISIT = 'levels-recordings-20261018-10/s87/route_a04b'
 OUT = ROOT / 'build/levels/area04-library-export'
 
 
@@ -72,6 +86,28 @@ def extend(previous, library):
         raise ValueError('the 0x40 span differs from disc or is writable')
     if prev + len(old) < end:
         regions[i] = (address, writable, retained, library[prev:end])
+    start = B.u32(library, 4 + 4 * SPAN_START) & ~3
+    script = B.u32(library, 4 + 4 * SCRIPT_MODEL) & ~3
+    script_end = script + B.block_model_size(library, script)
+    ordered = [B.u32(library, 4 + 4 * k) & ~3 for k in range(SPAN_START, SCRIPT_MODEL + 1)]
+    if ordered != sorted(ordered) or script_end - start > 0x20000:
+        raise ValueError('models 0x57..0x5D are not in file order')
+    matches = [k for k, r in enumerate(regions) if r[0] == base + start]
+    if len(matches) != 1:
+        raise ValueError('the retained span starting at model 0x57 is missing (run export_area02_library.py)')
+    k = matches[0]
+    address, writable, retained, old = regions[k]
+    if writable or old != library[start:start + len(old)]:
+        raise ValueError('the 0x57 span differs from disc or is writable')
+    if start + len(old) < script_end:
+        regions[k] = (address, writable, retained, library[start:script_end])
+    first = B.u32(library, 4 + 4 * SPAN_FIRST) & ~3
+    ordered = [B.u32(library, 4 + 4 * m) & ~3 for m in range(SPAN_FIRST, SPAN_START + 1)]
+    if ordered != sorted(ordered) or start - first > 0x10000:
+        raise ValueError('models 0x53..0x57 are not in file order')
+    address, writable, retained, data = regions[k]
+    if address == base + start:
+        regions[k] = (base + first, writable, retained, library[first:start] + data)
     return E2.rebuild(header, regions)
 
 
@@ -87,10 +123,21 @@ def verify(data, library):
                    for a, _, _, raw in regions):
             raise ValueError(f'library model {model:#x} is not delivered exactly')
         spans[model] = address
-    start = base + (B.u32(library, 4 + 4 * PREVIOUS) & ~3)
-    extended = [(a, raw) for a, _, _, raw in regions if a == start]
+    for model in (SPAN_FIRST, SCRIPT_MODEL):
+        offset = B.u32(library, 4 + 4 * model) & ~3
+        size = B.block_model_size(library, offset)
+        address = base + offset
+        if not any(a <= address and address + size <= a + len(raw) and
+                   raw[address - a:address - a + size] == library[offset:offset + size]
+                   for a, _, _, raw in regions):
+            raise ValueError(f'library model {model:#x} is not delivered exactly')
+    script_address = base + (B.u32(library, 4 + 4 * SCRIPT_MODEL) & ~3)
+    starts = {base + (B.u32(library, 4 + 4 * m) & ~3) for m in (PREVIOUS, SPAN_FIRST)}
+    extended = [(a, raw) for a, _, _, raw in regions if a in starts]
+    script_actors = 0
     paths = [refs.capture('s87/route_a02') / 'a02_05_progression_exit/eeMemory.bin']
     paths += sorted(refs.capture('s87/route_a04').glob('a04_*/eeMemory.bin'))
+    paths += sorted(refs.capture(SECOND_VISIT).glob('a04b_0[0-3]_*/eeMemory.bin'))
     snapshots = live = 0
     for path in paths:
         ram = path.read_bytes()
@@ -110,10 +157,18 @@ def verify(data, library):
             if model not in spans or B.u32(ram, a + 0x44) != spans[model]:
                 raise ValueError(f'{path.parent.name}: live pickup {slot} handle differs from its library model')
             live += 1
+        for slot in range(400):
+            a = 0x7A5640 + slot * 0x2F0
+            if ram[a] or B.u32(ram, a + 0x10) != SCRIPT_ACTOR or B.u32(ram, a + 0x44) != script_address:
+                continue
+            script_actors += 1                    # the event's script actor (a04_00 end)
         snapshots += 1
     if not snapshots:
         raise ValueError('no AREA04 capture')
+    if not script_actors:
+        raise ValueError(f'no AREA04 capture holds a script actor with model {SCRIPT_MODEL:#x}')
     return dict(models=len(spans), snapshots=snapshots, live_handles=live, regions=len(regions),
+                script_actor_handles=script_actors,
                 extended_span_bytes=sum(len(raw) for _, raw in extended))
 
 

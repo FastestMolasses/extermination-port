@@ -142,6 +142,20 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # 00183EF0 reads AREA06's pickup descriptor there (a
                # candidate's floats may cross into the next word)
                (0x0024D7D8, 4), (0x0024D818, 4), (0x00275940, 0x10),
+               # AREA04's panel [66] (0x825880) publishes the descriptor
+               # D_00275928 at its +0x30; the Use scan's 00183EF0 reads its
+               # floats (selector 0: three words) whenever [66] is listed
+               # (a04_03's press at door [40]); it ends where D_00275940's
+               # window starts
+               (0x00275928, 0x10),
+               # the creature family's tables (em_level8_port_creature.c;
+               # AREA04's lift creature 0012E3A0, a04b_03): the side-step /
+               # bite clip rows, its arena polygon D_00245020 (0x10 quadword
+               # points) and roll tables D_00245120 / D_00245130, all one
+               # stretch after the D_00242F20 window; the descriptor
+               # D_00275388 / limit bytes D_00275398 (its +0x30); the hit
+               # effects' sources D_0025DB20..D_0025DCF0 (001ED100)
+               (0x00243320, 0x245140 - 0x243320), (0x00275388, 0x14), (0x0025DB00, 0x280),
                # the strip node 0021A500's (AREA06 0x823580's sparks) 001CFBE0
                # sources D_00266930 (kind 1) and D_002669C0 (kind 2)
                (0x00266930, 0x120),

@@ -66,6 +66,8 @@ extern "C" {
 #define EM_SHADOW_LIVE_KIND_ROGER 0x29       /* Roger's +0x96 (001BA8E0 for model 0x47) */
 #define EM_SHADOW_LIVE_PROXY_2A_PATH "assets/npc2a_shadow.emdl"  /* D_0028A490[0x2A] */
 #define EM_SHADOW_LIVE_KIND_2A 0x2A          /* AREA04's NPC [2] (0x824320) */
+#define EM_SHADOW_LIVE_PROXY_34_PATH "assets/npc34_shadow.emdl"  /* D_0028A490[0x34] */
+#define EM_SHADOW_LIVE_KIND_34 0x34          /* the 19-node actor of AREA04's event [3] script 0x828450 */
 #define EM_SHADOW_LIVE_PLAYER 0x008102B0u
 
 /* Load the assets (once per session) and check the views; reset the

@@ -390,6 +390,113 @@ static int dispatch_overlay04(EmArea01Runtime *r, EmArea01Call *c)
     return rc;
 }
 
+/* The eighth level's entries (em_level8_port: the a04b census's new
+ * functions; docs/LEVEL8_PORT.md), bound in AREA04 through the generated
+ * hooks m08_hooks (em_mid_route_bridge.inc). Each takes its original
+ * arguments; the entries with stack locals take the caller's sp. Nested
+ * hooks get the entry's sp less the entry's own frame (read from its first
+ * instruction) and EIGHTH_NEST below it, deeper than any chain of original
+ * frames these entries call each other through (the deepest, 001A7BA0's
+ * 0x290 under 001A7B80), so no callee frame overlaps a local the module
+ * writes. Returns 0 when the address is not one of them. */
+enum { EIGHTH_NEST = 0x400u };
+static int dispatch_level8(EmArea01Runtime *r, EmArea01Call *c, int *out)
+{
+    static const struct { uint32_t fn, frame; unsigned na, nf; } entries[] = {
+        {0x001BBD20u, 0x00u, 2, 0}, {0x001BC560u, 0x00u, 0, 0}, {0x001BC6D0u, 0x00u, 2, 0},
+        {0x001BC740u, 0x40u, 2, 0}, {0x001BC860u, 0x40u, 2, 0}, {0x001BD180u, 0x00u, 1, 0},
+        {0x001BD270u, 0x00u, 1, 0}, {0x001BD9F0u, 0x40u, 1, 0}, {0x001BDE60u, 0x30u, 1, 0},
+        {0x0012E3A0u, 0x30u, 1, 0}, {0x0012E560u, 0x30u, 2, 0}, {0x0012E840u, 0x30u, 2, 0},
+        {0x0012EB60u, 0x30u, 2, 0}, {0x0012F100u, 0x30u, 2, 0}, {0x0012FC10u, 0x30u, 2, 0},
+        {0x00131ED0u, 0x00u, 1, 0}, {0x00131F90u, 0x60u, 2, 0}, {0x00132490u, 0x60u, 2, 0},
+        {0x001328D0u, 0x50u, 2, 0}, {0x00132FB0u, 0x50u, 2, 0}, {0x001333F0u, 0x30u, 2, 0},
+        {0x00133640u, 0x40u, 2, 0}, {0x00133A20u, 0x40u, 2, 0}, {0x00133DB0u, 0x00u, 2, 0},
+        {0x0011E0A8u, 0x00u, 1, 1}, {0x0021BE40u, 0x20u, 1, 0}, {0x001B4810u, 0x40u, 1, 0},
+        {0x001A7B80u, 0x00u, 1, 0}, {0x001A7BA0u, 0x290u, 4, 0}, {0x001B1560u, 0x30u, 2, 1},
+        {0x001B2B10u, 0x40u, 3, 0}, {0x001B2BF0u, 0x60u, 3, 1}, {0x001B30E0u, 0x80u, 2, 0},
+        {0x001B32F0u, 0x50u, 2, 1}, {0x001B3440u, 0x50u, 3, 1}, {0x001B3580u, 0x30u, 2, 0},
+        {0x001B55E0u, 0x30u, 2, 0}, {0x001EAD70u, 0x30u, 2, 0}, {0x001ED100u, 0x30u, 2, 0},
+        {0x001F91C0u, 0xD0u, 1, 0}, {0x00823920u, 0x10u, 1, 0}, {0x008239A0u, 0x30u, 1, 0},
+        {0x00823A90u, 0x10u, 1, 0}, {0x008245F0u, 0x20u, 1, 0}, {0x001284E0u, 0x50u, 4, 0}};
+    unsigned k = 0, n = sizeof entries / sizeof entries[0];
+    while (k < n && entries[k].fn != c->function) ++k;
+    if (k == n) return 0;
+    const uint32_t frame = entries[k].frame;
+    if (c->na < entries[k].na || c->nf < entries[k].nf || c->sp < frame + EIGHTH_NEST) {
+        *out = fail(r, c->function);
+        return 1;
+    }
+    r->sp = c->sp - frame - EIGHTH_NEST;
+    EmLevel8PortHooks hooks;
+    m08_hooks(r, &hooks);                /* em_mid_route_bridge.inc's generated hooks */
+    const EmLevel8PortHooks *h = &hooks;
+    EmLevel8PortFault fault = {0, 0}, *f = &fault;
+    const uint32_t a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1], a2 = (uint32_t)c->a[2],
+                   a3 = (uint32_t)c->a[3];
+    float f12;
+    memcpy(&f12, &c->f[0], 4);
+    int32_t i = 0;
+    float x = 0;
+    int rc, has_i = 0, has_f = 0;
+    switch (c->function) {
+    case 0x001BBD20u: rc = em_level8_port_001BBD20(h, a0, (int32_t)a1, &i, f); has_i = 1; break;
+    case 0x001BC560u: rc = em_level8_port_001BC560(h, &i, f); has_i = 1; break;
+    case 0x001BC6D0u: rc = em_level8_port_001BC6D0(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x001BC740u: rc = em_level8_port_001BC740(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x001BC860u: rc = em_level8_port_001BC860(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x001BD180u: rc = em_level8_port_001BD180(h, a0, &i, f); has_i = 1; break;
+    case 0x001BD270u: rc = em_level8_port_001BD270(h, a0, &i, f); has_i = 1; break;
+    case 0x001BD9F0u: rc = em_level8_port_001BD9F0(h, a0, f); break;
+    case 0x001BDE60u: rc = em_level8_port_001BDE60(h, a0, f); break;
+    case 0x0012E3A0u: rc = em_level8_port_0012E3A0(h, a0, c->sp, f); break;
+    case 0x0012E560u: rc = em_level8_port_0012E560(h, a0, a1, f); break;
+    case 0x0012E840u: rc = em_level8_port_0012E840(h, a0, a1, c->sp, f); break;
+    case 0x0012EB60u: rc = em_level8_port_0012EB60(h, a0, a1, c->sp, f); break;
+    case 0x0012F100u: rc = em_level8_port_0012F100(h, a0, a1, c->sp, f); break;
+    case 0x0012FC10u: rc = em_level8_port_0012FC10(h, a0, a1, c->sp, f); break;
+    case 0x00131ED0u: rc = em_level8_port_00131ED0(h, a0, f); break;
+    case 0x00131F90u: rc = em_level8_port_00131F90(h, a0, a1, c->sp, f); break;
+    case 0x00132490u: rc = em_level8_port_00132490(h, a0, a1, c->sp, f); break;
+    case 0x001328D0u: rc = em_level8_port_001328D0(h, a0, a1, c->sp, f); break;
+    case 0x00132FB0u: rc = em_level8_port_00132FB0(h, a0, a1, c->sp, &i, f); has_i = 1; break;
+    case 0x001333F0u: rc = em_level8_port_001333F0(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x00133640u: rc = em_level8_port_00133640(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x00133A20u: rc = em_level8_port_00133A20(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x00133DB0u: rc = em_level8_port_00133DB0(h, a0, a1, f); break;
+    case 0x0011E0A8u: rc = em_level8_port_0011E0A8(h, a0, f12, &x, f); has_f = 1; break;
+    case 0x0021BE40u: rc = em_level8_port_0021BE40(h, a0, &i, f); has_i = 1; break;
+    case 0x001B4810u: rc = em_level8_port_001B4810(h, a0, f); break;
+    case 0x001A7B80u: rc = em_level8_port_001A7B80(h, a0, c->sp, &i, f); has_i = 1; break;
+    case 0x001A7BA0u: rc = em_level8_port_001A7BA0(h, a0, a1, a2, a3, c->sp, &i, f); has_i = 1; break;
+    case 0x001B1560u: rc = em_level8_port_001B1560(h, a0, a1, f12, &i, f); has_i = 1; break;
+    case 0x001B2B10u: rc = em_level8_port_001B2B10(h, a0, a1, a2, f); break;
+    case 0x001B2BF0u: rc = em_level8_port_001B2BF0(h, a0, a1, a2, f12, c->sp, &i, f); has_i = 1; break;
+    case 0x001B30E0u: rc = em_level8_port_001B30E0(h, a0, a1, &i, f); has_i = 1; break;
+    case 0x001B32F0u: rc = em_level8_port_001B32F0(h, a0, a1, f12, c->sp, &i, f); has_i = 1; break;
+    case 0x001B3440u: rc = em_level8_port_001B3440(h, a0, a1, a2, f12, c->sp, &i, f); has_i = 1; break;
+    case 0x001B3580u: rc = em_level8_port_001B3580(h, a0, a1, &x, f); has_f = 1; break;
+    case 0x001B55E0u: rc = em_level8_port_001B55E0(h, a0, (int32_t)a1, f); break;
+    case 0x001EAD70u: rc = em_level8_port_001EAD70(h, (int32_t)a0, (int32_t)a1, f); break;
+    case 0x001ED100u: rc = em_level8_port_001ED100(h, (int32_t)a0, (int32_t)a1, f); break;
+    case 0x001F91C0u: rc = em_level8_port_001F91C0(h, a0, c->sp, f); break;
+    case 0x00823920u: rc = em_level8_port_00823920(h, a0, f); break;
+    case 0x008239A0u: rc = em_level8_port_008239A0(h, a0, f); break;
+    case 0x00823A90u: rc = em_level8_port_00823A90(h, a0, f); break;
+    case 0x001284E0u: rc = em_level8_port_001284E0(h, a0, a1, (int32_t)a2, a3, &i, f); has_i = 1; break;
+    default:          rc = em_level8_port_008245F0(h, a0, f); break;
+    }
+    if (rc < 0) {
+        fprintf(stderr, "em_area01: em_level8_port %08X fault code %d at %08X\n", (unsigned)c->function,
+                (int)fault.code, (unsigned)fault.address);
+        *out = fail(r, fault.address ? fault.address : c->function);
+        return 1;
+    }
+    if (has_i) c->v0 = (uint64_t)(int64_t)i;
+    if (has_f) memcpy(&c->f0, &x, 4);
+    *out = 0;
+    return 1;
+}
+
 static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
     static const struct { uint32_t fn; unsigned na; } entries[] = {
@@ -456,13 +563,17 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return dispatch_overlay00(r, c);
     if (r->area == 2 && c->function >= 0x00823500u)
         return dispatch_overlay02(r, c);
+    int rc;
+    if (r->area == 4 && dispatch_level8(r, c, &rc))
+        return rc;
     if (r->area == 4 && (c->function >= 0x00823500u || c->function == 0x001C1A80u))
         return dispatch_overlay04(r, c);
-    int rc;
     if (r->area == 4 && c->function == 0x001BAC00u)
         return rv_001BAC00(r, c);          /* AREA04's arrival script op14 */
     if (r->area == 4 && c->function == 0x001BB0E0u)
         return rv_001BB0E0(r, c);          /* the script actors it places */
+    if (r->area == 4 && c->function == 0x001F9660u)
+        return rv_001F9660(r, c);          /* their command 6's sound copy (event [3]'s script, a04b_03) */
     /* AREA22's overlay holds no owner (its one function is the area init
      * 0x823580, em_area01_state's); AREA06's bound owners are dispatch_a06's.
      * Any other overlay address in either goes to the host's workers
@@ -591,6 +702,30 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         rc = em_area01_runtime_call(r, &music);
         break;
     }
+    case 0x001B15D0u: {
+        /* 001B15D0(a, b) (byte-matched C, mwcc 2.3.3): 001028D0(D_70003600,
+         * a, b), then 0011E748 of x*x + y*y + z*z over 0x70003600 (mul.s,
+         * mul.s, adda.s, madd.s); the result in f0. AREA04's creature
+         * 0012E3A0 measures with it (a04b_03). */
+        if (r->area != 4) return r->host.worker(r->host.ctx, c);   /* elsewhere: the host's */
+        if (c->na != 2 || c->nf) return fail(r, c->function);
+        EmArea01Call sub = {.function = 0x001028D0u, .sp = c->sp, .na = 3, .nf = 0};
+        sub.a[0] = 0x70003600u;
+        sub.a[1] = c->a[0];
+        sub.a[2] = c->a[1];
+        rc = em_area01_runtime_call(r, &sub);
+        if (rc < 0) break;
+        const uint8_t *v = bytes(r, 0x70003600u, 12, 0);
+        if (!v) return fail(r, 0x70003600u);
+        uint32_t x, y, z;
+        memcpy(&x, v, 4); memcpy(&y, v + 4, 4); memcpy(&z, v + 8, 4);
+        const uint32_t acc = em_ee_adda_bits(em_ee_mul_bits(x, x), em_ee_mul_bits(y, y));
+        EmArea01Call root = {.function = 0x0011E748u, .sp = c->sp, .na = 0, .nf = 1};
+        root.f[0] = em_ee_madd_bits(acc, z, z);
+        rc = em_area01_runtime_call(r, &root);
+        if (rc == 0) c->f0 = root.f0;
+        break;
+    }
     case 0x001B6F80u: {
         /* 001B6F80(point; f12 yaw) (byte-matched C): D_00810374 (the
          * player's +0xC4) = yaw, then 00182F90(D_008102B0, point). */
@@ -707,6 +842,7 @@ int em_area01_runtime_call(EmArea01Runtime *r, EmArea01Call *c)
         else if (r->revisit_fault.code) address = r->revisit_fault.address;
         else if (r->ret_fault.code) address = r->ret_fault.address;
         else if (r->overlay02_fault.code) address = r->overlay02_fault.address;
+        else if (r->overlay04_fault.code) address = r->overlay04_fault.address;
         return fail(r, address);
     }
     return r->fault ? -1 : 0;

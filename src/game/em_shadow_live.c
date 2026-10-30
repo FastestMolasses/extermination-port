@@ -67,6 +67,8 @@ static struct {
     EmModel proxy, proxy_29;               /* D_0028A490[0x28] (the player), [0x29] (Roger) */
     EmModel proxy_2a;                      /* D_0028A490[0x2A] (AREA04's NPC [2]), loaded at first use */
     int proxy_2a_tried;
+    EmModel proxy_34;                      /* D_0028A490[0x34] (event [3]'s script actor), loaded at first use */
+    int proxy_34_tried;
     uint8_t *elf;                               /* the D_0025DAE0 window, placed */
     EmShadowActorRouteTables route_tables;
     /* D_00817FF0 (BSS: zero at boot; never reset). */
@@ -349,6 +351,22 @@ static const EmModel *proxy_of(int32_t kind)
             }
         }
         return S.proxy_2a.verts ? &S.proxy_2a : NULL;
+    }
+    if (kind == EM_SHADOW_LIVE_KIND_34) {
+        /* The 19-node script actor (+0x96 = 0x34) that AREA04's event [3]
+         * script 0x828450 places (a04b_03): the chunk03 file id 0x34
+         * (export_shadow_proxy.py --kind 0x34; the a04b_03 end RAM's
+         * D_0028A490[0x34] holds that file), loaded at first use. */
+        if (!S.proxy_34_tried) {
+            S.proxy_34_tried = 1;
+            if (em_model_load(&S.proxy_34, EM_SHADOW_LIVE_PROXY_34_PATH) != 0 || !S.proxy_34.verts ||
+                !S.proxy_34.indices || S.proxy_34.index_count % 3) {
+                fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
+                                "export_shadow_proxy.py --kind 0x34)\n", EM_SHADOW_LIVE_PROXY_34_PATH);
+                memset(&S.proxy_34, 0, sizeof S.proxy_34);
+            }
+        }
+        return S.proxy_34.verts ? &S.proxy_34 : NULL;
     }
     return NULL;
 }
@@ -697,9 +715,12 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
 {
     if (S.fault) return -1;
     if (!S.bound) return fail(0x001DA6A0u, "the shadow is not bound");
-    /* 21 nodes (the player, Roger), or AREA04's 20-node kind 0x2A actor. */
+    /* 21 nodes (the player, Roger), AREA04's 20-node kind 0x2A actor or its
+     * 19-node kind 0x34 script actor. */
+    const uint32_t kind = bytes && size >= 0x100u ? rd32(bytes + 0x94) >> 16 : 0;
     if (!bytes || size < 0x100u || !nodes || !node_count || node_count > NODES ||
-        (node_count != NODES && !(node_count == 20u && rd32(bytes + 0x94) >> 16 == EM_SHADOW_LIVE_KIND_2A)))
+        (node_count != NODES && !(node_count == 20u && kind == EM_SHADOW_LIVE_KIND_2A) &&
+         !(node_count == 19u && kind == EM_SHADOW_LIVE_KIND_34)))
         return fail(0x001DA6A0u, "an actor record or its node records are not mapped");
     for (unsigned i = 0; i < NODES; ++i) {
         if (i < node_count && !nodes[i]) return fail(0x001DA6A0u, "an actor node record is not mapped");

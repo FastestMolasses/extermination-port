@@ -37,7 +37,7 @@ def verify_harness(out):
     """Execute the actual C selector/reader/driver over the recorded inputs.
     Only the driver's game-facing services are mocked."""
     source = (ROOT / 'src/game/em_level_smoke_test.c').read_text()
-    phases = re.findall(r'\{"((?:a01r|a02)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
+    phases = re.findall(r'\{"((?:a01r|a02|a04)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
                         source, re.S)
     assert [p[0] for p in phases] == list(a01r.ROUTE_PHASES), ('C/Python phase order', phases)
     selector = source[source.index('static int side_played('):source.index('static void report_not_live(')]
@@ -175,7 +175,8 @@ def verify_checker():
             tgt_post=list(map(bits, row['tgt'])), cam4=row['cam_mode'], screen8=row['screen'][:16], power=row['power'],
             camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex(), bytes(48).hex()],
             **{key: dict(hp=bits(row['hp']), progress=[row['d2'], row['story758'], row['taken'], row['docs']],
-                         owners=owners, locks=row['locks'], wpn=row['wpn'], s760=row['story760'])})
+                         owners=owners, locks=row['locks'], wpn=row['wpn'], s760=row['story760'],
+                         **(dict(s764=row['story764'], s830=row['s830']) if key == 'a04' else {}))})
 
     count = rejected = 0
     for phase in a01r.ROUTE_PHASES:

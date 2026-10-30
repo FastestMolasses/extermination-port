@@ -354,10 +354,24 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
     case 0x19AD00:{
         /* The move walkers' world is the segment's own (em_collision_world
          * builds both from one directory, grid, hull world and SDK math). */
-        const EmCollMoveWorld mw={seg->world->cells,seg->world->grid,seg->hulls,seg->math};
+        /* A non-class-0 mover with bit 0 (AREA04's creature 0012E3A0) locks
+         * against the player's hull (0019AD00's 001A7280): the call-local
+         * record and chain of 0019AA80 below; the scratch keeps the view's
+         * 0x8102B0 identity of a hit. */
+        PlayerHull ph;memset(&ph,0,sizeof ph);ph.v=v;
+        const EmCollHullWorld hw={&ph,player_hull_chain,&ph.actor};
+        const EmCollHullWorld *hulls=seg->hulls;const void *player=NULL;
+        if((c->a[2]&1u)&&(mover.status&1)&&(mover.cls&0x1F)) {
+            player=decode(v,0x008102B0u);
+            if(!player||!v->host.player_chain||v->host.player_chain(v->host.ctx,&ph.actor,NULL)<0)
+                return fail(v,0x1A7280,4);
+            hulls=&hw;
+        }
+        const EmCollMoveWorld mw={seg->world->cells,seg->world->grid,hulls,seg->math};
         if(export_move(v,&mw)<0)return -1;
         r=em_coll_move_0019AD00(&mw,v->host.move,&mover,b,(uint32_t)c->a[2]);
         if(r<0)break;
+        if(player&&v->host.move->entity==(void *)&ph.actor)v->host.move->entity=(void *)player;
         /* The move scratch is now the last writer (the next begin imports
          * it); bit 31 added the hit delta to the actor's x and z. */
         v->host.shared->move_last=1;
