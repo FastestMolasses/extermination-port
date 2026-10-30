@@ -245,6 +245,10 @@
         if (c->na < 4) return fail(r, c->function);
         rc = em_area01_exitb_001C2540(&r->exitb, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], (uint32_t)c->a[3], &u64); if (rc == 0) c->v0 = u64;
         break;
+    case 0x001C2690u:
+        if (c->na < 3) return fail(r, c->function);
+        rc = em_area01_exitb_001C2690(&r->exitb, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], &u64); if (rc == 0) c->v0 = u64;
+        break;
     case 0x001C3DB0u:
         if (c->na < 4) return fail(r, c->function);
         rc = em_area01_exitb_001C3DB0(&r->exitb, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], (uint32_t)c->a[3]);

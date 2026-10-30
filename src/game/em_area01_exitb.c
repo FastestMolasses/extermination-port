@@ -201,6 +201,7 @@ static uint32_t fcall2(Run *r, uint32_t sp, uint32_t fn, uint32_t x, uint32_t y)
 #define FN_1AFC10 0x001AFC10u
 #define FN_1B0FD0 0x001B0FD0u
 #define FN_1B1190 0x001B1190u
+#define FN_1B1470 0x001B1470u /* float(f12): the angle wrapped to (-pi, pi] */
 #define FN_1B17A0 0x001B17A0u
 #define FN_1B6F00 0x001B6F00u
 #define FN_1BA1A0 0x001BA1A0u
@@ -1029,6 +1030,27 @@ static uint64_t f_1C2540(Run *r, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t
 }
 
 /* ------------------------------------------------------------------------
+ * 001C2690(a0, a1, a2) (byte-matched decomp C, src/func_001C2690.c): the
+ * matrix 0x70003440 = identity (001029C0), turned (00102BB0) by
+ * 001B1470(0011E620(a0+0x70, a0+0x78)), a0's heading from its velocity's
+ * x and z; 0x700038C0 = 0x70003440 * a1 (001026A0) plus a0+0xB0
+ * (001028B8); 0x700038D0 = 0x70003440 * a2; result 0019B4C0(a0,
+ * 0x700038C0, 0x700038D0, 0x80000006), whose v0 it leaves untouched.
+ * ---------------------------------------------------------------------- */
+static uint64_t f_1C2690(Run *r, uint32_t sp, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    sp -= 0x40;
+    call1(r, sp, FN_IDENT, SPR(0x3440));
+    const uint32_t x = w32(r, a0 + 0x70), z = w32(r, a0 + 0x78);
+    const uint32_t angle = fcall1(r, sp, FN_1B1470, fcall2(r, sp, FN_11E620, x, z));
+    call2f(r, sp, FN_ROT_B, SPR(0x3440), SPR(0x3440), angle);
+    call3(r, sp, FN_MAT_VEC, SPR(0x38C0), SPR(0x3440), a1);
+    call3(r, sp, FN_VADD, SPR(0x38C0), SPR(0x38C0), a0 + 0xB0);
+    call3(r, sp, FN_MAT_VEC, SPR(0x38D0), SPR(0x3440), a2);
+    return call4(r, sp, FN_19B4C0, a0, SPR(0x38C0), SPR(0x38D0), 0x80000006u);
+}
+
+/* ------------------------------------------------------------------------
  * 001C3DB0(a0, a1, a2, a3): n = a0 x a1 into 0x70003630 (00102718). When
  * its x, y and z all compare equal to 0, a3[0..2] = a2[0..2] (each read
  * before its store) and done. Otherwise a basis: 0x700038A0 = norm(n);
@@ -1244,6 +1266,16 @@ int em_area01_exitb_001C2540(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_
     uint64_t v;
     ENTER(s, 0x001C2540u);
     v = f_1C2540(&run, s->sp, a0, a1, a2, a3);
+    if (out)
+        *out = v;
+    return 0;
+}
+
+int em_area01_exitb_001C2690(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *out)
+{
+    uint64_t v;
+    ENTER(s, 0x001C2690u);
+    v = f_1C2690(&run, s->sp, a0, a1, a2);
     if (out)
         *out = v;
     return 0;

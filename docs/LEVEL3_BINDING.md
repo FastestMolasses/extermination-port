@@ -14,6 +14,19 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-29, lane G1 (branch `bug-glow`): a kill's dissolve no longer
+fail-stops.** A user run (EM_START_AT=a01_07, through the shaft door into
+AREA00, a kill at the cage-room nest) stopped with "FAULT at 001F6FB0" at
+the dead creature's record a few seconds after the kill: the glow node's
+last tick (state 3, which only frees the node) found its parent already
+freed, and the composition mapped the parent for every tick. The parent's
+views are now made only in states 0 and 1, the only states that read it
+(AREA00_FX.md "The live dissolve"). `make test-glow-dissolve` kills two
+creatures from the a00_04 card and compares the 0012A5D0 one's 251 ticks
+with the original's capture (equal; both records freed on the same tick).
+Behind it, a shot 0012A5D0 at the a02_04 start point reached 001C2770's
+unbound probe 001C2690, now translated (AREA01_EXITB.md).
+
 **2026-10-29, stop for review (after iteration 31): a02_s0 and
 a02_01..a02_04 are revisit-harness phases now. The C rows, the sources
 and a02_02's recorded late-input correction are in place, the drive

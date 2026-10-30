@@ -96,7 +96,7 @@ CODE_END = 0x230000
 # Translated routines (address -> size in bytes).
 FUNCS = {
     0x156F30: 0x430, 0x1576E0: 0x180, 0x1581A0: 0x13C, 0x158810: 0x3B4, 0x158BD0: 0x154,
-    0x15AB00: 0xF4, 0x15B030: 0xF8, 0x1BB520: 0x38, 0x1C2430: 0x94, 0x1C2540: 0x98,
+    0x15AB00: 0xF4, 0x15B030: 0xF8, 0x1BB520: 0x38, 0x1C2430: 0x94, 0x1C2540: 0x98, 0x1C2690: 0xD8,
     0x1C3DB0: 0x2FC, 0x1C6160: 0x2C, 0x1D0400: 0xAC, 0x1E8E80: 0x3F4, 0x1E9280: 0x2F4,
     0x1E9580: 0x8D8,
 }
@@ -114,6 +114,7 @@ CALLEES = {
     # math leaves, the LCG, float -> int
     0x11DE90: (R, 0, 1), 0x11E2A8: (R, 0, 1), 0x11E398: (R, 0, 1), 0x11E620: (R, 0, 2),
     0x11E748: (R, 0, 1), 0x122BB8: (R, 0, 0), 0x1281C0: (R, 0, 1),
+    0x1B1470: (R, 0, 1),        # the angle wrap (byte-matched C, a pure leaf)
     # record lookup and packet allocation (pure RAM leaves)
     0x1C6120: (R, 2, 0), 0x1CB5F0: (R, 3, 0), 0x1CB950: (R, 3, 0), 0x1CB6B0: (R, 4, 0),
     0x1CB760: (R, 3, 0),
@@ -133,7 +134,7 @@ HANDLER, HANDLER2 = 0x1CAA00, 0x1CAA40   # the captured handler; the one 'handle
 ENTRIES = {
     0x156F30: ('p', None), 0x1576E0: ('pp', 'i'), 0x1581A0: ('p', None), 0x158810: ('p', None),
     0x158BD0: ('p', None), 0x15AB00: ('p', None), 0x15B030: ('p', None), 0x1BB520: ('p', 'q'),
-    0x1C2430: ('ppp', 'q'), 0x1C2540: ('pppp', 'q'), 0x1C3DB0: ('pppp', None), 0x1C6160: ('p', 'u'),
+    0x1C2430: ('ppp', 'q'), 0x1C2540: ('pppp', 'q'), 0x1C2690: ('ppp', 'q'), 0x1C3DB0: ('pppp', None), 0x1C6160: ('p', 'u'),
     0x1D0400: ('ppf', None), 0x1E8E80: ('ppp', None), 0x1E9280: ('p', None), 0x1E9580: ('ppp', None),
 }
 
@@ -1038,6 +1039,14 @@ def cases_leaves(rng):
         out.append(case(f'1C2430 {n}', 0x1C2430, [node, v1, m], writes=w, script={0x19AB20: [n - 2]}, pin=n < 2))
         out.append(case(f'1C2540 {n}', 0x1C2540, [node, v1, v2, m], writes=w, script={0x19B4C0: [n - 3]},
                         pin=n < 2))
+    # 001C2690: the pair in the frame of the record's heading (its +0x70 /
+    # +0x78, both signs, zero, and a turn past pi for 001B1470's wrap)
+    for n, (vx, vz) in enumerate(((1.0, 0.0), (0.0, 1.0), (-0.7, -0.3), (0.0, 0.0), (-1.0, -0.0), (0.2, -5.0))):
+        node = rng.choice(nodes)
+        v1, v2 = SCRATCH + 0x40, SCRATCH + 0x50
+        w = [WF(node + 0x70, vx), WF(node + 0x78, vz)] + vwrites(v1, vec(rng)) + vwrites(v2, vec(rng))
+        out.append(case(f'1C2690 {n}', 0x1C2690, [node, v1, v2], writes=w, script={0x19B4C0: [n - 3]},
+                        pin=n < 2))
     # 001C3DB0: direction pairs, including parallel / zero ones
     pairs = [([1, 0, 0], [0, 1, 0]), ([1, 0, 0], [1, 0, 0]), ([1, 0, 0], [-1, 0, 0]), ([0, 0, 0], [0, 1, 0]),
              ([0.6, 0, 0.8], [0, 0, 1]), ([-0.0, 0.0, 1.0], [0.0, -0.0, 2.0]), ([0, 1, 0], [0, 0.99999, 0.00447])]
@@ -1230,6 +1239,8 @@ def cases_review2():
                         pin=True))
         out.append(case(f'1C2540 v0 hi {hi:x}', 0x1C2540, [node, v1, v2, m], writes=w,
                         script={0x19B4C0: [hi]}, pin=True))
+        out.append(case(f'1C2690 v0 hi {hi:x}', 0x1C2690, [node, v1, v2], writes=w,
+                        script={0x19B4C0: [hi]}, pin=True))
     return out
 
 
@@ -1364,6 +1375,8 @@ QUICK_PINNED = frozenset((
     '1C2430 0',
     '1C2430 0 poison',
     '1C2540 0',
+    '1C2690 0',
+    '1C2690 1',
     '1C3DB0 0',
     '1C3DB0 1',
     '1C3DB0 2',

@@ -25,6 +25,8 @@
  *             +0x2E = 0 (byte-matched C)
  *   001C2430  scratch segment from a point pair, 0019AB20 (byte-matched)
  *   001C2540  scratch segment pair, 0019B4C0 (asm)
+ *   001C2690  the same pair in the frame of a0's heading (atan2 of its
+ *             +0x70 / +0x78), 0019B4C0 (byte-matched C)
  *   001C3DB0  rotation of a2 into a3 by the angle between a0 and a1 about
  *             their cross product (NEARMISS)
  *   001C6160  D_00275BF8 = 001C6120(+0x40, +0x2C); result its halfword +2
@@ -128,8 +130,8 @@ void em_area01_exitb_clear_fault(EmArea01Exitb *s);
 
 /* Every routine returns 0, or -1 on a fault. Pointer arguments below are
  * original addresses. `v0` / `out` outputs, where given, receive what the
- * original leaves in v0: for 001BB520 / 001C2430 / 001C2540 the full 64-bit
- * register of the last callee (001B0FD0 / 0019AB20 / 0019B4C0), which the
+ * original leaves in v0: for 001BB520 / 001C2430 / 001C2540 / 001C2690 the
+ * full 64-bit register of the last callee (001B0FD0 / 0019AB20 / 0019B4C0), which the
  * original returns untouched and a caller may test as a whole register;
  * for 001576E0 / 001C6160 the routine's own 32-bit result. */
 int em_area01_exitb_00156F30(EmArea01Exitb *s, uint32_t p);
@@ -143,6 +145,7 @@ int em_area01_exitb_001BB520(EmArea01Exitb *s, uint32_t a0, uint64_t *v0);
 int em_area01_exitb_001C2430(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *v0);
 int em_area01_exitb_001C2540(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
                              uint64_t *out);
+int em_area01_exitb_001C2690(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *out);
 int em_area01_exitb_001C3DB0(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int em_area01_exitb_001C6160(EmArea01Exitb *s, uint32_t a0, uint32_t *out);
 int em_area01_exitb_001D0400(EmArea01Exitb *s, uint32_t a0, uint32_t a1, uint32_t f12);

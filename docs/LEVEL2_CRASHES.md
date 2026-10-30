@@ -375,7 +375,7 @@ replay. Receipts: `index-terminal-{build,startup,smoke,references}.log` and
 | Object activation/bypass branches; conditional | `001C02E0 → 001BF6B0 / 001B6660`; `001BFFD0 → 001BFF90` | Existing level8/roster owners need runtime/callback composition if the branches are reached. The duct reached a separate missing `70003B64` read in C02E0, now fixed. These other branches still need their own callback/lifetime proof. |
 | Extreme collision query; conditional and outside recorded bound | `0019D770` no-span branch | Preserve refusal: the original uses caller-register state that the port does not model. Existing bound requires z separation at least `1087.16015625` with N=854; recorded 79,192 camera queries max `53.51905`. This bounds recordings, not arbitrary future queries. |
 
-The nest group contains four class-2/model-0 bugs, IDs `70..73`, param 4, callback `0012A5D0`, with parent-relative positions `(-1,1,-1)`, `(-1,1,0)`, `(-1,1,1)`, `(1,1,1)` and Y rotations `0`, `pi/2`, `pi`, `-pi/2`. They are not pickups. Existing `0012A5D0` dispatch selects substate 9; required follow-up includes `0012D850`, its enemy worker dependencies, original pool/list order, taken masks and allocation failure. The existing crate-registry test covers INIT/taken lookup and explicitly does not spawn children. Conditional actor probe `001C2770` state 6 calls `001C2690`, for which no port owner was found.
+The nest group contains four class-2/model-0 bugs, IDs `70..73`, param 4, callback `0012A5D0`, with parent-relative positions `(-1,1,-1)`, `(-1,1,0)`, `(-1,1,1)`, `(1,1,1)` and Y rotations `0`, `pi/2`, `pi`, `-pi/2`. They are not pickups. Existing `0012A5D0` dispatch selects substate 9; required follow-up includes `0012D850`, its enemy worker dependencies, original pool/list order, taken masks and allocation failure. The existing crate-registry test covers INIT/taken lookup and explicitly does not spawn children. Conditional actor probe `001C2770` state 6 calls `001C2690`, for which no port owner was found (bound 2026-10-29: `em_area01_exitb_001C2690`, AREA01_EXITB.md; reached by a shot 0012A5D0 at the a02_04 start point).
 
 Guards narrow this inventory. First-visit event 6 is zero: the security gun stays in dormant state `64`; active gun effects/sounds and revisit controllers `00823CD0 / 00825950` are not established first-visit triggers. The cable can still be damaged, and upper-catwalk bugs can potentially be shot. The first-visit bridge flags remain clear; the north-gap and upper-catwalk doors are not reached by the kept ground routes. Water actor link-1/2 helper gaps `0015A200 / 0015A750` are excluded by the placed link-0 roster. Camera NULL hooks for other area/subarea guards are excluded from AREA01; no protected camera change is justified by those guards. The direct shared `001B0460` stub is a separate conditional issue.
 
@@ -752,8 +752,8 @@ player meets it):
 5. The conditional inventory above (the nest crate's children: its crate
    stands in the north room, unreachable on this visit; reaction effects
    44 / 48 / 23 / 34 / 35 / 76 and 61..63; 001782A0 / 00178390 / 00178080 /
-   00188570 / 00188590 / 001885B0 / 00178440; 001C2690), none reached by
-   any run here.
+   00188570 / 00188590 / 001885B0 / 00178440; 001C2690, bound since
+   2026-10-29), none reached by any run here.
 6. Timing, not faults: the recorded voice lines end one frame early even
    with the drive-timing switch (a01_03 row 957, a01_05 row 3836), and
    AREA01's page-module reads answer at host speed with the switch on

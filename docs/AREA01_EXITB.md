@@ -27,6 +27,7 @@ The subsystem names are census labels, not evidence; the functions are named by 
 | 001BB520 | 56 | byte-matched | math_vector | f531 | - |
 | 001C2430 | 148 | byte-matched | math_vector | f532 | - |
 | 001C2540 | 152 | asm (words) | math_vector | f532 | - |
+| 001C2690 | 216 | byte-matched | math_vector | - (2026-10-29, lane G1) | - (reached in AREA02: a shot 0012A5D0 at a02_04) |
 | 001C3DB0 | 764 | NEARMISS | math_vector | f532 | - |
 | 001C6160 | 44 | byte-matched | anim_runtime | f755 | (records with a +0x40 table: the 00128C10 / 0012A5D0 nodes) |
 | 001D0400 | 172 | asm (inline) | obj_registry | f531 | - |
@@ -138,6 +139,15 @@ Full statements are in the comment above each translation; short forms:
   0x700038D0 = (0, -10, 0, 0); 0019AB20(a0, 0x700038C0, 0x700038D0, 0x80000007).
 - **001C2540(a0, a1, a2, a3)**: 0x700038C0 = a3 * a1 + (a0+0xB0); 0x700038D0 = a3 * a2;
   result 0019B4C0(a0, 0x700038C0, 0x700038D0, 0x80000006).
+- **001C2690(a0, a1, a2)** (added 2026-10-29, lane G1): 0x70003440 = identity
+  (001029C0) turned by 00102BB0 through 001B1470(0011E620(a0+0x70, a0+0x78)) (a0's
+  heading from its +0x70 / +0x78); 0x700038C0 = 0x70003440 * a1 + (a0+0xB0);
+  0x700038D0 = 0x70003440 * a2; result 0019B4C0(a0, 0x700038C0, 0x700038D0,
+  0x80000006), its v0 left whole. 001C2770's sub-state 6 probe
+  (`em_area01_math_actor.c`); before this it was unbound and a hit 0012A5D0 in AREA02
+  (EM_START_AT=a02_04, R1 and Circle) fail-stopped at it. Oracle cases `1C2690 0..5`
+  (headings on both axes, zero, a wrap past pi) and the two v0-high cases, with
+  001B1470 run as an original leaf; a swapped +0x70 / +0x78 read fails 4 cases.
 - **001C3DB0(a0, a1, a2, a3)**: rotates a2 into a3 about a0 x a1 by the angle
   0011E620(sqrt(|a0 x a1|^2), a0 . a1) through a basis built in 0x70003400.. (early out:
   a3 = a2 when every component of a0 x a1 compares equal to 0); a3 then normalised. The
