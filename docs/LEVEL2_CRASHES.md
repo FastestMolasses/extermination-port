@@ -817,7 +817,17 @@ fault, not certifications of unrestricted play.
 | area02 | the same, then east to (45.5, -222.7) facing +x, Use door [16] | back into AREA02 sub 1 (entry 1, the arrival's walk-out to (78.1, -225)), control; no fault |
 | area02 | to (107.4, -184) facing +x, Use the save terminal [3], Cross, Left, Cross | the terminal's line (message 0x80000012), the BATTERY page's save prompt (request 6), Yes: **fail-stop at 0020CDC0** (the status page core has no accepted-save follow-up: 0020CDC0 phase 6 and the card screen in save mode 00225AC0(1); SAVE_GAME.md section 8). Not fixed: it needs the save mode's leaves and a fork recording of a save on a formatted card file (open) |
 | a02_03 | through the junction to (-38, -27), R1 and Circle every 16 frames toward the nest of 00128C10 creatures at (-45..-56, -52..-60), 800 frames | no fault (health 90 throughout) |
-| a02_03 | west along the east-west tunnel to (-150, 10) past gate [36], R1 and Circle | see below |
+| a02_03 | west along the east-west tunnel toward (-150, 12) and (-150, 25) | no fault; the walk stops on the turntable [28] (ground node 0x7AEC10) at x -48.6 (z 12) and x -51.3 (z 25) |
+
+**The western tunnel is not reached by walking, in the original either.**
+A pad-only exploration on the fork (hidden, run lock, from the a02_03
+source state, no memory writes; scratch) walked west along z 12: the
+original stops at (-48.6, 0.99, 11.8..12.0) on [28] too, the native's
+stop point, with repeated grabs (action 0x3E) pushing it back to x
+-41..-47. How the original reaches x < -80 (the turntable's turn:
+0x825520 on a +0xD-9 object, [31]'s turntable scripts 0x826B40 /
+0x826F40, none on the route) is open; the nest of 00128C10 creatures at
+(-45..-56, -52..-60) was fired at from (-38, -27) without a fault.
 
 AREA02 sub 2 is not reachable in the original's data (FOURTH_LEVEL_ROUTE.md
 section 8 item 7: only the duct's 00179910 selects it, from a bit of

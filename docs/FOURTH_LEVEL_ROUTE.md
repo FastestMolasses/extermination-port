@@ -490,7 +490,11 @@ as measurements.
    terminal [3] and console [4], door [5] back to AREA01 (entry 5), the ledge
    at y 50 beyond the ladder top, the turntable [28] and [27], the western
    tunnel (x < -80) with its nest of 00128C10 / 0012A5D0 creatures, the
-   examine owner [40] (0x824FA0), AREA02 sub 2.
+   examine owner [40] (0x824FA0), AREA02 sub 2. (Lane B1, 2026-10-30:
+   door [5] there and back and the save terminal's prompt were played
+   natively (LEVEL2_CRASHES.md "AREA02's unreached places"); a pad-only
+   fork exploration west along z 12 from the a02_03 source stops at x
+   -48.6 on the turntable [28], as the port does; sub 2: item 7 below.)
 5. What sets D_008107E4 in AREA04's arrival.
 6. Native status (2026-10-30): a02_s0 and a02_00..a02_04 are row-exact
    from New Game (LEVEL3_BINDING.md "2026-10-30, lane A2"), and a02_05
