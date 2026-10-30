@@ -14,6 +14,7 @@ comparisons below; they do not certify rendered pixels.
 """
 import hashlib
 import json
+import os
 import re
 import struct
 
@@ -32,6 +33,16 @@ A04_ROUTE_DIR = refs.capture('s87/route_a04')
 A22_ROUTE_DIR = refs.capture('s87/route_a22')
 A01U_ROUTE_DIR = refs.capture('s87/route_a01u')
 A06_ROUTE_DIR = refs.capture('s87/route_a06')
+A06B_ROUTE_DIR = refs.capture('s87/route_a06b')
+A01V_ROUTE_DIR = refs.capture('s87/route_a01v')
+A22B_ROUTE_DIR = refs.capture('s87/route_a22b')
+# The bed branch (EIGHTH_LEVEL_ROUTE.md "Fork continuation work"): AREA04's
+# second visit is recorded only on the fork continuation, which leaves the
+# canonical line at the bed (a02_s0) with health 100 and replays a02_00 ..
+# a22b_01 from there. A run --until a04b_* plays the bed, then those beats
+# against this set; any other run plays the canonical recordings.
+BED_ROOT = refs.capture('levels-recordings-20261018-10/s87')
+BED = os.environ.get('EM_LEVEL_SMOKE_UNTIL', '').startswith('a04b_')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
               'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel',
@@ -40,21 +51,37 @@ MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a
               'a04_05': 'a04_05_progression_exit', 'a22_00': 'a22_00_door7', 'a22_01': 'a22_01_corridor',
               'a22_02': 'a22_02_progression_exit', 'a01u_00': 'a01u_00_gap_jump',
               'a01u_01': 'a01u_01_catwalk_event', 'a01u_02': 'a01u_02_progression_exit',
-              'a06_00': 'a06_00_beam'}
+              'a06_00': 'a06_00_beam', 'a06_01': 'a06_01_crate_door2', 'a06_02': 'a06_02_keypad',
+              'a06_03': 'a06_03_room_out', 'a06b_00': 'a06b_00_trigger_jump', 'a06b_01': 'a06b_01_door1',
+              'a01v_00': 'a01v_00_catwalk_east', 'a01v_01': 'a01v_01_gap_jump', 'a01v_02': 'a01v_02_door18',
+              'a22b_00': 'a22b_00_to_door7', 'a22b_01': 'a22b_01_door6', 'a04b_00': 'a04b_00_door45',
+              'a04b_01': 'a04b_01_npc', 'a04b_02': 'a04b_02_door45_out', 'a04b_03': 'a04b_03_reader'}
 SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed',
               # HEALING's item 0x20 from the menu (tools/capture_heal_beats.py)
-              'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure'}
+              'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure',
+              # the beam's collapse, away from the story (SEVENTH_LEVEL_ROUTE.md)
+              'a06_04': 'a06_04_beam_collapse', 'a06_05': 'a06_05_door3_locked'}
+# A side that starts from another side's end (Phase.from_side).
+FROM_SIDE = {'a06_05': 'a06_04'}
 # em_level_smoke_test.c's phase order: each side right after its source.
 ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_s2', 'a01r_03', 'a02_s0', 'a02_s1',
                 'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05', 'a04_00', 'a04_01', 'a04_02', 'a04_03',
-                'a04_04', 'a04_05', 'a22_00', 'a22_01', 'a22_02', 'a01u_00', 'a01u_01', 'a01u_02', 'a06_00')
+                'a04_04', 'a04_05', 'a22_00', 'a22_01', 'a22_02', 'a01u_00', 'a01u_01', 'a01u_02', 'a06_00',
+                'a06_01', 'a06_02', 'a06_03', 'a06_04', 'a06_05', 'a06b_00', 'a06b_01', 'a01v_00', 'a01v_01',
+                'a01v_02', 'a22b_00', 'a22b_01', 'a04b_00', 'a04b_01', 'a04b_02', 'a04b_03')
+# The main-line phases the bed branch's recordings replace.
+BED_PHASES = tuple(p for p in ROUTE_PHASES if p not in SIDE_BEATS and not p.startswith('a01r_'))
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
            'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a01r_s2': 'a01r_02', 'a02_00': 'a01r_03',
            'a02_s0': 'a01r_03', 'a02_s1': 'a01r_03',
            'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03',
            'a02_05': 'a02_04', 'a04_00': 'a02_05', 'a04_01': 'a04_00', 'a04_02': 'a04_01', 'a04_03': 'a04_02',
            'a04_04': 'a04_03', 'a04_05': 'a04_04', 'a22_00': 'a04_05', 'a22_01': 'a22_00', 'a22_02': 'a22_01',
-           'a01u_00': 'a22_02', 'a01u_01': 'a01u_00', 'a01u_02': 'a01u_01', 'a06_00': 'a01u_02'}
+           'a01u_00': 'a22_02', 'a01u_01': 'a01u_00', 'a01u_02': 'a01u_01', 'a06_00': 'a01u_02',
+           'a06_01': 'a06_00', 'a06_02': 'a06_01', 'a06_03': 'a06_02', 'a06_04': 'a06_03', 'a06_05': 'a06_04',
+           'a06b_00': 'a06_03', 'a06b_01': 'a06b_00', 'a01v_00': 'a06b_01', 'a01v_01': 'a01v_00',
+           'a01v_02': 'a01v_01', 'a22b_00': 'a01v_02', 'a22b_01': 'a22b_00', 'a04b_00': 'a22b_01',
+           'a04b_01': 'a04b_00', 'a04b_02': 'a04b_01', 'a04b_03': 'a04b_02'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -97,14 +124,33 @@ A06_OWNERS = dict(door1_r1=0x7AB730, door2_r2=0x7ABA20, door3_r3=0x7ABD10, lamp_
                   crate_r31=0x7B0C60, save_r43=0x7B2FA0, r47_1E7D20=0x7B3B60, r54_15A2C0=0x7B4FF0,
                   r56_1C1A80=0x7B55D0, doc_g2=0x7A5C20, pick_g8=0x7A6DC0, g11_219870=0x7A7690,
                   bug_g27=0x7AA590, bug_g28=0x7AA880, bug_g29=0x7AAB70)
+# EIGHTH_LEVEL_ROUTE.md section 1.1 (a06b uses A06_OWNERS): A01V_OWNERS, the
+# AREA01 load of a06b_01's arrival; A22B_OWNERS, the AREA22 load of a01v_02's;
+# A04B_OWNERS, the AREA04 load of a22b_01's. The tick log's "a01v", "a22b" and
+# "a04b" observations.
+A01V_OWNERS = dict(door18_r18=0x7AEC10, door19_r19=0x7AEF00, r45_8267C0=0x7B3B60, pick_g11=0x7A7690,
+                   gap_g36_1BF6B0=0x7AAB70, n_1BFFD0=0x7A6200, n_1BE6C0=0x7A6AD0, bug_a=0x7B7EF0,
+                   bug_b=0x7B81E0, bug_c=0x7B84D0, bug_g30=0x7AA880)
+A22B_OWNERS = dict(pick_g0=0x7A5640, pick_g4=0x7A6200, door6_r6=0x7A9CC0, door7_r7=0x7A9FB0, door8_r8=0x7AA2A0,
+                   reader_r9=0x7AA590, door10_r10=0x7AA880, lamp_r11=0x7AAB70)
+A04B_OWNERS = dict(npc_r2=0x7AA2A0, r3_8246B0=0x7AA590, r4_824DC0=0x7AA880, door37_r37=0x7B0970,
+                   door45_r45=0x7B20F0, r47_823EE0=0x7B26D0, reader_r50=0x7B2FA0, lift_r51=0x7B3290,
+                   button_r53=0x7B3870, button_r54=0x7B3B60, lift_r56=0x7B4140, socket_r55=0x7B3E50,
+                   button_r58=0x7B4720, reel_r70=0x7B6A60)
 # The tick log's keys that carry AREA04's extra bytes (compare_route_row);
 # AREA22 on adds D_00810768..6B, D_00810857 and the counts of items 0x23 / 0x24.
-LATER_KEYS = ('a22', 'a01u', 'a06')
+LATER_KEYS = ('a22', 'a01u', 'a06', 'a01v', 'a22b', 'a04b')
 
 
 def owners_of(phase):
     """The recorded owner table and the tick log's observation key."""
-    if phase.startswith('a06_'):
+    if phase.startswith('a04b_'):
+        return A04B_OWNERS, 'a04b'
+    if phase.startswith('a22b_'):
+        return A22B_OWNERS, 'a22b'
+    if phase.startswith('a01v_'):
+        return A01V_OWNERS, 'a01v'
+    if phase.startswith(('a06_', 'a06b_')):
         return A06_OWNERS, 'a06'
     if phase.startswith('a01u_'):
         return A01U_OWNERS, 'a01u'
@@ -124,7 +170,10 @@ def capture_path(phase):
         return a00.capture_path(phase)
     prefix = phase.split('_')[0]
     folder = {'a02': A02_ROUTE_DIR, 'a04': A04_ROUTE_DIR, 'a22': A22_ROUTE_DIR, 'a01u': A01U_ROUTE_DIR,
-              'a06': A06_ROUTE_DIR}.get(prefix, ROUTE_DIR)
+              'a06': A06_ROUTE_DIR, 'a06b': A06B_ROUTE_DIR, 'a01v': A01V_ROUTE_DIR,
+              'a22b': A22B_ROUTE_DIR}.get(prefix, ROUTE_DIR)
+    if phase.startswith('a04b_') or (BED and phase in BED_PHASES):
+        folder = BED_ROOT / f'route_{prefix}'
     return folder / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
 
 
@@ -132,7 +181,13 @@ def revisit_path(until):
     """The revisit phases a run --until `until` plays: the main line up to
     it, without the side beats it passes (a side: then only that side)."""
     assert until in ROUTE_PHASES, ('unknown AREA01 revisit phase', until)
-    return tuple(p for p in ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1] if p not in SIDE_BEATS or p == until)
+    chain, side = {until}, until
+    while side in FROM_SIDE:
+        side = FROM_SIDE[side]
+        chain.add(side)
+    if until.startswith('a04b_'):       # the bed branch leaves the main line at a02_s0
+        chain.add('a02_s0')
+    return tuple(p for p in ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1] if p not in SIDE_BEATS or p in chain)
 
 
 def phase_path(until):
@@ -140,8 +195,12 @@ def phase_path(until):
     return (*a00.phase_path('a00_10'), *revisit_path(until))
 
 
+def source_of(phase):
+    return 'a02_s0' if BED and phase == 'a02_00' else SOURCES[phase]
+
+
 def source_capture(phase):
-    source = SOURCES[phase]
+    source = source_of(phase)
     return a00.route_capture(source) if source == 'a00_10' else route_capture(source)
 
 
@@ -154,7 +213,7 @@ def route_capture(phase):
     assert all(r['f'] == i and r['counter'] == capture['first_counter'] + i
                for i, r in enumerate(rows)), (phase, 'noncontiguous reference')
     assert rows[-1]['counter'] == capture['last_counter'], (phase, 'reference endpoint')
-    assert capture['source'] == capture_path(SOURCES[phase]).parent.name, \
+    assert capture['source'] == capture_path(source_of(phase)).parent.name, \
         (phase, 'reference source differs from native path', capture['source'])
     if refs.FORK_MODE:
         applied = [(c['kind'], c['f'], c['frames']) for c in capture.get('v263_pad_corrections', [])]
@@ -183,7 +242,8 @@ def source_gap(phase, capture):
     last = source['inputs'][-1]
     assert (last['buttons'], last['lx'], last['ly']) == (0, 127, 127), (phase, 'source pad is held')
     gap = capture['first_counter'] - source['last_counter']
-    assert 1 <= gap <= 120, (phase, 'source counter gap', gap)
+    # 0: the beat's row 0 is its source's last row (the bed branch's a02_00)
+    assert (1 <= gap <= 120) or (gap == 0 and BED and phase == 'a02_00'), (phase, 'source counter gap', gap)
     return gap
 
 
@@ -220,10 +280,18 @@ def command_rows(phase, capture):
     return out
 
 
+def checked_phases():
+    """The phases with a recording in the selected branch: a04b_* only on
+    the bed branch, whose a02_00 follows a02_s0 and which has no beam
+    collapse."""
+    return tuple(p for p in ROUTE_PHASES if (BED or not p.startswith('a04b_')) and not (BED and p in FROM_SIDE)
+                 and not (BED and p == 'a06_04'))
+
+
 def prepare_pads(out):
     out.mkdir(parents=True, exist_ok=True)
     manifest, count = [], 0
-    for phase in ROUTE_PHASES:
+    for phase in checked_phases():
         capture = route_capture(phase)
         rows = command_rows(phase, capture)
         frames, gap = capture['frames'], source_gap(phase, capture)
@@ -327,6 +395,11 @@ def compare_route_row(smoke, ticks, i, row, phase):
         # AREA06's rows: D_00810CCA (cca, 001C4760(7, 1)).
         got.update(cca=observed.get('cca'))
         want.update(cca=row['cca'])
+    if key == 'a04b':
+        # the a04b rows: D_0081076C..6F (s76c, flag 0x14). Their l84c is empty
+        # (the recorder's lock span ends before it); check_block_end has it.
+        got.update(s76c=observed.get('s76c'))
+        want.update(s76c=row['s76c'])
     for name, address in owners.items():
         value = observed['owners'].get(str(address))
         assert value is not None, (phase, row['f'], name, 'missing canonical owner')
@@ -342,7 +415,7 @@ def route_start(ticks, run, state, phase, capture):
     match = re.search(rf'^level smoke: {phase}: aligned counter=(\d+)', run, re.M)
     assert match, (phase, 'missing alignment')
     counter = int(match.group(1))
-    source = SOURCES[phase]
+    source = source_of(phase)
     ends = state.get('area00_ends' if source == 'a00_10' else 'a01r_ends', {})
     source_counter = ends.get(source)
     assert source_counter is not None, (phase, 'source phase not checked')

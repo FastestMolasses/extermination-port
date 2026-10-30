@@ -11,6 +11,10 @@ typedef struct {
     uint32_t *bone_array;
     void *action_context;
     int (*action)(void *, EmPlayerLiveActor *, int *);
+    /* Between two stages the record's +0x220..+0x22F have one storage each
+     * elsewhere (em_area11_bindings.c player_vitals); NULL words keep the
+     * record's bytes. */
+    void *vitals[4];
 } EmAimFireBindingConfig;
 int em_aim_fire_binding_configure(const EmAimFireBindingConfig *);
 int em_aim_fire_binding_ready(void);

@@ -64,8 +64,15 @@ def extract(samples, first_issue_index):
     return reads, omitted
 
 
-def record_beat(rc, beat, out):
-    trace = json.loads((rc.beat_dir(beat) / 'trace.json').read_text())
+def beat_path(rc, beat, branch):
+    """The beat's folder: the canonical fork set, or a recording branch's
+    copy (fork_refs/<branch>/s87/...: the bed branch's continuation)."""
+    d = rc.beat_dir(beat)
+    return Path(str(d).replace('/fork_refs/s87/', f'/fork_refs/{branch}/s87/')) if branch else d
+
+
+def record_beat(rc, beat, out, branch=None):
+    trace = json.loads((beat_path(rc, beat, branch) / 'trace.json').read_text())
     src = Path(trace['source_state'])
     lead = int(trace.get('lead_in_frames') or 0)
     rows = trace['rows']
@@ -120,6 +127,7 @@ def record_beat(rc, beat, out):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', type=Path, required=True, help='a NEW folder under build/')
+    ap.add_argument('--branch', help='a recording branch under fork_refs (default: the canonical s87 set)')
     ap.add_argument('beats', nargs='+', help='full beat names (e.g. a01_03_shaft_locked)')
     a = ap.parse_args()
     import route_capture as rc
@@ -128,7 +136,7 @@ def main():
     receipt = dict(tool='tools/record_drive_replay.py', started=time.strftime('%Y-%m-%d %H:%M:%S'), beats=[])
     for beat in a.beats:
         t0 = time.monotonic()
-        info = record_beat(rc, beat, out)
+        info = record_beat(rc, beat, out, a.branch)
         info['seconds'] = round(time.monotonic() - t0, 1)
         receipt['beats'].append(info)
         (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')

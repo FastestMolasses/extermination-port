@@ -549,6 +549,54 @@ static const Phase k_phases[] = {
     {"a06_00", "a06_00_beam", 0,
      "AREA06 recorded pad route: the east floor and over the beam [11] to the west pad", "SEVENTH_LEVEL_ROUTE.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a06_01", "a06_01_crate_door2", 0,
+     "the crate, the corridor, door [2] (a room move, entry 2)", "SEVENTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a06_02", "a06_02_keypad", 0,
+     "the keypad [6]: D_00810845 bit 5", "SEVENTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a06_03", "a06_03_room_out", 0,
+     "door [2] back out (entry 1)", "SEVENTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a06_04", "a06_04_beam_collapse (side, from a06_03_room_out)", 0,
+     "the beam collapses into the pit", "SEVENTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a06_05", "a06_05_door3_locked (side, from a06_04_beam_collapse)", 0,
+     "the pit, door [3] locked", "SEVENTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 1, 1},
+    {"a06b_00", "a06b_00_trigger_jump", 0,
+     "the running jump over the beam trigger", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a06b_01", "a06b_01_door1", 0,
+     "door [1] into AREA01 entry 7, the arrival and control", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01v_00", "a01v_00_catwalk_east", 0,
+     "AREA01 upper floor, east along the catwalk", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01v_01", "a01v_01_gap_jump", 0,
+     "the running jump north over the gap", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01v_02", "a01v_02_door18", 0,
+     "door [18] into AREA22 entry 5, the arrival and control", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a22b_00", "a22b_00_to_door7", 0,
+     "AREA22 back along the corridor, door [7] from the south", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a22b_01", "a22b_01_door6", 0,
+     "door [6] into AREA04 entry 1, the arrival and control", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04b_00", "a04b_00_door45", 0,
+     "AREA04 second visit: door [45] (entry 9), bed branch", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04b_01", "a04b_01_npc", 0,
+     "the NPC [2]: script 0x827D90, item 0x23, bed branch", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04b_02", "a04b_02_door45_out", 0,
+     "door [45] out (entry 8), bed branch", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04b_03", "a04b_03_reader", 0,
+     "reader [50], event [3], the creature at the lift, bed branch", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -611,6 +659,10 @@ static uint8_t task_byte(unsigned offset)
  * a01_s0). */
 static int side_played(int i)
 {
+    /* The second visit to AREA04 is recorded only on the fork continuation
+     * that leaves the main line at the bed (a02_s0): such a run plays it. */
+    if (!strncmp(k_phases[t.until].name, "a04b_", 5) && !strcmp(k_phases[i].name, "a02_s0"))
+        return 1;
     for (int j = t.until;; j -= k_phases[j].from_side) {
         if (i == j)
             return 1;
@@ -5377,7 +5429,9 @@ static void a01_route_begin(void)
     const int area00=!strncmp(k_phases[t.current].name,"a00_",4);
     const int revisit=!strncmp(k_phases[t.current].name,"a01r_",5) || !strncmp(k_phases[t.current].name,"a02_",4) ||
                       !strncmp(k_phases[t.current].name,"a04_",4) || !strncmp(k_phases[t.current].name,"a22_",4) ||
-                      !strncmp(k_phases[t.current].name,"a01u_",5) || !strncmp(k_phases[t.current].name,"a06_",4);
+                      !strncmp(k_phases[t.current].name,"a01u_",5) || !strncmp(k_phases[t.current].name,"a06_",4) ||
+                      !strncmp(k_phases[t.current].name,"a06b_",5) || !strncmp(k_phases[t.current].name,"a01v_",5) ||
+                      !strncmp(k_phases[t.current].name,"a22b_",5) || !strncmp(k_phases[t.current].name,"a04b_",5);
     const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : revisit ? "EM_LEVEL4_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
     s_a00_return_frame=-1;
     char path[1024];
@@ -5391,7 +5445,7 @@ static void a01_route_begin(void)
     s_a01_arrival_row=0;
     if(fscanf(f,"EMA1 %u %d %u",&version,&s_a01_last_frame,&gap)!=3 ||
        (version!=1 && version!=2) || (version==2 && fscanf(f,"%d",&s_a01_arrival_row)!=1) ||
-       s_a01_last_frame<1 || s_a01_last_frame>20000 || !gap || gap>120 ||
+       s_a01_last_frame<1 || s_a01_last_frame>20000 || gap>120 ||
        (version==2 && (s_a01_arrival_row<1 || s_a01_arrival_row>s_a01_last_frame))) {
         fclose(f);fail("invalid AREA01 pad-script header");return;
     }
@@ -5408,6 +5462,13 @@ static void a01_route_begin(void)
     fclose(f);
     if(!valid) { fail("truncated or malformed AREA01 pad script");return; }
     t.frames=-(int)gap;
+    /* Gap 0: the recorded row 0 is the source's last row, this very tick
+     * (the bed branch's a02_00 from a02_s0's end). */
+    if(!gap) {
+        fprintf(stderr,"level smoke: %s: aligned counter=%u (recorded row 0)\n",
+                k_phases[t.current].name,em_frame_counter());
+        em_stream_live_drive_replay_anchor(k_phases[t.current].name,em_frame_counter());
+    }
 }
 /* Comparison-only rand() replay (test instrumentation, never a default):
  * EM_RAND_REPLAY=<file> holds lines "<phase> <state hex>", the original's
@@ -5487,7 +5548,9 @@ static int a01_route_frame(void)
     } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0") ||
               !strcmp(k_phases[t.current].name,"a01r_03") || !strcmp(k_phases[t.current].name,"a02_00") ||
               !strcmp(k_phases[t.current].name,"a02_05") || !strcmp(k_phases[t.current].name,"a04_05") ||
-              !strcmp(k_phases[t.current].name,"a22_02") || !strcmp(k_phases[t.current].name,"a01u_02")) {
+              !strcmp(k_phases[t.current].name,"a22_02") || !strcmp(k_phases[t.current].name,"a01u_02") ||
+              !strcmp(k_phases[t.current].name,"a06b_01") || !strcmp(k_phases[t.current].name,"a01v_02") ||
+              !strcmp(k_phases[t.current].name,"a22b_01")) {
         /* The return's only variable duration is its asynchronous loader.
          * The checker compares every gameplay row, every emitted loader
          * row and the fixed suffix after the destination's state 0
@@ -5497,7 +5560,9 @@ static int a01_route_frame(void)
          * a02_05, door [25]: 1076 rows, the arrival script to control;
          * AREA22 entry 0 for a04_05, door [37]: 205 rows; AREA01 entry 6
          * for a22_02, door [8]: 205 rows; AREA06 entry 0 for a01u_02, door
-         * [19]: 205 rows). */
+         * [19]: 205 rows; AREA01 entry 7 for a06b_01, door [1]; AREA22 entry 5
+         * for a01v_02, door [18]; AREA04 entry 1 for a22b_01, door [6]: 205
+         * rows each). */
         const EmSceneState *s=em_scene_state();
         const int to02=!strcmp(k_phases[t.current].name,"a01r_03");
         const int to020=!strcmp(k_phases[t.current].name,"a02_00");
@@ -5505,7 +5570,12 @@ static int a01_route_frame(void)
         const int to22=!strcmp(k_phases[t.current].name,"a04_05");
         const int to01u=!strcmp(k_phases[t.current].name,"a22_02");
         const int to06=!strcmp(k_phases[t.current].name,"a01u_02");
-        const int after=to02 || to22 || to01u || to06 ? 205 : to020 ? 143 : to04 ? 1076 :
+        const int to01v=!strcmp(k_phases[t.current].name,"a06b_01");
+        const int to22b=!strcmp(k_phases[t.current].name,"a01v_02");
+        const int to04b=!strcmp(k_phases[t.current].name,"a22b_01");
+        /* A version 2 pad names the arrival row: the recording's own rows
+         * after state 0 (the bed branch's a02_00 has 168, the canonical 143). */
+        const int after=s_a01_arrival_row>0 ? s_a01_last_frame-s_a01_arrival_row :
                         !strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
         if(s_a00_return_frame<0 &&
            (to02 ? s->d810700==2 && s->d810701==1 :
@@ -5514,6 +5584,9 @@ static int a01_route_frame(void)
             to22 ? s->d810700==0x16 && s->d810701==0 && s->d810702==0 :
             to01u ? s->d810700==1 && s->d810701==0 && s->d810702==6 :
             to06 ? s->d810700==6 && s->d810701==0 && s->d810702==0 :
+            to01v ? s->d810700==1 && s->d810701==0 && s->d810702==7 :
+            to22b ? s->d810700==0x16 && s->d810701==0 && s->d810702==5 :
+            to04b ? s->d810700==4 && s->d810701==0 && s->d810702==1 :
                     s->d810700==1 && s->d810701==0 && s->d810702==0) &&
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
@@ -5521,7 +5594,8 @@ static int a01_route_frame(void)
             fprintf(stderr,"level smoke: %s: boundary counter=%u (%s state 0)\n",
                     k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : to020 ? "AREA02 sub 0" :
                     to04 ? "AREA04 entry 0" : to22 ? "AREA22 entry 0" : to01u ? "AREA01 entry 6" :
-                    to06 ? "AREA06 entry 0" : "AREA01 return");
+                    to06 ? "AREA06 entry 0" : to01v ? "AREA01 entry 7" : to22b ? "AREA22 entry 5" :
+                    to04b ? "AREA04 entry 1" : "AREA01 return");
         }
         if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
             pad_apply(0,0,0);

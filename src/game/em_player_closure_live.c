@@ -3480,7 +3480,8 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
             break;
         }
     }
-    EmAimFireBindingConfig aim={L.actor,L.pose,L.sdk,L.aim_regions,naim,&L.d275B40,NULL,lw_actions};
+    EmAimFireBindingConfig aim={L.actor,L.pose,L.sdk,L.aim_regions,naim,&L.d275B40,NULL,lw_actions,
+                                {&scene()->d810858,&g.pd_pend_hp,&scene()->d81085C,&g.pd_pend_inf}};
     FAULT(em_aim_fire_binding_configure(&aim));
     em_equipment_live_set_aim_fire(em_aim_fire_binding_run);
     em_equipment_live_set_casing(em_aim_fire_runtime_001F4010);

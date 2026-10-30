@@ -170,6 +170,7 @@ int em_aim_fire_binding_configure(const EmAimFireBindingConfig *config)
     if (!config || !config->player || !config->pose || !config->sdk || !config->bone_array || !config->action) return -1;
     memset(&B,0,sizeof B);B.config=*config;
     B.live.context=&B;B.live.player=config->player;B.live.player_address=0x8102B0;
+    memcpy(B.live.vitals,config->vitals,sizeof B.live.vitals);
     B.live.pose=config->pose;B.live.regions=config->regions;B.live.region_count=config->region_count;
     B.live.map=map;B.live.call=aim_fire_binding_call;B.configured=1;return 0;
 }

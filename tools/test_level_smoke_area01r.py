@@ -37,7 +37,7 @@ def verify_harness(out):
     """Execute the actual C selector/reader/driver over the recorded inputs.
     Only the driver's game-facing services are mocked."""
     source = (ROOT / 'src/game/em_level_smoke_test.c').read_text()
-    phases = re.findall(r'\{"((?:a01r|a02|a04|a22|a01u|a06)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
+    phases = re.findall(r'\{"((?:a01r|a02|a04|a22|a01u|a06|a06b|a01v|a22b|a04b)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
                         source, re.S)
     assert [p[0] for p in phases] == list(a01r.ROUTE_PHASES), ('C/Python phase order', phases)
     selector = source[source.index('static int side_played('):source.index('static void report_not_live(')]
@@ -98,9 +98,16 @@ int main(int argc,char **argv){
                     str(cfile), '-o', str(binary)], check=True)
     changes = a01r.prepare_pads(out / 'pads')
     manifest = json.loads((out / 'pads/manifest.json').read_text())
-    env = dict(os.environ, EM_LEVEL4_PAD_DIR=str(out / 'pads'))
+    # The bed branch's recordings (a run --until a04b_*): each pad through the
+    # same C driver, from its own directory.
+    a01r.BED = True
+    changes += a01r.prepare_pads(out / 'pads-bed')
+    bed_manifest = [e for e in json.loads((out / 'pads-bed/manifest.json').read_text()) if e['phase'] in a01r.BED_PHASES]
+    a01r.BED = False
     submitted = 0
-    for entry in manifest:
+    for branch, entry in [(False, e) for e in manifest] + [(True, e) for e in bed_manifest]:
+        a01r.BED = branch
+        env = dict(os.environ, EM_LEVEL4_PAD_DIR=str(out / ('pads-bed' if branch else 'pads')))
         phase, capture = entry['phase'], a01r.route_capture(entry['phase'])
         path = subprocess.run([str(binary), 'path', phase], capture_output=True, text=True, check=True).stdout.splitlines()
         assert path == list(a01r.revisit_path(phase)), (phase, 'C branch path', path)
@@ -133,6 +140,8 @@ int main(int argc,char **argv){
                     if held else (0, 0., 0.)
             assert (b, x, y) == expected, (phase, frame, 'C pad command/order', (b, x, y), expected)
         submitted += len(actual)
+    a01r.BED = False
+    env = dict(os.environ, EM_LEVEL4_PAD_DIR=str(out / 'pads'))
     # The C reader selects EM_LEVEL4_PAD_DIR for the revisit and fails without it.
     result = subprocess.run([str(binary), 'drive', 'a01r_00'], env=dict(os.environ, EM_LEVEL2_PAD_DIR=str(out / 'pads')),
                             capture_output=True, text=True)
@@ -149,7 +158,7 @@ int main(int argc,char **argv){
             assert result.returncode == 1 and 'FAIL ' in result.stderr, ('malformed input accepted', content)
     finally:
         path.write_text(original)
-    print(f'AREA01 revisit harness: PASS {len(manifest)} C branch paths, {changes} input commands, '
+    print(f'AREA01 revisit harness: PASS {len(manifest) + len(bed_manifest)} C branch paths, {changes} input commands, '
           f'{submitted} C frames, the pad directory and {len(bad)} malformed input rejections '
           '(ASan/UBSan; no gameplay parity claim)')
     verify_checker()
@@ -186,10 +195,12 @@ def verify_checker():
                          **(dict(s764=row['story764'], s830=row['s830']) if key == 'a04' or key in a01r.LATER_KEYS else {}),
                          **(dict(s768=row['s768'], l857=row['l857'], c87=row['c87'], c88=row['c88'])
                             if key in a01r.LATER_KEYS else {}),
-                         **(dict(cca=row['cca']) if key == 'a06' else {}))})
+                         **(dict(cca=row['cca']) if key == 'a06' else {}),
+                         **(dict(s76c=row['s76c']) if key == 'a04b' else {}))})
 
     count = rejected = 0
-    for phase in a01r.ROUTE_PHASES:
+    for branch, phase in [(False, p) for p in a01r.checked_phases()] + [(True, p) for p in a01r.BED_PHASES]:
+        a01r.BED = branch
         capture = a01r.route_capture(phase)
         a01r.check_owner_nodes(phase, capture)
         rows = capture['rows']
@@ -295,6 +306,7 @@ def verify_checker():
                 rejected += 1
             else:
                 raise AssertionError((phase, 'checker accepted corrupt ending block'))
+    a01r.BED = False
     print(f'AREA01 revisit checker contract: PASS {count} capture-shaped rows, {rejected} rejected corruptions '
           '(no native gameplay or drawing parity claim)')
 
@@ -337,6 +349,8 @@ def main():
                         help='the fork-recorded rand() anchor table (tools/record_rand_replay.py; default: the '
                              'newest build/rand_replay/*/table.txt when one exists): EM_RAND_REPLAY, comparison only')
     parser.add_argument('--no-rand-replay', action='store_true')
+    parser.add_argument('--bed-drive-replay', type=Path, default=ROOT / 'build/drive_replay_bed',
+                        help='the bed branch\'s drive tables (a run --until a04b_*: the beats after a02_s0)')
     replay = parser.add_mutually_exclusive_group()
     replay.add_argument('--drive-replay', type=Path, default=drive_replay.DEFAULT_DIR,
                         help='the fork-recorded per-beat drive tables (tools/record_drive_replay.py; default '
@@ -351,6 +365,7 @@ def main():
     if args.verify_harness or not (args.run or args.prepare):
         verify_harness(out / 'harness')
         return 0
+    a01r.BED = until.startswith('a04b_')
     a01.prepare_pads(out / 'pads/area01')
     a00.prepare_pads(out / 'pads/area00')
     count = a01r.prepare_pads(out / 'pads/area01r')
@@ -366,6 +381,7 @@ def main():
                EM_LEVEL_SMOKE_BIN=str(binary))
     replay_info = None
     if not args.no_drive_replay:
+        bed_dir = {p: args.bed_drive_replay for p in a01r.BED_PHASES} if a01r.BED else {}
         phases = [(p, a01.MAIN_BEATS[p], a01.route_capture(p)['first_counter']) for p in a01.MAIN_BEATS]
         a00_path = [p for p in a00.phase_path('a00_10') if p != 'a00_arrival']
         phases += [(p, a00.MAIN_BEATS[p], a00.route_capture(p)['first_counter']) for p in a00_path]
@@ -380,7 +396,7 @@ def main():
         # again (as tools/test_level_smoke_area00.py does).
         arrival = a00.route_capture('a00_arrival')['rows'][a00.ARRIVAL_ROW]['counter']
         replay_info = drive_replay.write_table(phases, args.drive_replay, out / 'drive_replay.txt', traces,
-                                               extra_anchors=[('a00_arrival', arrival)])
+                                               extra_anchors=[('a00_arrival', arrival)], dirs=bed_dir)
         env.update(EM_PS2_DISC_DRIVE_TIMING='1', EM_PS2_DRIVE_REPLAY=str(out / 'drive_replay.txt'))
         print(f"AREA01 revisit: drive replay of {replay_info['entries']} fork-recorded reads and "
               f"{replay_info['loader_entries']} loader reads over {len(phases)} phases (comparison only)",

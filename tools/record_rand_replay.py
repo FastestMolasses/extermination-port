@@ -52,7 +52,9 @@ STATE_BLOCK = 0x24295C       # D_0024295C; the state word is at +0x58
 # 0x1AE040 state 0 again in AREA02 (entry02.2, a02_00), each after an area
 # read at host speed. Door [25] enters AREA04 (entry04, a02_05); door [37]
 # enters AREA22 (entry22, a04_05); door [8] enters AREA01 a third time
-# (entry01.3, a22_02) and door [19] AREA06 (entry06, a01u_02).
+# (entry01.3, a22_02) and door [19] AREA06 (entry06, a01u_02). The way back:
+# door [1] enters AREA01 (entry01.4, a06b_01), door [18] AREA22 (entry22.2,
+# a01v_02), door [6] AREA04 (entry04.2, a22b_01).
 BEATS = {'15_level_exit': ('route/15_level_exit', 1, 'entry01'),
          'a00_10_progression_exit': ('route_a00/a00_10_progression_exit', 1, 'entry01.2'),
          'a01r_03_door16': ('route_a01r/a01r_03_door16', 2, 'entry02'),
@@ -60,13 +62,21 @@ BEATS = {'15_level_exit': ('route/15_level_exit', 1, 'entry01'),
          'a02_05_progression_exit': ('route_a02/a02_05_progression_exit', 4, 'entry04'),
          'a04_05_progression_exit': ('route_a04/a04_05_progression_exit', 0x16, 'entry22'),
          'a22_02_progression_exit': ('route_a22/a22_02_progression_exit', 1, 'entry01.3'),
-         'a01u_02_progression_exit': ('route_a01u/a01u_02_progression_exit', 6, 'entry06')}
+         'a01u_02_progression_exit': ('route_a01u/a01u_02_progression_exit', 6, 'entry06'),
+         'a06b_01_door1': ('route_a06b/a06b_01_door1', 1, 'entry01.4'),
+         'a01v_02_door18': ('route_a01v/a01v_02_door18', 0x16, 'entry22.2'),
+         'a22b_01_door6': ('route_a22b/a22b_01_door6', 4, 'entry04.2')}
+# The bed branch (a run --until a04b_*) replays the anchors from a02_00 on:
+# the same keys on fork_refs/<branch>/s87.
+BED_KEYS = ('a02_00_duct', 'a02_05_progression_exit', 'a04_05_progression_exit', 'a22_02_progression_exit',
+            'a01u_02_progression_exit', 'a06b_01_door1', 'a01v_02_door18', 'a22b_01_door6')
 
 
-def record(beat, path, area, key, out):
+def record(beat, path, area, key, out, branch=None):
     import pcsx2_session
     import route_capture as rc
-    t = json.loads((DECOMP / 'build/fork_refs/s87' / path / 'trace.json').read_text())
+    root = DECOMP / 'build/fork_refs' / (f'{branch}/s87' if branch else 's87')
+    t = json.loads((root / path / 'trace.json').read_text())
     pcsx2_session.FORK_MTVU = False
     rc.use_fork('phase', True)
     by_f = {}
@@ -75,7 +85,7 @@ def record(beat, path, area, key, out):
     assert not t.get('teleports'), (beat, 'a beat with teleports cannot be re-driven')
     diffs, states = [], []
     with rc.open_session(Path(t['source_state']), log_dir=out / 'logs' / beat) as s:
-        if t['lead_in_frames']:
+        if t['lead_in_frames'] > 0:         # negative: the bed branch's a02_00 (row 0 is the state)
             s.step(t['lead_in_frames'])
         r = rc.Route(s)
         r.pad_fix = rc.v263_pad_corrections(t['beat'])
@@ -117,8 +127,10 @@ def record(beat, path, area, key, out):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', type=Path, required=True, help='a new folder')
-    ap.add_argument('beats', nargs='*', default=list(BEATS))
+    ap.add_argument('--branch', help='a recording branch under fork_refs, with BED_KEYS as the default beats')
+    ap.add_argument('beats', nargs='*')
     args = ap.parse_args()
+    args.beats = args.beats or list(BED_KEYS if args.branch else BEATS)
     out = args.out.absolute()
     if out.exists():
         raise SystemExit(f'{out} exists: record into a new folder')
@@ -126,7 +138,7 @@ def main():
     started, receipt = time.monotonic(), []
     for beat in args.beats:
         path, area, key = BEATS[beat]
-        receipt.append(record(beat, path, area, key, out))
+        receipt.append(record(beat, path, area, key, out, args.branch))
         print(json.dumps(receipt[-1]), flush=True)
     (out / 'table.txt').write_text(''.join(f"{r['key']} {r['state']}\n" for r in receipt))
     (out / 'receipt.json').write_text(json.dumps({'beats': receipt, 'seconds': round(time.monotonic() - started, 1)},

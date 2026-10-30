@@ -919,7 +919,8 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         log_hex(f, bytes, windows[i][1]);
     }
     fputc(']', f);
-    const int later = !strcmp(key, "a22") || !strcmp(key, "a01u") || !strcmp(key, "a06");
+    const int later = !strcmp(key, "a22") || !strcmp(key, "a01u") || !strcmp(key, "a06") || !strcmp(key, "a01v") ||
+                      !strcmp(key, "a22b") || !strcmp(key, "a04b");
     if (!strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04") || later) {
         /* D_00810760..63 (the bridge's event 8 and its neighbours), the
          * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
@@ -970,6 +971,17 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         /* AREA06's rows (SEVENTH_LEVEL_ROUTE.md section 1): D_00810CCA. */
         const uint8_t *cca = em_scene_progress_at(&s_state, 0x00810CCAu, 1);
         fprintf(f, ", \"cca\": %u", cca ? *cca : 0u);
+    }
+    if (!strcmp(key, "a04b")) {
+        /* The a04b rows (EIGHTH_LEVEL_ROUTE.md section 1): s76c
+         * (D_0081076C..6F, flag 0x14). */
+        uint8_t bytes[4];
+        for (uint32_t k = 0; k < 4; ++k) {
+            const uint8_t *p = em_scene_progress_at(&s_state, 0x0081076Cu + k, 1);
+            bytes[k] = p ? *p : 0;
+        }
+        fputs(", \"s76c\": ", f);
+        log_hex(f, bytes, 4);
     }
     if (!strcmp(key, "a00") || !strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04") || later) {
         static const uint32_t starts[] = {0x00810840u, 0x00810C60u};
@@ -1186,9 +1198,17 @@ static void log_area01u(FILE *f)
     log_area_owners(f, "a01u", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
+/* The keypad's bit D_00810845 bit 5 (a06_02): the way back. */
+static int route_way_back(void)
+{
+    const uint8_t *lock = em_scene_progress_at(&s_state, 0x00810845u, 1);
+    return lock && (*lock & 0x20);
+}
+
+/* AREA06, and on through door [1]'s AREA01 load (a06b_01: entry 7). */
 static void log_area06(FILE *f)
 {
-    if (s_state.d810700 != 6)
+    if (s_state.d810700 != 6 && !(s_state.d810700 == 1 && s_state.d810702 == 7))
         return;
     static const uint32_t nodes[] = {0x7AB730, 0x7ABA20, 0x7ABD10, 0x7AC000, 0x7AC5E0, 0x7AC8D0, 0x7ACBC0,
                                      0x7AD1A0, 0x7AD490, 0x7B0C60, 0x7B2FA0, 0x7B3B60, 0x7B4FF0, 0x7B55D0,
@@ -1196,12 +1216,44 @@ static void log_area06(FILE *f)
     log_area_owners(f, "a06", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
+/* The way back (EIGHTH_LEVEL_ROUTE.md section 1.1): A01V_OWNERS in AREA01
+ * entry 7 and on through door [18]'s AREA22 load (a01v_02). */
+static void log_area01v(FILE *f)
+{
+    if (!route_way_back() || !((s_state.d810700 == 1 && s_state.d810702 == 7) || s_state.d810700 == 0x16))
+        return;
+    static const uint32_t nodes[] = {0x7AEC10, 0x7AEF00, 0x7B3B60, 0x7A7690, 0x7AAB70, 0x7A6200, 0x7A6AD0,
+                                     0x7B7EF0, 0x7B81E0, 0x7B84D0, 0x7AA880};
+    log_area_owners(f, "a01v", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* A22B_OWNERS in AREA22, on through door [6]'s AREA04 load (a22b_01). */
+static void log_area22b(FILE *f)
+{
+    if (!route_way_back() || (s_state.d810700 != 0x16 && s_state.d810700 != 4))
+        return;
+    static const uint32_t nodes[] = {0x7A5640, 0x7A6200, 0x7A9CC0, 0x7A9FB0, 0x7AA2A0, 0x7AA590, 0x7AA880,
+                                     0x7AAB70};
+    log_area_owners(f, "a22b", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* A04B_OWNERS: AREA04 after the keypad. */
+static void log_area04b(FILE *f)
+{
+    if (!route_way_back() || s_state.d810700 != 4)
+        return;
+    static const uint32_t nodes[] = {0x7AA2A0, 0x7AA590, 0x7AA880, 0x7B0970, 0x7B20F0, 0x7B26D0, 0x7B2FA0,
+                                     0x7B3290, 0x7B3870, 0x7B3B60, 0x7B4140, 0x7B3E50, 0x7B4720, 0x7B6A60};
+    log_area_owners(f, "a04b", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
 /* From AREA22 on the whole progress block D_00810700..D_00810D3F, one
  * storage byte for byte: the checker compares it with each beat's end RAM
  * (level_smoke_area01r.check_block_end). */
 static void log_route_block(FILE *f)
 {
-    if (s_state.d810700 != 0x16 && s_state.d810700 != 6 && !(s_state.d810700 == 1 && s_state.d810702 == 6))
+    if (s_state.d810700 != 0x16 && s_state.d810700 != 6 && !(s_state.d810700 == 1 && s_state.d810702 >= 6) &&
+        !(s_state.d810700 == 4 && route_way_back()))
         return;
     uint8_t block[0x640];
     for (uint32_t k = 0; k < sizeof block; ++k) {
@@ -1700,6 +1752,9 @@ static void log_tick_end(int rc)
         log_area22(f);
         log_area01u(f);
         log_area06(f);
+        log_area01v(f);
+        log_area22b(f);
+        log_area04b(f);
         log_route_block(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..

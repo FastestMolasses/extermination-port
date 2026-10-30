@@ -11,6 +11,8 @@ typedef struct {
     void *context;
     EmPlayerLiveActor *player;
     uint32_t player_address;
+    /* +0x220, +0x224, +0x228, +0x22C where they live between two stages. */
+    void *vitals[4];
     EmPoseHost *pose;
     const EmPoseRegion *regions;
     unsigned region_count;

@@ -244,6 +244,9 @@ static int refresh(Bridge *b)
     EmAimFireLive *h=b->live; EmAimFireWorldLive *w=b->world;
     b->count=0;b->freed_count=0;
     TRY(append(b,LOCAL_BASE,sizeof h->temporary,h->temporary,1));
+    /* First: a spat hazard's hit (001E2E80) stores the pending infection
+     * +0x22C between two stages, where the record's word is not its storage. */
+    for(unsigned i=0;h->player&&i<4;++i)TRY(append(b,h->player_address+0x220u+4u*i,4,h->vitals[i],1));
     if(h->player)TRY(append(b,h->player_address,sizeof h->player->bytes,h->player->bytes,1));
     for(unsigned i=0;h->regions&&i<h->region_count;++i) {
         const EmPoseRegion *r=&h->regions[i];TRY(append(b,r->address,r->size,r->bytes,r->writable));

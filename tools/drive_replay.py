@@ -130,15 +130,17 @@ def loader_reads(trace_path, iso=None, stream_reads=None):
     return out
 
 
-def write_table(phases, table_dir, out_path, traces=None, extra_anchors=()):
+def write_table(phases, table_dir, out_path, traces=None, extra_anchors=(), dirs=None):
     """phases: (phase, beat folder name, first_counter) in path order.
     traces: optional {phase: fork trace.json}; their bank-load reads
     (loader_reads) are added as "L" lines for the module loader.
-    Writes the merged table; returns a summary (raises when a table is missing)."""
+    dirs: optional {phase: table folder} for phases whose recordings live
+    elsewhere (the bed branch's). Writes the merged table; returns a summary
+    (raises when a table is missing)."""
     table_dir = Path(table_dir)
     lines, entries, anchors, sources, last, loader = [], [], [], [], None, []
     for phase, beat, first in phases:
-        path = find_beat(table_dir, beat)
+        path = find_beat((dirs or {}).get(phase, table_dir), beat)
         reads = read_beat(path)
         if traces and phase in traces:
             loader.extend(loader_reads(traces[phase], stream_reads=reads))

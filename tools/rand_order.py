@@ -151,6 +151,8 @@ PORT_FN = {
     'em_area06_port_00823580': 0x823580, 'a6_823580_spawn': 0x823580,
     'em_area06_port_00823B50': 0x823B50, 'em_area06_port_008240E0': 0x8240E0,
     'em_area06_port_00824560': 0x824560, 'a6_00824560': 0x824560,
+    # The way back: the creature at the gap and the bugs (a06b_01 on)
+    'em_level8_port_001BF6B0': 0x1BF6B0, 'em_area01_exita_0012A5D0': 0x12A5D0,
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -182,7 +184,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
-            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'a6_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'm08_w_00122BB8', 'a6_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
