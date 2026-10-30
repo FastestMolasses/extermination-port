@@ -43,6 +43,8 @@ void em_sfx_registry_free(EmSfxRegistry *registry)
 static int emsr_scope_valid(int area, int sub)
 {
     if (area == -1 && sub == -1) return 1;
+    /* The fitted attachment's bank (em_sfx_set_attachment): areas 32..35. */
+    if (area >= 32 && area < 36 && sub == 0) return 1;
     /* 001FB9F0 indexes D_00264A70 by D_00810700/701 (24 areas, 8 subs). */
     return area >= 0 && area < 24 && sub >= 0 && sub < 8;
 }
