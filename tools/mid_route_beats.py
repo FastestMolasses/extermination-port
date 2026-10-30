@@ -95,6 +95,8 @@ BEATS = {
     'a04b_s6': ('a04b_03', BOSS_ROUTE, 'a04b_s6_drop'),
     'a04b_s7': ('a04b_03', BOSS_ROUTE, 'a04b_s7_lift'),
     # The intended win: the SHOTGUN UNIT fitted (card boss, a04b_g2's source).
+    'a04b_g0': ('a04b_02', BOSS_ROUTE, 'a04b_g0_shotgun'),
+    'a04b_g1': ('a04b_02', BOSS_ROUTE, 'a04b_g1_door45'),
     'a04b_g2': ('boss', BOSS_ROUTE, 'a04b_g2_reader'),
     'a04b_g3': ('boss', BOSS_ROUTE, 'a04b_g3_fight'),
     'a04b_g4': ('boss', BOSS_ROUTE, 'a04b_g4_drop'),
@@ -270,6 +272,7 @@ CHAINS = {
     'a04b': ('a04b_00', ('a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_04')),
     'boss': ('a04b_03', ('a04b_03', 'a04b_s5', 'a04b_s6', 'a04b_s7')),
     'bossg': ('boss', ('a04b_g2', 'a04b_g3', 'a04b_g4', 'a04b_g5')),
+    'bosst': ('a04b_02', ('a04b_g0', 'a04b_g1')),
 }
 
 

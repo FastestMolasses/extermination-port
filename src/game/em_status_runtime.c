@@ -99,10 +99,12 @@ static int module_ready(EmStatusRuntime *runtime)
 /* The page modules the status pages load (0020CDC0 phase 3, the ITEM root
  * and the SPR4 part pages), and the options screen's: 0x2B (its row
  * screens, 0022A590) and 0x2A (the memory-card screen, 00225AC0); each is
- * one chunk, the screen's GS upload, with no B section (docs/OPTIONS.md). */
+ * one chunk, the screen's GS upload, with no B section (docs/OPTIONS.md).
+ * 0x32..0x35: the fitted attachment's bank (001FEF70), reloaded when the
+ * part page changes it. */
 static int page_module(unsigned module)
 {
-    return (module >= 0x1E && module <= 0x26) || (module >= 0x2A && module <= 0x31);
+    return (module >= 0x1E && module <= 0x26) || (module >= 0x2A && module <= 0x35);
 }
 
 static int begin_module(EmStatusRuntime *runtime, unsigned module)
