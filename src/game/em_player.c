@@ -1024,7 +1024,6 @@ static void vitals_store(void)
  * Capture the owners themselves, not the stale in-stage mirror. */
 /* A writer outside the stage's and the views' segments: 001E2E80's store of
  * +0x22C (the spat hazard, through the aim / fire world's record view). */
-void player_states_pending_infection_collect(void) { g.pd_pend_inf = em_live_f32(&live.a, 0x22C); }
 
 static int external_link(EmActorPool *pool, const void *pointer, uint32_t *address, uint32_t *generation)
 {

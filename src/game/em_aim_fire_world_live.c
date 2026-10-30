@@ -790,8 +790,6 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
             fprintf(stderr,"aim/fire world: 001E2E80 hud fault %d at %08X\n",(int)s.fault,(unsigned)s.fault_address);
             return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
         }
-        /* its 0x22C store (the player's pending infection) */
-        player_states_pending_infection_collect();
     } else if(c->function==0x001DEE80u || c->function==0x001DEEC0u || c->function==0x001DF5A0u ||
               c->function==0x001DF9D0u) {
         /* The render context's ramp records (the flash node 001E7310's
