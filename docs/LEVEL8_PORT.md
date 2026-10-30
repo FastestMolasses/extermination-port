@@ -59,6 +59,7 @@ so these runs are not row-by-row comparisons.
 | a06 | area06 | a06_00 .. a06_05 | a06_00 passes; a06_01 stops (AREA06_PORT.md "Where AREA06 stops") |
 | a06b | a06b | a06b_00, a06b_01 | a06b_00 stops: the collision close-out 001AAD00 faults at 001A8734 |
 | a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 plays to its end with one creature taken bit more (D_0081088F bit 0x04, a loaded game's bug); a01v_02 gets past door [18]'s AREA22 arrival (the GS barrier below) and plays to its end: in the chain its end block differs only by a01v_01's bit; from its own card, at D_0081083C (port 01, original 00: the grab-slot bits, not GS; not diagnosed) |
+| a04b | a04b_00 | a04b_00 .. a04b_04 | lane D1: a04b_00..03 play to their ends, their blocks equal but for one infection word (the loaded bugs did not bite); a04b_04 plays to its pad's end without a fault, the Use at button [54] not taken from a card (EIGHTH_LEVEL_ROUTE.md "Native status") |
 | a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 loads AREA04 (lane B1's host, main 64e70c2), gets past the arrival (the GS barrier below) and passes |
 
 **The GS barrier at three door arrivals** (a01u_s1 and a01v_02: AREA01's
@@ -486,7 +487,12 @@ default test with `EM_LEVEL8_PORT_SOURCE`. The sweep script is lane scratch
 
 ## Binding
 
-Nothing calls these entries. To run them live a host must:
+Live since lane D1 (2026-10-30, area 4): em_area01_runtime's dispatch_level8
+over `m08_hooks`, the creature and the overlay behaviours as pool owners,
+0x8245F0 from 0x824320, 001ED100 in em_effects_live; 0012B850, 001BF6B0,
+001BFF90 and 001BE6C0 by lane C1. What follows is the original list.
+
+To run them live a host must:
 
 - supply `bytes` over the scene's original-byte storage (the actor pool, the
   player and camera blocks, the pose block *D_00275B40, the model / box

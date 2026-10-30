@@ -67,6 +67,24 @@ is port behaviour.
   AREA19), nor the second half of the order. AREA13 from this arrival to
   AREA19 entry 9 is recorded in `NINTH_LEVEL_ROUTE.md` (group `a13`).
 
+**Native status (lane D1, 2026-10-30).** The a04b beats play from start
+cards (`python3 tools/mid_route_beats.py a04b`, card a04b_00; the fork
+continuation levels-recordings-20261018-10). A loaded game is not the
+route's machine state, so these are not whole-beat row comparisons:
+
+| Beat | From its card | Status |
+|---|---|---|
+| a04b_00 | door [45] taken, entry 9 | end block equal but for the infection word (the loaded bugs did not bite on the way) |
+| a04b_01 | the NPC's script 0x827D90, item 0x23, counter 0x11 | end block equal, the same one word |
+| a04b_02 | door [45] out, entry 8 | end block equal, the same one word |
+| a04b_03 | reader [50], lock bit 7, flag 0x12, script 0x828450, counter 0x12 = 0x10, the creature | end block equal, the same one word. Aligned on the lock byte, the card run equals the recording row for row from f1092 to the beat's end f2412 (1,321 rows): player, camera, locks and the owners [3], [4], [50], [51], [53], [54]. The creature spawns at (545, 55, 260), +0x1F0 = (545, 55, 260) as the end RAM |
+| a04b_04 | the creature and the bugs fight; the pad's Use at [54] | no fault to the pad's end; health falls by the creature's bite (20 or 25, action 0x3E) and the bugs' grabs, the same amounts the recording shows, at other rows. The Use at [54] was not taken from a card: the lift's ride and the AREA13 load are not reached, and AREA13 has no host yet |
+
+The creature's rows cannot be row-exact from a card: its choices draw
+rand() and the loaded game's bugs and position differ. The whole-beat
+comparison needs the New Game chain through the bed branch's a22b_01
+(a06 / a06b stop from their cards today, LEVEL8_PORT.md "Start-card runs").
+
 In-game text (messages, prompts, item names) is described, never quoted.
 Positions are world units; yaw is the player's +0xC4 (X = sin, Z = cos).
 

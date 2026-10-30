@@ -14,6 +14,76 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-30, lane D1 (branch `area04-boss`): AREA04's main line row-exact
+from New Game, through door [37] into AREA22.** The whole-run checker passes
+56 live phases through a04_05 (`--run --until a04_05`):
+
+| Beat | Rows | What it covers |
+|---|---|---|
+| a04_00 | 3,615 / 3,615 | the walk to door [45], the director's script 0x8278D0 with its 32-page message, D_00810845 bit 3 |
+| a04_01 | 1,818 / 1,818 | door [40] into the store room |
+| a04_02 | 942 / 942 | console [69]: the reel rolls down the conveyor |
+| a04_03 | 1,015 / 1,015 | door [40] back to the hall |
+| a04_04 | 553 / 553 | up the conveyor to the east balcony |
+| a04_05 | 723 / 723 | door [37], the AREA22 load, the arrival, control |
+
+Tables: drive `build/drive_replay/route_a04_20261030` (a04_05's kept as
+`.reads.diverged`, named in tools/drive_replay.py DIVERGED_ACCEPTED: the
+fork's re-drive differs from the trace in the walk to the door, rows
+1..163 under 0.2 units, and equals it from the door's program on); rand()
+`build/rand_replay/route_a04_05_20261030` (its anchors plus `entry22`). Pass
+`--rand-replay` when several tables have one mtime (the newest wins).
+
+What it needed, each from original code with its evidence:
+
+- **The tick log's `a04` observation** (em_scene_bindings.c log_area04): the
+  19 A04_OWNERS, D_00810764..67, D_00810830..3F; `a04c`, the creature's
+  record wherever the load placed it.
+- **The camera timeline** (em_area01_timeline): every scene 0022EC30 binds
+  no track for and 0022EEF0's switch has no case for (0, 1, 3, 4, 9, 11, 14,
+  18, 36: 4 is the director's event), scene 5 (D_0026ACA0, the NPC's script)
+  and scene 6 (D_0026AB00, D_0026AC80, event [3]'s script).
+  test_area01_timeline_reference runs the original over the a04_00, a04b_01
+  and a04b_03 tracks, every event timestamp; timeline.emsp gains two windows.
+- **001BAD40's command 3** (em_area01_runtime_revisit.inc): the camera
+  block's words and 0022EC30 through the runtime (0x8278D0's script actor).
+- **001CA6E0 on a typed shared owner** ([47]'s state 2): the boxes' 001CA5E0
+  with kind 0 (decomp func_001CA6E0.c).
+- **The GS recorder's barrier** before a span-ending FRAME_1 write
+  (GS_EXACT.md section 9, cherry-picked to main by lane G1).
+- **Boot data** (export_area00_runtime_tables MID_WINDOWS): the panel [66]'s
+  descriptor D_00275928 (the Use scan reads it wherever [66] is listed, so
+  a04_03's press faulted without it).
+- **Library model 0x5D** (0x8278D0's script actor; +0x44 in the a04_00 end
+  RAM; export_area04_library grows the 0x57 span).
+- **The driver**: a command set on a phase's last rows is still on its way
+  at the next phase's row 0 (a04_04 stops the stick on its last row); a
+  non-neutral one carries over (`a01_route_frame`).
+
+**AREA04's second visit** runs from start cards (EIGHTH_LEVEL_ROUTE.md
+"Native status"). What it needed, on top:
+
+- em_level8_port's entries through `m08_hooks` (dispatch_level8, area 4; the
+  frames read from each first instruction; EIGHTH_NEST keeps nested hooks
+  below the deepest in-module chain).
+- Pool owners 0x823920 / 0x8239A0 / 0x823A90 and 0012E3A0.
+- 001F9660, 0012D940 in area 4; 001B15D0, 0019A310 (byte-matched C) in the
+  runtime, 00128350 / 001000E0 in the live worker; 001EFF10 (em_area00_fx)
+  in the light service; handler 001ED100 in em_effects_live.
+- 0019BC40's column table and 001B2E50 over it (byte windows for the count,
+  the flags, the heights and the slopes).
+- 0019AD00's hull lock for a non-class-0 mover: the player's call-local
+  record, as 0019AA80's; the shove 0x700031C0 as a quadword read.
+- Assets: library models 0x53..0x56, bank 0x3A beside the door bank, the
+  kind 0x34 proxy assets/npc34_shadow.emdl (19 nodes, the script actor of
+  0x828450; the a04b_03 end RAM's D_0028A490[0x34] holds the file, no end
+  capture holds its REF), the creature family's tables, D_00275610.
+
+The creature family calls 31 hooks with no service in this composition; the
+a04b census reaches eight of them (all served now, 001B2E50 too, off the
+recorded path). The others (0012F980, 00131210 and the like) fail-stop at
+their address if a fight reaches them.
+
 **2026-10-30, lane B2 (branch `a02-items`): HEALING from the menu, the
 medicines' count-up and the car's sound.** Three fork recordings of the
 menu use (tools/capture_heal_beats.py, run with the decomp's venv; beats

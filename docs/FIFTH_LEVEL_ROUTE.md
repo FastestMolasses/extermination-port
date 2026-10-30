@@ -37,6 +37,12 @@ In-game text (messages, prompts, title cards, item descriptions) is
 described, never quoted. Positions are world units; yaw is the player's
 +0xC4 (X = sin, Z = cos).
 
+**Native status (lane D1, 2026-10-30).** From New Game the port plays the
+main line row for row against the fork recordings: a04_00 3,615 rows, a04_01
+1,818, a04_02 942, a04_03 1,015, a04_04 553 and a04_05 723 (door [37], the
+AREA22 load, control): `python3 tools/test_level_smoke_area01r.py --run
+--until a04_05`, 56 live phases (LEVEL3_BINDING.md "2026-10-30, lane D1").
+
 ## 1. Tool, outputs and conventions
 
 The beats are the opt-in group `a04` of `../Extermination/tools/route_capture.py`.

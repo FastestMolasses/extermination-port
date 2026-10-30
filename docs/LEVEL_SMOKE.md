@@ -31,7 +31,12 @@ B1"). The a02_05 phase is a return phase (as a01r_03 and a02_00): its
 boundary is AREA04 entry 0's state 0, after which the checker compares the
 1076 recorded rows to the trace end; it needs its fork drive table
 (`build/drive_replay/route_a02_05_20261030`) and the rand() anchor
-`entry04` (`build/rand_replay/route_a02_05_20261030`).
+`entry04` (`build/rand_replay/route_a02_05_20261030`). Lane D1 added AREA04's
+main line a04_00..a04_05: 56 live phases, `--until a04_05` (about 13 minutes
+headless), with `build/drive_replay/route_a04_20261030` and the anchors of
+`build/rand_replay/route_a04_05_20261030` (LEVEL3_BINDING.md "2026-10-30, lane
+D1"). a04_05 is a return phase: its boundary is AREA22 entry 0's state 0, 205
+rows after it to the trace end.
 Since lane B2
 (2026-10-30) three more side beats, fork recordings of HEALING's menu use
 (tools/capture_heal_beats.py), are phases: a01r_s2 (from a01r_02: item

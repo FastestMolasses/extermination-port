@@ -1,5 +1,12 @@
 # AREA04 new functions (level-3/4 side track lane A04T)
 
+## Live on the route (lane D1, 2026-10-30)
+
+The 21 owners run on the recorded route from New Game through a04_05
+(row-exact, FIFTH_LEVEL_ROUTE.md "Native status"; LEVEL3_BINDING.md "2026-10-30,
+lane D1"). The second visit's owners (0x8245F0, 0x823920, 0x8239A0, 0x823A90)
+are em_level8_port's, bound in em_area01_runtime's dispatch_level8.
+
 ## Full-route audit extension (2026-10-18)
 
 The original delta-only inventory below is now extended by two missing owners
