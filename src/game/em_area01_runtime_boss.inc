@@ -2,12 +2,11 @@
  * creature's state handlers and the probes they call, translated by the
  * later levels' modules (each proven by its own original-instruction
  * oracle: test_level10/11/12/13/14_port_reference, test_level15_creatures_
- * reference; 0012F980, 0012FA50, 00131210, 00131510 and 00131940 are lane
- * F1's, in em_level14_port_creature.c) and bound here in AREA04 through the
- * generated hooks. As
- * dispatch_level8: each entry's frame is read from its first instruction,
- * nested hooks get the entry's sp less that frame and EIGHTH_NEST. Returns
- * 0 when the address is not one of them. */
+ * reference; 0012F980, 0012FA50, 00131210, 00131510, 00131940, 001F7E40 and
+ * 001F88C0 are lane F1's, in em_level14_port_creature.c) and bound here in
+ * AREA04 through the generated hooks. As dispatch_level8: each entry's frame
+ * is read from its first instruction, nested hooks get the entry's sp less
+ * that frame and EIGHTH_NEST. Returns 0 when the address is not one of them. */
 static int dispatch_boss(EmArea01Runtime *r, EmArea01Call *c, int *out)
 {
     if (c->function == 0x001F88C0u || c->function == 0x001F7E40u) {

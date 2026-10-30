@@ -472,6 +472,16 @@ Nothing calls these entries. To run them live a host must:
   script (0x826C10 starts it; `em_level13_port_00826C10`), 001EDE40 where
   its table word at 0x2554EC dispatches it.
 
+## Lane F1's entries (2026-10-30, the first boss)
+
+Bound live in AREA04 (em_area01_runtime_boss.inc, the generated hooks). 0012F980,
+0012FA50, 00131210, 00131510, 00131940 (the creature's states), 001EF1C0 (the
+critical hit's effect, 001EDE40's twin), 001F88C0 with 001F87E0 and 001F8880 (the
+spores), 001F7E40 with 001F7CF0 (the veil). 001F88C0 and 001F7E40 are NEARMISS
+in the decomp: these follow the instructions. Designed cases `cr 12F980` ..
+`cr 1F88C0`, kept in the default run. "Nothing is bound" above is the original
+lane's state; these and the family's other entries the fight reaches run live.
+
 ## Known gaps
 
 - **Live evidence.** The captures are end-of-beat states: the creatures sit

@@ -2311,6 +2311,18 @@ The isolated staged-index native build has zero warnings
 unchanged AREA00 harness contract also pass. These regressions do not
 certify an AREA00 gameplay frame.
 
+## 2026-10-30, lane F1: the first boss
+
+AREA04's creature family runs on em_area01_runtime_boss.inc (dispatch_boss): the
+later levels' translations through em_mid_route_bridge.inc (levels 10..15 added
+to tools/gen_mid_route_bridge.py). Bindings it needed elsewhere: 001CB900 in
+em_area01_rcl_workers; D_0028A9A0's fields to +8 (00131B10 reads +2); 001D04B0 over
+ELF blocks; the chain page's raw-model units of 001F3E30 mode 2 (128 units a page);
+the aim/fire scratch and pending caps; the segment's 001A0B10 / 0019D330 /
+001A7280 steps for 001B3F10; the pending infection 001E2E80 stores; module loads
+0x32..0x35 from the part page; em_sfx's attachment scope (EMSR areas 32..35).
+EIGHTH_LEVEL_ROUTE.md section 8.
+
 ## Topic commits
 
 Earlier prerequisite checkpoint:

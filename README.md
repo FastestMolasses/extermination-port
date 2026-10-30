@@ -104,6 +104,7 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a04b_02` | AREA04 (the way back) | Inside door [45], with the access key | Door [45] back to the hall |
 | `a04b_03` | AREA04 (the way back) | In the hall, outside door [45] | Up the conveyor to the card reader at the lift; the first boss arrives |
 | `a04b_04` | AREA04 (the way back) | At the card reader, the creature and bugs at the lift | Past the creature into the lift, down to AREA13 |
+| `boss` | AREA04 (the way back) | In the hall, outside door [45], with the SHOTGUN UNIT fitted and six shells (the room's pickup, taken in the fork recording) | Up the conveyor to the card reader, which wakes the first boss at the lift |
 
 The AREA02 points start beyond what has been proven to match the original
 row by row, so expect rough edges there. The AREA22, AREA01 upper floor and

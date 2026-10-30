@@ -1609,6 +1609,12 @@ test-title-load-game: $(BIN)
 test-start-at: $(BIN)
 	python3 tools/test_start_at.py
 
+# The first boss against its fork recordings, row by row from the reader's lock
+# (about two minutes a chain; docs/EIGHTH_LEVEL_ROUTE.md section 8).
+.PHONY: test-boss-fight
+test-boss-fight: $(BIN)
+	python3 tools/test_boss_fight.py
+
 # A killed creature's dissolve, the glow node 001F6FB0 (docs/AREA00_FX.md
 # "the glow"): EM_START_AT=a00_04 with a pad that kills two creatures and
 # then stops firing; no fault, every node's 250 ticks and its free on tick

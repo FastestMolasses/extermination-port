@@ -7,6 +7,14 @@ The 21 owners run on the recorded route from New Game through a04_05
 lane D1"). The second visit's owners (0x8245F0, 0x823920, 0x8239A0, 0x823A90)
 are em_level8_port's, bound in em_area01_runtime's dispatch_level8.
 
+## The boss fight's stage (lane F1, 2026-10-30)
+
+Stage 0x824930's returns run live: 0x824A40 (the drop's group 0x827230, the veil
+0x8000005B and the pool 0x80000004 at its unwritten frame slot sp - 0x10) and
+0x824A90 (the camera), em_area04_port's with their oracle kinds `sp_ret` /
+`camera_ret`, allowed by em_area01_script_live.c. Evidence and the fight:
+EIGHTH_LEVEL_ROUTE.md section 8.
+
 ## Full-route audit extension (2026-10-18)
 
 The original delta-only inventory below is now extended by two missing owners

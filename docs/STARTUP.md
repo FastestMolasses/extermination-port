@@ -552,6 +552,18 @@ recording-derived and stay in the ignored `build/`.
   recording's row 0 (D_0028A9A0 +4): a loaded game fades in with the
   player's input refused, about 50 frames past control, so the script's row
   0 (and the rand word) wait until the fade reaches that level.
+  `EM_START_AT_SYNC=<address>:<value>:<f>` (comparison only) sets the script's
+  clock to f when that progress byte first holds the value, and from then on
+  counts the frames no hook steps (a status page's open and close), so a chain
+  keeps the recording's rows. `EM_START_AT_RANDS=<file>` (lines `f state`) puts
+  the rand() word in place at those script frames.
+  `EM_START_AT_RESTORE=<image>:<f>:<clock>[,...]` at each script frame copies from
+  a recording's RAM image what a load resets: the bugs' records, the items' glow
+  timers, the NPC's face timers, health and infection, and sets 0x70003B68
+  (em_scene_restore_bugs; records pair by behaviour order, as a taken pickup
+  shifts the pool). Comparison only, for tools/test_boss_fight.py (written by
+  tools/capture_boss_fight.py anchors); it writes game state and is never part
+  of play.
   `EM_START_AT_MARKS=<f>,<f>,...` (with EM_START_AT_PAD) prints the position,
   the rand() state and the progress block when the script's clock reaches
   each frame (`pad mark <f>`): a chained beat's end. A path wait of 10 frames

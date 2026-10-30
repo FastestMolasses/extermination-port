@@ -369,7 +369,9 @@ end); leads, not ground truth.
   and the bar 0x34 over it).
 - **The jump straight east** from the pad's lip at z -584 was not taken
   (the beam under the lip).
-- **The creature at the lift** (0012E3A0, node 0x7BF180): its halfword
+- **The creature at the lift** (0012E3A0; its node is the pool's next free
+  record: 0x7C2660 on the pistol branch, 0x7C3510 with the shotgun, 0x7BF470 in
+  the port's loaded game): its halfword
   +0x34 went 200 -> 195 -> 190 on successive pistol hits (R1 held, Circle
   pressed; D_00810C62, the rounds in the pistol, went down by one a shot)
   and 185 -> 170 -> 155 on Square melee hits. Three shooting runs: (1)
@@ -396,12 +398,7 @@ end); leads, not ground truth.
    [15] / [16] / [17] (001BD9F0, flag 0x1C), the holes [5] / [6] (item
    0x27) and the falls into AREA19 (00193EB0), recorded to its exit; an
    AREA13 census group (the owners and the overlay armed).
-2. [3]'s second stage (0x824930, flag 0x12 = 0xFF): who writes counter
-   0x12 = 1 at the lift (the only direct store is 00131B10's, which ran in
-   no replay), whether beating the creature matters, and what flag 0x12 =
-   0xFF gates later (by the C, [3] despawns at the next AREA04 load only
-   when it is 0xFF; with counter 0x12 = 0x10 its first stage respawns the
-   creature and the bugs, inferred from 0x8246B0 / 0x824830, not played).
+2. Answered by the fight's recording: section 8.
 3. Whether the beam's collapse is ever meant to happen before AREA15 (the
    world graph finds no way out of the pit in sub 0; section 6).
 4. Healing: the player holds no medical item on this route (item 0x20,
@@ -412,6 +409,106 @@ end); leads, not ground truth.
    [10], and AREA04's lift [56] (item 0x29, sub 1 only): not played.
 6. a04b_00's census replay never gets door [45] to take the Use (above).
 
+
+## 8. The first boss fight (lane F1, 2026-10-30)
+
+Recorded on the PCSX2 fork with a scripted pad and no memory writes
+(`tools/capture_boss_fight.py`; `../Extermination/build/fork_refs/boss_fight_20261030/`:
+beats, whole-run stores `store` / `g_store`, per-tick tables, every rand() call).
+The replays run open loop: every row of both chains repeats exactly.
+
+| Beat | From | Frames | What |
+|---|---|---|---|
+| `a04b_g0_shotgun` | a04b_01 end | 356 | The take, the fit |
+| `a04b_g1_door45` | g0 | 756 | Door [45] out |
+| `a04b_g2_reader` | g1 | 2413 | The reader, the creature spawns |
+| `a04b_g3_fight` | g2 | 1647 | Six shells, dead at f887 (health 100, infection 50), control back |
+| `a04b_g4_drop` | g3 | 287 | The drop, its page |
+| `a04b_g5_lift` | g4 | 1973 | Button [54], the keyed ride, AREA13 entry 0 |
+| `a04b_s5_fight` | a04b_03 end | 1936 | Pistol: dead at f1166 (health 55, infection 40, 19 rounds left) |
+| `a04b_s6_drop` | s5 | 287 | The drop |
+| `a04b_s7_lift` | s6 | 2409 | The ride |
+
+**The SHOTGUN UNIT.** LOWER U.R.S. entry 1: item type 1, D_00810C65, placement
+g[4] of AREA04 (node 0x7A6200, behaviour 00219550) at **(416.1, 15, 102.2)**, in
+the room behind door [45], on the way to the NPC [2]. The take gives 6 shells
+(D_00810CA8). It opens the V.U.R.S. page on it (t[5] = 3): Cross, Cross, Left,
+Cross fits it (D_00810CA6 = 1), Triangle leaves. The ZOOM scope (g[2], D_00810C6C,
+index 8) lies at (434.1, 15, 79.8). **The recorded route took neither:** a04b_02's
+Cross presses are not these pickups (the recorded a04b_02 / a04b_03 ends hold C65 =
+0, CA8 = 0); the guide's room is right. In the R1 stance Square fires one shell
+(0017A970 -> 0017A8B0(p, 3), +275 = 3, 00171B00: sound 0x5DC), Cross toggles +275.
+Leaving the part page reloads 001FEF70's bank, module 0x32, into sound group 3.
+
+**The creature.** +0xD = 3, +0x34 = 200. It arms with +0x56 = 600 only while the
+player stands at y >= 47 inside the 16-vertex polygon D_00245020 (001333F0, +0xD
+bit 1). Otherwise it stands in state 9 (00131510: clips 0x30..0x32), which sets
++0x6A = 100 every frame, and 001B41F0 refuses hits in state 9 or from a player
+below y 47, so it cannot be shot from the conveyor; falling below y 50 puts it
+back at (542.3, 55, 276.4). Within 50 units planar, a 45 degree cone and sight
+(00133640) it attacks: within 24 state 5 kinds 0 / 1 (bites of 20 or 25,
+D_008104D4), beyond that state 6 or state 5 kind 2, a spit (hazard 001E2E80,
++0x22C = 10 infection). States 3 and 7 are out of reach for it: their guards test
++0xD bit 1. State 8 needs +0x54.
+
+**Damage.** Pistol 5 a hit (60 rounds in all: 30 + 30), melee 15 with +0x6A = 30.
+The shotgun's 00186A60 sends 10 pellets, each 42 under 20 units, 35 under 50, else
+25; every pellet stores the creature's +0x36, so a shell does **one** pellet's
+damage: 200 -> 158 -> 116 -> 74 -> 32 -> 0 at under 20 units (ticks 3681, 3730,
+3867, 3998, 4416), five shells of six.
+
+**The green core.** The creature's hull (+0x58) holds 19 records. Two of them, on
+bone 4, about 10 units above its feet, carry 0x80 in their second mask byte, and
+its +0x5D is 0x81. 001A6440 stores that byte's upper bits (D_700030CC = record[1]
+& +0x5D & 0xFE), 00186A60 passes it to 001B41F0 as the flag: a hit there gives
+effect 0x80000076, sound 0x15D, +0x36 | 0x8000, and 00133A20 multiplies by 5 with a
+stagger. The pistol run's first hit is one: 25 (a04b_s5, tick 3096). The shotgun
+run never hit it; by the code a shell there does 42 x 5 = 210, a kill at once
+(inferred, not recorded). That the two records are the visible green core is
+inferred from where they lie.
+
+**Death to control (answers section 7's item 2).** 00133A20: +4 = 2, 001B4CF0
+(effects 0x8000006F / 70 -> node 001F4840, pieces models 0x2A..0x2E, handler
+001EDE40). **00131B10 state 0 writes counter 0x12 = 1** (+0xD bit 1; ticks after
+the death: 62 pistol, 52 shotgun). [3]'s 0x824930 then starts script 0x8286D0
+(+0x240 stays the node, 3B8D = 3, then 2), whose op 06 sets the counter to 2
+(001BA120), 00131B10 state 3 -> 1. The creature is freed about 330 ticks after
+it died. 0x824A90 moves the camera; the player is placed at (539.4, 55, 269), yaw
+-1.88. 0x824A40 spawns group 0x827230 (the drop) and two effects: 0x8000005B, the
+node 001F7E40, a grey veil of 32 screen sprites a frame, and 0x80000004, the
+node 001F77B0, the **purple pool** (position the frame slot sp - 0x10, which
+0x824A40 never writes: the stack's leftover, in both recordings (544.9, 54.3,
+255.7), the drop's place). Script op 07 sets flag 0x12 = 0xFF (001B87F0); 0x824930
+sub 2 sets the counter to 0xFF (pc 0x824A20). The spores 001F88C0 run on the
+creature from its state 2 (00131650), rand()'s by the fourth frame.
+
+**The drop.** Behaviour 0015AFA0, model 0x57, at (544.9, 55, 255.7), at the same
+place in both runs: in the pool at the foot of the lift, not where it died. Use
+gives D_00810C91, item 0x2D, line 45 of the catalog: **DOGTAG 1, Private First
+Class Hans Grant** (CURIOSITIES 9), with its item page. The world graph lists no
+gate on item 0x2D.
+
+**Does beating it matter?** Not for the lift: a04b_04 rides past it alive. Flag
+0x12 = 0xFF changes the lift's button text line (001BC960) and, by the code, [3]
+despawns at the next AREA04 load; with the flag the lift still leads to AREA13
+entry 0 (g5, s7). What it gives is the dog tag.
+
+**Native status.** `make test-boss-fight` (tools/test_boss_fight.py) plays both
+chains from their cards: every row from the reader's lock byte through AREA13's
+load is identical: position, heading, action, health, infection, creature, spawned
+bugs. Shotgun 4,444 rows (card `boss`, a04b_g2 f1209 .. a04b_g5 f1302); pistol
+5,194 rows (card `a04b_03`, to a04b_s7 f1763); the hall's bugs too, compared whole
+from the store. `tools/mid_route_beats.py bosst`: the take and the fit from card
+a04b_02 (a04b_g0, a04b_g1), end block equal. These are anchored: a load puts every
+bug at its placement (one beside the reader, which bites a walking player and dies,
+a bug the recording still has) and restarts the glow and face timers and the clock
+0x70003B68, and the steered walk to the reader is not row-exact, so the anchors
+(EM_START_AT_RESTORE at the script's start and at the lock, EM_START_AT_RANDS and
+EM_START_AT_SYNC at the lock; docs/STARTUP.md) supply those bytes and nothing is
+written after the lock. A normal `EM_START_AT=boss` run plays the same code on
+other draws. AREA13 is not loaded: the pack does not hold it and the run fail-stops
+at that request, the end of this scope. Not compared: pixels (the frames at g3's
+and g4's ends look alike by eye, pool, tag and veil) and sound.
 
 ## Fork continuation work (2026-10-18)
 

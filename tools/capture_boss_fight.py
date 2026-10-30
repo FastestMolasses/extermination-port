@@ -542,7 +542,8 @@ def anchors(chain):
     start = reader['rows'][0]['counter'] - first
     (out / 'anchor0.bin').write_bytes(store.image('ee_ram', start))
     clock0 = struct.unpack('<I', store.read('ee_scratch', start, 0x3B68, 4))[0]
-    (out / 'restore.txt').write_text(f'{out / "anchor0.bin"}:1:{clock0:x},{out / "anchor.bin"}:{f}:{clock:x}\n')
+    base = f'build/boss_fight/{chain}'          # the port root is the run's directory
+    (out / 'restore.txt').write_text(f'{base}/anchor0.bin:1:{clock0:x},{base}/anchor.bin:{f}:{clock:x}\n')
     print(chain, 'anchors at rows', reader['rows'][0]['f'], lock['f'])
 
 
