@@ -109,7 +109,7 @@ static struct {
      * loaded game fades in with the player's input refused; the script's
      * row 0 waits for the same level, and the recording's rand() word is
      * put in place then, so the world's draws start with the script. */
-    int fade_wait;
+    int fade_given, fade_wait;
     unsigned fade_level;
     /* EM_START_AT_MARKS: the script frames to report the block at. */
     unsigned mark_count, mark_next;
@@ -529,6 +529,7 @@ int em_start_at_check(void)
             const unsigned long v = strtoul(level, &end, 0);
             if (*end || v > 255ul) return refuse("EM_START_AT_FADE: not a level 0..255", level);
             pad.fade_level = (unsigned)v;
+            pad.fade_given = 1;
         }
         const char *marks = getenv("EM_START_AT_MARKS");
         if (marks && marks[0] && !pad.loaded)
@@ -565,7 +566,13 @@ void em_start_at_pad_control(unsigned counter)
     em_input_set_filter(pad_filter, NULL);
     printf("startup: EM_START_AT_PAD: %u rows over %u frames from control at engine frame %u\n", pad.count,
            pad.last, counter);
-    pad.fade_wait = 1;
+    /* Without EM_START_AT_FADE the script starts at control, as a level
+     * smoke or a short test script expects. */
+    pad.fade_wait = pad.fade_given;
+    if (!pad.fade_wait && pad.rand_set) {
+        em_random_seed(pad.rand_state);
+        printf("startup: EM_START_AT_RAND: rand() state %08x at control (comparison only)\n", pad.rand_state);
+    }
 }
 
 int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3], const float *heading)
@@ -612,13 +619,17 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         /* The rows' fourth column, the recorded heading: a press the next
          * step gives waits (up to 90 frames at a press) while the player
          * stands more than 0.6 from the recorded place (a walk there) or
-         * faces more than 0.25 from the recorded heading (a light stick
+         * faces more than 0.08 from the recorded heading (a light stick
          * toward it, a turn in place): a Use's cone, a strike's reach. */
         int press = 0;
         for (unsigned i = 0; i < pad.count; ++i)
             if (pad.row[i].f == t - 1 && pad.row[i].buttons && (!i || !pad.row[i - 1].buttons)) press = 1;
         if (!press) pad.turn = 0;
-        if (press && pad.path_has_yaw && heading && fwd && d2 < 20.0f * 20.0f && pad.turn < 90u) {
+        /* (A press made standing: a running jump keeps its run.) */
+        const unsigned before = t >= 4 ? (unsigned)t - 4u : 0u;
+        const float bx = pad.path[t][0] - pad.path[before][0], bz = pad.path[t][1] - pad.path[before][1];
+        if (press && bx * bx + bz * bz < 0.04f && pad.path_has_yaw && heading && fwd && d2 < 20.0f * 20.0f &&
+            pad.turn < 90u) {
             float off = pad.path_yaw[t] - *heading;
             while (off > 3.14159265f) off -= 6.2831853f;
             while (off < -3.14159265f) off += 6.2831853f;
@@ -629,7 +640,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
                 pad.now = (EmPadState){0, 0.5f * (-hx * fz + hz * fx) / d, -0.5f * (hx * fx + hz * fz) / d, 0, 0};
                 return 0;
             }
-            if (fabsf(off) > 0.25f && n > 0.0f) {
+            if (fabsf(off) > 0.08f && n > 0.0f) {
                 const float fx = fwd[0] / n, fz = fwd[2] / n;
                 const float wx = sinf(pad.path_yaw[t]), wz = cosf(pad.path_yaw[t]);
                 pad.turn++;
@@ -665,14 +676,15 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
     if (pad.path_count && pos && fwd && m > 0.1f && t >= 0) {
         unsigned k = (unsigned)t + 8u;
         if (k >= pad.path_count) k = pad.path_count - 1u;
-        /* A player ahead of that point takes the first recorded position
-         * still ahead of him (up to 48 rows on): a target behind a running
-         * player is a reversal, a wide turn (door [6]: 6 units along the
-         * wall, a Use short of its place). */
-        for (unsigned step = 0; step < 48u && k + 1u < pad.path_count; ++step, ++k) {
-            const float ax = pad.path[k + 1u][0] - pad.path[k][0], az = pad.path[k + 1u][1] - pad.path[k][1];
-            if (ax * ax + az * az < 1e-6f ||
-                (pad.path[k][0] - pos[0]) * ax + (pad.path[k][1] - pos[2]) * az > 0.0f) break;
+        /* A player ahead of that point with a recorded stop in front (up to
+         * 48 rows on) takes the stop: a target behind a running player is a
+         * reversal, a wide turn (door [6]: 6 units along the wall, a Use
+         * short of its place). A path that turns back (a run-up) keeps
+         * the near target. */
+        for (unsigned step = 0, q = k; step < 48u && q + 1u < pad.path_count; ++step, ++q) {
+            const float ax = pad.path[q + 1u][0] - pad.path[q][0], az = pad.path[q + 1u][1] - pad.path[q][1];
+            if (ax * ax + az * az < 1e-6f) { k = q; break; }
+            if ((pad.path[q][0] - pos[0]) * ax + (pad.path[q][1] - pos[2]) * az > 0.0f) break;
         }
         const float dx = pad.path[k][0] - pos[0], dz = pad.path[k][1] - pos[2];
         const float d = sqrtf(dx * dx + dz * dz);

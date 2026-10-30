@@ -170,6 +170,8 @@ def build(disc: G.Disc, extract: Path, assets: Path) -> dict:
     out = assets / 'status_pages'
     out.mkdir(parents=True, exist_ok=True)
     path = out / 'status_pages.emsp'
+    if path.is_symlink() or path.with_name('status_pages_source.json').is_symlink():
+        raise SystemExit(f'{path}: a symlink: a worktree writes its own files, never through to another checkout')
     path.write_bytes(header + bytes(body))
     report = {'elf_sha256': G.ELF_SHA256,
               'data_windows': [[hex(s), hex(s + len(d))] for s, d in windows],

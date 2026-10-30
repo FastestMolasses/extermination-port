@@ -84,20 +84,29 @@ Bound here (each through its one translation):
   names that composition's player proxy, which the AREA01 collision view
   now encodes as 0x008102B0.
 
-Where AREA06 stops (2026-10-30):
+Where AREA06 stands (2026-10-30, after the second pass):
 
-- **a06_01** (the crate and door [2]): in the chained run the player is
-  bitten more often than in the recording (the loaded game's creatures),
-  infection reaches 100 and the reaction's 0015C1F0 binds the infected
-  player model (kind 0x40), which the port does not export: fail-stop at
-  001CAA00 (docs/LEVEL2_CRASHES.md "Mid route (lane C1)"). From its own
-  card the beat stops on the chain page instead: the streak program
-  (table 0x230800) refuses an exponent-255 operand (EM_VU1P_FAULT_OPERAND)
-  after the skid's 001CFBE0.
-- **a06_02 / a06_03** (from their cards): the player closure 00161020
-  faults at 0x00160220 (the keypad's Use).
-- **a06_04**: the collision close-out 001AAD00 faults at 001A8734.
-- **a06_05**: the effect node 0021AE90 (0x80000044) is not bound.
+- **The chain `a06`** (a06_00 .. a06_05 in one run from the arrival card)
+  plays to its end: crate [31], door [2], the keypad, the beam's collapse and
+  the locked door [3], end positions within 4 units. a06_00 passes; the
+  others differ in creature results only: the bites the recording took
+  (infection 90 at a06_01, health 60 / infection 100 at a06_05) and the
+  taken bits D_00810927 / D_0081092E. The rand() stream is ahead of the
+  recording's by a06_00's end (7210 draws against the fork's 6787, measured
+  with a rand log of the beat; each caller's rate per frame equals the
+  original's, the difference is frames waited by the path), so the creatures
+  do not repeat. a06_05's infection bind and the node run on their own
+  card only as far as the bite happens.
+- **From their own cards**: a06_02 and a06_03 pass. a06_04 and a06b_00 meet
+  the cable 0x823B50 at another phase (a card restarts it; its phase is RAM,
+  not save data), so `tools/mid_route_beats.py a06b` chains from the arrival.
+- **The streak program's operand fault** (a06_01's card, table 0x230800)
+  no longer shows on this build at either script timing. On the merged
+  checkpoint it reproduces; there the packet's rows are finite and the
+  registers hold a segment whose projected direction is about zero (vf2 ~
+  1e-19, vf15 at +-MAX): not a wrong input found, but the EFU case the model
+  refuses as not established (em_vu1_page_programs.h). It stays a fail-stop,
+  with no clamp.
 
 ## Full-route audit extension (2026-10-18)
 

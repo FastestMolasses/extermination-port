@@ -130,7 +130,6 @@ static int dispatch_a06(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     switch (fn) {
     case 0x00823580u: case 0x008240E0u: case 0x00824340u: case 0x00823B50u: case 0x00824560u:
     case 0x00219870u: case 0x00219F50u: case 0x0021A180u: case 0x0021AE90u: break;
-    case 0x001F8350u: break;
     case 0x008242C0u: case 0x0021A440u: case 0x001EBE10u: case 0x001ECA20u: case 0x00823B10u: need_a = 2; break;
     case 0x001EA210u: need_a = 0; need_f = 1; break;
     default: return 0;
@@ -152,7 +151,6 @@ static int dispatch_a06(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     case 0x00824560u: x = em_area06_port_00824560(&h, a0, sp, &f); break;
     case 0x00219870u: x = em_area06_port_00219870(&h, a0, sp, &f); break;
     case 0x0021AE90u: x = em_area06_port_0021AE90(&h, a0, &f); break;
-    case 0x001F8350u: x = em_area06_port_001F8350(&h, a0, sp, &f); break;
     case 0x00219F50u: x = em_area06_port_00219F50(&h, a0, &f); break;
     case 0x0021A180u: x = em_area06_port_0021A180(&h, a0, sp, &out, &f); break;
     case 0x008242C0u: x = em_area06_port_008242C0(&h, a0, a1, &out, &f); break;
@@ -171,6 +169,26 @@ static int dispatch_a06(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     c->v0 = (uint64_t)(int64_t)out;
     *rc = 0;
     return 1;
+}
+
+/* The infection node 001F8350 (0x80000048): a boot owner, in whatever area
+ * the player turns (0021C190's spawn), em_area06_port's translation. */
+static int dispatch_infection(EmArea01Runtime *r, EmArea01Call *c)
+{
+    if (c->na < 1 || c->nf || c->sp < 0x100u) return fail(r, c->function);
+    EmArea06PortHooks h;
+    m06_hooks(r, &h);
+    EmArea06PortFault f = {0, 0};
+    const uint32_t sp = c->sp, saved = r->sp;
+    r->sp = sp - 0x100u;
+    const int x = em_area06_port_001F8350(&h, (uint32_t)c->a[0], sp, &f);
+    r->sp = saved;
+    if (x < 0) {
+        fprintf(stderr, "em_area01: em_area06_port 001F8350 fault code %d at %08X\n", (int)f.code,
+                (unsigned)f.address);
+        return fail(r, f.address ? f.address : c->function);
+    }
+    return 0;
 }
 
 static int dispatch_mid(EmArea01Runtime *r, EmArea01Call *c, int *rc)
@@ -623,6 +641,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         }
         return 0;
     }
+    if (c->function == 0x001F8350u)
+        return dispatch_infection(r, c);
     if ((r->area == 0x16 || r->area == 6 || (r->area == 4 && c->function == 0x0012D940u)) &&
         dispatch_mid(r, c, &rc))
         return rc;

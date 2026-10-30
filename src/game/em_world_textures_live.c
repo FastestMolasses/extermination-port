@@ -28,9 +28,11 @@ static uint32_t rd32(const uint8_t *p)
 static int supported(void)
 {
     /* The player's other texture packets (00200890 slots 9..0xC) have
-     * catalogs for AREA01 / 04 / 06 / 22 (tools/export_player_texture_variants.py). */
-    if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 1u || S.area == 4u) &&
-                                   S.subarea == 0u && S.mode <= 2u && S.costume <= 2u))
+     * catalogs for AREA00 / 01 / 02 / 04 / 06 / 22 (every recorded sub, tools/
+     * export_player_texture_variants.py); AREA11 has none: the player's
+     * infection cannot reach it. */
+    if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 1u || S.area == 4u ||
+                                    S.area == 0u || S.area == 2u) && S.mode <= 2u && S.costume <= 2u))
         return 0;
     return ((S.area == 0u || S.area == 2u) && S.subarea <= 1u) ||
            (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u));
@@ -145,9 +147,9 @@ int em_world_textures_live_ensure(EmGfx *gfx)
     /* tools/export_level_world_textures.py --profile 22 / 06 (mode 0,
      * costume 0: the recorded deliveries) */
     char mid[96];
-    if (S.area == 0x16u || S.area == 6u || ((S.area == 1u || S.area == 4u) && (S.mode || S.costume))) {
-        snprintf(mid, sizeof mid, "assets/levels/%02u/sub0/world_textures_mode%u_costume%u.emot", S.area, S.mode,
-                 S.costume);
+    if (S.area == 0x16u || S.area == 6u || ((S.mode || S.costume) && S.area != 11u)) {
+        snprintf(mid, sizeof mid, "assets/levels/%02u/sub%u/world_textures_mode%u_costume%u.emot", S.area, S.subarea,
+                 S.mode, S.costume);
         paths[0] = mid;
     }
     Texture textures[EM_GFX_OBJECT_TEX_MAX];

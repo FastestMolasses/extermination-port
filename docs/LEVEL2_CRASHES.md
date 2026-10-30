@@ -857,12 +857,28 @@ translation of original code or an exported original table (AREA22_PORT.md
 / AREA06_PORT.md "Live binding", LEVEL8_PORT.md), except these, which stay
 fail-stops:
 
-| Beat | Stop | Why |
+| Beat | State | Why |
 |---|---|---|
-| a06_01 (chained) | 001CAA00: the player's +0x44 is model 0x40 | the loaded game's creatures bite more often than the recording's; at infection 100 the reaction's 0015C1F0 binds the infected model, which is not exported (em_player_draw_live holds 0x3B only) |
-| a06_01 (its card) | chain page: the streak program (0x230800) refuses an exponent-255 operand | not traced (after the skid's 001CFBE0) |
-| a06_02, a06_03 (cards) | player closure 00161020 at 0x00160220, then 00184BA0 | the keypad's Use closure |
-| a06_04, a06b_00 (cards) | 001AAD00's collision close-out at 001A8734 | not traced |
-| a06_05 (card) | the effect node 0021AE90 (0x80000044) | translated in em_area06_port, not bound on the effect binder |
-| a01v_02 | none past the arrival; the end block's D_0081083C is 01 (original 00) | the grab-slot bits, not GS; not diagnosed. The arrivals' GS fault is fixed (LEVEL8_PORT.md "The GS barrier at three door arrivals") |
-| a01v_01 | none; the end block has one more creature taken bit (D_0081088F 0x04) | a loaded game's bug (the route's machine state differs) |
+| a06_01 .. a06_05 (chained) | play to the end; the block differs in bites and taken bits | creature results; rand() is 423 draws ahead by a06_00's end (the path's waits) |
+| a06_01 (its card) | the streak operand fault of the merged checkpoint does not show | AREA06_PORT.md "Where AREA06 stands" |
+| a06_04, a06b_00 (cards) | the cable 0x823B50 at another phase | a card restarts it (RAM, not save data); a06b chains from the arrival |
+| a01v_01 | a run-dependent bite | infection reaches 100 in AREA01: the model and packet bind, no fault; the knock-back may miss the jump |
+| AREA11 | no catalog for the other player packets | the infection cannot reach it (em_world_textures_live supported()) |
+
+Both end-block items of the mid route's card runs are creature differences,
+not port state: D_0081088F is AREA01's row of the taken bitset D_00810860
+(ids 0x7A, 0x7D, 0x7E: 001B1190 at a bug's despawn), and D_0081083C the grab
+slots the bugs claim (0012E0B0) and release (0012E070). Both changed between
+runs of one build when only the script's timing moved (a01u_00, a01v_01 and
+a01v_02 each passed and failed that way).
+
+The player's model: +0x44 is written by 001CA6E0 alone, from 0015C1F0, which
+reads the mode +0x234 and D_00810C60. Its callers are 0021C190 (the turn),
+0015C750 (the cure), 0021E830 (mode 2), 0015C7B0 and 001B07C0, the placement,
+which copies D_00810707 into +0x234 on every area load and card load. So the
+mode outlives the infection value (only 0015C750 clears it): a player can
+carry model 0x40 at infection 10. Kinds 0x3D .. 0x40 and every area's packets
+are exported, and test cards with modes 1, 2 and costumes 1, 2 load in
+AREA01, 04, 06 and 22 (without player_model_40.emom the same card stops at
+0015C1F0). The node 0x80000048 binds in every area but AREA11 (a direct
+spawn ran in AREA00, 01, 02, 04 and 22).

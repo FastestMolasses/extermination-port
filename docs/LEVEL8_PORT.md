@@ -56,9 +56,9 @@ so these runs are not row-by-row comparisons.
 | a01u | a01u | a01u_00, a01u_01, a01u_02 | pass (AREA06_PORT.md "Live binding"); row-exact from New Game since lane E1 |
 | a01u_s0 | a01u_s0 | a01u_s0 | pass |
 | a01u_s1 | a01u | a01u_s1 | pass (lane G1, branch gs-arrival: the GS barrier below) |
-| a06 | area06 | a06_00 .. a06_05 | a06_00 passes; a06_01 stops (AREA06_PORT.md "Where AREA06 stops") |
-| a06b | a06b | a06b_00, a06b_01 | a06b_00 stops: the collision close-out 001AAD00 faults at 001A8734 |
-| a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 plays to its end with one creature taken bit more (D_0081088F bit 0x04, a loaded game's bug); a01v_02 gets past door [18]'s AREA22 arrival (the GS barrier below) and plays to its end: in the chain its end block differs only by a01v_01's bit; from its own card, at D_0081083C (port 01, original 00: the grab-slot bits, not GS; not diagnosed) |
+| a06 | area06 | a06_00 .. a06_05 | a06_00 passes; the rest play to their ends, the block differing in bites and taken bits (AREA06_PORT.md "Where AREA06 stands") |
+| a06b | area06 | a06_00 .. a06_03, a06b_00, a06b_01 | chained from the arrival (a card restarts the cable 0x823B50); see the latest run in the lane report |
+| a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 depends on a bite (creature result); a01v_02 passes from its own card |
 | a04b | a04b_00 | a04b_00 .. a04b_04 | lane D1: a04b_00..03 play to their ends, their blocks equal but for one infection word (the loaded bugs did not bite); a04b_04's recorded pad ends without a fault, the Use at button [54] not taken from a card; a scratch pad takes it and rides to AREA13's load, which has no module yet (EIGHTH_LEVEL_ROUTE.md "Native status") |
 | a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 loads AREA04 (lane B1's host, main 64e70c2), gets past the arrival (the GS barrier below) and passes |
 

@@ -3695,11 +3695,13 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     }
     if (s_state.d810700 == 0x16 && fn >= 0x00823500u)
         return -1;
-    /* AREA06's boot owners: g[11]'s node 00219870, the debris spawner
-     * 0021AE90 (effect 0x80000044) and the infection node 001F8350
-     * (effect 0x80000048, 0021C190's when the player turns; em_area06_port
-     * through em_area01_runtime dispatch_a06). */
-    if (s_state.d810700 == 6 && (fn == 0x00219870u || fn == 0x0021AE90u || fn == 0x001F8350u))
+    /* AREA06's boot owners: g[11]'s node 00219870 and the debris spawner
+     * 0021AE90 (effect 0x80000044; em_area06_port through em_area01_runtime
+     * dispatch_a06). The infection node 001F8350 (effect 0x80000048,
+     * 0021C190's when the player turns) in any area the runtime runs. */
+    if (s_state.d810700 == 6 && (fn == 0x00219870u || fn == 0x0021AE90u))
+        goto bind;
+    if (fn == 0x001F8350u)
         goto bind;
     /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
@@ -3751,6 +3753,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
  * other callback, the AREA11 rows decide as before. */
 static int area00_spawned_fallback(EmActor *a)
 {
+    if (a && a->callback == 0x001F8350u && s_state.d810700 != 11)
+        return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     /* AREA02: any boot owner the area runtime runs too, e.g. the car's
      * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
