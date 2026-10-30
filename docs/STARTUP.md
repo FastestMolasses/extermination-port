@@ -413,6 +413,10 @@ start-point save through the original's own load path. Off by default
 | `area02` | AREA02 sub 1, the arrival through the revisit's door [16] (a01r_03) | `build/start_saves/area02` |
 | `a02_01` .. `a02_05` | AREA02 sub 0, where route_a02's beat starts (discovery runs) | `build/start_saves/<name>` |
 | `a01_03`, `a01_05`, `a01_s7`, `a01_07`, `a00_01`, `a00_04`, `a01r_01` | where that route beat starts (its source state; the cutscene skip runs, docs/AREA_SCRIPT.md "The skip path") | `build/start_saves/<name>` |
+| `area22`, `a22_01`, `a22_02` | AREA22 (area byte 0x16) sub 0: the a04_05 arrival and where route_a22's beats start | `build/start_saves/<name>` |
+| `a01u`, `a01u_01`, `a01u_02`, `a01u_s0` | AREA01's upper floor: the a22_02 arrival (entry 6) and where route_a01u's beats start | `build/start_saves/<name>` |
+| `area06`, `a06_01` .. `a06_05` | AREA06 sub 0: the a01u_02 arrival and where route_a06's beats start | `build/start_saves/<name>` |
+| `a06b`, `a06b_01`, `a01v`, `a01v_01`, `a01v_02`, `a22b`, `a22b_01` | the way back (route_a06b, route_a01v, route_a22b): where each beat starts | `build/start_saves/<name>` |
 
 The cards are the start-point saves `make start-saves` builds with the
 original save writer (docs/SAVE_GAME.md section 7); they are disc- and

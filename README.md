@@ -77,9 +77,28 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a02_03` | AREA02 | At the foot of the ladder, after the car has stopped | Climbing over the wreck to the platform |
 | `a02_04` | AREA02 | On the raised platform past the wreck | Battery panel [24] |
 | `a02_05` | AREA02 | At battery panel [24], after charging it | Door [25], the exit into AREA04 |
+| `area22` | AREA22 | The arrival from AREA04, at door [6] | North to door [7], a room move |
+| `a22_01` | AREA22 | Past door [7], in the north arm | The corridor and its bugs, to the south arm |
+| `a22_02` | AREA22 | The south arm, at door [8] | Door [8], up to AREA01's upper floor |
+| `a01u` | AREA01 (upper floor) | The arrival from AREA22 (entry 6) | South across the gap (a running jump) |
+| `a01u_s0` | AREA01 (upper floor) | Past the gap | An optional pickup on the platform |
+| `a01u_01` | AREA01 (upper floor) | Past the gap, on the platform | The catwalk and its cutscene with the creature |
+| `a01u_02` | AREA01 (upper floor) | On the catwalk after the cutscene | West to door [19], into AREA06 |
+| `area06` | AREA06 | The arrival from AREA01 (entry 0) | The beam room |
+| `a06_01` .. `a06_05` | AREA06 | Where that route beat starts: the crate and door [2], the keypad, the way out of the room, the beam's collapse, locked door [3] | The next beat |
+| `a06b` | AREA06 (the way back) | Outside the keypad room | The jump over the beam, back to door [1] |
+| `a06b_01` | AREA06 (the way back) | Past the beam | Door [1], back into AREA01 |
+| `a01v` | AREA01 (upper floor, the way back) | The arrival from AREA06 (entry 7) | East along the catwalk |
+| `a01v_01` | AREA01 (upper floor, the way back) | At the gap | The gap jump north |
+| `a01v_02` | AREA01 (upper floor, the way back) | North of the gap | Door [18], into AREA22 |
+| `a22b` | AREA22 (the way back) | The arrival from AREA01 (entry 5) | Back to door [7] |
+| `a22b_01` | AREA22 (the way back) | At door [7] | Door [6], back into AREA04 |
 
 The AREA02 points start beyond what has been proven to match the original
-row by row, so expect rough edges there.
+row by row, so expect rough edges there. The AREA22, AREA01 upper floor and
+AREA06 points (the middle of the route to the first boss) are discovery
+starts: `python3 tools/mid_route_beats.py` reports which beats play
+through (docs/LEVEL8_PORT.md "Start-card runs").
 
 ## Status
 

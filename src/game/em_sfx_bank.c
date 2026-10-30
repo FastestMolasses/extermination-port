@@ -21,7 +21,7 @@ enum {
     /* Host file sanity bound; entries are dynamically allocated. The full
      * AREA00 and AREA02 sub-0/1 remap domains add 2000 rows each to the
      * 1278 existing rows. */
-    EMSR_MAX_SAMPLES = 1024, EMSR_MAX_ENTRIES = 8192,
+    EMSR_MAX_SAMPLES = 1024, EMSR_MAX_ENTRIES = 16384,   /* one scope per loaded area sub (about 1000 ids each) */
     EMSR_MAX_FRAMES = 1u << 22, EMSR_MAX_REASON = 10
 };
 /* Six authored bytes (<= 255 each) >> 27: the largest 001179E0 scalar. */

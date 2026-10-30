@@ -846,3 +846,23 @@ stop point, with repeated grabs (action 0x3E) pushing it back to x
 AREA02 sub 2 is not reachable in the original's data (FOURTH_LEVEL_ROUTE.md
 section 8 item 7: only the duct's 00179910 selects it, from a bit of
 D_00810730[2] that no AREA02 or boot script sets).
+
+## Mid route (lane C1, 2026-10-30)
+
+Branch `mid-route` (port worktree `port-mid-route`). The beats of AREA22,
+AREA01's upper floor and AREA06, both ways, run from start-point cards
+with their recorded pads (`tools/mid_route_beats.py`; LEVEL8_PORT.md
+"Start-card runs"). Every stop met on the way was closed with a
+translation of original code or an exported original table (AREA22_PORT.md
+/ AREA06_PORT.md "Live binding", LEVEL8_PORT.md), except these, which stay
+fail-stops:
+
+| Beat | Stop | Why |
+|---|---|---|
+| a06_01 (chained) | 001CAA00: the player's +0x44 is model 0x40 | the loaded game's creatures bite more often than the recording's; at infection 100 the reaction's 0015C1F0 binds the infected model, which is not exported (em_player_draw_live holds 0x3B only) |
+| a06_01 (its card) | chain page: the streak program (0x230800) refuses an exponent-255 operand | not traced (after the skid's 001CFBE0) |
+| a06_02, a06_03 (cards) | player closure 00161020 at 0x00160220, then 00184BA0 | the keypad's Use closure |
+| a06_04, a06b_00 (cards) | 001AAD00's collision close-out at 001A8734 | not traced |
+| a06_05 (card) | the effect node 0021AE90 (0x80000044) | translated in em_area06_port, not bound on the effect binder |
+| a01u_s1, a01v_02, a22b_01 | the GS frame's parse: a barrier inside a span | LEVEL8_PORT.md "The GS barrier at three door arrivals" |
+| a01v_01 | none; the end block has one more creature taken bit (D_0081088F 0x04) | a loaded game's bug (the route's machine state differs) |

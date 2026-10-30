@@ -59,7 +59,17 @@ so these runs are not row-by-row comparisons.
 | a06 | area06 | a06_00 .. a06_05 | a06_00 passes; a06_01 stops (AREA06_PORT.md "Where AREA06 stops") |
 | a06b | a06b | a06b_00, a06b_01 | a06b_00 stops: the collision close-out 001AAD00 faults at 001A8734 |
 | a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 plays to its end with one creature taken bit more (D_0081088F bit 0x04, a loaded game's bug); a01v_02 stops at door [18]'s AREA22 arrival (the GS barrier, as a01u_s1) |
-| a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 needs the AREA04 arrival (lane B1's, main 64e70c2) |
+| a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 loads AREA04 (lane B1's host, main 64e70c2) and stops at the arrival on the GS barrier (as a01u_s1) |
+
+**The GS barrier at three door arrivals** (a01u_s1 and a01v_02: AREA01's
+door [18] into AREA22; a22b_01: AREA22's door [6] into AREA04). In the
+first world frames after the load the frame reads its other buffer (TEX0
+TBP 0x2580 = FBP 0x12C, PSMCT32, 128 x 128, TBW 2) while a span of 22
+primitives is still pending; em_gs_world's parse refuses a barrier inside
+a span ("a barrier fell inside a span", parse spans 0x44B / 0x6C9) and the
+frame fail-stops. The same areas loaded from a card, and the other door
+loads on this route (AREA22 into AREA01, AREA01 into AREA06), do not. Not
+diagnosed further here: it is the GS head's (the renderer lane's).
 
 On the way back AREA01's 001C02E0 takes its bit-5 branch (D_00810845 bit 5,
 set in AREA06): its behaviour 001BF6B0, the companion 001BE6C0 it spawns
