@@ -1105,6 +1105,59 @@ static void barrier_cases(int full)
     free(got);
 }
 
+/* A barrier the recorder places before the write that ends the pending
+ * span (em_gs_world.c span_ends_after_barrier): the target drawn and read
+ * into the field (a barrier), a flat sprite into the field's rows 150..223
+ * left pending, then the target declared drawn again (a barrier: a band may
+ * still read it) before its FRAME_1 write, and a sprite into its rows
+ * 0..63. The FRAME_1 change ends the span (GS_EXACT.md 3.7) with no
+ * primitive between: the span ends at the barrier. */
+#define C_AGAIN 0x80104080u
+static void body_span_barrier(EmGsWorld *w, unsigned f)
+{
+    (void)f;
+    EmGfxGsEnv e = buf_env(FRAME_TARGET, 128, 128, TARGET_OFS);
+    EmGfxGsPrim p = sprite(1984, 1984, 0, 0, 128, 128, C_TARGET, 0, 0, 0, 0, 0x30000);
+    em_gs_world_prims(w, &p, &e, 1);
+    e = buf_env(FRAME_FIELD(0), 512, 224, FIELD_OFS);
+    p = sprite(1792, 1936, 0, 0, 128, 64, 0, TEX_TARGET | 1ull << 35, region(127, 0, 63), 0, 0, 0x30010);
+    em_gs_world_prims(w, &p, &e, 1);
+    p = sprite(1792, 1936, 0, 150, 512, 224, C_LATE, 0, 0, 0, 0, 0x30000);
+    em_gs_world_prims(w, &p, NULL, 1);
+    em_gs_world_drawn_buffer(w, FRAME_TARGET, 128);
+    em_gs_world_write(w, EM_GS_FRAME_1, FRAME_TARGET);
+    em_gs_world_write(w, EM_GS_XYOFFSET_1, TARGET_OFS);
+    em_gs_world_write(w, EM_GS_SCISSOR_1, 127ull << 16 | 127ull << 48);
+    p = sprite(1984, 1984, 0, 0, 128, 64, C_AGAIN, 0, 0, 0, 0, 0x30010);
+    em_gs_world_prims(w, &p, NULL, 1);
+}
+static unsigned g_span_barrier_px;
+static void span_barrier_case(void)
+{
+    uint8_t *ref = malloc(EM_GS_MEM_BYTES), *got = malloc(EM_GS_MEM_BYTES);
+    CHECK(ref && got);
+    unsigned long long px_ref[1], px[1];
+    run_small(body_span_barrier, 1, SM_DIRECT, 1, 0, ref, NULL, px_ref);
+    unsigned n = 0;
+    for (uint32_t y = 0; y < 64; ++y)
+        for (uint32_t x = 0; x < 128; ++x) {
+            n += mem_pixel(ref, 0x12C, 2, x, y) == C_AGAIN;
+            CHECK(mem_pixel(ref, 0, 8, x, y) == C_TARGET);
+        }
+    for (uint32_t y = 150; y < 224; ++y)
+        for (uint32_t x = 0; x < 512; ++x) n += mem_pixel(ref, 0, 8, x, y) == C_LATE;
+    CHECK(n == 128u * 64u + 512u * 74u);
+    g_span_barrier_px = n;
+    static const int modes[2] = { SM_LIST, SM_THREADS };
+    for (unsigned i = 0; i < 2; ++i) {
+        ListCounts lc;
+        run_small(body_span_barrier, 1, modes[i], i ? 3u : 1u, 0, got, &lc, px);
+        CHECK(memcmp(got, ref, EM_GS_MEM_BYTES) == 0 && px[0] == px_ref[0]);
+    }
+    free(ref);
+    free(got);
+}
+
 /* The CLUT loads from the frame's own spans (body_own_clut, two frames, two
  * loads each): one worker drawing the list (its parse draws the spans so far
  * itself), 3 workers (the parsing worker waits for the others), the frames
@@ -1601,6 +1654,7 @@ int main(void)
     CHECK(eframes[8] == 3 && pwaits[8] >= 1);
     /* the recorder's barriers and the parse's CLUT loads from its own spans */
     barrier_cases(full);
+    span_barrier_case();
     own_clut_cases(full);
     list_stamps();
     refusals();
@@ -1631,12 +1685,13 @@ int main(void)
            "one model; a barrier for a read, then a read of the drawing target, and a read of the declared field "
            "before the first FRAME_1 write (%u and %u pixels read after the second barrier): three segments; a read "
            "of uploaded memory, then its first draw (%u pixels drawn after the read): two segments; each the "
-           "same with one worker drawing the list and %s workers; CLUT loads from the frame's own spans (%u pixels "
+           "same with one worker drawing the list and %s workers; a barrier before the FRAME_1 write that ends the "
+           "pending span (%u pixels): the span ends there, the same with one worker drawing the list and 3; CLUT loads from the frame's own spans (%u pixels "
            "of the last palette, %u loads counted): the same with one worker drawing the list, %s, parsed early "
            "whole (3 workers, one drawing the list) and handing over after 37 ops (8))\n", g_gif_px, g_host_workers,
            blended[0], blended[1], MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8",
            full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1", clut_px, eops[0], eops[1],
-           pwaits[0], pwaits[1], pwaits[8], g_barrier_px[0], g_barrier_px[1], g_barrier_px[2], full ? "3 and 8" : "3", g_own_px,
+           pwaits[0], pwaits[1], pwaits[8], g_barrier_px[0], g_barrier_px[1], g_barrier_px[2], full ? "3 and 8" : "3", g_span_barrier_px, g_own_px,
            g_own_waits, full ? "3 and 8 workers, 8 bands a worker and the early parse off" : "3 workers");
     return 0;
 }

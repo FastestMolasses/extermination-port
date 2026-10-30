@@ -1496,7 +1496,17 @@ between barriers: marking it again changes nothing, so a list whose every
 primitive carries FRAME_1 and SCISSOR_1, the load veil's, costs one mark):
 every band before it is drawn before any band after it; it must fall where
 the span has already ended (a parser or worker with queued primitives there
-faults, so a barrier never moves a span boundary). After a barrier for a
+faults, so a barrier never moves a span boundary), with one exact case: a
+barrier the recorder places just before the register write that ends the
+span (a target marked drawn before its FRAME_1 write is recorded: the
+shadow's target after an object's triangles, met in AREA04's a04_00 event
+and the mid-route door arrivals, 2026-10-30). When one of the register
+writes after the barrier, before any vertex, ends the queued span as a
+measured boundary (section 3.7, em_gs_write_ends_span), the span ends at
+the barrier: the same primitives, the same grid decision
+(em_gs_world.c span_ends_after_barrier; `make test-gs-world`'s
+span_barrier_case, which faults without it). Any other queued span at a
+barrier still faults. After a barrier for a
 read, the drawing target's blocks (FRAME_1 and SCISSOR_1 as last written)
 are drawn ones again: the draws after the barrier write them, so a read of
 them later in the stretch needs a barrier too (since 2026-10-15, found by

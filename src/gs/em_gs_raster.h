@@ -213,6 +213,10 @@ typedef struct EmGs {
 void em_gs_init(EmGs *gs, uint8_t *mem);
 /* Draws every queued primitive (the span ends). Call it before reading
  * local memory: em_gs_gif and em_gs_write leave the current span queued. */
+/* 1 when writing reg = v ends the pending span as a measured boundary (GS_EXACT.md
+ * 3.7), -1 as an unmeasured one, 0 when it does not (or nothing is pending).
+ * No effect on gs. */
+int em_gs_write_ends_span(const EmGs *gs, unsigned reg, uint64_t v);
 void em_gs_flush(EmGs *gs);
 /* em_gs_flush, then frees the queue. The EmGs can be used again. */
 void em_gs_release(EmGs *gs);

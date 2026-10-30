@@ -609,7 +609,24 @@ static void vertex_kick(EmGs *gs, int draw);
  * 0, TEXFLUSH, MIPTBP1 (MXL 0), TEXCLUT (CSM1) and TEX0 / TEX2 CLUT fields.
  * SCANMSK and the unmeasured TEX0 fields end it as unmeasured boundaries
  * (span_end). */
+/* span_write's decision without its effect: 1 when the write ends the
+ * pending span as a measured boundary, -1 as an unmeasured one, 0 when it
+ * does not end it. */
+static int span_write_decision(const EmGs *gs, unsigned reg, uint64_t v);
+
 static void span_write(EmGs *gs, unsigned reg, uint64_t v)
+{
+    const int d = span_write_decision(gs, reg, v);
+    if (d)
+        span_end(gs, d > 0);
+}
+
+int em_gs_write_ends_span(const EmGs *gs, unsigned reg, uint64_t v)
+{
+    return gs && gs->pend_n ? span_write_decision(gs, reg, v) : 0;
+}
+
+static int span_write_decision(const EmGs *gs, unsigned reg, uint64_t v)
 {
     unsigned a;
     if (gs->pend_n)
@@ -617,10 +634,10 @@ static void span_write(EmGs *gs, unsigned reg, uint64_t v)
     else if (gs->chain_open)
         a = gs->chain_attr;
     else
-        return;
+        return 0;
     unsigned n = (a >> 9) & 1;
     int tme = (a >> 4) & 1, fge = (a >> 5) & 1, abe = (a >> 6) & 1;
-    EmGsContext *c = NULL;
+    const EmGsContext *c = NULL;
     const uint64_t *cur = NULL;
     uint64_t next = v;
     int rel = 0, measured = 1;
@@ -640,9 +657,8 @@ static void span_write(EmGs *gs, unsigned reg, uint64_t v)
         uint64_t nv = two ? (c->tex0 & keep) | (v & ~keep) : v;
         uint64_t diff = (c->tex0 ^ nv) & tex_mask;
         if (c != &gs->ctx[n] || !tme || !diff)
-            return;
-        span_end(gs, (diff & measured_mask) != 0);
-        return;
+            return 0;
+        return (diff & measured_mask) != 0 ? 1 : -1;
     }
     case EM_GS_CLAMP_1: case EM_GS_CLAMP_2: c = &gs->ctx[reg - EM_GS_CLAMP_1]; cur = &c->clamp; rel = tme; break;
     case EM_GS_TEX1_1: case EM_GS_TEX1_2: c = &gs->ctx[reg - EM_GS_TEX1_1]; cur = &c->tex1; rel = tme; break;
@@ -661,12 +677,11 @@ static void span_write(EmGs *gs, unsigned reg, uint64_t v)
     case EM_GS_DTHE: cur = &gs->dthe; rel = 1; break;
     case EM_GS_COLCLAMP: cur = &gs->colclamp; rel = 1; break;
     case EM_GS_SCANMSK: cur = &gs->scanmsk; rel = 1; measured = 0; break;
-    default: return;                   /* MIPTBP1/2, TEXCLUT, TEXFLUSH, PRMODE, ... */
+    default: return 0;                 /* MIPTBP1/2, TEXCLUT, TEXFLUSH, PRMODE, ... */
     }
     if (c && c != &gs->ctx[n])
         rel = 0;                       /* the other context's register */
-    if (rel && *cur != next)
-        span_end(gs, measured);
+    return rel && *cur != next ? (measured ? 1 : -1) : 0;
 }
 
 void em_gs_write(EmGs *gs, unsigned reg, uint64_t v)

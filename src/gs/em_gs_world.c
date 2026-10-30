@@ -361,6 +361,26 @@ static void read_rows(EmGsWorld *w, const Job *j, uint32_t y0, uint32_t y1)
     }
 }
 
+/* A barrier the recorder placed just before the write that ends the
+ * pending span (a buffer marked drawn before its FRAME_1 / SCISSOR_1 write
+ * is recorded): the writes after the barrier, up to the first that is not
+ * a register write, draw nothing; when one of them ends the span as a
+ * measured boundary (GS_EXACT.md 3.7) before any of them could, the span
+ * ends at the barrier with the same primitives and the same decision. */
+static int span_ends_after_barrier(const EmGs *gs, const Job *j, size_t i)
+{
+    for (size_t q = i + 1; q < j->op_count && j->ops[q].op == OP_WRITE; ++q) {
+        const unsigned reg = j->ops[q].reg;
+        if (reg == EM_GS_PRIM || reg == EM_GS_RGBAQ || reg == EM_GS_ST || reg == EM_GS_UV || reg == EM_GS_FOG ||
+            reg == EM_GS_XYZF2 || reg == EM_GS_XYZ2 || reg == EM_GS_XYZF3 || reg == EM_GS_XYZ3)
+            return 0;
+        const int d = em_gs_write_ends_span(gs, reg, j->ops[q].value);
+        if (d)
+            return d > 0;
+    }
+    return 0;
+}
+
 /* One worker alone (direct): the head, every op, the end of the span, then
  * the field. At a barrier no primitive may be queued: the span must have
  * ended there by itself (a flush here would end it where the GS does not). */
@@ -376,6 +396,7 @@ static void run_direct(Worker *k)
     for (size_t i = 0; i < j->op_count; ++i) {
         const Op *o = &j->ops[i];
         if (o->op == OP_BARRIER) {
+            if (gs->pend_n && span_ends_after_barrier(gs, j, i)) em_gs_flush(gs);
             if (gs->pend_n) k->failed = 1;
             continue;
         }
@@ -523,6 +544,7 @@ static void parse_ops(EmGsWorld *w, Job *j, int early)
         if (early && (i >= stop || (!w->early_max && !(i & 63u) && !AU_LOAD(w->live)))) break;
         const Op *o = &j->ops[i];
         if (o->op == OP_BARRIER) {
+            if (gs->pend_n && span_ends_after_barrier(gs, j, i)) em_gs_flush(gs);
             if (gs->pend_n) failed = 1;
             if (p->k + 2u < SEG_MAX) close_seg(w, p, p->k++);
             else failed = 1;
