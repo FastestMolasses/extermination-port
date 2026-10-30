@@ -697,17 +697,21 @@ static int l14_001F87E0(L14 *o, uint32_t self, uint32_t n)
 int em_level14_port_001F87E0(const H14 *h, uint32_t self, uint32_t n, int32_t *result, F14 *fault)
 {
     L14 state, *o = &state;
-    if (l14_begin(o, h, fault)) return -1;
-    *result = l14_001F87E0(o, self, n & 0xFFu);
-    return l14_end(o);
+    if (!result || l14_begin(o, h, fault)) return -1;
+    const int32_t r = l14_001F87E0(o, self, n & 0xFFu);
+    if (l14_end(o)) return -1;
+    *result = r;
+    return 0;
 }
 
 int em_level14_port_001F8880(const H14 *h, int32_t k, uint32_t *result, F14 *fault)
 {
     L14 state, *o = &state;
-    if (l14_begin(o, h, fault)) return -1;
-    *result = l14_001F8880(o, (uint32_t)k);
-    return l14_end(o);
+    if (!result || l14_begin(o, h, fault)) return -1;
+    const uint32_t r = l14_001F8880(o, (uint32_t)k);
+    if (l14_end(o)) return -1;
+    *result = r;
+    return 0;
 }
 
 int em_level14_port_001F88C0(const H14 *h, uint32_t self, F14 *fault)
