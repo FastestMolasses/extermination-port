@@ -156,6 +156,9 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # D_00275388 / limit bytes D_00275398 (its +0x30); the hit
                # effects' sources D_0025DB20..D_0025DCF0 (001ED100)
                (0x00243320, 0x245140 - 0x243320), (0x00275388, 0x14), (0x0025DB00, 0x280),
+               # the lift's inner call button [54]'s descriptor D_00275610
+               # (001BC960 stores it at +0x30; the Use scan reads it)
+               (0x00275610, 0x18),
                # the strip node 0021A500's (AREA06 0x823580's sparks) 001CFBE0
                # sources D_00266930 (kind 1) and D_002669C0 (kind 2)
                (0x00266930, 0x120),

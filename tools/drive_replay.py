@@ -33,11 +33,25 @@ def read_beat(path):
     return reads
 
 
+# Beats whose fork recording its own source state does not reproduce, so
+# record_drive_replay.py keeps the table as <beat>.reads.diverged. a04_05: the
+# re-drive from a04_04's state differs from the trace in the walk to door
+# [37] (rows 1..163: the player's position by under 0.2 units and m1F0 on
+# row 1; two recording attempts in the fork set also disagreed with their
+# own check), and is equal from the door's program on, so its stream reads
+# stand. Named here so no other diverged table is used by accident.
+DIVERGED_ACCEPTED = {'a04_05_progression_exit'}
+
+
 def find_beat(table_dir, beat):
     """<beat>.reads in table_dir or one of its recording folders (each
     record_drive_replay.py run writes a new one); copies must agree."""
     table_dir = Path(table_dir)
     found = sorted({*table_dir.glob(f'{beat}.reads'), *table_dir.glob(f'*/{beat}.reads')})
+    if not found and beat in DIVERGED_ACCEPTED:
+        kept = sorted({*table_dir.glob(f'{beat}.reads.diverged'), *table_dir.glob(f'*/{beat}.reads.diverged')})
+        assert len(kept) == 1, (beat, 'diverged drive replay tables', kept)
+        return kept[0]
     assert found, (f'drive replay table missing: {beat}.reads under {table_dir} (record it on the fork: '
                    f'tools/record_drive_replay.py --out {table_dir}/<new folder> {beat}; or run with '
                    f'--no-drive-replay)')

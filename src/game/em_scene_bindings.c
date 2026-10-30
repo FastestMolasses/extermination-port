@@ -1039,6 +1039,16 @@ static void log_area04(FILE *f)
                                       * group 0x826790 gives the creature (section 6) */
                                      0x7B2FA0, 0x7B3870, 0x7B3B60, 0x7B3E50, 0x7B4140, 0x7B4720, 0x7BF180};
     log_area_owners(f, "a04", nodes, sizeof nodes / sizeof nodes[0]);
+    /* The creature at the lift (its node depends on the load: a loaded
+     * game's roster differs from the route's). */
+    for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
+        const EmActor *a = &s_pool.records[i];
+        if (!a->allocated || a->callback != 0x0012E3A0u)
+            continue;
+        const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
+        log_area_owners(f, "a04c", &at, 1);
+        break;
+    }
 }
 
 /* Chain step AUDIO: the EE sound state at this tick's main-loop top (the

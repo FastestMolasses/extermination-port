@@ -619,7 +619,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         }
         return 0;
     }
-    if ((r->area == 0x16 || r->area == 6) && dispatch_mid(r, c, &rc))
+    if ((r->area == 0x16 || r->area == 6 || (r->area == 4 && c->function == 0x0012D940u)) &&
+        dispatch_mid(r, c, &rc))
         return rc;
     if ((r->area == 0x16 || r->area == 6) && c->function >= 0x00823500u)
         return r->host.worker(r->host.ctx, c);

@@ -55,6 +55,7 @@ BLOCK, SIZE = 0x810700, 0x640
 # The block bytes a loaded game or the run's clock owns (see the docstring).
 OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 
+A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -79,9 +80,17 @@ BEATS = {
     'a01v_02': ('a01v_02', 's87/route_a01v', 'a01v_02_door18'),
     'a22b_00': ('a22b', 's87/route_a22b', 'a22b_00_to_door7'),
     'a22b_01': ('a22b_01', 's87/route_a22b', 'a22b_01_door6'),
+    # AREA04's second visit (the fork continuation; EIGHTH_LEVEL_ROUTE.md):
+    # to the first boss. The creature is spawned by the run's event [3]
+    # script when the chain plays a04b_03; a04b_04 ends in AREA13.
+    'a04b_00': ('a04b_00', A04B_ROUTE, 'a04b_00_door45'),
+    'a04b_01': ('a04b_01', A04B_ROUTE, 'a04b_01_npc'),
+    'a04b_02': ('a04b_02', A04B_ROUTE, 'a04b_02_door45_out'),
+    'a04b_03': ('a04b_03', A04B_ROUTE, 'a04b_03_reader'),
+    'a04b_04': ('a04b_04', A04B_ROUTE, 'a04b_04_lift'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
-          'a22b': ('a22b_',)}
+          'a22b': ('a22b_',), 'a04b': ('a04b_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -235,6 +244,7 @@ CHAINS = {
     'a06b': ('a06b', ('a06b_00', 'a06b_01')),
     'a01v': ('a01v', ('a01v_00', 'a01v_01', 'a01v_02')),
     'a22b': ('a22b', ('a22b_00', 'a22b_01')),
+    'a04b': ('a04b_00', ('a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_04')),
 }
 
 

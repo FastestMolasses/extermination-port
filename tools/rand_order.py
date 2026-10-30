@@ -176,7 +176,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
-            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

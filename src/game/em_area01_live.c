@@ -1298,6 +1298,32 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_live_resume(l)<0)return -1;
         return rc<0 ? -1 : 0;
     }
+    case 0x001B2E50u: {
+        /* 001B2E50(a0, out) (byte-matched C): the first height of the column
+         * table at or above a0's y, stored when its flag bit 0 is set; past
+         * the table's end, the last one but one when the last has the bit
+         * clear and that one has it set. */
+        if(c->na<2)return -1;
+        const uint8_t *q=bytes(l,(uint32_t)c->a[0]+4u,4,0);
+        uint8_t *to=bytes(l,(uint32_t)c->a[1],4,1);
+        if(!q || !to)return -1;
+        uint32_t y;memcpy(&y,q,4);
+        int32_t result=0,i=0;
+        const int32_t count=s_column.count;
+        if(count<0 || count>16)return -1;
+        for(;i<count;++i) {
+            uint32_t h;memcpy(&h,&s_column.height[i],4);
+            if(!em_ee_c_lt_bits(h,y)) {
+                if(s_column.flags[i]&1) { memcpy(to,&h,4);result=1; }
+                c->v0=(uint64_t)(int64_t)result;return 0;
+            }
+        }
+        const int32_t last=i-1;
+        if(count && !(s_column.flags[last]&1) && last && (s_column.flags[last-1]&1)) {
+            memcpy(to,&s_column.height[last-1],4);result=1;
+        }
+        c->v0=(uint64_t)(int64_t)result;return 0;
+    }
     case 0x001BA1A0u: case 0x001BA1F0u: {
         if(c->na<(c->function==0x001BA1A0u ? 2u : 1u))return -1;
         uint32_t at=(uint32_t)c->a[0];

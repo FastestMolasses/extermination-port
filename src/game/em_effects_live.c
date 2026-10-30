@@ -807,6 +807,41 @@ static int handler_001EAD70(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* The handler 001ED100 (the creature's effect, AREA04's lift, a04b_03 /
+ * a04b_04): em_level8_port's translation over the same work block (+4 the
+ * LCG copy, +8 the step, +0x54 the accumulator) and the three parameter
+ * tables D_00257360 / D_002573F0 / D_00257480 it rewrites (the exported
+ * window, em_effects_live's one storage of those bytes). */
+static uint8_t *hit_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    SkidCall *c = ctx;
+    if (address == 0x00275C34u && size == 4) return (uint8_t *)&c->d275C34;
+    if (address == c->d275C34 + 4u && size == 4) return (uint8_t *)&c->work->seed_copy;
+    if (address == c->d275C34 + 8u && size == 4) return (uint8_t *)&c->work->step;
+    if (address == c->d275C34 + 0x54u && size == 4) return (uint8_t *)&c->work->accumulator;
+    if (address >= 0x00257360u && address + size <= 0x00257510u)
+        return (uint8_t *)(uintptr_t)em_effects_live_window(address, size);
+    return NULL;
+}
+
+static int handler_001ED100(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(0x001ED100u, "001ED100 without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    SkidCall c = {node, work, at, at + 0x1F0u};
+    EmLevel8PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &c;
+    h.bytes = hit_bytes;
+    h.w_001CFB50 = skid_001CFB50;
+    h.w_001CFBE0 = skid_001CFBE0;
+    EmLevel8PortFault fault = {0, 0};
+    if (em_level8_port_001ED100(&h, (int32_t)(at + 0xD0u), depth, &fault) < 0)
+        return fail(fault.address ? fault.address : 0x001ED100u, "001ED100 faulted (em_level8_port)");
+    return 0;
+}
+
 /* The splash handlers 001EAF00 / 001EAF80 / 001EB020 / 001EB7F0 / 001EC270 (D_00255434
  * entries, reached in AREA01 when the player wades a floor field:
  * 001A8840's contact event 6): em_area01_render_hud's translations, their
@@ -1335,6 +1370,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
         return em_effect_kinds_handler(&S.k, handler, node->matrix, depth, work);
     if (handler == 0x001EBD20u) return handler_001EBD20(node, depth, work);
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
+    if (handler == 0x001ED100u) return handler_001ED100(node, depth, work);
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);

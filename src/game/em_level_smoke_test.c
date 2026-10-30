@@ -5345,9 +5345,11 @@ static int s_a00_return_frame;
  * shorter than the recording's); before it, the command of t.frames. */
 static int s_a01_arrival_row;
 
+static int s_a01_carry;
+static AimStick s_a01_carry_pad;
 static void a01_route_begin(void)
 {
-    pad_apply(0,0,0);
+    if(!s_a01_carry)pad_apply(0,0,0);   /* a carried stick stays for one tick (a01_route_frame's end) */
 #ifdef EM_AREA01_EXPLORATION_TEST_H
     if (a01_explore_begin()) return;
 #endif
@@ -5433,6 +5435,12 @@ static int a01_route_frame(void)
     if (a01_explore.active) return a01_explore_frame();
 #endif
     ++t.frames;
+    if(s_a01_carry) {
+        const AimStick *c=&s_a01_carry_pad;
+        if(c->buttons || c->lx!=127 || c->ly!=127)pad_apply(c->buttons,(c->lx-128)/128.0f,(c->ly-128)/128.0f);
+        else pad_apply(0,0,0);
+        s_a01_carry=0;
+    }
     if(t.frames<0)return 0;
     if(!t.frames) {
         fprintf(stderr,"level smoke: %s: aligned counter=%u (recorded row 0)\n",
@@ -5495,7 +5503,21 @@ static int a01_route_frame(void)
             fail("AREA00 return did not reach its AREA01 endpoint");return 0;
         }
     } else if(t.frames>=s_a01_last_frame) {
-        pad_apply(0,0,0);
+        /* The recording's commands reach the game two rows later: one set
+         * on the phase's last rows is still on its way when the next
+         * phase's row 0 runs (a04_04 stops the stick on its last row: the
+         * walk's stick reaches a04_05's row 0, neutral its row 1). Only a
+         * command other than neutral carries over. */
+        const AimStick *now=NULL,*after=NULL;
+        for(unsigned i=0;i<s_a01_pad_count;++i) {
+            if(s_a01_pad[i].f<=s_a01_last_frame-1)now=&s_a01_pad[i];
+            if(s_a01_pad[i].f<=s_a01_last_frame)after=&s_a01_pad[i];
+        }
+        if(now && (now->buttons || now->lx!=127 || now->ly!=127)) {
+            pad_apply(now->buttons,(now->lx-128)/128.0f,(now->ly-128)/128.0f);
+            s_a01_carry=1;
+            s_a01_carry_pad=*after;
+        } else pad_apply(0,0,0);
         fprintf(stderr,"level smoke: %s: PASS frames=%d (capture check required)\n",
                 k_phases[t.current].name,s_a01_last_frame);
         return 1;

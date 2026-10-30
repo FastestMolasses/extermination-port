@@ -123,7 +123,14 @@ int main(int argc,char **argv){
                 cmd = commands[index]
                 chosen = (cmd['buttons'], (cmd['lx'] - 128) / 128., (cmd['ly'] - 128) / 128.)
                 index += 1
-            expected = (0, 0., 0.) if frame == frames else chosen
+            expected = chosen
+            if frame == frames:
+                # the phase's end: neutral, or the command set on the row
+                # before it, still on its way to the next phase's row 0
+                last = [r for r in commands if r['f'] <= frames - 1][-1:]
+                held = last and (last[0]['buttons'] or last[0]['lx'] != 127 or last[0]['ly'] != 127)
+                expected = (last[0]['buttons'], (last[0]['lx'] - 128) / 128., (last[0]['ly'] - 128) / 128.) \
+                    if held else (0, 0., 0.)
             assert (b, x, y) == expected, (phase, frame, 'C pad command/order', (b, x, y), expected)
         submitted += len(actual)
     # The C reader selects EM_LEVEL4_PAD_DIR for the revisit and fails without it.
