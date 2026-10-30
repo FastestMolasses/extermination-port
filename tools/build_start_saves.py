@@ -45,6 +45,9 @@ route's manifest: its first beat's source state):
   a04b_00 .. a04b_04
                    the source state of the fork continuation's route_a04b
                    beat (AREA04's second visit; a04b_00: a22b_01's end)
+  boss             the source state of a04b_g2 in the fight's own recording
+                   (tools/capture_boss_fight.py: the SHOTGUN UNIT fitted, six
+                   shells, in the hall outside door [45])
   a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01
                    the source state of that route beat: a loaded game
                    placed where the beat starts (the cutscene skip runs,
