@@ -29,6 +29,16 @@ int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owne
     return 1;
 }
 
+int em_interaction_runtime_claim_use(EmInteractionRuntime *runtime, const void *owner)
+{
+    if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||
+        runtime->frame->selector || runtime->frame->ready)
+        return 0;
+    runtime->owner = owner;
+    runtime->frame->selector = 3;
+    return 1;
+}
+
 int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner)
 {
     if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||

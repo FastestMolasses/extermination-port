@@ -188,6 +188,8 @@ OP_FIELDS=('tick','kind','note','prog','flags','sample','pitch','pan','scalar','
            'center','fine','range','alloc','priority','length','depth')
 # D_0027CCC0 fields the native driver keeps, in shim_voice order.
 VOICE_FIELDS=(0,2,6,8,0xA,0xC,0x1A,0x1C,0x1E,0x20,0x44,0x4E,0x60,0x62,0x64,0x3E)
+# The volume slide's fields (shim_voice_slide order), compared in pass V.
+SLIDE_FIELDS=(0x2C,0x46,0x50,0x52,0x54,0x56)
 COMMANDS={1,3,5,6,0xA,0xB,0xC,0xD}
 
 
@@ -204,8 +206,17 @@ def parse_emsr(blob):
         ops=[]
         for _ in range(count):
             values=struct.unpack_from('<HBBBBHHHIHHBbBBBBBBI',blob,at);at+=32
-            assert values[18]==0 and values[19]==0
-            ops.append(dict(zip(OP_FIELDS,values[:18])))
+            assert values[18]==0
+            op=dict(zip(OP_FIELDS,values[:18]))
+            if op['kind']==1:
+                # A slide script's key-on: level (voice +0x2C) and the
+                # 40-bit product of 001179E0's other five factors.
+                op['level'],op['product']=op['length'],op['depth']<<32|values[19]
+                op['length']=op['depth']=0
+                assert op['product']==0 and op['level']==0 or (op['product']*op['level'])>>27==op['scalar']
+            else:
+                assert values[19]==0
+            ops.append(op)
         entries.append(dict(id=sid,scope=[area,sub],state=state,reason=reason,bank=bank,ops=ops))
     samples=[]
     for _ in range(sample_count):
@@ -284,6 +295,14 @@ void shim_voice(Shim *s, int i, int *o)
                      v->length, v->prog};
     memcpy(o, f, sizeof f);
 }
+/* 001181B0 / 00116598's slide fields: +0x2C, +0x46, +0x50, +0x52, +0x54, +0x56. */
+void shim_voice_slide(Shim *s, int i, int *o)
+{
+    const EmSfxVoice *v = &s->drv.voices[i];
+    const int f[] = {v->level, v->vslide, v->vtarget, v->vstart, v->vremaining, v->vtotal};
+    memcpy(o, f, sizeof f);
+}
+unsigned shim_slide_unknown(Shim *s) { return s->drv.slide_unknown; }
 uint32_t shim_cursor(Shim *s) { return s->drv.cursor; }
 uint32_t shim_serial(Shim *s) { return s->drv.serial; }
 /* 00117428 on a caller-supplied voice table. */
@@ -354,6 +373,8 @@ def native_driver():
     lib.shim_no_voice.argtypes=[P];lib.shim_no_voice.restype=C.c_uint
     lib.shim_track.argtypes=[P,C.c_int,C.POINTER(C.c_int)]
     lib.shim_voice.argtypes=[P,C.c_int,C.POINTER(C.c_int)]
+    lib.shim_voice_slide.argtypes=[P,C.c_int,C.POINTER(C.c_int)]
+    lib.shim_slide_unknown.argtypes=[P];lib.shim_slide_unknown.restype=C.c_uint
     lib.shim_cursor.argtypes=[P];lib.shim_cursor.restype=C.c_uint32
     lib.shim_serial.argtypes=[P];lib.shim_serial.restype=C.c_uint32
     lib.shim_allocate.argtypes=[P,C.POINTER(C.c_int),C.POINTER(C.c_uint32),C.c_int,C.c_int,C.c_int]
@@ -411,7 +432,7 @@ class Registry:
         return o
 
 
-def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None,mono=False):
+def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None,mono=False,slides=False):
     """Run original 001FB9F0/0011A218/0011A070 + 001152D8 and the native
     driver side by side, tick by tick. scenario = {tick: [('start', id, l, r)
     | ('request', track, l, r) | ('stop', track, hard)]}. The D_002817C0
@@ -477,11 +498,17 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None,mon
             lib.shim_voice(s,v,buffer)
             expected=tuple(o.load(VOICE_TABLE+v*0x6A+off,2) for off in VOICE_FIELDS)
             assert tuple(x&0xFFFF for x in buffer[:16])==expected,(tick,'voice',v,tuple(buffer[:16]),expected)
+            if slides:
+                lib.shim_voice_slide(s,v,buffer)
+                expected=tuple(o.load(VOICE_TABLE+v*0x6A+off,2) for off in SLIDE_FIELDS)
+                assert tuple(x&0xFFFF for x in buffer[:6])==expected,(tick,'slide',v,tuple(buffer[:6]),expected)
+                stats['slide_steps']=stats.get('slide_steps',0)+(expected[1]==1)
         assert lib.shim_cursor(s)==o.load(0x27F740+0x30) and lib.shim_serial(s)==o.load(0x27F740+0x34)
         lib.shim_render(s,None,tick_frames(tick),48000)
         if tick>last and (settle(tick,lib,s) if settle else not lib.shim_busy(s)):break
     else:raise AssertionError(('scenario did not settle',dict(list(scenario.items())[:3])))
     stats['ticks']=tick+1;stats['no_voice']=lib.shim_no_voice(s)
+    stats['slide_unknown']=lib.shim_slide_unknown(s)
     lib.shim_free(s)
     lib.em_sfx_output_mode_00119870(0)
     return stats
@@ -596,6 +623,45 @@ def _sfx_cost(tagged):
     if kind=='C':return 1000+max(job)
     entry=job[0] if kind=='A' else job
     return max([e['tick'] for e in entry.get('events',()) if 'op' in e] or [0])
+
+
+# Pass V: every exported script with a volume slide (B0 07, 001181B0's SFX
+# arm; 00116598's step through 00119080), in lockstep with the original over
+# a capture of its own scope (the bank headers and handles as loaded there):
+# the car's 0x8B4 in AREA02 sub 0, 0x89E / 0x8A0 in AREA00 subs 0 and 1.
+SLIDE_CAPTURES={(2,0):'s87/route_a02/a02_01_switch',(0,0):'s87/route_a00/a00_05_ferry_deck',
+                (0,1):'s87/route_a00/a00_08_switch'}
+
+
+def _slide_case(job):
+    """One pass-V lockstep: (entry id, scope, request pair)."""
+    sid,scope,(left,right)=job
+    report,path=_SFX['report'],_SFX['path']
+    entry=[e for e in report['entries'] if e['id']==sid and tuple(e['scope'])==scope][0]
+    ram=(refs.capture(SLIDE_CAPTURES[scope])/'eeMemory.bin').read_bytes()
+    assert tuple(ram[0x810700:0x810702])==scope,(hex(sid),scope)
+    assert struct.unpack_from('<H',ram,0x27F740+0x3A)[0]==60      # the tick divisor
+    registry=Registry(_SFX['elf'],ram,report,path,area=scope)
+    scenario={0:[('start',sid,left,right)]}
+    if endless(entry):scenario[max(e['tick'] for e in entry['events'] if 'op' in e)+60]=[('stop',('start',0),0)]
+    stats=lockstep(_SFX['lib'],registry,scenario,slides=True)
+    assert stats['slide_steps'] and not stats['slide_unknown'],(hex(sid),stats)
+    return dict(id=hex(sid),scope=list(scope),request=[left,right],ticks=stats['ticks'],
+                volume=stats['volume'],slide_steps=stats['slide_steps'])
+
+
+def slide_oracle(elf,lib,report,path):
+    import export_sfx_registry as X
+    entries=[(e['id'],tuple(e['scope'])) for e in report['entries'] if e['state']==X.STATE_AUDIBLE and
+             any(ev.get('op')==X.OP_VOLUME for ev in e['events'])]
+    assert entries==[(0x89E,(0,0)),(0x8A0,(0,0)),(0x89E,(0,1)),(0x8A0,(0,1)),(0x8B4,(2,0))],entries
+    pairs=((0x1000,0x1000),(0x800,-0x400))
+    # Quick: each script once (0x89E / 0x8A0 in one sub each), the request
+    # pairs alternating; full: every entry with both pairs.
+    jobs=[(sid,scope,pair) for sid,scope in entries for pair in pairs] if FULL else \
+        [(0x89E,(0,0),pairs[0]),(0x8A0,(0,1),pairs[1]),(0x8B4,(2,0),pairs[0])]
+    _SFX.update(elf=elf,lib=lib,report=report,path=path)
+    return parallel_map(_slide_case,jobs,cost=lambda job:1200 if job[0]==0x8B4 else 400)
 
 
 def registry_oracle(elf,ram):
@@ -939,7 +1005,8 @@ def registry_oracle(elf,ram):
         o=SfxOracle(elf.data);o.run(0x1281C0,floats=(value,))
         assert signed(o.r[2])==lib.em_sfx_request_word(C.c_float(value/4096.0)),value
         assert signed(o.r[2])==int(value),value
-    return dict(entries=len(report['entries']),area11_entries=len(area11),cases=cases,
+    slides=slide_oracle(elf,lib,report,registry.path)
+    return dict(entries=len(report['entries']),area11_entries=len(area11),cases=cases,slides=slides,
         area11_all=area11_all,full_cases=area11_all*len(REQUESTS),unsupported=len(unsupported),
         census_ids=census['ids'],census_added=len(added),census_run=len(census_run),route_ids=route_ids,
         reachable=reachable_ids,
@@ -1053,6 +1120,11 @@ def main():
           f"{model['entries']} entries with SPU2-model ENVX feedback ({model['ticks']} ticks, {model['key_on']} key-ons, "
           f"{model['key_off']} key-offs, {model['pitch']} pitch and {model['volume']} volume words); scenarios "
           + ', '.join(f"{k} {v['ticks']} ticks/{v['starts']} starts/{v['key_off']} key-offs" for k,v in concurrent.items()))
+    print(f"PASS volume slides (B0 07: 001181B0 + 00116598 / 00119080) in lockstep with the original over "
+          f"their own scope's capture: " + ', '.join(f"{r['id']} ({r['scope'][0]}, {r['scope'][1]}) "
+          f"{r['ticks']} ticks/{r['volume']} volume words/{r['slide_steps']} slide steps"
+          for r in registry['slides']) + (" (every entry, both request pairs)" if FULL else
+                                          " (quick: each script once; EM_TEST_FULL=1 runs all five, both pairs)"))
     print(f"PASS 00117428 x{registry['allocations']} random voice tables, 001FC3C0/001FC520 x{registry['loop_service_cases']} "
           f"service cases, {len(registry['envx'])} captured ENVX feedback words = ADSR model (PCSX2 consistency, not hardware), "
           f"{iop['switch_register_writes']} KON/KOFF/effect register writes from the original IOP driver")

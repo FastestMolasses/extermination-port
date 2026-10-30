@@ -340,7 +340,10 @@ def runtime_bundle(original, layouts, helps):
     return struct.pack('<4s5I', b'EMHS', 2, len(payload), len(layouts), len(helps), 0) + payload
 
 
-HOVERS, INFECTIONS = range(5), (0, 100)
+# UI+0x11 0..4 are the hub's hovers; 5 is the ITEM root's HEALING hover,
+# which 0020CDC0 phase 2 (HEALING kinds 2..4's count-up, page 8) still holds
+# when it draws the hub (the fork recording a02_s1_menu_cure).
+HOVERS, INFECTIONS = range(6), (0, 100)
 SECONDARY_ICONS = [0x20045ee59d421e40, 0x20045385554221c2, 0x20045305554221a6,
                    0x200451a5554221a2, 0x20045325554221b2]
 

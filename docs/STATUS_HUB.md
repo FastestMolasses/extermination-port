@@ -121,7 +121,12 @@ EE RAM, GS data, scratchpad and the transition trace. The image confirms
 the full-body Dennis and SPR4 models, original profile text, health gauge
 and inventory readouts. `tools/export_status_hub.py` is ongoing artwork
 recovery from that actual resident GS state. It executes the original main
-drawer into ten hover/terminal-infection layouts and exports thirteen
+drawer into twelve hover/terminal-infection layouts (UI+0x11 0..5: since
+2026-10-30 also 5, the ITEM root's HEALING hover, which 0020CDC0 phase 2
+still holds when it draws the hub for HEALING kinds 2..4's count-up: the
+fork recording a02_s1_menu_cure; proof:
+`EM_TEST_FULL=1 python3 tools/test_status_hub_ui_reference.py` runs all of
+them against the original) and exports thirteen
 textures (including every `00209860` secondary icon) and ten help lines. A separate frozen trace expands the original health,
 battery and ammunition workers into 70 ordered commands. The original
 numeric formatter runs; byte string copy/append/length and font packet

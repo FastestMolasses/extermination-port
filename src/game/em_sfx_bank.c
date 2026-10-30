@@ -53,8 +53,12 @@ static int emsr_op_valid(const EmSfxRegistry *registry, const EmSfxOp *op,
     switch (op->kind) {
     case EM_SFX_OP_KEY_ON: {
         /* Pitch register range; tone flags 0x02 (noise, command 0x33) and
-         * 0x20 (00115850 voice +0x14 modulation) are never reproduced. */
-        if (b[25] || b[26] || b[27] || read32(b + 28) || !op->pitch ||
+         * 0x20 (00115850 voice +0x14 modulation) are never reproduced. A
+         * slide script's key-on carries the level and the product, which
+         * must give its scalar. */
+        if (op->product && (op->product >> 40 || ((op->product * op->level) >> 27) != op->scalar))
+            return 0;
+        if ((!op->product && (b[25] || b[26])) || b[27] || !op->pitch ||
             op->pitch > 0x3FFF || op->scalar > EMSR_MAX_SCALAR ||
             (op->flags & 0x22) || op->sample >= registry->sample_count)
             return 0;
@@ -65,6 +69,7 @@ static int emsr_op_valid(const EmSfxRegistry *registry, const EmSfxOp *op,
                (uint32_t)((int64_t)ladder * 44100 / 48000) == op->pitch;
     }
     case EM_SFX_OP_PORTAMENTO:
+    case EM_SFX_OP_VOLUME:
         for (unsigned i = 5; i < 25; ++i)
             if (b[i]) return 0;
         return !b[27] && !read32(b + 28);
@@ -149,6 +154,11 @@ int em_sfx_registry_load(EmSfxRegistry *registry, const char *path)
             op->priority = b[24];
             op->length = b[25];
             op->depth = b[26];
+            if (op->kind == EM_SFX_OP_KEY_ON) {
+                op->level = b[25];
+                op->product = (uint64_t)b[26] << 32 | read32(b + 28);
+                op->length = op->depth = 0;
+            }
             key_ons += op->kind == EM_SFX_OP_KEY_ON;
             /* The script ends with exactly one FF 2F, ticks never go back. */
             if ((j && op->tick < entry->ops[j - 1].tick) ||
@@ -157,6 +167,14 @@ int em_sfx_registry_load(EmSfxRegistry *registry, const char *path)
             if (!emsr_op_valid(&next, op, b)) goto done;
         }
         if (entry->state == EM_SFX_STATE_AUDIBLE && !key_ons) goto done;
+        /* A volume slide needs every key-on of its script to carry the
+         * product (the exporter writes it for exactly those scripts). */
+        int slides = 0, carried = 0;
+        for (unsigned j = 0; j < entry->count; ++j) {
+            slides |= entry->ops[j].kind == EM_SFX_OP_VOLUME;
+            carried += entry->ops[j].kind == EM_SFX_OP_KEY_ON && entry->ops[j].product;
+        }
+        if (slides ? carried != (int)key_ons : carried != 0) goto done;
     }
     for (unsigned i = 0; i < next.sample_count; ++i) {
         EmSfxSample *sample = &next.samples[i];
@@ -680,6 +698,9 @@ static void key_on(EmSfxDriver *driver, int index, const EmSfxOp *op,
     voice->bank = track->handle;
     voice->pan = op->pan;
     voice->scalar = op->scalar;
+    /* +0x2C; 00115850 leaves the slide fields +0x46..+0x56 as they were. */
+    voice->level = op->level;
+    voice->product = op->product;
     voice->fine = op->fine;
     voice->bend = 0x40;
     voice->range = op->range;
@@ -739,9 +760,39 @@ static void portamento(EmSfxDriver *driver, int index, const EmSfxOp *op)
     }
 }
 
+/* 001181B0, the SFX track's arm (+0x34 == 1): every running kind-2 voice
+ * of this track and bank with the event's program and note starts a slide
+ * from its level to the target over (len << 2) * tempo / 60 ticks (the
+ * tick divisor D_0027F740+0x3A = 60, as for 00118078). */
+static void volume(EmSfxDriver *driver, int index, const EmSfxOp *op)
+{
+    const EmSfxTrack *track = &driver->tracks[index];
+    for (int i = 0; i < EM_SFX_VOICES; ++i) {
+        EmSfxVoice *voice = &driver->voices[i];
+        if (voice->state != 1 || voice->kind != 2 ||
+            voice->bank != track->handle || voice->prog != op->prog ||
+            voice->note != op->note || voice->owner != index) continue;
+        voice->vslide = 1;
+        voice->vtarget = op->depth;
+        voice->vstart = voice->level;
+        voice->vremaining = voice->vtotal = (uint16_t)((op->length << 2) * 60 / 60);
+    }
+}
+
 static int32_t mips_div(int32_t a, int32_t b)
 {
     return b ? a / b : 0;
+}
+
+/* 00119080(a, b, c, d): (a + ((b - a) * d) / c) & 0xFF over the low
+ * bytes (a signed division; c is never 0 on a slide step: the step runs
+ * only while d, a count no larger than c, is not 0, except when the
+ * length's low byte wraps, which mips_div answers 0). */
+static uint16_t slide_level(unsigned a, unsigned b, unsigned c, unsigned d)
+{
+    a &= 0xFFu;
+    return (uint16_t)(((int32_t)a + mips_div(((int32_t)(b & 0xFFu) - (int32_t)a) * (int32_t)(d & 0xFFu),
+                                             (int32_t)(c & 0xFFu))) & 0xFF);
 }
 
 /* 00116598 for one voice (the paths the registry scripts reach). */
@@ -793,7 +844,28 @@ static void voice_update(EmSfxDriver *driver, int index, EmSfxCommandSink sink,
         emit(driver, sink, context, 6, index,
              (uint32_t)scaled * 0x1B9u / 0x1E0u, 0);
     }
-    if (voice->kind == 2 && track->volume_dirty) {
+    if (voice->kind == 2 && (voice->vslide == 1 || track->volume_dirty)) {
+        if (voice->vslide == 1) {
+            /* 00116598's slide step (+0x46): +0x54 masked in place. */
+            if (voice->vtarget != voice->vstart) {
+                voice->vremaining &= 0x7FFF;
+                if (voice->vremaining) {
+                    voice->level = slide_level(voice->vtarget, voice->vstart, voice->vtotal,
+                                               voice->vremaining);
+                    voice->vremaining--;
+                } else {
+                    voice->level = voice->vtarget;
+                    voice->vslide = 0;
+                }
+            } else {
+                voice->vslide = 0;
+            }
+            /* 001179E0 with the new +0x2C. */
+            if (voice->product)
+                voice->scalar = (uint32_t)((voice->product * voice->level) >> 27);
+            else if (voice->scalar)
+                driver->slide_unknown++;
+        }
         uint16_t words[2];
         em_sfx_volume_words(voice->scalar, voice->pan, track->left,
                             track->right, words);
@@ -833,6 +905,7 @@ void em_sfx_driver_tick(EmSfxDriver *driver, EmSfxCommandSink sink,
             if (op->kind == EM_SFX_OP_KEY_ON) key_on(driver, i, op, sink, context);
             else if (op->kind == EM_SFX_OP_KEY_OFF) key_off(driver, i, op);
             else if (op->kind == EM_SFX_OP_PORTAMENTO) portamento(driver, i, op);
+            else if (op->kind == EM_SFX_OP_VOLUME) volume(driver, i, op);
             else {                        /* 00117C28 (SFX track) */
                 track->running = 0;
                 track->effect = 0;

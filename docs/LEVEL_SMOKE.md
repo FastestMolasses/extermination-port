@@ -32,6 +32,18 @@ boundary is AREA04 entry 0's state 0, after which the checker compares the
 1076 recorded rows to the trace end; it needs its fork drive table
 (`build/drive_replay/route_a02_05_20261030`) and the rand() anchor
 `entry04` (`build/rand_replay/route_a02_05_20261030`).
+Since lane B2
+(2026-10-30) three more side beats, fork recordings of HEALING's menu use
+(tools/capture_heal_beats.py), are phases: a01r_s2 (from a01r_02: item
+0x20 with no device) and a02_s1 (from a01r_03: item 0x20 at the bed) in
+the revisit harness, and a01_s8 (from a01_s5, a side of a side: the
+fire's burn, then item 0x1E's count-up) in the AREA01 harness
+(`tools/test_level_smoke_area01.py --side a01_s8 --rand-replay
+build/rand_replay_sides/<table>`: the burn's reaction draws rand(), and the
+native stream leaves a01_s5 at another state, so the recording's state is
+installed at a01_s8's row 0, comparison only). A side of a side follows
+Phase.from_side back (em_level_smoke_test.c side_played,
+level_smoke_area01.phase_path, test_level_smoke.py --require-through).
 
 AREA00 now has an opt-in input driver and strict checker, but no native
 phase is certified. Its short default verifies the harness only; see

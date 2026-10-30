@@ -469,7 +469,7 @@ native or the gap):
 | 0020D930 | `em_menu_hover_0020D930` (all three tables; chain C8b) | the one owner: the hub, the ITEM root and 002125B0 call it |
 | 001281C0 (float_to_int) | `em_ee_cvt_w_s_bits` semantics | |
 | 001026A0, 001029C0, 00102BB0 | the SDK vector helpers (`em_sdk_vu0` / player record helpers) | |
-| 00185420 | the host's `page_find_device` (`em_item_device_find`: the battery branch of 00184D20) | the other kinds are unreachable in AREA11 (section 7); a device other than the panel faults |
+| 00185420 | the host's `page_find_device` (`em_item_device_find`: 00184D20 for every item id, ITEM_DEVICE_LOOKUP.md) | in AREA11 a device other than the panel faults; AREA01 / AREA02 use the live composition's list |
 | 001AFF10 / 001B0000 / 001AFF90, 001C6120 / 001CA5E0 / 001C6150 / 001AF7C0 / 001CB5B0 / 001C62C0 / 001C6380, 001CB480 | `em_status_models_call` (MAP, section 7) | the UI pool and the MAP bank |
 | 00182B30 | the host's `page_player_00182B30` (2026-10-28): `em_player_stage_live_00182B30`, the player stage's own translation `em_player_stage_scripted_check` (test-player-stage-workers-reference) over the live player record | reached only after 00185420 finds a device (unreachable in AREA11, section 7) |
 | 0015C700 | `em_player_0015C700` (with 0015C7C0; chain C8b) through `player_pose_0015C700` | |
@@ -580,7 +580,7 @@ dispatches every callee by original address:
 | 001FCF60 / 001FE070 | `em_message_live_record_draw` / `em_message_live_fe070` (the record container *D_0028A49C, module 0 slot 3, is a view at its original address 0x00B0B800) |
 | 0020D930 / 0020E020 / 0020AC70 | `em_menu_hover_0020D930` with 001B62C0's record at 0x700038A0, the shared trail reset, `em_item_trail_step` (a2 != 0 zeroes the new slot; the base floats get 1792 / 1824 added) |
 | 001FF080 | the runtime's module worker |
-| 00185420 | the host's device lookup (the battery branch; a device other than the panel faults) |
+| 00185420 | the host's device lookup (every item id; in AREA11 a device other than the panel faults) |
 | 001C47E0 / 0015C700 | `em_pickup_items_001C47E0` over the item block; `player_pose_0015C700` (`em_player_0015C700`) after the vitals are stored |
 | 00211240 / 00211310 / 002117D0 / 00213A00 / 00213C50 / 00213CC0 / 001FCF30 | this lane's translations, when an AREA01 page calls them |
 | 001AFF10 / 001B0000 / 001AFF90 and MAP's model callees | `em_status_models_call` (below, "MAP") |
@@ -589,9 +589,18 @@ dispatches every callee by original address:
 | 00182B30 | the host's `player_00182B30` (EmStatusPagesHost, since 2026-10-28): the live player record through the player stage's translation |
 | 0015C750 | the host's `player_0015C750` (EmStatusPagesHost, since 2026-10-28): em_area02_misc's translation over the live record; unreachable in AREA11 (below) |
 
-The vitals D_00810858 / 5C are g.status (the port's one copy); the
-player's +0x220 (D_008104D0) is the same value there, so a +0x220 store
-that D_00810858 does not hold faults. D_00810C61 / C62 / CB4 are
+The vitals D_00810858 / 5C are the progress block's words (the port's one
+copy); the player's +0x220 (D_008104D0) is the same value there, so a
++0x220 store that D_00810858 does not hold faults. The one exception is
+HEALING's count-up (002160B0 state 5, the medicines 0x1E / 0x1F): the
+original counts D_00810858 up while +0x220 keeps its value until the commit
+stores both (the fork recording a01_s8_fire_medicine: +0x220 stays 95 while
+D_00810858 counts 95 -> 100). While a page tick leaves HEALING in state 5,
+em_status_pages_live keeps the counted D_00810858 itself and leaves the
+scene word (+0x220) alone; the commit's 0015C700 call hands the target to
+the scene word. Another page call while the count is open faults (the
+count only ends in its commit: state 5 commits on every 0x870 button, and
+0020CDC0 phase 3 does not close the screen while D_008106B0 is set). D_00810C61 / C62 / CB4 are
 em_weapon's (a fire mode em_weapon refuses faults). 002160B0 state 4's
 probe byte 0x010202B0 holds 0x2B, the byte every route image and the
 status-hub image hold there (section 2).
@@ -615,7 +624,8 @@ constants, over the world and every module state (full run).
   0x1F, 0x32, 0x10 and 0x08 (the interaction scene's pickups); 001C40B0's
   default case raises D_00810C64 + type, so only kinds 0 / 1 (C82 / C83)
   can be owned; C84..C86 are 0 in every route capture 00..15.
-- 00185420's non-battery kinds, and so EVENT's Cross (00182B30 itself is
+- 00185420's non-battery kinds (translated since 2026-10-30; no AREA11
+  owner has those classes), and so EVENT's Cross (00182B30 itself is
   bound since 2026-10-28, through the player stage): EVENT's list
   holds C87 / C88 and the event items 0x25..0x3B (0x810C89..); all are 0
   in every route capture and no AREA11 take writes them (the key 0x32

@@ -379,6 +379,9 @@ static const Phase k_phases[] = {
     {"a01_s5", "a01_s5_duct (side, from a01_s0_npc_first_talk)", 0,
      "control-room duct and healing pickup after the first NPC talk", "AREA01 side route and strict capture comparison",
      a01_route_begin, a01_route_frame, 0, 1, 2, 1},
+    {"a01_s8", "a01_s8_fire_medicine (side, from a01_s5_duct)", 0,
+     "the fire's burn, then item 0x1E from the menu: HEALING's count-up", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 1, 1},
     {"a01_s3", "a01_s3_fire_contact (side, from 15_level_exit)", 0,
      "fire contact from the completed AREA01 arrival idle", "AREA01 side route and strict capture comparison",
      a01_route_begin, a01_route_frame, 0, 1, 0, 1},
@@ -475,6 +478,9 @@ static const Phase k_phases[] = {
     {"a01r_s1", "a01r_s1_door14_locked (side, from a01r_02_bridge)", 0,
      "AREA01 revisit side route: door [14], locked", "AREA01_REVISIT.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01r_s2", "a01r_s2_menu_cure_none (side, from a01r_02_bridge)", 0,
+     "AREA01 revisit side route: HEALING's item 0x20 from the menu, no device", "LEVEL2_CRASHES.md; capture check",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
     {"a01r_03", "a01r_03_door16", 0,
      "AREA01 revisit recorded pad route and the AREA02 arrival", "AREA01_REVISIT.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
@@ -482,6 +488,9 @@ static const Phase k_phases[] = {
      * EM_LEVEL4_PAD_DIR (tools/test_level_smoke_area01r.py --prepare). */
     {"a02_s0", "a02_s0_mts_bed (side, from a01r_03_door16)", 0,
      "AREA02 side route: the bed's use-item prompt and the cure", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a02_s1", "a02_s1_menu_cure (side, from a01r_03_door16)", 0,
+     "AREA02 side route: HEALING's item 0x20 from the menu at the bed", "LEVEL2_CRASHES.md; capture check",
      a01_route_begin, a01_route_frame, 0, 1, 0, 1},
     {"a02_00", "a02_00_duct", 0,
      "AREA02 recorded pad route: the duct and the sub change to sub 0", "LEVEL3_BINDING.md; independent capture check required",
@@ -558,11 +567,17 @@ static uint8_t task_byte(unsigned offset)
     return b ? *b : 0xFF;
 }
 
-/* A side phase the run to `until` plays: `until` itself, or the side phase
- * it starts from (Phase.from_side). */
+/* A side phase the run to `until` plays: `until` itself, or a side phase
+ * it starts from (Phase.from_side, followed back: a01_s8 from a01_s5 from
+ * a01_s0). */
 static int side_played(int i)
 {
-    return i == t.until || (k_phases[t.until].from_side && i == t.until - k_phases[t.until].from_side);
+    for (int j = t.until;; j -= k_phases[j].from_side) {
+        if (i == j)
+            return 1;
+        if (!k_phases[j].from_side)
+            return 0;
+    }
 }
 
 static void report_not_live(int from)

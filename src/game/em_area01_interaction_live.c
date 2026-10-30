@@ -182,9 +182,9 @@ int em_area01_interaction_call(EmArea01Interaction *s,EmArea01Call *c)
     if (c->function==0x00185420u) {
         /* 00185420(item) (byte-matched C) over D_00275B5C / D_00275B64:
          * the first node with +0 bit 0, +2 bit 7 and +0xB == 0 that
-         * 00184D20(D_008102B0, node, item) accepts; em_item_device_find is
-         * that test for the battery items 0x1B..0x1D (any other item
-         * faults, as there). */
+         * 00184D20(D_008102B0, node, item) accepts (em_item_device_find,
+         * every item id: the batteries, the cure 0x20 at the bed, the
+         * event items 0x23..0x27); 0 when none does. */
         Frame f={.binding=s,.player=0x008102B0u,.sp=c->sp};
         const unsigned item=(unsigned)c->a[0];
         int count=(int16_t)read_value(&f,0x00275B64u,2);

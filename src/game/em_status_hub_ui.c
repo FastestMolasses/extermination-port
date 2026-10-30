@@ -19,7 +19,9 @@ enum {
     RECORD_TEXT,
     RECORD_BLEND
 };
-enum { LAYOUTS = 10, HELP_LINES = 10, LAYOUT_MAX = 128, HELP_MAX = 16 };
+/* Layouts: UI+0x11 0..5 (the hub's hovers 0..4 and 5, the ITEM root's
+ * HEALING hover, which 0020CDC0 phase 2 draws with) x infection 100 or not. */
+enum { LAYOUTS = 12, HELP_LINES = 10, LAYOUT_MAX = 128, HELP_MAX = 16 };
 enum { COMMAND_MAX = 1024, ARENA_MAX = 16384, TRAIL_TRIANGLES = 512, SPRITE_MAX = 64 };
 enum { MARKER_MAX = 64 };
 enum { TEXT_INFECTION = 1, TEXT_NULL_STYLE = 2 };
@@ -548,7 +550,7 @@ int em_status_hub_ui_prepare(EmStatusHubUI *ui, const EmStatusHubDisplay *displa
     ui->prepared = 0;
     ui->count = ui->arena_used = ui->trail_count = 0;
     ui->mode = 0;
-    if (!display || !stick || !ui_clock || !trail || display->hover > 4 ||
+    if (!display || !stick || !ui_clock || !trail || display->hover > 5 ||
         !isfinite(display->infection) || display->infection < 0 || display->infection > 100 ||
         !isfinite(stick->x) || !isfinite(stick->y) || !isfinite(stick->magnitude) ||
         !isfinite(stick->angle))

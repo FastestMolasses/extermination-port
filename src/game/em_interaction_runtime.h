@@ -45,6 +45,12 @@ int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owne
  * nonzero selector and a free player; writes nothing to the frame. 1
  * claimed, 0 refused. */
 int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner);
+/* 00184BA0's claim on the AREA01 / AREA02 live list (em_area11_interaction_
+ * host_claim_scan): as em_interaction_runtime_claim, but 3B8F (player_ready)
+ * may hold 1. The original tests only 3B8D and the fade / EF gates; 3B8F
+ * stays 1 after a take the player never took over (the duct's crawl take:
+ * 00182DF0, which clears it, never runs). */
+int em_interaction_runtime_claim_use(EmInteractionRuntime *runtime, const void *owner);
 /* The player stage's 00182DF0 released the owner's player (3B8F = 0,
  * +4 = 1): the token ends. 1, or 0 when no owner holds it. */
 int em_interaction_runtime_release(EmInteractionRuntime *runtime);

@@ -390,6 +390,8 @@ def script_events(data, position, limit=0x1000):
     +0x1C = 0x1E0000/60 per tick while the track runs). Dispatch:
       A0 note vel prog   00115850 (vel 0 -> 001176E0 key-off), cursor +4
       B0 41 a2 a3 prog note  00118078 portamento set-up, cursor +6
+      B0 07 a2 a3 prog note  001181B0 volume slide set-up (the SFX track's
+                         +0x34 == 1 arm: length a2, target a3), cursor +6
       FF 2F 00           00117C28 end of track (no delta)
     Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
     """
@@ -415,6 +417,11 @@ def script_events(data, position, limit=0x1000):
             position += 5
             events.append(dict(kind='portamento', tick=tick, note=note, prog=prog,
                                length=length, depth=depth))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x07:
+            _, length, target, prog, note = data[position:position + 5]
+            position += 5
+            events.append(dict(kind='volume', tick=tick, note=note, prog=prog,
+                               length=length, depth=target))
         elif running & 0xF0 == 0xB0:
             raise Unsupported('script', f'unsupported controller 0x{data[position]:02X}')
         else:
@@ -433,7 +440,7 @@ def script_events(data, position, limit=0x1000):
     raise Unsupported('script', 'truncated')
 
 
-OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END = 1, 2, 3, 4
+OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME = 1, 2, 3, 4, 5
 OP_MAX = 32
 # D_00241D70 entries exported for 00117918: the A0 bend is always 0x40, so
 # indices stay within (11|12)*16 + fine(-128..127) + 0xD0 +- 15 (portamento).
@@ -486,6 +493,9 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
             if event['kind'] == 'portamento':
                 out.append(dict(event, op=OP_PORTAMENTO))
                 continue
+            if event['kind'] == 'volume':
+                out.append(dict(event, op=OP_VOLUME))
+                continue
             if event['vel'] == 0:
                 # 001176E0: keys off this track's sustained (voice +0x0C)
                 # voices with the same note and program byte, at run time.
@@ -515,8 +525,13 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
             if not 0 < pitch <= 0x3FFF:
                 raise Unsupported('pitch range', str(pitch))
             velocity = bank.u8(velocities + event['vel'] + 2)
-            scalar = (channel[14] * channel[3] * tone[11] * velocity *
-                      bank.u8(program + 1) * master) >> 27
+            # 00115850's voice +0x28 / +0x34 / +0x2E / +0x2A / +0x30 (the
+            # five factors a volume slide keeps) and +0x2C (the velocity
+            # level, the factor 001181B0's slide moves); 001179E0 multiplies
+            # all six (64-bit) and shifts by 27.
+            product = (channel[14] * channel[3] * tone[11] *
+                       bank.u8(program + 1) * master)
+            scalar = (product * velocity) >> 27
             pan = elf.u16(A.PAN_TABLE + 2 * (tone[12] >> 2))
             tone_sample = struct.unpack_from('<H', tone, 4)[0]
             offset, raw, loop_block = sample_blocks(bank, tone_sample)
@@ -534,6 +549,7 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                             tone_offset=tone_at, center=tone[2], fine=fine,
                             range=tone[13], alloc=tone[0], priority=tone[1],
                             pitch=pitch, scalar=scalar, pan=pan,
+                            level=velocity, product=product,
                             adsr1=struct.unpack_from('<H', tone, 6)[0],
                             adsr2=struct.unpack_from('<H', tone, 8)[0],
                             flags=flags, reverb=bool(flags & 0x80),
@@ -543,6 +559,12 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                             unit_words=[left, right]))
         if not [e for e in out if e.get('op') == OP_KEY_ON]:
             raise Unsupported('no voice')
+        # A script with a volume slide: its key-ons carry the level and the
+        # product the driver recomputes 001179E0's scalar from.
+        slide = any(e.get('op') == OP_VOLUME for e in out)
+        for e in out:
+            if e.get('op') == OP_KEY_ON:
+                e['slide'] = slide
         if len([e for e in out if 'op' in e]) > OP_MAX:
             raise Unsupported('script', f'more than {OP_MAX} operations')
         return dict(base, state=STATE_AUDIBLE, bank=f'{bank.name}#row{bank.row}',
@@ -662,6 +684,16 @@ def export(out_dir: Path):
                             entry['state'], len(ops),
                             REASONS.get(entry.get('reason'), 0), bank, 0)
         for op in ops:
+            # Key-ons of a script with a volume slide (OP_VOLUME): the bytes
+            # after `priority` hold the velocity level (voice +0x2C) and the
+            # 40-bit product of the other five 001179E0 factors (bits 32..39,
+            # then 0..31); every other key-on leaves them 0. OP_VOLUME keeps
+            # its length / target where the portamento keeps length / depth.
+            tail = 0
+            if op['op'] == OP_KEY_ON and op.get('slide'):
+                assert 0 < op['product'] < 1 << 40 and (op['product'] * op['level']) >> 27 == op['scalar']
+                op = dict(op, length=op['level'], depth=op['product'] >> 32)
+                tail = op['product'] & 0xFFFFFFFF
             blob += struct.pack(
                 '<HBBBBHHHIHHBbBBBBBBI', op['tick'], op['op'], op.get('note', 0),
                 op.get('prog', 0), op.get('flags', 0), op.get('sample', 0),
@@ -669,7 +701,7 @@ def export(out_dir: Path):
                 op.get('adsr1', 0), op.get('adsr2', 0), op.get('center', 0),
                 op.get('fine', 0), op.get('range', 0), op.get('alloc', 0),
                 op.get('priority', 0), op.get('length', 0), op.get('depth', 0),
-                0, 0)
+                0, tail)
     for sample in ordered:
         loop = sample['loop_start']
         blob += struct.pack('<II', len(sample['pcm']),

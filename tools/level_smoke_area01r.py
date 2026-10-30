@@ -28,12 +28,15 @@ MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
               'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel',
               'a02_05': 'a02_05_progression_exit'}
-SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed'}
+SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed',
+              # HEALING's item 0x20 from the menu (tools/capture_heal_beats.py)
+              'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure'}
 # em_level_smoke_test.c's phase order: each side right after its source.
-ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_03', 'a02_s0', 'a02_00', 'a02_01',
-                'a02_02', 'a02_03', 'a02_04', 'a02_05')
+ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_s2', 'a01r_03', 'a02_s0', 'a02_s1',
+                'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05')
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
-           'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a02_00': 'a01r_03', 'a02_s0': 'a01r_03',
+           'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a01r_s2': 'a01r_02', 'a02_00': 'a01r_03',
+           'a02_s0': 'a01r_03', 'a02_s1': 'a01r_03',
            'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03',
            'a02_05': 'a02_04'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;

@@ -209,6 +209,17 @@ def registry_runtime():
                          (op+5,b'\x20'),(op+5,b'\x02'),(op+27,b'\1'),(op+25,b'\1'),
                          (op+20,bytes([raw[op+20]^1])),(second-32+2,b'\1')):
         data=bytearray(raw);data[offset:offset+len(value)]=value;invalid.append(bytes(data))
+    # A volume-slide script (0x8B4 in (2, 0)): a key-on whose level does not
+    # give its scalar, a key-on without the product, a slide op with a
+    # nonzero tail.
+    at=first_entry
+    for entry in entries:
+        if (entry['id'],entry['scope'])==(0x8B4,[2,0]):break
+        at+=16+32*len(entry['ops'])
+    else:raise AssertionError('no 0x8B4 slide entry')
+    slide_op=at+16+32*[o['kind'] for o in entry['ops']].index(5)
+    for offset,value in ((at+16+25,bytes([raw[at+16+25]+1])),(at+16+25,bytes(7)),(slide_op+28,b'\1')):
+        data=bytearray(raw);data[offset:offset+len(value)]=value;invalid.append(bytes(data))
     duplicate=bytearray(raw)                        # entry 1 := entry 0 scope/id
     duplicate[second:second+8]=raw[first_entry:first_entry+8];invalid.append(bytes(duplicate))
     at=second                                       # a later op tick earlier than its predecessor

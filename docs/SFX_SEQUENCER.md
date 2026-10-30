@@ -91,9 +91,10 @@ CAPTURES_AUDIO.md; `tools/level_smoke_audio.py`):**
 | `001152D8` track loop: fetch/running status (`00117088`), VLQ delta (`00118E60`), accumulator `+0x20` against `+0x1C = 0x1E0000/60` | `script_events` in `tools/export_sfx_registry.py` gives operation ticks; `em_sfx_driver_tick` dispatches them in track order | Decomp C plus lockstep |
 | `A0 note vel prog` → `00115850` (vel 0 → `001176E0`) | `EM_SFX_OP_KEY_ON` / `EM_SFX_OP_KEY_OFF` | NEARMISS C plus lockstep |
 | `B0 41 len depth prog note` → `00118078` (cursor +6) | `EM_SFX_OP_PORTAMENTO` | asm of `00118078`/`00116598` |
+| `B0 07 len target prog note` → `001181B0`, the SFX track's arm (`+0x34 == 1`, cursor +6): every running kind-2 voice of the track and bank with that program and note gets `+0x46 = 1`, `+0x50` = target, `+0x52` = its level `+0x2C`, `+0x54 = +0x56 = (len << 2) · 60 / 60` | `EM_SFX_OP_VOLUME` (`volume`) | byte-matched decomp C; lockstep pass V |
 | `FF 2F 00` → `00117C28` (SFX track: `+0x34=0`, `+0x42=0`, `+0x3E=1`) | `EM_SFX_OP_END` | Decomp C |
 | `00117428` allocator | `em_sfx_driver_allocate` | **asm**, not the C |
-| `00116598` per-voice pass: pitch re-send on `+0x44` (portamento) or track `+0x50`, the portamento step (`+0x62` countdown, `+0x60` depth, note clamp 0x0C..0xF3, fine `v % 16`, `track+0x58`), then `(ladder·track+0x44 >> 12)·0x1B9 / 0x1E0` (unsigned); volume re-send on track `+0x52` via `001179E0` | `voice_update` | **asm** |
+| `00116598` per-voice pass: pitch re-send on `+0x44` (portamento) or track `+0x50`, the portamento step (`+0x62` countdown, `+0x60` depth, note clamp 0x0C..0xF3, fine `v % 16`, `track+0x58`), then `(ladder·track+0x44 >> 12)·0x1B9 / 0x1E0` (unsigned); volume re-send on the slide flag `+0x46` or track `+0x52` via `001179E0`. The slide step: target = start clears `+0x46`; else `+0x54 &= 0x7FFF`, and while it is not 0 the level `+0x2C` = `00119080(target, start, +0x56, +0x54)` = `(a + (b − a) · d / c) & 0xFF` over the low bytes, then `+0x54 −= 1`; at 0 the level = target and `+0x46 = 0` | `voice_update` (+ `slide_level`); the scalar is recomputed from the key-on's carried product (SFX_PITCH.md "EMSR v2") | **asm**; the slide: byte-matched decomp C (00116598, 001181B0, 00119080) and lockstep pass V |
 | `00118EC0` reaper: frees an ended (`+0x3E`), allocated track that no voice `+0x06` names; resets a voice when D_002817C0 < 2, age `+0x1C` ≥ 2, `+0x08 == 1` and kind ≠ 3; ages every voice (one tick per field: `+0x1C` counts the fields since the voice's key-on or reset) | tick prologue, D_002817C0 = the previous exchange's reply | **asm**; the audio captures |
 | `00119EA0` lowest free track (`+0x2E`, int `+0x30`, `+0x34` clear), `0011A270(0x1000)` → `+0x50`, `0011A218` → `+0x48/+0x4C/+0x52` | `em_sfx_driver_start(_at)`, `em_sfx_driver_request` | **asm** for `+0x42` |
 | `0011A070(track \| hard<<15)` | `em_sfx_driver_stop` | **asm** |
@@ -140,6 +141,7 @@ The oracle runs the following passes:
   - 0x452/0x453 portamento sweeps (the pitch is re-sent every tick, including after key-off);
   - 0x14D loop release;
   - 0x413.
+- **Pass V: the volume slides (since 2026-10-30).** Every exported script with `B0 07` (the AREA02 car's 0x8B4 and AREA00's 0x89E / 0x8A0, the only ones) runs in lockstep over a fork capture of its own scope (a02_01_switch for (2, 0); a00_05_ferry_deck and a00_08_switch for AREA00 subs 0 / 1: the bank headers and handles as loaded there) with the SPU2 model's feedback, comparing also the voices' slide fields `+0x2C`, `+0x46`, `+0x50`, `+0x52`, `+0x54`, `+0x56` after every tick. Quick: each script once (0x8B4 1,163 ticks, 1,452 volume words); full: all five entries with two request pairs.
 - **Pass C: scenarios.**
   - *services*: flame re-triggers, gain updates, soft and hard stops.
   - *exhaustion*: 49 × 0x14D. 48 tracks, 44 voices; the 49th track and a later 0x413 are refused, 52 key-ons find no voice, and starved key-offs fall back to other tracks.
@@ -164,7 +166,7 @@ The oracle runs the following passes:
 
 It also covers:
 
-- 28 malformed v2 registries refused transactionally;
+- 31 malformed v2 registries refused transactionally;
 - the `001FC3C0` flame service through `em_sfx_loop_service` (one start on frame 7, the track held and the loop sounding on every later field, `001FC520` releasing it to silence);
 - stop-all: every track free at once, silence from the field after the next exchange;
 - an UNSUPPORTED refusal fixture.

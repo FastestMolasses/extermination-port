@@ -792,16 +792,30 @@ every exploration here it is not a certification of unrestricted play.
 | a02_04 | the same pad, two headings | no fault, no kill (nothing in reach) |
 | a02_05 | the route's pad to door [25], Use | the scripted approach never took the door (no fault); a02_05 is not certified |
 
-Open for free play in AREA02:
-- HEALING kind 2 from the menu near the bed (item 0x20 through 00185420):
-  the device test em_item_device_find covers the battery items only, so it
-  faults there (00184D20's item 0x20 / 0x23..0x27 arms are not translated).
-- The medicines 0x1E / 0x1F (HEALING state 5) count D_00810858 up on the
-  port's one copy of +0x220 (the original keeps +0x220 until the end); the
-  tick log's health differs from the original's during that count.
+Open for free play in AREA02 (after lane B2, 2026-10-30, below):
 - Door [5] back to AREA01, the save terminal [3], AREA02 sub 2 and the
   western tunnel's nest were not reached (lane B1's runs: "AREA02's
   unreached places" below).
+
+## AREA02 (lane B2, 2026-10-30): HEALING from the menu, the medicines, the car's sound
+
+Branch `a02-items` (port worktree `port-a02-items`). Each fault below was
+found by a fork recording of the menu use (tools/capture_heal_beats.py)
+replayed from New Game in the harnesses, and closed with original code:
+
+| Run | Was | Now |
+|---|---|---|
+| a02_s1: at the bed, START, ITEM, HEALING, Cross on 0x20, Yes | fail-stop: em_item_device_find knew the batteries only | 00184D20's whole item gate (ITEM_DEVICE_LOOKUP.md); then a fault in 0020CDC0 phase 2: the hub draw 00209DF0 runs with UI+0x11 = 5 (the ITEM root's HEALING hover, kept through page 8), which the exported hub layouts lacked; the layouts now cover hovers 0..5 (STATUS_HUB.md). 963 / 963 rows exact |
+| a01r_s2: AREA01 revisit, the same menu use (no device) | the same fail-stop | the banner 0x19, back out, START: 461 / 461 rows exact |
+| a01_s8: after the duct's 0x1E, out of the control room, the fire's burn, START, ITEM, HEALING, Cross on 0x1E, Yes | the door's Use fail-stopped (00184BA0 "shared scan claim"): the duct take, made crawling, left the port's owner token held (0015B130 does not admit a crawling player; no 00182DF0 ends it; 3B8F stays 1 in the original too) | the stale token ends at the next 00184BA0 claim (em_area11_interaction_host_claim_scan; the original's 00184BA0 tests only 3B8D); the count-up keeps +0x220 at 95 until the commit (STATUS_PAGES.md). 1,028 / 1,028 rows exact with a rand() anchor at row 0 |
+| a02_02: the car's 0x8B4 | silent (the registry refused its B0 07 volume controller) | the volume slide (SFX_SEQUENCER.md); AREA00's 0x89E / 0x8A0 too. The engine's two voices in the tick log's sound state equal the original's voice records (a fork re-drive of a02_02 sampling D_0027CCC0) on all 1,016 rows, at the tick log's one-row convention |
+
+Found and not fixed: the native rand() stream leaves a01_s5 at another
+state than the recording (7CF0999D against 7B3898E6; the AREA01 RNG
+checkpoints are diagnostics only). a01_s8's burn reaction (0021D800) draws
+rand() & 1 for its clip (0x1E or 0x20), so its harness run installs the
+recording's state at row 0 (`--rand-replay`, comparison only); without it
+the burn takes clip 0x20 instead of 0x1E at row 700.
 
 
 ## AREA02's unreached places (lane B1, 2026-10-30)

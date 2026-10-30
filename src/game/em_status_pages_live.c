@@ -56,6 +56,13 @@ struct EmStatusPagesLive {
     uint8_t pads[4][2], stick[2], counter[4], vitals[8], player220[4], probe;
     uint8_t c61, number_buffer[NUMBER_SIZE];
     char number[8];
+    /* HEALING 002160B0 state 5 (the medicines' count-up): the original
+     * counts D_00810858 up while the player record's +0x220 (D_008104D0,
+     * the port's scene word) keeps its value until the commit stores both.
+     * While a tick leaves the page in state 5, D_00810858 lives here
+     * (binary32 bits) and the scene word is left alone. */
+    uint32_t counted_health;
+    uint8_t counting;
     /* MAP: the read-only views' bytes (D_0028A570, the player record's
      * +0xA0..+0xA8 and +0xC4, the render context word and its +0x2468) and
      * D_00275BCC (the free bone slots), each built per call */
@@ -683,7 +690,10 @@ static int table16(void *c, uint32_t address, int16_t *value)
 
 static void vitals_in(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
 {
-    memcpy(l->vitals, f->health, 4);
+    if (l->counting)
+        memcpy(l->vitals, &l->counted_health, 4);
+    else
+        memcpy(l->vitals, f->health, 4);
     memcpy(l->vitals + 4, f->infection, 4);
     memcpy(l->player220, f->health, 4);
 }
@@ -692,13 +702,23 @@ static void vitals_in(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
  * the progress block, em_scene_state.h). The port holds the player
  * record's +0x220 and D_00810858 as that one value
  * (em_player.c vitals_load), so a +0x220 store that D_00810858 does not
- * hold faults (002160B0 stores both with the same value). */
+ * hold faults (002160B0 stores both with the same value). The exception is
+ * HEALING's count-up (002160B0 state 5, `counting`): until its commit the
+ * original's D_00810858 runs ahead of +0x220, which stays as it was, so
+ * the counted value is kept apart and the scene word keeps +0x220. */
 static int vitals_out(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
 {
     uint32_t health, player, before;
     memcpy(&health, l->vitals, 4);
     memcpy(&player, l->player220, 4);
     memcpy(&before, f->health, 4);
+    if (l->counting) {
+        if (player != before)
+            return -1;
+        memcpy(&l->counted_health, l->vitals, 4);
+        memcpy(f->infection, l->vitals + 4, 4);
+        return 0;
+    }
     if (player != before && player != health)
         return -1;
     memcpy(f->health, l->vitals, 4);
@@ -857,8 +877,10 @@ static int dispatch_call(void *ctx, uint32_t target, uint32_t sp, const uint64_t
         return 0;
     }
     case 0x0015C700u:
-        /* 002160B0 state 5 stored the health first: hand it to the port's
-         * one copy before the player worker reads it. */
+        /* 002160B0 state 5 stored the health first (D_00810858 and
+         * D_008104D0 alike, the count-up's end): hand it to the port's one
+         * copy before the player worker reads it. */
+        l->counting = 0;
         if (U(0) != PLAYER || !l->host.player_0015C700 || vitals_out(l, fr) < 0)
             return -1;
         return l->host.player_0015C700(l->host.context, table16, l) >= 0 ? 0 : -1;
@@ -1263,6 +1285,14 @@ int em_status_pages_live_tick(EmStatusPagesLive *l, uint32_t page, const EmStatu
     l->page = page;
     l->callee_count = 0;
     build_views(l, f);
+    /* A count-up only ends in its commit (002160B0 state 5 commits on
+     * every 0x870 button, and 0020CDC0 phase 3 does not close the screen
+     * while D_008106B0 is set): any other next call is a fault. */
+    if (l->counting && (page != 0x002160B0u || f->ui[5] != 5)) {
+        fprintf(stderr, "status pages: HEALING's count-up left without its commit (page %08X)\n",
+                (unsigned)page);
+        return -1;
+    }
     vitals_in(l, f);
     put32(f->ui + 0x20, *f->ui_clock);
     l->pads[0][0] = (uint8_t)f->held;
@@ -1359,6 +1389,8 @@ int em_status_pages_live_tick(EmStatusPagesLive *l, uint32_t page, const EmStatu
             return -1;
         }
     }
+    /* HEALING left in state 5 (t[5]): the count-up runs on next tick. */
+    l->counting = page == 0x002160B0u && f->ui[5] == 5;
     return vitals_out(l, f);
 }
 

@@ -220,7 +220,7 @@ int main(int argc, char **argv)
         unsigned hover;
         float infection;
         uint8_t secondary;
-    } rejected[] = {{5, 0, 1}, {0, -1, 1}, {0, 100.5f, 1}, {0, NAN, 1}, {0, 0, 5}};
+    } rejected[] = {{6, 0, 1}, {0, -1, 1}, {0, 100.5f, 1}, {0, NAN, 1}, {0, 0, 5}};
     for (unsigned i = 0; i < sizeof rejected / sizeof *rejected; ++i) {
         ui = em_status_hub_ui_load(argv[1], argv[2], &math);
         assert(ui);

@@ -703,6 +703,9 @@ void em_sfx_shutdown(void)
                "concurrent\n",
                s.plays, s.drops, s.driver.no_voice, s.culls, s.frames_mixed,
                s.max_concurrent);
+    if (s.driver.slide_unknown)
+        printf("sfx: %u volume slide step(s) on a voice whose key-on carried no product "
+               "(the volume kept its key-on scalar)\n", s.driver.slide_unknown);
     em_sfx_registry_free(&s.registry);
     s.fault = NULL;
     s.ticks = s.samples = s.half_line = 0;

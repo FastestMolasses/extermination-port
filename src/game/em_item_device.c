@@ -4,7 +4,7 @@
 
 #include <math.h>
 
-/* 00184D20 / 00185420 and the wrap 001B1470: COP1, em_ee_float.h (the measured EE model). */
+/* 00184D20 / 00185420 (both byte-matched decomp C) and the wrap 001B1470: COP1, em_ee_float.h (the measured EE model). */
 static float add(float a, float b)
 {
     return em_ee_add(a, b);
@@ -35,24 +35,42 @@ static float wrap(float value)
     return value;
 }
 
-static int eligible(const EmItemDevice *device, const float player[3], float yaw,
+/* 00184D20's first stage: the class (+2 & 0x1F) crossed with the item id
+ * and the subtype (+3); every pair it does not list rejects. */
+static int item_accepts(unsigned type, unsigned item_id, unsigned subtype)
+{
+    const int battery = subtype == 0x14 || subtype == 0x22 || subtype == 0x23 ||
+                        subtype == 0x24 || subtype == 0x25 || subtype == 0x26 ||
+                        subtype == 0x2C;
+    if (type == 4) {
+        switch (item_id) {
+        case 0x20: return subtype == 0x36;
+        case 0x27: return subtype == 0x35;
+        case 0x25: return subtype == 0x21;
+        case 0x26: return subtype == 0x49;
+        case 0x1B:
+        case 0x1C:
+        case 0x1D: return battery;
+        default: return 0;
+        }
+    }
+    if (type != 6)
+        return 0;
+    switch (item_id) {
+    case 0x23: return subtype == 0x2F || subtype == 0x12;
+    case 0x24: return subtype == 0x13 || subtype == 0x12 || subtype == 0x2F;
+    case 0x1B:
+    case 0x1C:
+    case 0x1D: return battery;
+    default: return 0;
+    }
+}
+
+static int eligible(const EmItemDevice *device, unsigned item_id, const float player[3], float yaw,
                     const EmInteractionMath *math)
 {
-    unsigned type = device->class_flags & 0x1F;
-    if (type != 4 && type != 6)
+    if (!item_accepts(device->class_flags & 0x1F, item_id, device->subtype))
         return 0;
-    switch (device->subtype) {
-    case 0x14:
-    case 0x22:
-    case 0x23:
-    case 0x24:
-    case 0x25:
-    case 0x26:
-    case 0x2C:
-        break;
-    default:
-        return 0;
-    }
     const float *parameters = device->parameters;
     float x, y, z, angle;
     const float pi = 3.1415927410125732f;
@@ -123,8 +141,7 @@ int em_item_device_find(const EmItemDevice *devices, size_t count, unsigned item
                         const float player[3], float player_yaw, const EmInteractionMath *math,
                         void **owner)
 {
-    if ((!devices && count) || count > EM_INTERACTION_CAPACITY || item_id < 0x1B ||
-        item_id > 0x1D || !player || !math || !owner || !isfinite(player_yaw) ||
+    if ((!devices && count) || count > EM_INTERACTION_CAPACITY || !player || !math || !owner || !isfinite(player_yaw) ||
         fabsf(player_yaw) > 16)
         return -1;
     *owner = NULL;
@@ -147,7 +164,7 @@ int em_item_device_find(const EmItemDevice *devices, size_t count, unsigned item
             if (!isfinite(device->parameters[parameter]))
                 return -1;
         }
-        if (eligible(device, player, player_yaw, math)) {
+        if (eligible(device, item_id, player, player_yaw, math)) {
             *owner = device->owner;
             return 1;
         }

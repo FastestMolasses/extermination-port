@@ -190,7 +190,9 @@ SELECTOR_WRITERS = {0x219550, 0x15AFA0, 0x827B10}
 # export_status_hub.py ARC_WORDS_WRITTEN; pinned below as the digest of the
 # capture-derived file with those words zeroed), the EMRS in its table length
 # (v1 held 0xC0 words taken from a capture; v2 the 0xAF words the disc gives).
-PINNED_EMHS_ZEROED_SHA256 = '57d21185d6514a52a1fad40ef92eef2c7420167dfe081031a1027f165905f299'  # sha256
+# 2026-10-30: twelve layouts (UI+0x11 5, the HEALING hover 0020CDC0 phase 2
+# draws with, export_status_hub.py HOVERS).
+PINNED_EMHS_ZEROED_SHA256 = 'a71d5362bd24afee5ef7757a0620003e4bbeea9f06a789f396fd4e6d1922074e'  # sha256
 PINNED_EMRS_V1_TABLE_SHA256 = '44485430f1420059b77d096f67ba7ae579274dfdae539ea5549800c1dea2eef6'  # sha256 of words 0..0xAF
 PINNED_EMRS_V1_REGIONS_SHA256 = '2967c9f179b8a56ca0d7890318d40333b569bf127efa5bdcbc48aa64fbdedd6a'  # sha256
 # The arc words where the disc EMHS differs from the capture-derived one

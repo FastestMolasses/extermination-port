@@ -21,7 +21,7 @@ entries.
 |---|---|---|
 | id → record | `001FB9F0`: global tables `0025ECA0`/`00261570`, area remap/record tables `00264A70..00264B90` indexed by `D_00810700/701` | `export_sfx_registry.sound_record` |
 | record → script | `D_00281D50[group*0x14+bank]` handle, `00119EA0` script-table walk | `Bank.script` |
-| script grammar | `001152D8` loop, `00117088` fetch (running status), `00118E60` VLQ delta, `A0` → `00115850` (vel 0 → `001176E0`), `B0 41` → `00118078`, `FF 2F` → `00117C28` | `export_sfx_registry.script_events`; run natively by the driver (`docs/SFX_SEQUENCER.md`) |
+| script grammar | `001152D8` loop, `00117088` fetch (running status), `00118E60` VLQ delta, `A0` → `00115850` (vel 0 → `001176E0`), `B0 41` → `00118078`, `B0 07` → `001181B0` (the SFX track's volume slide), `FF 2F` → `00117C28` | `export_sfx_registry.script_events`; run natively by the driver (`docs/SFX_SEQUENCER.md`) |
 | event tick | track `+0x20` gains `delta<<12`; `+0x1C` = `0x1E0000/D_0027F740[0x1D]`; 60 in both AREA11 captures, so 8 delta units per tick | `tick` per event |
 | tone | `00117088` SFX mode: program via `state+0x312` table; `00115850` tone = `note − program[6]` | exporter |
 | pitch | `00115850` stores bend `0x40`, then `00117918` (`D_00241D70`, anchor `[0xD0]`=4096), then `*44100/48000` | `audio_export.a0_pitch`, EMSR `pitch` |
@@ -65,7 +65,7 @@ byte-identical to it. It then checks the following:
 
 `make test-area11-sfx` checks the native side under ASan/UBSan:
 
-- 28 malformed registries are refused transactionally.
+- 31 malformed registries are refused transactionally (three since 2026-10-30: a volume-slide script's key-on whose level does not give its scalar, one without the product, a slide op with a nonzero tail).
 - All 71 scoped entries resolve under their scope and not without it.
 - Unscoped plays and an UNSUPPORTED fixture entry are refused and counted.
 - Stop-all silences scripts with pending events.
@@ -92,10 +92,21 @@ All fields are little-endian. The layout is:
    - **2 (absent):** `001FB9F0`/`00119EA0` return -1.
    - **3 (unsupported):** carries a reason code.
 4. **Operation (32 bytes):** u16 tick, u8 kind (1 key-on, 2 key-off,
-   3 portamento, 4 end), u8 note, u8 prog, u8 tone flags, u16 sample,
-   u16 pitch, u16 pan, u32 scalar, u16 adsr1, u16 adsr2, u8 center,
-   s8 fine, u8 range, u8 alloc (tone byte 0), u8 priority (tone byte 1),
-   u8 length, u8 depth, u8 0, u32 0.
+   3 portamento, 4 end, 5 volume slide), u8 note, u8 prog, u8 tone flags,
+   u16 sample, u16 pitch, u16 pan, u32 scalar, u16 adsr1, u16 adsr2,
+   u8 center, s8 fine, u8 range, u8 alloc (tone byte 0), u8 priority
+   (tone byte 1), u8 length, u8 depth, u8 0, u32 tail.
+   - Portamento and volume slide: length / depth are the controller's
+     bytes 2 and 3 (a slide's length and target level); tail 0.
+   - Key-on of a script that has a volume slide (since 2026-10-30): the
+     length byte is the velocity level (00115850's voice +0x2C), the depth
+     byte and tail are bits 32..39 and 0..31 of the product of 001179E0's
+     other five factors (+0x28, +0x34, +0x2E, +0x2A, +0x30), so the driver
+     can recompute the scalar (product × level) >> 27 as the slide moves
+     the level. The loader requires (product × level) >> 27 = the scalar,
+     the product on every key-on of such a script and on no other key-on.
+     Every other key-on keeps those bytes 0, so the rest of the registry is
+     byte-identical to before.
 5. **Sample:** u32 frames, u32 loop start (0xFFFFFFFF = one-shot), then
    that many s16 samples (the ADPCM decoded at the 48 kHz base clock from
    zero history), then for a looping sample the (frames - loop start) body
@@ -105,7 +116,7 @@ Reason codes:
 
 | Code | Reason | Code | Reason |
 |---|---|---|---|
-| 1 | script status/controller not translated | 6 | retired (key-off now runs natively) |
+| 1 | script status/controller not translated (B0 07 since 2026-10-30) | 6 | retired (key-off now runs natively) |
 | 2 | loop without loop start / unsettled body | 7 | unbound bank |
 | 3 | sweep volume | 8 | track-dependent defaults |
 | 4 | modulation | 9 | pitch range |

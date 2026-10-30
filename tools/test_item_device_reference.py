@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Original185420 ordered lookup and184D20 battery eligibility oracle."""
+"""Original 00185420 ordered lookup and 00184D20 eligibility oracle.
+
+Both run as ORIGINAL code (the user's pinned ELF) over designed devices; the
+native em_item_device_find must return the same owner. Covered: the full
+item gate (every item id 0x00..0x2F and two out-of-range ids, crossed with
+classes 4 / 6 / others and every subtype 00184D20 names), the shapes and
+facing for the batteries 0x1B..0x1D and for the cure 0x20 at a class-4
+subtype-0x36 owner (the AREA02 bed), the active / armed gates and the
+published order.
+"""
 import ctypes as C
 import hashlib
 import itertools
@@ -90,6 +99,36 @@ def main():
                   position[2] + rng.uniform(-18, 18)]
         compare(elf, native, math, [device], player, rng.uniform(-3.14159, 3.14159))
         checks += 1
+    # 00184D20's item gate: every item id against every subtype it names,
+    # on a shape-5 device the player stands at (the geometry passes).
+    subtypes = (0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x2C, 0x2F, 0x35,
+                0x36, 0x49, 0x00)
+    accepted = 0
+    for item in list(range(0x30)) + [0x7F, 0xFFFFFFFF]:
+        for flags in (0x84, 0x86, 0xA4, 0xC6, 0x85, 0x8A):
+            for subtype in subtypes:
+                device = Device(1, 1, flags, subtype, 5, 0, (C.c_float * 3)(100, 230, 200), 0,
+                                (C.c_float * 6)())
+                accepted += compare(elf, native, math, [device], (100, 230, 200), 0, item) is not None
+                checks += 1
+    assert accepted == 102, accepted  # 2 x (25 class-4 + 26 class-6 pairs)
+    # The cure 0x20 at the bed (class 4, subtype 0x36): every shape, facing
+    # and range case of the batteries' sweep.
+    for shape in range(7):
+        device = Device(1, 1, 0x84, 0x36, shape, 0, (C.c_float * 3)(100, 230, 200),
+                        0, (C.c_float * 6)(14, 4, 200, 14, 4, 0))
+        if shape in (1, 2):
+            device.parameters[0:3] = [100, 230, 200]
+        for player, yaw in (((100, 230, 200), 3.14159274), ((100, 230, 210), 0),
+                            ((100, 235, 214.001), 0), ((100, 230, 186), 3.14159274)):
+            compare(elf, native, math, [device], player, yaw, 0x20)
+            checks += 1
+    # A refused owner first, the bed second: the bed wins.
+    bed = Device(2, 1, 0x84, 0x36, 5, 0, (C.c_float * 3)(0, 230, 1), 0, (C.c_float * 6)())
+    panel = Device(1, 1, 0x84, 0x24, 5, 0, (C.c_float * 3)(0, 230, 0), 0, (C.c_float * 6)())
+    assert compare(elf, native, math, [panel, bed], (0, 230, 0), 0, 0x20) == bed.owner
+    assert compare(elf, native, math, [panel, bed], (0, 230, 0), 0, 0x1B) == panel.owner
+    checks += 2
     # List order wins, independent of distance. Armed entries cannot win.
     devices = [Device(i + 1, 1, 0x84, 0x24, 5, 0, (C.c_float * 3)(0, 230, i), 0,
                        (C.c_float * 6)()) for i in range(4)]
@@ -101,7 +140,8 @@ def main():
         ordered[0].armed = 0
         checks += 2
     result = {'original_lookup_and_predicate_cases': checks, 'first_published_owner': 'PASS',
-              'domain': 'battery1B..1D, originalclass4/6 shapes0..5 and default0',
+              'item_gate_accepted_pairs': accepted,
+              'domain': 'every item id; batteries 0x1B..0x1D and the cure 0x20 over class 4/6 shapes 0..5 and default 0',
               'boundaries': 'host must supply the actual frozen published list and descriptors'}
     (output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result))

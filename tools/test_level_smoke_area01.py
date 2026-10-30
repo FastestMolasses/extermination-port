@@ -127,7 +127,7 @@ int main(int argc,char **argv){
             assert result.returncode==1 and 'FAIL ' in result.stderr, ('invalid input accepted',content,result)
     finally:
         path.write_text(original)
-    print(f'AREA01 harness: PASS 16 C branch paths, {changes} commands, {submitted} C pad frames, '
+    print(f'AREA01 harness: PASS {len(manifest)} C branch paths, {changes} commands, {submitted} C pad frames, '
           f'{len(bad)} malformed input rejections (ASan/UBSan; no gameplay parity claim)')
     verify_checker()
 
@@ -279,7 +279,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prepare', action='store_true')
     parser.add_argument('--verify-harness', action='store_true',
-                        help='test the actual C branch/input driver against all 16 captures, then exit')
+                        help='test the actual C branch/input driver against every capture, then exit')
     parser.add_argument('--include-side-pads',action='store_true',
                         help='also export all eight side input files/provenance (automatic with --side)')
     endpoint = parser.add_mutually_exclusive_group()
@@ -296,6 +296,12 @@ def main():
                              'switch and the comparison-only drive replay (EM_PS2_DRIVE_REPLAY)')
     replay.add_argument('--no-drive-replay', action='store_true',
                         help='no replay: the drive as the environment selects (host speed by default)')
+    parser.add_argument('--rand-replay', type=Path, default=None,
+                        help='a comparison-only rand() anchor table ("<phase> <state hex>": the original\'s '
+                             'state word at that phase\'s recorded row 0, measured on the fork), passed as '
+                             'EM_RAND_REPLAY: a01_s8\'s burn reaction draws rand(), and the native stream '
+                             'leaves a01_s5 at another state than the recording (docs/LEVEL3_BINDING.md '
+                             '"2026-10-30, lane B2")')
     parser.add_argument('--strict-drive-replay', action='store_true',
                         help='also fail when a read inside the recorded span found no recorded entry (the run '
                              'issued it at another time than the recording; the compared rows can still be exact)')
@@ -316,6 +322,8 @@ def main():
                EM_LEVEL_SMOKE_UNTIL=until, EM_LEVEL2_PAD_DIR=str(out / 'pads'),
                EM_AREA_CHANGE_LOG=str(out / 'ticks.jsonl'), EM_RAND_TRACE=str(out / 'rand.trace'),
                EM_LEVEL_SMOKE_BIN=str(binary))
+    if args.rand_replay:
+        env.update(EM_RAND_REPLAY=str(args.rand_replay.resolve()))
     replay_info = None
     phases = [p for p in phase_path(until) if p != 'a01_arrival']
     if not args.no_drive_replay and phases:

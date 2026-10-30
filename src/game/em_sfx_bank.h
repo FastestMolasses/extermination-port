@@ -24,7 +24,9 @@ enum {
     EM_SFX_OP_KEY_ON = 1,     /* A0 note vel>0 prog: 00115850              */
     EM_SFX_OP_KEY_OFF = 2,    /* A0 note 0 prog: 001176E0                  */
     EM_SFX_OP_PORTAMENTO = 3, /* B0 41 len depth prog note: 00118078       */
-    EM_SFX_OP_END = 4         /* FF 2F 00: 00117C28                        */
+    EM_SFX_OP_END = 4,        /* FF 2F 00: 00117C28                        */
+    EM_SFX_OP_VOLUME = 5      /* B0 07 len target prog note: 001181B0's
+                               * SFX-track arm (a volume slide)            */
 };
 
 typedef struct {
@@ -41,7 +43,14 @@ typedef struct {
     uint8_t range;        /* tone +0xD (voice +0x3A)                      */
     uint8_t alloc;        /* tone +0  (voice +0x20, 00117428 pass 1 key)  */
     uint8_t priority;     /* tone +1  (voice +0x1E)                       */
-    uint8_t length, depth;/* portamento controller bytes 2 and 3          */
+    uint8_t length, depth;/* portamento / volume controller bytes 2 and 3
+                           * (the volume slide's length and target)       */
+    /* Key-ons of a script with a volume slide: 00115850's velocity level
+     * (voice +0x2C) and the product of 001179E0's other five factors
+     * (+0x28 * +0x34 * +0x2E * +0x2A * +0x30), so a slide can recompute
+     * the scalar (product * level) >> 27; product 0 = not carried. */
+    uint8_t level;
+    uint64_t product;
 } EmSfxOp;
 
 typedef struct {
@@ -160,6 +169,12 @@ typedef struct {
     uint16_t base, depth, remaining, length, pan;
     int16_t fine;
     uint32_t scalar;
+    /* 001181B0 / 00116598's volume slide: +0x2C the level, +0x46 the slide
+     * flag, +0x50 its target, +0x52 its start, +0x54 the ticks left, +0x56
+     * its length; product: the key-on's other five 001179E0 factors (0 =
+     * not carried by the key-on's operation). */
+    uint16_t level, vslide, vtarget, vstart, vremaining, vtotal;
+    uint64_t product;
     /* SPU2 voice model */
     uint16_t pitch, volume[2], adsr1, adsr2;
     const EmSfxSample *sample, *next_sample;
@@ -178,6 +193,11 @@ typedef struct {
     uint32_t serial;      /* D_0027F740+0x34 key-on serial                 */
     uint64_t effect, effect_sent, noise, noise_sent, key_on, key_off;
     unsigned no_voice;    /* key-ons 00117428 refused (-1)                 */
+    unsigned slide_unknown; /* slide steps on a voice whose key-on carried no
+                           * product (a slide a hard stop froze, resumed
+                           * by a later key-on of a script without one):
+                           * the level moves, the volume keeps the key-on's
+                           * scalar (reported by em_sfx_shutdown)        */
     /* D_002817C0 source for the 00118EC0 reaper: NULL = the SPU2 model's
      * ENVX at the tick; em_sfx passes the IOP's reply (the status its
      * driver's last tick wrote before the previous exchange), tests may

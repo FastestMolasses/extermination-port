@@ -97,16 +97,18 @@ MAIN_BEATS = {'a01_00': 'a01_00_train_room', 'a01_01': 'a01_01_tunnel',
 SIDE_BEATS = {'a01_s0': 'a01_s0_npc_first_talk', 'a01_s1': 'a01_s1_sentry_doc',
               'a01_s2': 'a01_s2_control_room_items', 'a01_s3': 'a01_s3_fire_contact',
               'a01_s4': 'a01_s4_east_room', 'a01_s5': 'a01_s5_duct',
-              'a01_s6': 'a01_s6_bridge_blocked', 'a01_s7': 'a01_s7_npc_third_talk'}
+              'a01_s6': 'a01_s6_bridge_blocked', 'a01_s7': 'a01_s7_npc_third_talk',
+              # the burn, then item 0x1E from the menu (tools/capture_heal_beats.py)
+              'a01_s8': 'a01_s8_fire_medicine'}
 # Match the C phase order: a side run branches at its source's completed
 # endpoint. The two children of s0 replay that side first, never main 00.
-ROUTE_PHASES = ('a01_s0', 'a01_s2', 'a01_s5', 'a01_s3', 'a01_s4', 'a01_s6',
+ROUTE_PHASES = ('a01_s0', 'a01_s2', 'a01_s5', 'a01_s8', 'a01_s3', 'a01_s4', 'a01_s6',
                 'a01_00', 'a01_01', 'a01_s1', 'a01_02', 'a01_03', 'a01_04',
                 'a01_05', 'a01_s7', 'a01_06', 'a01_07')
-FROM_SIDE = {'a01_s2': 'a01_s0', 'a01_s5': 'a01_s0'}
+FROM_SIDE = {'a01_s2': 'a01_s0', 'a01_s5': 'a01_s0', 'a01_s8': 'a01_s5'}
 SOURCES = dict(zip(MAIN_BEATS, ('a01_arrival', *tuple(MAIN_BEATS)[:-1]))) | {
     'a01_s0': 'a01_arrival', 'a01_s1': 'a01_01', 'a01_s2': 'a01_s0',
-    'a01_s3': 'a01_arrival', 'a01_s4': 'a01_arrival', 'a01_s5': 'a01_s0',
+    'a01_s3': 'a01_arrival', 'a01_s4': 'a01_arrival', 'a01_s5': 'a01_s0', 'a01_s8': 'a01_s5',
     'a01_s6': 'a01_arrival', 'a01_s7': 'a01_05'}
 # a01_07's AREA00 arrival (state 0, before the rebuild): the fork's AREA00
 # module load ends 9 frames later (disc timing): row 538 against v2.6.3's 529.
@@ -156,7 +158,11 @@ def phase_path(until):
         return ('a01_arrival',)
     assert until in ROUTE_PHASES, ('unknown AREA01 phase', until)
     before = ROUTE_PHASES[:ROUTE_PHASES.index(until)]
-    return ('a01_arrival',) + tuple(p for p in before if p not in SIDE_BEATS or p == FROM_SIDE.get(until)) + (until,)
+    chain, side = set(), until
+    while side in FROM_SIDE:            # a01_s8 from a01_s5 from a01_s0
+        side = FROM_SIDE[side]
+        chain.add(side)
+    return ('a01_arrival',) + tuple(p for p in before if p not in SIDE_BEATS or p in chain) + (until,)
 
 
 def capture_path(phase):
@@ -337,8 +343,13 @@ def check_rng_checkpoints(state, frames, run=None):
             for _, before, *_ in draws:
                 if met < len(anchors) and anchors[met][0] <= c:
                     at, seed = anchors[met]
-                    assert c <= at + 1 and before == seed, ('rand replay anchor not met', at, c, hex(before), hex(seed))
-                    native, met = seed, met + 1
+                    # An anchor at a phase's row 0 (a01_s8) is installed at
+                    # the end of that tick: the tick's own draws at its
+                    # counter still run on the native chain.
+                    if not (c == at and before != seed and before == native):
+                        assert c <= at + 1 and before == seed, ('rand replay anchor not met', at, c, hex(before),
+                                                                 hex(seed))
+                        native, met = seed, met + 1
                 assert before == native, ('AREA01 native RNG chain broken', phase, c, hex(before), hex(native))
                 native = (native * 0x41C64E6D + 0x3039) & 0xFFFFFFFF
                 calls += 1

@@ -879,7 +879,16 @@ int em_area11_interaction_host_claim_scan(const void *owner)
 {
     if (!world.loaded || world.failed || !owner) return -1;
     view_load();
-    int claimed=em_interaction_runtime_claim(&world.shared,owner);
+    /* A take whose owner the player never took over (the duct's item,
+     * taken crawling: 0015B130 does not admit a crawling player, so no
+     * 00182DF0 ends the hold, and 3B8F stays 1) leaves the port's token
+     * held after its 3B8D went back to 0. The original keeps no such hold:
+     * its next 00184BA0 runs on 3B8D alone (the fork recording
+     * a01_s8_fire_medicine: the control-room door's Use with 3B8F = 1), so
+     * that token ends here. A player the stage holds keeps its owner. */
+    if (world.shared.owner && !player_pose_owned() && !world.frame.selector && !world.frame.ready)
+        world.shared.owner = NULL;
+    int claimed=em_interaction_runtime_claim_use(&world.shared,owner);
     view_store();
     if (!claimed) return fail("00184BA0 shared scan claim");
     return shared_banks()<0 ? fail("the canonical player script banks") : 1;

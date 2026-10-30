@@ -1757,6 +1757,30 @@ timer counts fields as on the PS2.
   when it starts. On the M1 Pro's 120 Hz display the wait went from 2.0-5.5
   ms per tick to 0.04 ms. Measured on that display only.
 
+**Volume slides in sound scripts: the AREA02 car's engine, AREA00's 0x89E / 0x8A0**
+
+- What: a sound script's volume controller (B0 07) ramps a held tone's
+  level, as the original does. The car of AREA02 (switch [31], a02_02)
+  plays its engine 0x8B4 (two held, looping tones with four pitch bends and
+  ten level ramps over 1,140 ticks); AREA00's 0x89E and 0x8A0 use the same
+  controller. Before 2026-10-30 all five scripts were refused by the
+  registry and silent.
+- How: the exporter decodes B0 07 (001181B0's SFX-track arm) and carries,
+  for those scripts' key-ons, the velocity level and the product of the
+  other five 001179E0 factors; the driver runs 001181B0 and 00116598's
+  slide step (00119080) and recomputes the volume words (byte-matched decomp
+  C; SFX_SEQUENCER.md, SFX_PITCH.md "EMSR v2").
+- Evidence: `make test-area11-sfx-reference` pass V runs each slide script
+  in lockstep with the original 001FB9F0 / 001152D8 over a fork capture of
+  its own scope: every hardware command (pitch, volume words, key-on /
+  off), track and voice field and the six slide fields equal tick by tick
+  (0x8B4: 1,163 ticks, 1,452 volume words). The original's voice records
+  during a02_02 (a fork re-drive of the recording) were compared with the
+  port's tick log: see LEVEL3_BINDING.md "2026-10-30, lane B2".
+- Status: **VERIFIED** for the command stream (oracle). Not compared: the
+  SPU2 output (no audio capture of AREA02 exists; the mix stays the
+  documented hardware model, SFX_SEQUENCER.md).
+
 ### World and gameplay
 
 **Along the recorded route, the first level plays out tick for tick like the PCSX2 recordings**
@@ -2730,9 +2754,10 @@ shooting and knifing anywhere also run without a fault.
   a02_04 (6,485 rows: player, ground, camera, task, requests, message,
   fade, health, progress, locks, weapon bytes and 25 owners): equal.
 - Status: **VERIFIED** for the recorded route (a02_s0, a02_00..a02_04).
-  Not compared: pixels and sound (the car's cue 0x8B4 is silent: SFX_PITCH.md),
-  the movie E010's field timing (calibrated from the recording's vblank
-  count, not a fork probe), free roam beyond the route.
+  Not compared: pixels and the sound's output (the car's engine 0x8B4 plays
+  since 2026-10-30: "Volume slides in sound scripts" above), the movie
+  E010's field timing (calibrated from the recording's vblank count, not a
+  fork probe), free roam beyond the route.
 
 **AREA02's progression exit: door [25] into AREA04, its arrival and control**
 
@@ -2754,6 +2779,32 @@ shooting and knifing anywhere also run without a fault.
 - Status: **VERIFIED** for the recorded route (a02_05). Not compared:
   pixels (AREA04's area model sprites, the NPC's shadow) and sound; AREA04
   play after control.
+
+**Healing items used from the status menu**
+
+- What: on the status screen, ITEM, HEALING: the cure 0x20 used at the
+  AREA02 bed (the bed's sequence and the count of health up and infection
+  down), refused away from it (AREA01: the "no device" banner), and the
+  medicine 0x1E's count of health up after a burn in AREA01, with the
+  player's health (+0x220) held at its old value until the count ends, as
+  in the original.
+- How: 00185420 / 00184D20 for every item id (ITEM_DEVICE_LOOKUP.md); the
+  hub's draw with the HEALING hover still set (STATUS_HUB.md); HEALING
+  state 5's two health words (STATUS_PAGES.md); the claim after a crawling
+  take (LEVEL2_CRASHES.md "AREA02 (lane B2)").
+- Evidence: `make test-item-device-reference` (7,594 cases, the original
+  functions); `EM_TEST_FULL=1 python3 tools/test_status_hub_ui_reference.py`
+  (all twelve hub layouts against the original 00209DF0); three fork
+  recordings compared row for row from New Game: a02_s1 (963 rows, `tools/
+  test_level_smoke_area01r.py --run --until a02_s1`), a01r_s2 (461 rows,
+  `--until a01r_s2`) and a01_s8 (1,028 rows, `tools/test_level_smoke_area01.py
+  --side a01_s8 --rand-replay <table>`): health, infection, message, page
+  and player fields equal.
+- Status: **VERIFIED** for those three uses. Not compared: pixels; the
+  medicine 0x1F (only AREA11's optional pickups hold it, and no
+  recording uses it below the health cap; it runs the same state-5
+  count-up as 0x1E); a01_s8's rand() stream is anchored at its row 0 (the native
+  stream leaves a01_s5 at another state).
 
 ---
 

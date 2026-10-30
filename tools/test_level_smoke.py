@@ -5294,8 +5294,11 @@ def main():
         names = [p[0] for p in PHASES]
         until = 'a01_arrival' if args.require_through == 'last' else args.require_through
         assert until in names, ('--require-through: unknown phase', until, names)
-        required = [p for p in names[:names.index(until)] if p not in SIDE] + \
-            ([FROM_SIDE[until]] if until in FROM_SIDE else []) + [until]
+        chain, side = [], until
+        while side in FROM_SIDE:            # a01_s8 from a01_s5 from a01_s0
+            side = FROM_SIDE[side]
+            chain.insert(0, side)
+        required = [p for p in names[:names.index(until)] if p not in SIDE] + chain + [until]
         missing = [p for p in required if p not in checked]
         assert not missing, ('level smoke: phases the run had to play were not checked live against their '
                              'captures (NOT-LIVE, driven or not reached)', missing)

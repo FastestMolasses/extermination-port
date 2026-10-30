@@ -172,7 +172,7 @@ def case_classes():
     (alternating warning), the clock wrap points, the unequipped battery, each
     charge and capacity edge, and every ammo selector combination."""
     hover_infection = [dict(BASE_CASE, hover=h, infection=i)
-                       for h, i in itertools.product(range(5), INFECTIONS)]
+                       for h, i in itertools.product(range(6), INFECTIONS)]
     # Every 209DF0 formatter value, including truncation just below 100.
     formatter = [dict(BASE_CASE, infection=n + (0.75 if n % 2 else 0.0)) for n in range(1, 100)]
     health = [dict(BASE_CASE, hover=1, health=h, warning=w)
