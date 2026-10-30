@@ -768,6 +768,25 @@ nothing: the first-level smokes' tick logs are byte-identical to the build
 without the switch, and newgame-control gives 9.599849. It is not a player
 or launcher option, and the Original profile never sets it.
 
+### EM_SPU2_OUTPUT_TEST=voice: the experimental dry SFX voice bus (comparison only)
+
+Added with the SPU2 output model (SPU2_OUTPUT.md; recorded here
+2026-10-29). Unset, or any value other than `voice`, changes nothing:
+`em_spu2_output_render` (`src/game/em_spu2_output.c`) delegates to the
+established SFX renderer, and the PCM and the driver record are
+byte-identical to the build without the switch (`make test-spu2-output`
+checks unset and an unknown value; newgame-control gives 9.599849).
+`voice` writes `spu2 output: experimental dry voice bus; core/stream output
+unverified` to stderr and adds the pre-core dry voice sum of the public DSP
+model in place of the SFX mix; the legacy renderer still advances the
+commands, sequencer, timing, envelopes and status replies, so nothing the
+game computes changes. It is not an SPU2 output profile: no reverb, master
+volume, core routing or stream voices, and no waveform certification. It
+aborts on an output rate other than 48 kHz or on noise routing. The value
+is read at the first render and again whenever the render clock restarts.
+It is not a player or launcher option, and the Original profile never sets
+it.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

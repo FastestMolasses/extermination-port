@@ -1,8 +1,17 @@
 # SPU2 output: public DSP model and comparison boundary
 
-Worktree: `extermination-port-codex2`, branch `codex2`. Part A: `6753747`;
-Part B: `38b9f48`, `3d8048e`, `509d119`, `55b6e52`.
-Date: 2026-10-20. Native builds and tests run on macOS arm64 only.
+Written 2026-10-20/21 in a separate review lane and squash-merged into main
+as `6c04534` (2026-10-28); that lane's branch and worktree are retired, and
+nothing of its history is on main. Part B (the later-route audit) is in
+[`LEVEL_ORACLE_AUDIT.md`](LEVEL_ORACLE_AUDIT.md). Native builds and tests ran
+on macOS arm64 only.
+
+**Receipts.** The receipts this document names (`build/spu2-output/`,
+`build/spu2-a2/`, `build/level-oracle-audit/`) were ignored files in that
+lane's worktree and were removed with it. The numbers below are a record of
+those runs, not evidence that can be re-read; re-run the tools (each one's
+`--help` names its private inputs) before relying on them. The fast tests
+(`make test-spu2-output`, `make test-spu2-a2-tools`) run on main.
 
 **Part A is not complete or waveform certified.** Original output retains the
 existing renderer. This change adds independently written DSP stages, an
@@ -41,26 +50,18 @@ derived from them. Only genuinely public documentation (the three above), the
 decomp's own C, original captures and black-box measurements of the fork
 are permitted.
 
-An earlier revision of this branch cited a Sony SPU2 SDK manual taken from a
-third-party repository for the mixer flow and core-to-core routing, the
-MMIX switch bits and the master controls. Everything that came from it was
-removed (2026-10-20), not re-derived, because none of the permitted public
-sources documents those details and no isolating black-box measurement exists
-yet (the fork's tap gives only the post-master mix):
-
-- `em_spu2_output_core` (dry plus effect return, saturation, then master
-  volume) and its unit test;
-- the stage bridge's core stage, VMIX bus router and two-core MMIX chain
-  (`spu2_stage_core`, `spu2_stage_route_voice`, `spu2_stage_mix`, with its
-  core-0-to-core-1 external-input gain and ATTR-gated effect writes), the
-  `tools/spu2_stage_route.py` tool, the stage compare tool's `cores`
-  experiment and the measure tool's `--cores` input, and the synthetic
-  core-chain test with its external-gain mistake control;
-- `tools/spu2_stage_state.py`'s citation and its decodes: MMIX, ATTR,
-  AVOL/BVOL and EEA_HI are now recorded as raw words by PS2SDK name
-  (`*_raw`, schema `spu2-normalized-initial-state-v2`), uninterpreted;
-- the measured "core routing and restored master volumes" and "game effect
-  settings" stage results below, which that code produced.
+An intermediate revision in the review lane (never on main) consulted a
+non-permitted source for the core stage. Everything derived from it was
+removed before the merge (2026-10-20), not re-derived, and is deliberately
+not described here: a core-stage function and its unit test, the stage
+bridge's core and routing stages, a routing tool and the compare and measure
+tools' core inputs, a synthetic core-chain test, the register decodes in
+`tools/spu2_stage_state.py` (its words are now raw, by PS2SDK name, schema
+`spu2-normalized-initial-state-v2`), and the two stage results that code
+produced. No permitted public source documents the SPU2 core stage, and no
+isolating black-box measurement exists yet (the fork's tap gives only the
+post-master mix), so nothing in this document or in the code describes how
+the cores mix, route or apply their master volumes.
 
 What remains uses only the public sources: the voice stages (Gaussian, ADSR,
 voice volume, from PSX-SPX), the per-core dry/wet voice sums (24 voices per
@@ -425,7 +426,7 @@ The Gaussian change reduces RMS modestly; ADSR and gains explain very little
 of this prefix's residual error. Two further rows, "core routing and restored
 master volumes" and "game effect settings, conditional zero-history reverb",
 and the matching window columns are **withdrawn**: the code that produced
-them was built from the non-permitted manual and has been removed (clean-room
+them was built from the non-permitted source and has been removed (clean-room
 boundary above). Their receipts under ignored `build/spu2-a2/offline/` are
 not evidence and are not cited. Core-0 PMON/NON fields not written by the
 initialization oracle also remain unknown; the experiment retains the
@@ -475,7 +476,7 @@ the additional request-to-hardware latency still need direct evidence.
 ### Reproduction and unchanged native gates
 
 All A2 tools use the standard library and the project's existing native
-compiler/oracles. They write private outputs under this worktree's `build/`.
+compiler/oracles. They write private outputs under the port's ignored `build/`.
 The observer preparer requires a fresh destination, rejects symlink ancestry,
 and copies only tracked source/Makefile inputs. Its output is a disposable
 comparison build. The synthetic observer test creates and removes its own
@@ -535,8 +536,8 @@ and receipts are retained.
 
 ### Integration still required
 
-The following are concrete boundaries, not permission to edit them in this
-worktree:
+The following are the lane's concrete boundaries for main; none has been
+applied yet:
 
 1. Integrate the recovered initialization at the actual applied command
    boundary. The A2 initialization oracle now supplies the written master,
@@ -578,11 +579,11 @@ worktree:
    Map observer drain clocks to WAV time with replay positions; A2 found an
    initial 800-sample silent pull before either producer mixer ran.
 
-### Developer switch for STARTUP.md (not applied)
+### Developer switch (recorded 2026-10-29)
 
-`docs/STARTUP.md` is owned by main and was not edited. Its "Developer
-switches" section should gain an entry for the switch this worktree adds
-(`em_spu2_output_render`, `src/game/em_spu2_output.c`). Proposed text:
+The lane's proposed entry for the switch `em_spu2_output_render`
+(`src/game/em_spu2_output.c`) reads; it is now in STARTUP.md "Developer
+switches" and LAUNCHER_OPTIONS.md "Not launcher options":
 
 > ### EM_SPU2_OUTPUT_TEST=voice: the experimental dry SFX voice bus (comparison only)
 >
@@ -612,7 +613,8 @@ transfer consumer applies it, separately from command arrival. Effect-area
 and mode requests remain explicitly distinct from applied effect returns.
 It adds no assumed master-volume, MMIX or wet-routing values.
 
-`git apply --check` passed against this worktree's protected source. A private
+`git apply --check` passed against the lane's tree (main at 2026-10-20); main
+has moved since and must re-check it. A private
 scratch copy compiled with `-Werror`, ASan and UBSan. Its synthetic test passed
 command/register ordering, delayed key-on, silent-frame callbacks, observer
 removal, and unchanged rendered PCM and driver state. This is synthetic

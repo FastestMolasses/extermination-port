@@ -537,6 +537,12 @@ readiness map again uses the source-matching receipts.
 
 ## Part B: AREA06 dependency refresh (2026-10-20)
 
+The Part B sections (2026-10-20/21) were written in a separate review lane
+and squash-merged into main as `6c04534` (2026-10-28); that lane's worktree
+is retired. The `build/level-oracle-audit/` receipts they name were ignored
+files in it and no longer exist: re-run the named make targets and tools
+before relying on the numbers. Part B touched no SPU2 material.
+
 This follow-up audits the checked-in readiness table without regenerating it.
 Its level 5–15 U rows collapse to 81 distinct boot entries; none is an overlay
 entry. The per-level totals repeat shared functions. Original-entry evidence,
