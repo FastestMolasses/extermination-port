@@ -37,6 +37,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Start points whose first beats leave from one recorded state (route tables:
+# a01u_00's end, a06_03's end).
+SAME_SOURCE = (('a01u_01', 'a01u_s0'), ('a06_04', 'a06b'))
 sys.path.insert(0, str(ROOT / 'tools'))
 import build_start_saves as B  # noqa: E402
 import test_memcard_host as MH  # noqa: E402
@@ -137,7 +140,10 @@ def main():
             assert status == 'written' and folder == out / n, (n, status)
             assert commands == 26 and entries > 0, (n, commands, entries)
             slots[n] = check_card(n, folder)
-        assert len(set(slots.values())) == len(names), 'two start points saved the same block'
+        # beats that leave from one recorded state save one block, and only those
+        for a, b in SAME_SOURCE:
+            assert slots[a] == slots[b], (a, b, 'share a source state')
+        assert len(set(slots.values())) == len(names) - len(SAME_SOURCE), 'two start points saved the same block'
         # the write is file by file and refuses what it does not own
         a = B.at_terminal(B.arrival('area01'))
         files = MH.card_files(out / 'area01', 0)
