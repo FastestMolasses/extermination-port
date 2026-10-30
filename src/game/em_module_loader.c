@@ -7,6 +7,7 @@
  * 00200780 / 00200730 / 00200830 / 00101BB8 over the captured route RAM.
  */
 #include "game/em_module_loader.h"
+#include "game/em_sfx.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -568,6 +569,9 @@ static int w_bank(void *ctx, uint32_t address, uint32_t *result)
     const uint32_t at = address - r->address;
     if (ml->bank_hook(ml->bank_ctx, address, r->bytes + at, r->size - at, result) < 0)
         return fail(&ml->io_fault, 0x001FB370u, EM_STATUS_SCENE_FAULT_WORKER_FAILED);
+    /* 001FEF70's modules: the fitted attachment's bank (group 3) */
+    if (ml->record && ml->record->user[6] >= 0x32 && ml->record->user[6] <= 0x35)
+        em_sfx_set_attachment(ml->record->user[6] - 0x32);
     return 0;
 }
 

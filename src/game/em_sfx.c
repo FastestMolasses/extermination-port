@@ -66,6 +66,7 @@ static struct {
     EmSfxRegistry registry;  /* immutable from init until shutdown     */
     int      n_sounds;       /* audible registry entries              */
     int      area, sub;      /* em_sfx_set_area scope, -1 = none      */
+    int      attachment;     /* group 3's bank: module 0x32 + n, -1 = none */
     unsigned char reported[4096 / 8]; /* one diagnostic per id        */
     int      plays;          /* accepted plays (a track was assigned) */
     int      drops;          /* 00119EA0 -1: all 48 tracks busy       */
@@ -271,7 +272,7 @@ int em_sfx_init(void)
      * serial across an area load (one registry holds every area's scopes;
      * em_sfx_set_area selects one). */
     if (s.registry.entries) return s.n_sounds;
-    s.area = s.sub = -1;
+    s.area = s.sub = s.attachment = -1;
     for (int t = 0; t < EM_SFX_TRACKS; ++t) s.requested[t] = s.snapshot[t] = -1;
     if (em_sfx_registry_load(&s.registry, SFX_REGISTRY)) {
         for (unsigned i = 0; i < s.registry.entry_count; ++i)
@@ -445,7 +446,9 @@ static int sfx_lookup(unsigned id, const EmSfxEntry **out)
 {
     *out = NULL;
     const EmSfxEntry *entry = NULL;
-    if (s.area >= 0)
+    if (s.attachment >= 0 && id >= 0x5DCu && id < 0x7D0u)
+        entry = em_sfx_registry_find(&s.registry, id, 32 + s.attachment, 0);
+    if (!entry && s.area >= 0)
         entry = em_sfx_registry_find(&s.registry, id, s.area, s.sub);
     if (!entry) entry = em_sfx_registry_find(&s.registry, id, -1, -1);
     if (!entry) {
@@ -736,6 +739,7 @@ int  em_sfx_steals(void)      { return 0; }
 int  em_sfx_culls(void)       { return s.culls; }
 int  em_sfx_absent_cues(void) { return s.absent; }
 int  em_sfx_unsupported_cues(void) { return s.unsupported; }
+void em_sfx_set_attachment(int index) { s.attachment = index; }
 int  em_sfx_unscoped_cues(void)    { return s.unscoped; }
 unsigned em_sfx_voice_refusals(void) { return s.driver.no_voice; }
 int em_sfx_track_status(int track) { return loop_status(NULL, track); }

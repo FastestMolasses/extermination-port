@@ -290,6 +290,10 @@ int em_sfx_init(void);
  * D_00810700/701 pair 001FB9F0 reads); (-1,-1) clears. Returns one.
  * Already-playing voices retain immutable data through completion. */
 int em_sfx_set_area(int area, int sub);
+/* The bank 001FEF70's load put in group 3 (module 0x32 + index, 0..3): the
+ * attached weapon's cues 0x5DC..0x5E1 resolve in its registry scope, area 32 +
+ * index (absent in every area's own scope, whose slot holds no bank). */
+void em_sfx_set_attachment(int index);
 
 /* D_00281D50, the bank handles 001FB9F0 reads ([group * 20 + bank], 120
  * words): em_stream_live binds the sound bank's table. A start with no

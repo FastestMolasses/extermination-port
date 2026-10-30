@@ -68,6 +68,13 @@ AREA02_IDS = AREA00_IDS
 # resolved after AREA02 so every earlier scope keeps its samples.
 AREA04_SCOPES = ((4, 0),)
 AREA04_IDS = AREA00_IDS
+# The attachments' banks (001FEF70's modules 0x32..0x35, extract/chunk50..53,
+# loaded when one is fitted): they take group 3 bank 0, the slot of the weapon
+# cues 0x5DC..0x5E1 (the attached weapon's shot and holster), whose header has
+# no SShd magic in every area's capture without one. The scope's area is 32 +
+# module - 0x32, a scope of its own (em_sfx_set_attachment), resolved last.
+ATTACHMENT_SCOPES = tuple((32 + i, 0) for i in range(4))
+ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # The middle of the route to the first boss (lane C1): AREA22 sub 0
 # (export_area22_sfx.scope_binding) and AREA06 sub 0
 # (export_area06_sfx.sub_binding), each its captures' binding; resolved
@@ -338,6 +345,12 @@ def area_bindings(elf):
     bindings.update(area02_bindings())
     bindings.update(area04_bindings())
     bindings.update(mid_bindings())
+    for i, scope in enumerate(ATTACHMENT_SCOPES):
+        name = f'extract/chunk{50 + i}/f00_id86.bin'
+        rows = containers_by_type(name, (DECOMP / name).read_bytes())
+        banks = [bank for row in sorted(rows) for bank in rows[row]]
+        assert len(banks) == 1, name
+        bindings[scope] = dict(groups={3: banks}, binding=f'module {0x32 + i:#x}, {name}: 001FEF70')
     return bindings
 
 
@@ -651,6 +664,8 @@ def scene_ids(census=True):
     for scope in MID_SCOPES:
         scenes.setdefault(scope, [])
         scenes[scope] += [i for i in MID_IDS if i not in scenes[scope]]
+    for scope in ATTACHMENT_SCOPES:
+        scenes[scope] = list(ATTACHMENT_IDS)
     if census:
         scope, ids = census_ids()
         scenes.setdefault(scope, [])
@@ -685,7 +700,8 @@ def export(out_dir: Path):
     # Registry entry rows still sort by scope/id after sample allocation.
     def scope_order(kv):
         scope = kv[0]
-        return (5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES else 3 if scope in AREA02_SCOPES
+        return (6 if scope in ATTACHMENT_SCOPES else 5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES
+                else 3 if scope in AREA02_SCOPES
                 else 2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0,
                 MID_SCOPES.index(scope) if scope in MID_SCOPES else scope)
     for (area, sub), ids in sorted(scene_ids().items(), key=scope_order):
