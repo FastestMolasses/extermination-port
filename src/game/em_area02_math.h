@@ -149,6 +149,8 @@ void em_area02_math_clear_fault(EmArea02Math *s);
 int em_area02_math_001575E0(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_00157B30(EmArea02Math *s, uint32_t a0, uint32_t a1, int32_t *out);
 int em_area02_math_00157F30(EmArea02Math *s, uint32_t a0, int32_t *out);
+/* 001580C0(node): the battery panel's power callback (op09 of its script). */
+int em_area02_math_001580C0(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_00158050(EmArea02Math *s, uint32_t a0, int32_t *out);
 int em_area02_math_001582E0(EmArea02Math *s, uint32_t a0);
 int em_area02_math_00157860(EmArea02Math *s, uint32_t a0, uint32_t a1, uint32_t a2, int32_t *out);

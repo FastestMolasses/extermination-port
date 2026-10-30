@@ -240,7 +240,8 @@ static int dispatch_overlay02(EmArea01Runtime *r, EmArea01Call *c)
 static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
     static const struct { uint32_t fn; unsigned na; } entries[] = {
-        {0x001575E0u, 1}, {0x00157860u, 3}, {0x00157B30u, 2}, {0x00157F30u, 1}, {0x00158050u, 1}, {0x001582E0u, 1},
+        {0x001575E0u, 1}, {0x00157860u, 3}, {0x00157B30u, 2}, {0x00157F30u, 1}, {0x00158050u, 1}, {0x001580C0u, 1},
+        {0x001582E0u, 1},
         {0x00158EC0u, 1}, {0x00159210u, 1}, {0x00159620u, 1}, {0x00159970u, 1}, {0x00159E70u, 1}, {0x00183C40u, 2},
         {0x001B18F0u, 3}, {0x001BC960u, 1}, {0x001BD560u, 1}, {0x001BDFC0u, 1}, {0x001C48C0u, 1},
         {0x001C4960u, 1}, {0x001C4AF0u, 1}, {0x001C4CB0u, 1}, {0x001C7EB0u, 1}, {0x001C8140u, 3}};
@@ -273,6 +274,7 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     case 0x00157B30u: x = em_area02_math_00157B30(&m, a0, a1, &out); break;
     case 0x00157F30u: x = em_area02_math_00157F30(&m, a0, &out); break;
     case 0x00158050u: x = em_area02_math_00158050(&m, a0, &out); break;
+    case 0x001580C0u: x = em_area02_math_001580C0(&m, a0, &out); break;
     case 0x001582E0u: x = em_area02_math_001582E0(&m, a0); break;
     case 0x00158EC0u: x = em_area02_math_00158EC0(&m, a0); break;
     case 0x00159210u: x = em_area02_math_00159210(&m, a0); break;

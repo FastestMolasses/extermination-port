@@ -102,7 +102,7 @@ CODE_END = 0x230000
 
 # Translated routines (address -> size in bytes, from the census).
 FUNCS = {
-    0x1575E0: 0xF4, 0x157860: 0x2CC, 0x157B30: 0x1B0, 0x157F30: 0x2C, 0x158050: 0x64, 0x1582E0: 0x150, 0x158EC0: 0x348,
+    0x1575E0: 0xF4, 0x157860: 0x2CC, 0x157B30: 0x1B0, 0x157F30: 0x2C, 0x158050: 0x64, 0x1580C0: 0x68, 0x1582E0: 0x150, 0x158EC0: 0x348,
     0x159210: 0x408, 0x159620: 0x348, 0x159970: 0x214, 0x159E70: 0x144, 0x183C40: 0x2A4, 0x1B18F0: 0x238, 0x1BC960: 0x81C,
     0x1BD560: 0x490, 0x1BDFC0: 0x630, 0x1C48C0: 0x9C, 0x1C4960: 0x98, 0x1C4AF0: 0xAC, 0x1C4CB0: 0x2F0,
     0x1C7EB0: 0x28C, 0x1C8140: 0x7C, 0x1CAE40: 0x114, 0x1CAF60: 0x8, 0x1CB4F0: 0x90, 0x1CB580: 0x8,
@@ -136,7 +136,7 @@ INDIRECT = {0x1CAA00, 0x1CAF60}
 # Entry signatures: fn -> (argument kinds, output kind); outputs: None
 # (void), 'i' (int32).
 ENTRIES = {
-    0x1575E0: ('p', 'i'), 0x157860: ('ppp', 'i'), 0x157B30: ('pp', 'i'), 0x157F30: ('p', 'i'), 0x158050: ('p', 'i'), 0x1582E0: ('p', None),
+    0x1575E0: ('p', 'i'), 0x157860: ('ppp', 'i'), 0x157B30: ('pp', 'i'), 0x157F30: ('p', 'i'), 0x158050: ('p', 'i'), 0x1580C0: ('p', 'i'), 0x1582E0: ('p', None),
     0x158EC0: ('p', None), 0x159210: ('p', None), 0x159620: ('p', None), 0x159970: ('p', None), 0x159E70: ('p', None),
     0x183C40: ('pp', None), 0x1B18F0: ('ppp', 'i'), 0x1BC960: ('p', None), 0x1BD560: ('p', None),
     0x1BDFC0: ('p', None), 0x1C48C0: ('p', None), 0x1C4960: ('p', None), 0x1C4AF0: ('p', None),
@@ -939,6 +939,21 @@ def cases_157F30(rng):
     return out
 
 
+def cases_1580C0(rng):
+    """001580C0 (the battery panel's power callback, a02_04's [24]): the
+    type byte +3 (0x2C skips), every bit +0x2E selects, both areas' bytes."""
+    out = []
+    for beat in ('a04', 'bed'):
+        for typ in (0x2C, 0x24, 0x14, 0):
+            for bit in ((0, 3, 7) if typ != 0x2C else (3,)):
+                w = [W8(PANEL + 3 if beat == 'a04' else PANEL24 + 3, typ),
+                     W8(PANEL + 0x2E if beat == 'a04' else PANEL24 + 0x2E, bit)]
+                node = PANEL if beat == 'a04' else PANEL24
+                out.append(case(f'1580C0 {beat} t {typ:x} b {bit}', 0x1580C0, [node], beat=beat, writes=w,
+                                pin=beat == 'a04' and typ == 0x24 and bit == 3))
+    return out
+
+
 def cases_158050(rng):
     out = []
     for n, node in enumerate((BED, R1, R2)):
@@ -1530,7 +1545,7 @@ def cases_1CB580(rng):
                  writes=[W32(node + 0x44, 0x7A5000 + i)]) for i, node in enumerate((BED, R1, R2))]
 
 
-MAKERS = (cases_1575E0, cases_157860, cases_157B30, cases_157F30, cases_158050, cases_1582E0, cases_158EC0, cases_159210, cases_159620,
+MAKERS = (cases_1575E0, cases_157860, cases_157B30, cases_157F30, cases_1580C0, cases_158050, cases_1582E0, cases_158EC0, cases_159210, cases_159620,
           cases_159970, cases_159E70, cases_183C40, cases_1B18F0, cases_1BC960, cases_1BDFC0, cases_1BD560,
           cases_1C48C0, cases_1C4960, cases_1C4AF0, cases_1C4CB0, cases_1C7EB0, cases_1C8140, cases_1CAE40,
           cases_1CAF60, cases_1CB4F0, cases_1CB580)

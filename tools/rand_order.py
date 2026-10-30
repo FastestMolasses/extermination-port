@@ -62,6 +62,13 @@ PORT_FN = {
     'em_effect_manager_001F4D40': 0x1F4D40,
     'f_1F4E40': 0x1F4E40,                        # em_area02_misc's 001F4E40 (AREA02's switch lamps, 001C4CB0)
     'em_area02_misc_view_001F4E40': 0x1F4E40,    # its entry (f_1F4E40 inlined)
+    'f_1E4CE0': 0x1E4CE0,                        # em_area02_misc's burst emitter (AREA02's car spawns it)
+    'em_area02_misc_view_001E4CE0': 0x1E4CE0,
+    # the AREA02 overlay's rand() callers (runtime addresses; decomp
+    # overlays/AREA02 0x8248D0 / 0x824A80 / 0x824C00, each byte-identical)
+    'a02_824910': 0x824910, 'em_area02_ovl_00824910': 0x824910,
+    'a02_824AC0': 0x824AC0, 'em_area02_ovl_00824AC0': 0x824AC0,
+    'a02_824C40': 0x824C40, 'em_area02_ovl_00824C40': 0x824C40,
     'em_effect_manager_aura_draw': 0x1F1180,     # 001F1180's draw (0x1F14F0)
     'em_pickup_aura_001F1110': 0x1F1110,
     'em_pickup_aura_001F1180': 0x1F1180,
@@ -164,6 +171,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

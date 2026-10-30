@@ -371,6 +371,23 @@ static int32_t f_157F30(Run *r, uint32_t node)
 }
 
 /* ------------------------------------------------------------------------
+ * 001580C0(node) (byte-matched C; the battery panel's script callback,
+ * AREA02's [24] at a02_04): unless byte +3 is 0x2C, the room-mask byte
+ * D_00810841[D_00810700] |= 1 << byte +0x2E and 001FB9F0(0x3EE, 0x1000,
+ * 0x1000, 0x1000). Returns 1. The frame is 0x10 bytes.
+ * ---------------------------------------------------------------------- */
+static int32_t f_1580C0(Run *r, uint32_t sp, uint32_t node)
+{
+    sp -= 0x10;
+    if (u8(r, node + 3) != 0x2C) {
+        const uint32_t at = G_MASK + u8(r, G_AREA);
+        st8(r, at, u8(r, at) | (1u << u8(r, node + 0x2E)));
+        (void)call4(r, sp, FN_1FB9F0, 0x3EE, 0x1000, 0x1000, 0x1000);
+    }
+    return 1;
+}
+
+/* ------------------------------------------------------------------------
  * 00158050(a0): p = word (word a0+0x1C)+0x1C; 0x700038A0 = (p+0xB0, p+0xB4,
  * p+0xB8, 1.0); 00102948(D_008105E0, 0x700038A0). Returns 1. The frame is
  * 0x10 bytes.
@@ -2129,6 +2146,15 @@ int em_area02_math_00157F30(EmArea02Math *s, uint32_t a0, int32_t *out)
     int32_t v;
     ENTER(0x00157F30u);
     v = f_157F30(&run, a0);
+    put(out, v);
+    return 0;
+}
+
+int em_area02_math_001580C0(EmArea02Math *s, uint32_t a0, int32_t *out)
+{
+    int32_t v;
+    ENTER(0x001580C0u);
+    v = f_1580C0(&run, s->sp, a0);
     put(out, v);
     return 0;
 }
