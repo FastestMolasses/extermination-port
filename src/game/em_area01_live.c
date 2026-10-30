@@ -1284,6 +1284,21 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_collision_view_begin(&l->collision)<0)return fail(l,l->collision.fault_address);
         return rc;
     }
+    case 0x001AEBA0u:
+        /* 001AEBA0(step) (byte-matched C): the screen fade (the lift [51]'s
+         * sub-state 5, 001BD560, before its area change). */
+        if(c->na<1)return -1;
+        em_frame_screen_fade_start(-1,(int16_t)c->a[0]);
+        return 0;
+    case 0x0018D7B0u: {
+        /* 0018D7B0(D_008101E0, style): the camera's solve (em_camera_live),
+         * 001BC560's (the lift's op09). The views published around it. */
+        if(c->na<2 || (uint32_t)c->a[0]!=0x008101E0u)return -1;
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_camera_live_solve((int)(int32_t)c->a[1]);
+        if(em_area01_live_resume(l)<0)return -1;
+        c->v0=(uint64_t)(int64_t)(rc<0 ? 0 : rc);return rc<0 ? -1 : 0;
+    }
     case 0x0019BC40u: {
         /* 0019BC40(pos): the column table over the world (em_actor_collision,
          * NEARMISS logic recovered; ACTOR_COLLISION.md), for AREA04's

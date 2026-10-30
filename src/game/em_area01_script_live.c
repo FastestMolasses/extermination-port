@@ -44,7 +44,7 @@ static const AreaScripts *area_scripts(unsigned area)
 void em_area01_script_free(EmArea01Script *s)
 {
     if (!s) return;
-    for (unsigned i=0;i<4;++i) em_script_image_free(&s->boot[i]);
+    for (unsigned i=0;i<5;++i) em_script_image_free(&s->boot[i]);
     em_spawn_table_free(&s->destinations);
     em_spawn_table_free(&s->timeline_tables);
     memset(s,0,sizeof *s);
@@ -54,7 +54,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
     if (!s || !s->bound) return NULL;
     uint8_t *timeline=em_area11_script_host_timeline_bytes(a,n);
     if(timeline)return timeline;
-    for (unsigned i=0;i<4;++i) {
+    for (unsigned i=0;i<5;++i) {
         uint8_t *p=em_script_image_read(&s->boot[i],a,n);
         if (!p) continue;
         /* The walk table and door sound descriptors are read-only. The
@@ -74,7 +74,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
 EmScriptImage *em_area01_script_image(EmArea01Script *s,uint32_t entry)
 {
     if (!s || !s->bound || !area_scripts(s->area)) return NULL;
-    for (unsigned i=0;i<4;++i)
+    for (unsigned i=0;i<5;++i)
         if (em_script_image_read(&s->boot[i],entry,EM_SCRIPT_RECORD_SIZE)) return &s->boot[i];
     const AreaScripts *a=area_scripts(s->area);
     if (!contains(entry,EM_SCRIPT_RECORD_SIZE,a->script_lo,a->script_hi)) return NULL;
@@ -188,6 +188,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x00157F60u: case 0x001575B0u: /* shared panel callbacks */
     case 0x00157F30u: case 0x001575E0u: /* the medical station's (D_00247F60, D_00247FE0) */
     case 0x001BB400u: case 0x001BB310u: case 0x001BBAE0u: case 0x001BBBF0u:
+    case 0x001BC560u: case 0x001BC6D0u: /* the lift scripts' (D_0024E560, D_0024E7E0) */
         break;
     case 0x00825130u: case 0x00825240u: case 0x00825910u: case 0x00826950u:
         if (s->area!=1) return -1;
@@ -227,13 +228,14 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
                               unsigned area_id)
 {
     if (!s || !host || !host->worker || !loader || s->bound || !area_scripts(area_id)) return -1;
-    const uint32_t lo[4]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u};
-    /* panels: through the medical station's scripts (export_area01_boot_scripts.py). */
-    const uint32_t hi[4]={0x00248120u,0x0024DF80u,0x00248540u,0x002668A0u};
-    const uint32_t entry[4]={0x00246C20u,0x0024D900u,0x002482C0u,0x00266620u};
-    const char *name[4]={"panels.emsc","doors.emsc","pickup.emsc","take.emsc"};
+    const uint32_t lo[5]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u,0x0024E1A0u};
+    /* panels: through the medical station's scripts; lift: 001BC960 /
+     * 001BD560's scripts (export_area01_boot_scripts.py). */
+    const uint32_t hi[5]={0x00248120u,0x0024DF80u,0x00248540u,0x002668A0u,0x0024E960u};
+    const uint32_t entry[5]={0x00246C20u,0x0024D900u,0x002482C0u,0x00266620u,0x0024E1A0u};
+    const char *name[5]={"panels.emsc","doors.emsc","pickup.emsc","take.emsc","lift.emsc"};
     char path[1024];
-    for (unsigned i=0;i<4;++i) {
+    for (unsigned i=0;i<5;++i) {
         int n=snprintf(path,sizeof path,"%s/%s",boot_path ? boot_path : EM_AREA01_SCRIPT_BOOT_PATH,name[i]);
         if (n<0 || (size_t)n>=sizeof path || !em_script_image_load(&s->boot[i],path) ||
             s->boot[i].base!=lo[i] || s->boot[i].entry!=entry[i] || s->boot[i].length!=hi[i]-lo[i]) goto fail;

@@ -17,7 +17,7 @@ typedef struct {
     EmArea01RuntimeHost host;
     EmModuleLoader *loader;
     /* Own boot data exactly once. The overlay descriptor borrows the drive. */
-    EmScriptImage boot[4], overlay;
+    EmScriptImage boot[5], overlay;
     EmSpawnTable destinations, timeline_tables;
     void *bank_ctx;
     int (*bank)(void *, EmActor *, uint32_t *value, int write);

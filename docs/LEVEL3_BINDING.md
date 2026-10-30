@@ -74,6 +74,10 @@ What it needed, each from original code with its evidence:
   the flags, the heights and the slopes).
 - 0019AD00's hull lock for a non-class-0 mover: the player's call-local
   record, as 0019AA80's; the shove 0x700031C0 as a quadword read.
+- The lift: its scripts in doors.emsc (the image now ends at 0x24E960, so
+  AREA01 / AREA11 builds need the re-export), op09 001BC560 / 001BC6D0,
+  0018D7B0 (em_camera_live_solve), 001AEBA0 (the screen fade), the script
+  workers (001B8AB0's camera shake and the others) in area 4.
 - Assets: library models 0x53..0x56, bank 0x3A beside the door bank, the
   kind 0x34 proxy assets/npc34_shadow.emdl (19 nodes, the script actor of
   0x828450; the a04b_03 end RAM's D_0028A490[0x34] holds the file, no end

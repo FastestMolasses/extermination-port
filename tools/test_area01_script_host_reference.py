@@ -57,7 +57,9 @@ def main():
     callbacks=(0x825130,0x825240,0x825910,0x826950,0x158130,0x158050,0x1580C0,0x157F60,0x1575B0,0x157F30,0x1575E0,
                0x1BB400,0x1BB310,0x1BBAE0,0x1BBBF0,0x1B6EA0)
     images=[('overlay',0x828A00,0x82CD00,T.SCRIPT_ENTRIES)]
-    images += [(name,lo,hi,entries) for name,lo,hi,_entry,entries in B.WINDOWS]
+    # (the lift's scripts need op handlers this harness's EE does not model:
+    # their timing is compared on the a04b start-card runs, EIGHTH_LEVEL_ROUTE.md)
+    images += [(name,lo,hi,entries) for name,lo,hi,_entry,entries in B.WINDOWS if name!='lift']
     cases=[]
     for name,lo,hi,entries in images:
         for entry in entries:
