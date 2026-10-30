@@ -14,6 +14,66 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-30, lane A2 (branch `area02`): AREA02 row-exact from door [16]
+through the battery panel, and the bed.** From New Game the whole-run
+checker passes 49 live phases through a02_04 (`--run --until a02_04`,
+627 s), and 45 through the side beat a02_s0:
+
+| Beat | Rows | What it covers |
+|---|---|---|
+| a02_s0 | 1,008 / 1,008 | the bed 00159620 with item 0x20: prompt, Yes, health 90 -> 100, infection 40 -> 0 |
+| a02_00 | 1,423 / 1,423 | the duct (unchanged) |
+| a02_01 | 630 / 630 | switch [31]: the lamps 001F4E40, the car movie E010 (selector 5), music 0x13 |
+| a02_02 | 1,016 / 1,016 | the car's run, gate [38] freed at x 140.9, the car stopped and freed, the ladder escape |
+| a02_03 | 831 / 831 | over the wreck, the two grabs (infection 40 -> 60), the ledge climb |
+| a02_04 | 1,577 / 1,577 | battery panel [24]: the page's prompt, Yes, charge 8 -> 0, D_00810843 = 8 |
+
+The fail-stops on the way, each closed with a translation of original code
+(byte-matched or NEARMISS decomp C, logic recovered) and its evidence:
+
+- **The bed's scripts** (00157B30's D_00247E20 / D_00247EE0 / D_00247FA0 /
+  D_00247FE0, patched at D_00247E74 / D_00247F34): the panels boot-script
+  window now runs to D_00248120 (export_area01_boot_scripts.py; lockstep
+  against the original in test_area01_script_host_reference.py, 8 cases);
+  their op09 callbacks 00157F30 / 001575E0 are allowed.
+- **Player bank rows 0x96..0x98:** a row no area file relocated is 0 (LOAD
+  GAME straight into AREA02 leaves 0x97 / 0x98 clear) and is not mapped.
+- **HEALING kind 2 (the bed's Yes):** the device's +0x0A / +0x0B are a view
+  of the pool record (em_scene_bindings_device_bytes); page id 8 goes to
+  phase 2 (covered by test_status_page_reference's oracle); the count-up,
+  0020CDC0 phases 1 / 2 sub-state 2 (NEARMISS, logic recovered), counts its
+  own D_00810858 / D_0081085C while the player record's +0x220 / +0x228
+  (the port's scene words) keep their values until the commit, as the
+  recording shows (+0x220 stays 90 through the count-up).
+- **Switch [31]:** em_area02_misc's 001F4E40 (lamps), 001AA700 (the car's
+  sweep) over the area runtime's bytes; movie selector 5 \MOVIE\E010.PSS
+  (feed end from the recording's vblank count, see em_frontend.c); music
+  cue 0x13 exported (export_streams.py, with the AREA02 / AREA04 message
+  voices and AREA04's music rows).
+- **The car:** 001F02C0 (sounds, em_area00_fx's), 001F6B30 (the room's
+  point lights again, em_effect_kinds'), the effect handlers 001EC9A0 and
+  001EC5F0 (em_area02_misc's) with their sources, the spawned burst emitter
+  001E4CE0 and 001E3D90 on the area runtime, the burst's tables
+  (D_00253C50, D_002541F0..D_00254F2F; its mesh sets written in place),
+  its contact callback 001E49F0, 00128250, 0x70003A24..A37, D_00282154..56.
+- **The battery panel [24]:** 001580C0 (op09 of its script) translated in
+  em_area02_math (20 oracle cases, full sweep PASS); the BATTERY page's
+  owner reads / writes of an AREA01 / AREA02 battery panel (00158EC0).
+
+- **Free roam** (EM_START_AT from the AREA02 cards, scripted pads): the
+  wreck's fire 001EC820 (em_area02_misc, byte-matched C, oracle cases) and
+  the console [4]'s BATTERY page (00185420 on the live composition's list,
+  00159210 as a battery-panel owner). Ran without a fault: the bed, the
+  console, door [6] into the south room, its pickups, walks to door [5] and
+  the save terminal (neither Use was taken by the scripted approach), a
+  kill from the a02_02 card (two dissolves, 504 glow ticks).
+
+The a02_03 "4.2 units off the path" stop was an EM_START_AT discovery
+artefact (a loaded game's state, the path clock): from New Game a02_03 is
+row-exact. Not done: a02_05 (door [25] into AREA04) as a harness phase
+(needs its fork drive table and the AREA04 boundary in the C phase list);
+see LEVEL2_CRASHES.md "AREA02 (lane A2)".
+
 **2026-10-29, lane G1 (branch `bug-glow`): a kill's dissolve no longer
 fail-stops.** A user run (EM_START_AT=a01_07, through the shaft door into
 AREA00, a kill at the cage-room nest) stopped with "FAULT at 001F6FB0" at

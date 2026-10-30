@@ -21,6 +21,12 @@ recorded inputs, not a native run. See
 [LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the AREA01 state and the work
 left.
 
+The AREA01 revisit and AREA02 run on `tools/test_level_smoke_area01r.py
+--run --until <phase>` (opt-in, from New Game, about 11 minutes to a02_04
+headless): since 2026-10-30 (lane A2) the whole-run checker passes 49 live
+phases through a02_04 and 45 through the side beat a02_s0 (LEVEL3_BINDING.md
+"2026-10-30, lane A2"); a02_05 is not a phase yet.
+
 AREA00 now has an opt-in input driver and strict checker, but no native
 phase is certified. Its short default verifies the harness only; see
 "AREA00: arrival, progression and side return" below and

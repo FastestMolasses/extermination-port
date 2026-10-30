@@ -489,6 +489,10 @@ as measurements.
    tunnel (x < -80) with its nest of 00128C10 / 0012A5D0 creatures, the
    examine owner [40] (0x824FA0), AREA02 sub 2.
 5. What sets D_008107E4 in AREA04's arrival.
+6. Native status (2026-10-30, lane A2): a02_s0 and a02_00..a02_04 are
+   row-exact from New Game (LEVEL3_BINDING.md "2026-10-30, lane A2");
+   a02_05 is not a harness phase yet (its fork drive table and the AREA04
+   boundary in em_level_smoke_test.c are missing).
 
 ## 9. Census: what the revisit and AREA02 execute beyond the first level, AREA01 and AREA00
 

@@ -772,3 +772,33 @@ and the cone shells 001D9530, which the original draws wherever
 D_008106C8 lacks 0x20000000 (every AREA01 / AREA00 / AREA02 capture), were
 not composed. Cause, fix and evidence: AIM_FIRE.md section 10.8;
 CHAIN_PAGE.md section 6.4; test-aim-fire-lamp-cone.
+
+## AREA02 (lane A2, 2026-10-30)
+
+Branch `area02` (port worktree `port-area02`). The recorded route from the
+door [16] arrival through the battery panel is row-exact from New Game
+(LEVEL3_BINDING.md "2026-10-30, lane A2"). Free-roam exploration used
+EM_START_AT cards with scripted pads and paths (scratch, deleted); like
+every exploration here it is not a certification of unrestricted play.
+
+| Run (card) | Input | Result |
+|---|---|---|
+| area02 | walk to the bed, Use, Yes (a02_s0's pad) | no fault (was: player bank row 0x97, D_00247F34, page 8) |
+| area02 | console [4], Use, Cross x 6 | no fault (was: 00185420, the page's owner reads) |
+| area02 | door [6] to the south room; its two pickups | no fault |
+| area02 | toward door [5] and the save terminal [3], Use | no fault; neither Use taken by the scripted approach |
+| a02_02 | stick, R1, Circle every 16 frames (glow-dissolve pad) | two creatures killed and dissolved (504 glow ticks), no fault |
+| a02_03 | the same pad, four headings | no fault (was: 001EC820, the wreck's fire) |
+| a02_04 | the same pad, two headings | no fault, no kill (nothing in reach) |
+| a02_05 | the route's pad to door [25], Use | the scripted approach never took the door (no fault); a02_05 is not certified |
+
+Open for free play in AREA02:
+- HEALING kind 2 from the menu near the bed (item 0x20 through 00185420):
+  the device test em_item_device_find covers the battery items only, so it
+  faults there (00184D20's item 0x20 / 0x23..0x27 arms are not translated).
+- The medicines 0x1E / 0x1F (HEALING state 5) count D_00810858 up on the
+  port's one copy of +0x220 (the original keeps +0x220 until the end); the
+  tick log's health differs from the original's during that count.
+- Door [5] back to AREA01, the save terminal [3], AREA02 sub 2 and the
+  western tunnel's nest were not reached.
+
