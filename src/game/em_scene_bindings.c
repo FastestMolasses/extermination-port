@@ -95,6 +95,8 @@
  * room move" below).
  */
 #include "game/em_scene_bindings.h"
+#include "game/em_area01_collision_view.h"
+#include "game/em_aim_fire_world_live.h"
 #include "game/em_area02_misc.h"
 #include "game/em_area01_terminal_status.h"
 
@@ -220,6 +222,28 @@ static const char *area02_file(unsigned sub, const char *name)
 /* AREA04 (tools/export_area04_level / _tables / _sfx): sub 0 only (no
  * capture loads sub 1; docs/AREA04_ASSETS.md). */
 #define AREA04_SCENE_DIR "assets/area04/sub0"
+
+/* The middle of the route to the first boss (lane C1): AREA22 (area byte
+ * 0x16) and AREA06 sub 0, in AREA02's layout (tools/export_area22_level /
+ * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
+static int mid_area(unsigned area, unsigned sub)
+{
+    return (area == 0x16u || area == 6u) && sub == 0;
+}
+static const char *mid_file(unsigned area, const char *name)
+{
+    static char path[4][96];
+    static unsigned next;
+    char *out = path[next++ & 3u];
+    snprintf(out, sizeof path[0], "assets/area%02u/sub0%s%s", area, name[0] ? "/" : "", name);
+    return out;
+}
+static const char *mid_cells(unsigned area)
+{
+    static char name[32];
+    snprintf(name, sizeof name, "area%02u_cells.bin", area);
+    return mid_file(area, name);
+}
 
 static const uint8_t *closure_spawn_read(uint32_t address, uint32_t size);
 
@@ -2401,8 +2425,9 @@ static int rcl_bind(void)
         return -1;
     if (em_rcl_bind(views, sizeof views / sizeof views[0], &workers) < 0)
         return -1;
-    if (area01) {
-        /* AREA01's (and AREA04's) dynamic pass reads the resource delivered at slot 0x45.
+    if (area01 || (mid_area(s_state.d810700, s_state.d810701) && ld->d28A490[0x45])) {
+        /* AREA01's dynamic pass reads the resource delivered at slot 0x45
+         * (and AREA06's: its dynamic-object table, export_area06_level).
          * Rebind after em_rcl_bind invalidates the previous area's views. */
         const uint8_t *word = (const uint8_t *)&ld->d28A490[0x45];
         uint32_t size = 0;
@@ -2439,7 +2464,9 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, AREA00_SCENE_DIR) == 0 ||
            strcmp(g.scene_dir, AREA02_SCENE_DIR "/sub0") == 0 ||
            strcmp(g.scene_dir, AREA02_SCENE_DIR "/sub1") == 0 ||
-           strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0;
+           strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0 ||
+           strcmp(g.scene_dir, "assets/area22/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area06/sub0") == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -2565,6 +2592,7 @@ static int state0_001AF8E0(void *ctx)
                 s_state.d810700 == 0 ? AREA00_SCENE_DIR "/world_models.emwm" :
                 s_state.d810700 == 2 ? area02_file(s_state.d810701, "world_models.emwm") :
                 s_state.d810700 == 4 ? AREA04_SCENE_DIR "/world_models.emwm" :
+                mid_area(s_state.d810700, s_state.d810701) ? mid_file(s_state.d810700, "world_models.emwm") :
                 arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
                                 : EM_AREA11_WORLD_MODELS_PATH,
                 ld->d28A490[0x43]) < 0)
@@ -2653,7 +2681,8 @@ static int w_001AFCA0(void *ctx)
         if (em_collision_world_load(&g.coll, g.coll_path,
                                     s_state.d810700 == 0 ? AREA00_CELLS_PATH :
                                     s_state.d810700 == 2 ? area02_file(s_state.d810701, "area02_cells.bin") :
-                                    s_state.d810700 == 4 ? AREA04_SCENE_DIR "/area04_cells.bin"
+                                    s_state.d810700 == 4 ? AREA04_SCENE_DIR "/area04_cells.bin" :
+                                    mid_area(s_state.d810700, s_state.d810701) ? mid_cells(s_state.d810700)
                                                          : AREA01_CELLS_PATH,
                                     EM_COLLISION_WORLD_SDK_PATH) != 0)
             return em_scene_fault(&s_state, 0x001AFCA0u, EM_SCENE_FAULT_NULL_WORKER);
@@ -2698,6 +2727,9 @@ static int w_001AFCA0(void *ctx)
              * area (em_message_live_select_area), so sub 1 keeps sub 0's. */
             s_state.d810700 == 2 ? area02_file(0, "message_data.emmd") :
             s_state.d810700 == 4 ? AREA04_SCENE_DIR "/message_data.emmd" :
+            /* AREA22 / AREA06: the area's tables (AREA22 has no area records,
+             * export_area22_tables) */
+            mid_area(s_state.d810700, s_state.d810701) ? mid_file(s_state.d810700, "message_data.emmd") :
             arrival_scene() ? AREA01_SCENE_DIR "/message_data.emmd"
                             : "assets/message/message_data.emmd", s_state.d810700))
         return em_scene_fault(&s_state, 0x001FD790u, EM_SCENE_FAULT_NULL_WORKER);
@@ -3187,6 +3219,8 @@ static int area_read(void)
         scene = area02_file(s_state.d810701, "");
     if (s_state.d810700 == 4 && s_state.d810701 == 0)
         scene = AREA04_SCENE_DIR;
+    if (mid_area(s_state.d810700, s_state.d810701))
+        scene = mid_file(s_state.d810700, "");
     if (scene) {
         if (area01_scratch_detach() < 0)
             return -1;
@@ -3508,6 +3542,21 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
+    /* AREA22's overlay has no owner; AREA06's are its placements' and
+     * spawns' (em_area01_runtime dispatch_a06). Another overlay callback
+     * there faults (never another area's at the same address). */
+    if (s_state.d810700 == 6 && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x00823580u: case 0x00823B50u: case 0x008240E0u: case 0x00824340u: case 0x00824560u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
+    if (s_state.d810700 == 0x16 && fn >= 0x00823500u)
+        return -1;
+    if (s_state.d810700 == 6 && fn == 0x00219870u)
+        goto bind;
     /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
@@ -3532,6 +3581,13 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     /* The AREA01 revisit's owners (em_area01_runtime_revisit.inc). */
     case 0x00823CD0u: case 0x00825950u: case 0x008237D0u: case 0x00823900u: case 0x008239C0u:
     case 0x001C7EB0u: case 0x001BB0E0u:
+    /* 001C02E0's bit-5 behaviour and its companion's (001BEAC0 spawns it):
+     * em_level8_port's (em_area01_runtime). */
+    case 0x001BF6B0u: case 0x001BE6C0u:
+    /* A bug 001284E0 spawns at run time (001BF6B0's): the roster bugs'
+     * owner (em_area01_exita's 0012A5D0, which the deferred binder already
+     * gives every roster bug). */
+    case 0x0012A5D0u:
     bind:
         a->callback = fn;
         a->behavior = area01_behavior;
@@ -3554,7 +3610,7 @@ static int area00_spawned_fallback(EmActor *a)
     /* AREA02: any boot owner the area runtime runs too, e.g. the car's
      * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
-    if ((s_state.d810700 == 2 || s_state.d810700 == 4) && a)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x16) && a)
         return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
@@ -3614,7 +3670,9 @@ static int area01_bind_child(void *ctx, EmActor *actor)
  * 0x829220 and 0x8291C0), AREA01 (module id 2, data 0x828A00..0x82CD00). */
 static int area_spawn_deferred(EmArea01Call *call, uint32_t want_id, uint32_t data_lo, uint32_t data_hi)
 {
-    if (call->na != 1 || call->nf || call->a[0] > UINT32_MAX)
+    /* 001B6660 reads a0 only (src/func_001B6660.c); a caller's other
+     * argument registers (001C02E0's 2 and its state) are not read. */
+    if (call->na < 1 || call->nf || call->a[0] > UINT32_MAX)
         return -1;
     EmModuleLoader *loader = em_module_loader_live();
     const uint8_t *header = em_module_loader_memory(loader, 0x00823500u, 12);
@@ -3677,6 +3735,10 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 3u, 0x00825680u, 0x00829280u);
     if (s_state.d810700 == 4 && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 5u, 0x00826600u, 0x0082C900u);
+    if (s_state.d810700 == 6 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 6u, 0x00826000u, 0x00828F00u);
+    if (s_state.d810700 == 0x16 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 0x13u, 0x00823600u, 0x00823E00u);
     fprintf(stderr, "em_area01: unbound worker %08X from live composition\n", call->function);
     return -1;
 }
@@ -3750,6 +3812,9 @@ static int area01_bind_live(void)
     h.worker = area01_missing_worker;
     h.rebind = area01_rebind;
     h.private_model = area01_private_model;
+    /* 0x700031D4 after an aim/fire probe hit the player: that composition's
+     * proxy of D_008102B0, the same word for the AREA01 collision view. */
+    em_area01_collision_set_player_proxy(em_aim_fire_world_live_player_body());
     if (em_area01_live_bind(&s_area01_live, &h) < 0)
         return em_scene_fault(&s_state, s_area01_live.fault_address, EM_SCENE_FAULT_NULL_WORKER);
     if (em_effects_live_set_head_owner(area01_head_record, area01_head_bytes, &s_area01_live) < 0)
@@ -3831,11 +3896,13 @@ static int area01_bind_roster(void *ctx, EmActor *a, const EmActorRosterSpawned 
 static int spawn_area01(void)
 {
     const unsigned area = s_state.d810700, sub = s_state.d810701;
-    if (!((area == 1 && sub == 0) || ((area == 0 || area == 2) && sub <= 1) || (area == 4 && sub == 0)))
+    if (!((area == 1 && sub == 0) || ((area == 0 || area == 2) && sub <= 1) || (area == 4 && sub == 0) ||
+          mid_area(area, sub)))
         return em_scene_fault(&s_state, 0x001B6990u, EM_SCENE_FAULT_BAD_INDEX);
     const char *path = area == 1 ? AREA01_ROSTER_PATH :
                        area == 2 ? area02_file(sub, "roster.emro") :
                        area == 4 ? AREA04_SCENE_DIR "/roster.emro" :
+                       mid_area(area, sub) ? mid_file(area, "roster.emro") :
                        sub == 0 ? AREA00_SCENE_DIR "/sub0/roster.emro" :
                                   AREA00_SCENE_DIR "/sub1/roster.emro";
     if (s_roster01_loaded && (s_roster01.area != area || s_roster01.sub != sub)) {

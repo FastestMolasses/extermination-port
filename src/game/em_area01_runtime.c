@@ -1,4 +1,5 @@
 #include "game/em_area01_runtime.h"
+#include "game/em_area01_state.h"
 #include "game/em_area01_math_actor.h"
 #include "game/em_area01_math_owner.h"
 #include "game/em_area01_math_player.h"
@@ -10,6 +11,7 @@
 #include "game/em_area02_misc.h"
 #include "game/em_area02_math.h"
 #include "game/em_ee_float.h"
+#include <stdio.h>
 #include <string.h>
 
 static int fail(EmArea01Runtime *r, uint32_t address)
@@ -101,6 +103,98 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_area01_runtime_revisit.inc"
 #include "game/em_area02_runtime_overlay.inc"
 #include "game/em_area04_runtime_overlay.inc"
+/* The middle of the route (AREA22, AREA06): the standalone level ports'
+ * typed hooks into this runtime (tools/gen_mid_route_bridge.py). */
+#include "game/em_area04_port.h"
+#include "game/em_area06_port.h"
+#include "game/em_area22_port.h"
+#include "game/em_level8_port.h"
+#include "game/em_mid_route_bridge.inc"
+
+/* Boot routines of AREA22 / AREA06 that only the level ports translate:
+ * 001C1A80 (the model-0x52 owner; em_area04_port, NEARMISS C checked
+ * against the instructions, test_area04_port_reference over the AREA22
+ * captures); 00183010 (its push of the player) and 0012D940 (the
+ * 0012A5D0 bugs' +5 = 10 / 11 sub-state), em_area22_port's byte-matched C
+ * (test_area22_port_reference). Returns 1 when it handled the call. */
+/* AREA06's overlay owners and the boot routines em_area06_port translates
+ * (byte-matched or NEARMISS C checked against the instructions,
+ * test_area06_port_reference over the AREA06 captures; docs/AREA06_PORT.md).
+ * The entries that keep a frame take the caller's sp (the original's at
+ * entry; [sp - 0x100, sp) is the composition's stack); nested hooks run
+ * below that frame. */
+static int dispatch_a06(EmArea01Runtime *r, EmArea01Call *c, int *rc)
+{
+    const uint32_t fn = c->function, a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1];
+    unsigned need_a = 1, need_f = 0;
+    switch (fn) {
+    case 0x00823580u: case 0x008240E0u: case 0x00824340u: case 0x00823B50u: case 0x00824560u:
+    case 0x00219870u: case 0x00219F50u: case 0x0021A180u: break;
+    case 0x008242C0u: case 0x0021A440u: case 0x001EBE10u: case 0x001ECA20u: need_a = 2; break;
+    case 0x001EA210u: need_a = 0; need_f = 1; break;
+    default: return 0;
+    }
+    if (c->na < need_a || c->nf < need_f || c->sp < 0x100u) { *rc = fail(r, fn); return 1; }
+    EmArea06PortHooks h;
+    m06_hooks(r, &h);
+    EmArea06PortFault f = {0, 0};
+    const uint32_t sp = c->sp, saved = r->sp;
+    r->sp = sp - 0x100u;
+    int32_t out = 0;
+    int x;
+    switch (fn) {
+    case 0x00823580u: x = em_area06_port_00823580(&h, a0, &f); break;
+    case 0x008240E0u: x = em_area06_port_008240E0(&h, a0, &f); break;
+    case 0x00824340u: x = em_area06_port_00824340(&h, a0, &f); break;
+    case 0x00823B50u: x = em_area06_port_00823B50(&h, a0, sp, &f); break;
+    case 0x00824560u: x = em_area06_port_00824560(&h, a0, sp, &f); break;
+    case 0x00219870u: x = em_area06_port_00219870(&h, a0, sp, &f); break;
+    case 0x00219F50u: x = em_area06_port_00219F50(&h, a0, &f); break;
+    case 0x0021A180u: x = em_area06_port_0021A180(&h, a0, sp, &out, &f); break;
+    case 0x008242C0u: x = em_area06_port_008242C0(&h, a0, a1, &out, &f); break;
+    case 0x0021A440u: x = em_area06_port_0021A440(&h, a0, a1, &f); break;
+    case 0x001EBE10u: x = em_area06_port_001EBE10(&h, a0, a1, &f); break;
+    case 0x001ECA20u: x = em_area06_port_001ECA20(&h, a0, a1, &f); break;
+    default: x = em_area06_port_001EA210(&h, em_ee_float(c->f[0]), &f); break;
+    }
+    r->sp = saved;
+    if (x < 0) {
+        fprintf(stderr, "em_area01: em_area06_port %08X fault code %d at %08X\n", (unsigned)fn, (int)f.code,
+                (unsigned)f.address);
+        *rc = fail(r, f.address ? f.address : fn);
+        return 1;
+    }
+    c->v0 = (uint64_t)(int64_t)out;
+    *rc = 0;
+    return 1;
+}
+
+static int dispatch_mid(EmArea01Runtime *r, EmArea01Call *c, int *rc)
+{
+    if (r->area == 6 && dispatch_a06(r, c, rc))
+        return 1;
+    if (c->function == 0x00183010u || c->function == 0x0012D940u) {
+        if (c->na < 2 || c->nf) { *rc = fail(r, c->function); return 1; }
+        EmArea22PortHooks h;
+        m22_hooks(r, &h);
+        EmArea22PortFault f = {0, 0};
+        const int x = c->function == 0x00183010u
+            ? em_area22_port_00183010(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f)
+            : em_area22_port_0012D940(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
+        *rc = x < 0 ? fail(r, f.address ? f.address : c->function) : 0;
+        return 1;
+    }
+    if (c->function == 0x001C1A80u) {
+        if (c->na < 1 || c->nf) { *rc = fail(r, c->function); return 1; }
+        EmArea04PortHooks h;
+        m04_hooks(r, &h);
+        EmArea04PortFault f = {0, 0};
+        *rc = em_area04_port_001C1A80(&h, (uint32_t)c->a[0], &f) < 0 ? fail(r, f.address ? f.address : c->function)
+                                                                     : 0;
+        return 1;
+    }
+    return 0;
+}
 
 /* 001F4E20 is already translated by the AREA00 FX owner. Its only
  * callee keeps both address registers and adds the original second float. */
@@ -130,7 +224,7 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
 {
-    if (!r || !host || !host->bytes || !host->worker || (area > 2 && area != 4)) return -1;
+    if (!r || !host || !host->bytes || !host->worker || !em_area01_state_supported(area)) return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
     r->area = area;
@@ -367,6 +461,55 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return rv_001BAC00(r, c);          /* AREA04's arrival script op14 */
     if (r->area == 4 && c->function == 0x001BB0E0u)
         return rv_001BB0E0(r, c);          /* the script actors it places */
+    /* AREA22's overlay holds no owner (its one function is the area init
+     * 0x823580, em_area01_state's); AREA06's bound owners are dispatch_a06's.
+     * Any other overlay address in either goes to the host's workers
+     * (fail-stop), never to another area's overlay at the same address. */
+    if (c->function == 0x0012B850u) {
+        /* 0012B850(self, sub) (byte-matched C): the sub-state a bug 001284E0
+         * spawned runs (0012A5D0's +5 = 8): em_level8_port's. */
+        if (c->na < 2 || c->nf) return fail(r, c->function);
+        EmLevel8PortHooks h;
+        m08_hooks(r, &h);
+        EmLevel8PortFault f = {0, 0};
+        if (em_level8_port_0012B850(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f) < 0)
+            return fail(r, f.address ? f.address : c->function);
+        return 0;
+    }
+    if (c->function == 0x001BFF90u) {
+        /* 001BFF90(obj, p, clip) (byte-matched C): the clip set once, which
+         * 001BFFD0 calls on AREA01's way back: em_level8_port's. */
+        if (c->na < 3 || c->nf) return fail(r, c->function);
+        EmLevel8PortHooks h;
+        m08_hooks(r, &h);
+        EmLevel8PortFault f = {0, 0};
+        if (em_level8_port_001BFF90(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], (int32_t)c->a[2], &f) < 0)
+            return fail(r, f.address ? f.address : c->function);
+        return 0;
+    }
+    if (c->function == 0x001BF6B0u || c->function == 0x001BE6C0u) {
+        /* 001BF6B0 (byte-matched C): the behaviour AREA01's 001C02E0 stores
+         * once D_00810845 bit 5 is set (the AREA06 event; the upper floor's
+         * way back, a01v), and 001BE6C0, the companion its 001BEAC0 spawns:
+         * em_level8_port's translations through the generated hooks
+         * (test_level8_port_reference; docs/LEVEL8_PORT.md). */
+        if (c->na < 1 || c->nf) return fail(r, c->function);
+        EmLevel8PortHooks h;
+        m08_hooks(r, &h);
+        EmLevel8PortFault f = {0, 0};
+        const int x = c->function == 0x001BF6B0u ? em_level8_port_001BF6B0(&h, (uint32_t)c->a[0], &f)
+                                                 : em_level8_port_001BE6C0(&h, (uint32_t)c->a[0], &f);
+        if (x < 0) {
+            fprintf(stderr, "em_area01: em_level8_port %08X fault code %d at %08X\n", (unsigned)c->function,
+                    (int)f.code, (unsigned)f.address);
+            return fail(r, f.address ? f.address : c->function);
+        }
+        return 0;
+    }
+    if ((r->area == 0x16 || r->area == 6) && dispatch_mid(r, c, &rc))
+        return rc;
+    if ((r->area == 0x16 || r->area == 6) && c->function >= 0x00823500u)
+        return r->host.worker(r->host.ctx, c);
     if (dispatch_revisit(r, c, &rc))
         return rc;
     if ((r->area == 2 || r->area == 4) && c->function == 0x001F4E40u) {
@@ -409,9 +552,10 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
-    /* The boot routines em_area02_math holds serve AREA04 too (the same
-     * boot functions; area-independent). */
-    if ((r->area == 2 || r->area == 4) && dispatch_math02(r, c, &rc))
+    /* em_area02_math's boot routines (the panels, the bed, the lift, the
+     * light owners 001C48C0..): boot code, so AREA04's, AREA06's and
+     * AREA22's too. */
+    if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x16) && dispatch_math02(r, c, &rc))
         return rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;

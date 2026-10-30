@@ -29,6 +29,8 @@ def build():
                     '-shared', '-fPIC', '-DEM_AREA00_STATE_STORE_TRACE', '-DEM_AREA01_STATE_STORE_TRACE', '-Isrc',
                     'tests/area00_state_bridge.c', 'src/game/em_area00_state.c', 'src/game/em_area01_state.c',
                     'src/game/em_area02_state.c', 'src/game/em_area02_overlay.c', 'src/game/em_area04_state.c',
+                    'src/game/em_area22_port.c', 'src/game/em_area06_port.c', 'src/game/em_area06_port_node.c',
+                    'src/game/em_area06_port_overlay.c', 'src/game/em_area06_port_strip.c',
                     'src/game/em_status_scene_original.c', 'src/game/em_task.c',
                     '-o', str(target)], cwd=ROOT, check=True)
     lib = C.CDLL(str(target))

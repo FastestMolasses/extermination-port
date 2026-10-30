@@ -1,5 +1,73 @@
 # AREA01 upper floor and AREA06: the level-7 new functions (lane A06T)
 
+## Live binding (lane C1, 2026-10-30, branch `mid-route`)
+
+AREA01's upper floor and AREA06 load and play in the live composition
+from the start-point cards (docs/LEVEL8_PORT.md "Start-card runs"): the
+chain `a01u` (a01u_00 the gap jump, a01u_01 the catwalk event, a01u_02
+door [19] into AREA06 with control there) and the side beat a01u_s0 pass
+(end position and progress block equal to the recordings'), and so does
+a06_00 (the beam) from the AREA06 arrival card. Not row-by-row
+comparisons (a loaded game is not the route's machine state).
+
+Bound here (each through its one translation):
+
+- **The AREA06 overlay state**: em_area01_state binds the delivered module
+  (header id 6, text 0x2AC0, data 0x2F00, BSS 0x14AC80 at 0x828F00); its
+  001E7780 keys 0x600 / 0x601 run the area init 0x824290, translated in
+  em_area06_port_overlay.c (`em_area06_port_00824290`, byte-matched C;
+  test_area06_port_reference: identical stores in order, coverage 5102 /
+  5102 reachable words).
+- **The overlay owners** 0x823580, 0x823B50, 0x8240E0, 0x824340, 0x824560
+  and the strip owner 00219870 (with 00219F50, 0021A180, 0021A440), the
+  op09 callback 0x8242C0: em_area01_runtime's dispatch_a06 through the
+  generated hook adapters (tools/gen_mid_route_bridge.py); the entries
+  that keep a frame take the caller's sp.
+- **The effect handlers** 001ECA20 (the AREA06 load) and 001EBE10 (the
+  beam's collapse) in em_effects_live, as handler_001ECEF0's.
+- **001944B0** (camera states 29..37) as the specials' w_001944B0 in
+  em_camera_live (sp_001944B0: the aim camera's map plus the camera
+  tables, its callees as the aim camera binds them, 00191120 / 001B12B0 as
+  the follow module's).
+- **Boot routines shared with AREA02**: em_area02_math's (the light owner
+  001C48C0 ...) now run in AREA06 / AREA22 too (boot code).
+- **001EFEB0** (spawn at a matrix: 001EF9D0 at its translation row, then
+  copy_qw4 into the node's +0xD0, byte-matched C) in
+  em_area01_effects_services; **001D04B0** with an overlay source block
+  (0x8240E0's) in the live composition.
+- **Data** (read-only ELF windows, export_area00_runtime_tables.py
+  MID_WINDOWS, each checked against every AREA06 / AREA22 capture): the
+  crate registry rows, 001C50B0's light offset D_0026E2E0, AREA06's
+  0022DCD0 light list D_00269D40 (9 records), the floor-field config row 6,
+  the effect handlers' sources D_00256DC0 / D_00256E50 / D_002564C0, the
+  strip sources D_00266930 / D_002669C0, 0019C6F0's room-list words and
+  D_00275940..4F (the pickup descriptor and the per-sub list pointers).
+  D_002668A0 (0021A180's source block, which it writes) is a mutable boot
+  data block in em_area01_live, started from the ELF bytes. The library
+  export holds the crate husk 0x29 (tools/export_mid_library.py).
+- **The dynamic-object table** (slot 0x45) is bound for AREA06 as for
+  AREA01; the effect-table window cap is 128 (the EMET limit) and the
+  overlay source cache holds 16 blocks.
+- **Representation glue**: 0x7000368C (001CE860's scratch word) in the
+  aim/fire composition; 0x700031D4 after an aim/fire probe hit the player
+  names that composition's player proxy, which the AREA01 collision view
+  now encodes as 0x008102B0.
+
+Where AREA06 stops (2026-10-30):
+
+- **a06_01** (the crate and door [2]): in the chained run the player is
+  bitten more often than in the recording (the loaded game's creatures),
+  infection reaches 100 and the reaction's 0015C1F0 binds the infected
+  player model (kind 0x40), which the port does not export: fail-stop at
+  001CAA00 (docs/LEVEL2_CRASHES.md "Mid route (lane C1)"). From its own
+  card the beat stops on the chain page instead: the streak program
+  (table 0x230800) refuses an exponent-255 operand (EM_VU1P_FAULT_OPERAND)
+  after the skid's 001CFBE0.
+- **a06_02 / a06_03** (from their cards): the player closure 00161020
+  faults at 0x00160220 (the keypad's Use).
+- **a06_04**: the collision close-out 001AAD00 faults at 001A8734.
+- **a06_05**: the effect node 0021AE90 (0x80000044) is not bound.
+
 ## Full-route audit extension (2026-10-18)
 
 The full census adds three previously omitted AREA06 arrival routines:

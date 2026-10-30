@@ -72,7 +72,11 @@ def area_container(cap):
     return f'{chunk} +0x0', data[:parsed['total']], parsed, names, first
 
 
-def export(out):
+def scope_binding():
+    """({(0x16, 0): binding}, caps, label, data, parsed, names, first, bound,
+    refused, report, why): AREA22's capture-checked bank binding (export's
+    first half; export_sfx_registry.py adds its scope to the port's
+    registry)."""
     A22.configure()
     caps = C.captures()
     gdata = (C.DECOMP / X.GLOBAL_CONTAINER).read_bytes()
@@ -95,7 +99,12 @@ def export(out):
     if refused.get((3, 0)) is None:
         raise SystemExit('group 3 slot 0 is not the refused header it is in the earlier areas')
     why = {k: f'{v} in AREA22' for k, v in E04.refusal_reasons(caps, refused).items()}
-    binding = {(C.AREA, 0): dict(groups=groups, binding='AREA22 captures (D_00281D50/D_0027C6C0)', refused=why)}
+    result = {(C.AREA, 0): dict(groups=groups, binding='AREA22 captures (D_00281D50/D_0027C6C0)', refused=why)}
+    return result, caps, label, data, parsed, names, first, bound, refused, report, why
+
+
+def export(out):
+    binding, caps, label, data, parsed, names, first, bound, refused, report, why = scope_binding()
     ids = list(range(0x3E8, 0x5DC)) + list(range(0x7D0, 0x9C4))
     saved = X.area_bindings, X.scene_ids, X.census_report
     X.area_bindings = lambda _elf: binding

@@ -159,10 +159,12 @@ FUNCS = {
     0x8240E0: ('em_area06_port_008240E0', 0x1A4, [U], None),
     0x824340: ('em_area06_port_00824340', 0x214, [U], None),
     0x8242C0: ('em_area06_port_008242C0', 0x80, [U, U], I),
+    0x824290: ('em_area06_port_00824290', 0x30, [], None),
     0x824560: ('em_area06_port_00824560', 0x18BC, [U, S], None),
     0x826950: ('em_area06_port_00826950', 0x244, [U, U, U], I),
 }
-OVERLAY_OF = {0x823B50: 6, 0x8240E0: 6, 0x824340: 6, 0x823580: 6, 0x8242C0: 6, 0x824560: 6, 0x826950: 2}
+OVERLAY_OF = {0x823B50: 6, 0x8240E0: 6, 0x824340: 6, 0x823580: 6, 0x8242C0: 6, 0x824560: 6, 0x826950: 2,
+              0x824290: 6}
 
 
 def has_result(entry):
@@ -2017,6 +2019,8 @@ def overlay_cases(add):
         add('823580 spawn %X' % spawn, beat, 0x823580, [node],
             [(node + 4, b8(1)), (node + 5, b8(1)), (w, w32(3)), (w + 4, w32(0)), (w + 8, w32(0))],
             [(0x70003B68, w32(200))], queues={0x1EFEB0: [spawn, spawn]})
+    # 0x824290 () AREA06's area init: five stores over the session words
+    add('824290 init', beat, 0x824290, [], [(0x275C1C + 4 * k, w32(0xA5A5A5A5)) for k in range(5)])
     # 0x8242C0 (self, st)
     st = FREE + 0xB000
     for s in (0, 1, 2):

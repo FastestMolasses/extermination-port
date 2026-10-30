@@ -99,10 +99,21 @@ def main():
     assert C.string_at(view(0x234,2,0),2)==b'\x02\xA5'
     assert lib.pv_commit()==0
     faults=0
-    for at in (9,0xC,0x10,0x14,0x20,0x40,0x44,0x4C,0xAC,0xB0,0xD0,0x110,0x214,0x308):
+    for at in (9,0xC,0x10,0x14,0x20,0x40,0x44,0x4C,0xD0,0x110,0x214,0x308):
         reset();assert lib.pv_begin()==0;assert not view(at,1,1) and lib.pv_fault()==3;faults+=1
         reset();assert lib.pv_begin()==0;p=view(at,1,0);C.c_uint8.from_address(p).value^=1
         assert lib.pv_commit()==-1 and lib.pv_fault()==3;faults+=1
+    # 00183010's quadword adds over +0xA0 / +0xB0 (an owner pushing the
+    # player): the homogeneous lanes +0xAC / +0xBC may be stored with their
+    # own value only (a change faults at the commit); the hip +0xB0..BB may
+    # move and is published (the pose host's hip, em_player.c).
+    for at in (0xAC,0xBC):
+        reset();assert lib.pv_begin()==0;p=view(at,4,1);assert p
+        C.memmove(p,C.string_at(p,4),4);assert lib.pv_commit()==0
+        reset();assert lib.pv_begin()==0;p=view(at,1,1);C.c_uint8.from_address(p).value^=1
+        assert lib.pv_commit()==-1 and lib.pv_fault()==3;faults+=1
+    reset();assert lib.pv_begin()==0;p=view(0xA0,0x20,1);assert p
+    C.c_uint8.from_address(p+0x10).value^=1;assert lib.pv_commit()==0
     for kind in range(6):
         reset();assert lib.pv_begin()==0;lib.pv_stale(kind)
         assert lib.pv_commit()==-1 and lib.pv_fault()==2;faults+=1

@@ -32,6 +32,45 @@ Nothing is bound: no port code calls these entries yet.
 Addresses are runtime addresses. The AREA04 overlay is linked 0x40 below
 where it runs (0x823920 is `func_overlay_AREA04_008238E0`).
 
+## Start-card runs (lane C1, branch `mid-route`)
+
+The New Game route smoke does not reach the middle of the route to the
+first boss yet, so its beats run from start-point cards
+(tools/build_start_saves.py; docs/STARTUP.md "EM_START_AT=<name>"):
+`tools/mid_route_beats.py` plays each group's recorded pads in one run
+from the group's arrival card, with the recording's path
+(EM_START_AT_PATH), the recording's rand() word at control
+(EM_START_AT_RAND) and a progress-block report at each beat's end
+(EM_START_AT_MARKS). A beat passes when the run reaches its end without a
+fault, the player ends within 4 units of the recording's last row, and
+the progress block D_00810700..D_00810D3F equals the recording's end
+snapshot but for the bytes a loaded game or the run's clock owns (the
+load pose +0x10..+0x2F, +0x0F, the frame count +0x50..+0x53, the check
+byte +0x63F). A loaded game is not the route's machine state (the
+creatures are spawned by the load, the timers and camera are the load's),
+so these runs are not row-by-row comparisons.
+
+| Chain | Card | Beats | Status (2026-10-30) |
+|---|---|---|---|
+| a22 | area22 | a22_00, a22_01, a22_02 | pass (AREA22_PORT.md "Live binding") |
+| a01u | a01u | a01u_00, a01u_01, a01u_02 | pass (AREA06_PORT.md "Live binding") |
+| a01u_s0 | a01u_s0 | a01u_s0 | pass |
+| a01u_s1 | a01u | a01u_s1 | stops at door [18]'s AREA22 arrival: the GS frame's parse refuses a barrier inside a span |
+| a06 | area06 | a06_00 .. a06_05 | a06_00 passes; a06_01 stops (AREA06_PORT.md "Where AREA06 stops") |
+| a06b | a06b | a06b_00, a06b_01 | a06b_00 stops: the collision close-out 001AAD00 faults at 001A8734 |
+| a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 plays to its end with one creature taken bit more (D_0081088F bit 0x04, a loaded game's bug); a01v_02 stops at door [18]'s AREA22 arrival (the GS barrier, as a01u_s1) |
+| a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 needs the AREA04 arrival (lane B1's, main 64e70c2) |
+
+On the way back AREA01's 001C02E0 takes its bit-5 branch (D_00810845 bit 5,
+set in AREA06): its behaviour 001BF6B0, the companion 001BE6C0 it spawns
+(001BEAC0), the bugs 001284E0 spawns (0012A5D0 with the sub-state
+0012B850) and 001BFFD0's 001BFF90 now run this module's translations
+through the generated hooks (em_area01_runtime; tools/gen_mid_route_bridge.py
+prefix m08), with the library model 0x04 (tools/export_mid_library.py),
+001BF5B0's sampler table D_00250750 (export_area00_runtime_tables.py
+MID_WINDOWS), 001C63D0 in the model service and 001B6660's extra argument
+registers ignored (it reads a0 only).
+
 ## 0. Scope: the census rows, and what already existed
 
 A grep of the port (`src/`, `tools/`, `docs/`) for each address before this

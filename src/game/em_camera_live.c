@@ -15,6 +15,7 @@
 #include "game/em_area00_low.h"
 #include "game/em_area01_room.h"
 #include "game/em_area22_port.h"
+#include "game/em_area06_port.h"
 #include "game/em_camera_aim.h"
 #include "game/em_camera_area11_specials.h"
 #include "game/em_camera_commit_original.h"
@@ -1133,6 +1134,122 @@ static int aim_call(void *ctx, EmAimFireTargetCall *f)
     }
 }
 
+/* ======================================================================
+ * 001944B0 (camera states 29..37 of the specials' dispatch 00195130:
+ * AREA06's arrival and rooms): em_area06_port's translation (byte-matched
+ * C, test_area06_port_reference; docs/AREA06_PORT.md) over the aim
+ * camera's map (the camera block and pool, the player view, the area
+ * bytes) and the camera tables (its preset rows D_0024A530 + 20 idx), its
+ * callees bound as the aim camera's are (aim_call), 001B12B0 / 00191120
+ * as the follow module's.
+ * ====================================================================== */
+static uint8_t *a06c_bytes(void *ctx, uint32_t a, uint32_t n)
+{
+    EmSceneState *s = em_scene_state();
+    void *p;
+    if (C.tables_loaded && (p = span(a, n, TABLES_BASE, 4u * TABLES_WORDS, C.tables))) return p;
+    if (s && (p = span(a, n, 0x00810701u, 1, &s->d810701))) return p;
+    return aim_map(ctx, a, n, 1);
+}
+static int a06c_call(EmAimFireTargetCall *f) { return aim_call(NULL, f) < 0 ? -1 : 0; }
+static int a06c_f1(uint32_t fn, float x, float *out)
+{
+    EmAimFireTargetCall f = {fn, 0, {0}, {em_ee_bits(x)}, 0, 1, 0, 0};
+    if (a06c_call(&f) < 0) return -1;
+    *out = em_ee_float(f.f0);
+    return 0;
+}
+static int a06c_0011DE90(void *c, float x, float *o) { (void)c; return a06c_f1(0x0011DE90u, x, o); }
+static int a06c_0011DF78(void *c, float x, float *o) { (void)c; return a06c_f1(0x0011DF78u, x, o); }
+static int a06c_0011E2A8(void *c, float x, float *o) { (void)c; return a06c_f1(0x0011E2A8u, x, o); }
+static int a06c_001B1470(void *c, float x, float *o) { (void)c; return a06c_f1(0x001B1470u, x, o); }
+static int a06c_00102760(void *c, uint32_t a0, uint32_t a1)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x00102760u, 0, {a0, a1}, {0}, 2, 0, 0, 0};
+    return a06c_call(&f);
+}
+static int a06c_001028D0(void *c, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x001028D0u, 0, {a0, a1, a2}, {0}, 3, 0, 0, 0};
+    return a06c_call(&f);
+}
+static int a06c_00102948(void *c, uint32_t a0, uint32_t a1)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x00102948u, 0, {a0, a1}, {0}, 2, 0, 0, 0};
+    return a06c_call(&f);
+}
+static int a06c_0018C4B0(void *c, uint32_t a0, float y, float rate)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x0018C4B0u, 0, {a0}, {em_ee_bits(y), em_ee_bits(rate)}, 1, 2, 0, 0};
+    return a06c_call(&f);
+}
+static int a06c_0018C6A0(void *c, uint32_t a0, uint32_t a1, float rate)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x0018C6A0u, 0, {a0, a1}, {em_ee_bits(rate)}, 2, 1, 0, 0};
+    return a06c_call(&f);
+}
+static int a06c_0018D7B0(void *c, uint32_t a0, int32_t style)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x0018D7B0u, 0, {a0, (uint64_t)(int64_t)style}, {0}, 2, 0, 0, 0};
+    return a06c_call(&f);
+}
+static int a06c_001B1240(void *c, uint32_t a0, float x, float z, float *o)
+{
+    (void)c;
+    EmAimFireTargetCall f = {0x001B1240u, 0, {a0}, {em_ee_bits(x), em_ee_bits(z)}, 1, 2, 0, 0};
+    if (a06c_call(&f) < 0) return -1;
+    *o = em_ee_float(f.f0);
+    return 0;
+}
+static int a06c_001B12B0(void *c, float target, float current, float rate, float *o)
+{
+    (void)c;
+    uint32_t out = 0;
+    if (w_approach(NULL, em_ee_bits(target), em_ee_bits(current), em_ee_bits(rate), &out) < 0) return -1;
+    *o = em_ee_float(out);
+    return 0;
+}
+static int a06c_00191120(void *c, int32_t state, float goal, float current, float rate, float limit, float *o)
+{
+    (void)c;
+    (void)state;            /* a0: the original 00191120 reads only f12..f15 */
+    uint32_t out = 0;
+    if (em_camera_follow_00191120(&C.fw, em_ee_bits(goal), em_ee_bits(current), em_ee_bits(rate),
+                                  em_ee_bits(limit), &out) < 0) return -1;
+    *o = em_ee_float(out);
+    return 0;
+}
+static int sp_001944B0(void *ctx, uint8_t *cam, EmPlayerLiveActor *player, int32_t index, int32_t *result)
+{
+    (void)ctx;
+    if (cam != C.cam.rec.bytes || player != &C.player || !C.tables_loaded) return -1;
+    EmArea06PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.bytes = a06c_bytes;
+    h.w_0011DE90 = a06c_0011DE90; h.w_0011DF78 = a06c_0011DF78; h.w_0011E2A8 = a06c_0011E2A8;
+    h.w_001B1470 = a06c_001B1470; h.w_00102760 = a06c_00102760; h.w_001028D0 = a06c_001028D0;
+    h.w_00102948 = a06c_00102948; h.w_0018C4B0 = a06c_0018C4B0; h.w_0018C6A0 = a06c_0018C6A0;
+    h.w_0018D7B0 = a06c_0018D7B0; h.w_001B1240 = a06c_001B1240; h.w_001B12B0 = a06c_001B12B0;
+    h.w_00191120 = a06c_00191120;
+    EmArea06PortFault f = {0, 0};
+    int32_t r = 0;
+    SP_ENTER();
+    const int rc = em_area06_port_001944B0(&h, CAM_BASE, 0x008102B0u, index, &r, &f);
+    SP_LEAVE();
+    if (rc < 0) {
+        fprintf(stderr, "em_camera_live: 001944B0 fault code %d at %08X\n", (int)f.code, (unsigned)f.address);
+        return -1;
+    }
+    if (result) *result = r;
+    return 0;
+}
+
 static int aim_run(uint32_t fn, int32_t a2)
 {
     EmCamAim h;
@@ -1562,9 +1679,11 @@ static void bind_worlds(void)
     k->w_00198440 = sp_00198440;
     k->w_001912B0 = sp_001912B0;
     k->w_001B0300 = sp_001B0300;
-    /* Other areas' arms (001944B0, 00194DB0, 00230230, 0x823FE0, 001AEDE0,
-     * 001B0C60) stay NULL: the readiness check requires them only where they
-     * are reachable, so reaching one faults. */
+    /* 001944B0: AREA06's states 29..37 (em_area06_port, sp_001944B0). The
+     * other areas' arms (00194DB0, 00230230, 0x823FE0, 001AEDE0, 001B0C60)
+     * stay NULL: the readiness check requires them only where they are
+     * reachable, so reaching one faults. */
+    k->w_001944B0 = sp_001944B0;
 
     C.cw = (EmCameraCommitWorkers){ NULL, w_sqrt, w_atan2, w_heading, w_lookat };
     C.cworld = (EmCameraCommitWorld){ &C.cam.rec, &C.player, &C.pool[P_EYE], &C.pool[P_TGT], &C.pool[P_UP],

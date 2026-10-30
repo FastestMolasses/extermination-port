@@ -191,6 +191,8 @@ int em_area00_low_001B7670(EmArea00Low *s, uint32_t a2, int32_t *out);
 int em_area00_low_001B7700(EmArea00Low *s, uint32_t a1, uint32_t a2, int32_t *out);
 int em_area00_low_001B8AB0(EmArea00Low *s, uint32_t a1, uint32_t a2, int32_t *out);
 int em_area00_low_001E7310(EmArea00Low *s, uint32_t a0);
+/* 001E7440: 001E7310's twin (1.5, 128.0, D_0026E980, step 0.145). */
+int em_area00_low_001E7440(EmArea00Low *s, uint32_t a0);
 int em_area00_low_001FC580(EmArea00Low *s, uint32_t a0, int32_t a1);
 int em_area00_low_001FF030(EmArea00Low *s, uint32_t a0);
 

@@ -82,7 +82,8 @@ int em_area01_script_worker_handles(uint32_t fn)
 { return em_area01_script_worker_handles_area(fn,1); }
 int em_area01_script_worker_handles_area(uint32_t fn,unsigned area)
 {
-    if(area>2)return 0;
+    /* the boot workers serve every bound area (AREA00..02, AREA06, AREA22) */
+    if(area>2 && area!=6 && area!=0x16)return 0;
     return fn==0x001B7670u || fn==0x001B7700u || fn==0x001B8AB0u || fn==0x001B6AE0u ||
            (area==1 && (fn==0x00825910u || fn==0x00826950u)) ||
            (area==0 && fn==0x00824E40u);

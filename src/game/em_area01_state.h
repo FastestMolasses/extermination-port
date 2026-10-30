@@ -16,6 +16,14 @@
 #define EM_AREA01_STATE_DATA_SIZE 0x4300u
 #define EM_AREA01_STATE_BSS 0x0082CD00u
 #define EM_AREA01_STATE_BSS_SIZE 0x14AC80u
+/* AREA22 (OVERLAY/AREA22.BIN, header id 0x13) and AREA06 (AREA06.BIN, id 6):
+ * the data after the header and the text, and the BSS after the file. */
+#define EM_AREA01_STATE_A22_DATA_SIZE 0x800u
+#define EM_AREA01_STATE_A22_BSS 0x00823E00u
+#define EM_AREA01_STATE_A22_BSS_SIZE 0x140C00u
+#define EM_AREA01_STATE_A06_DATA_SIZE 0x2F00u
+#define EM_AREA01_STATE_A06_BSS 0x00828F00u
+#define EM_AREA01_STATE_A06_BSS_SIZE 0x14AC80u
 
 /* Return an existing mutable span, never allocate or seed it. The live
  * binding uses em_module_loader_memory_mutable. Resolve on every request:
@@ -38,7 +46,9 @@ typedef struct {
  * Return 0, or -1 with the first fault latched. A fault stays latched until
  * the host explicitly discards this binding with detach. */
 int em_area01_state_bind(EmArea01State *s, EmArea01StateMemory memory, void *ctx);
-/* Select AREA00, AREA01, AREA02 or AREA04 without introducing a second globals owner. */
+/* Select AREA00, AREA01, AREA02, AREA04, AREA06 or AREA22 (area byte 0x16)
+ * without introducing a second globals owner. */
+int em_area01_state_supported(unsigned area);
 int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void *ctx, unsigned area);
 void em_area01_state_detach(EmArea01State *s);
 
@@ -52,11 +62,13 @@ uint8_t *em_area01_state_bytes(EmArea01State *s, uint32_t address, uint32_t size
  * 001E7780 below supplies the original surrounding zero/record-clear order.
  * Both return 0, or -1 with a latched original address. */
 int em_area01_state_00823A50(EmArea01State *s);
-/* Shared dispatcher for the selected AREA00/01/02/04. AREA00 sub 0/1/2,
- * AREA01 sub 0/1, AREA02 sub 0/1/2 (0x823900) and AREA04 sub 0/1
- * (0x823B10) initialize; other sub
- * bytes only clear the six globals.
+/* Shared dispatcher for the selected AREA00/01/02/04/06/22. AREA00 sub
+ * 0/1/2, AREA01 sub 0/1, AREA02 sub 0/1/2 (0x823900), AREA04 sub 0/1
+ * (0x823B10), AREA06 sub 0/1 (0x824290) and AREA22 sub 0 (0x823580)
+ * initialize; other sub bytes only clear the six globals.
  * A different area fails before changing globals. */
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub);
+/* AREA06's init 0x824290 (001E7780 keys 0x600 / 0x601). */
+int em_area01_state_00824290(EmArea01State *s);
 
 #endif

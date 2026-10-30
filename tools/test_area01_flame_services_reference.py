@@ -23,6 +23,7 @@ def build():
     sources=['tests/area01_flame_services_bridge.c','tests/area01_glow_runtime_bridge.c',
              'src/game/em_aim_fire_render_live.c','src/game/em_aim_fire_reticle.c',
              'src/game/em_player_equipment_sprite.c','src/game/em_area00_hud.c','src/game/em_area02_misc.c',
+             'src/game/em_area06_port.c','src/game/em_area06_port_node.c','src/game/em_area06_port_overlay.c','src/game/em_area06_port_strip.c',
              'src/game/em_level8_port_fx.c','src/game/em_status_scene_original.c','src/game/em_area01_flame_services.c',
              'src/game/em_area01_render_gs.c','src/game/em_area01_render_hud.c','src/game/em_weather_packets.c',
              'src/game/em_area01_sys.c','src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c',

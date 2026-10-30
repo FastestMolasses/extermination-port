@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export AREA11, AREA01, AREA00, AREA02 and AREA04 stream sectors from the user's own disc.
+"""Export AREA11, AREA01, AREA00, AREA02, AREA04, AREA22 and AREA06 stream sectors from the user's own disc.
 
 The port's IOP stream backend (src/game/em_iop_stream.c, docs/IOP_STREAM.md)
 reads music and voice sectors by disc sector number, exactly as the lanes
@@ -52,6 +52,12 @@ into AREA04's arrival) add their D_0026EC60 rows (area 2 has none, area 4
 five) and each voice of their message-record tables D_00264DD0[3] and [5],
 derived the same way.
 
+AREA22 and AREA06 (2026-10-30, lane C1: the middle of the route to the
+first boss) add their D_0026EC60 rows (none) and each voice of AREA06's
+message-record table D_00264DD0[7] (AREA22's D_00264DD0[0x17] is 0); AREA01, AREA04, AREA06 and
+AREA22 add the music cue of every spawn record (word +0x1C bits 8..14,
+which 001B0250 copies into D_008106C8 and 001FAE70 plays).
+
 EMST layout (little endian):
   0x00  'EMST', u32 version 1
   0x08  u32 music_lsn, u32 voice_lsn, u32 music_sectors, u32 voice_sectors
@@ -77,9 +83,15 @@ MUSIC_ROWS, VOICE_ROWS = 68, 179
 MUSIC_TABLE, VOICE_TABLE = 0x25DD30, 0x25E170
 SEARCH_NAMES = (0x26EBB0, 0x26EBD0)
 STREAM_TABLE = 0x26EC60
-AREAS = (11, 1, 0, 2, 4)
+AREAS = (11, 1, 0, 2, 4, 0x16, 6)
 # D_00264DD0 indices of the exported areas' message-record tables.
-MESSAGE_TABLES = {2: 'AREA01', 1: 'AREA00', 3: 'AREA02', 5: 'AREA04'}
+# AREA22 has none: D_00264DD0[0x17] is 0 (export_area22_tables.py).
+MESSAGE_TABLES = {2: 'AREA01', 1: 'AREA00', 3: 'AREA02', 5: 'AREA04', 7: 'AREA06'}
+# The spawn records 001B0250 copies into D_008106C8 (D_0024D650[area][room]
+# + entry * 0x30, word +0x1C): 001FAE70's music cue is its bits 8..14. The
+# middle of the route to the first boss (AREA01's upper-floor entries, AREA04,
+# AREA06, AREA22) plays these at the area loads.
+SPAWN_TABLE, SPAWN_RECORD, SPAWN_AREAS = 0x24D650, 0x30, (1, 4, 6, 0x16)
 # Cues named by original code paths (see the module docstring).
 MUSIC_EXTRA = {25: '001FAE70 AREA11 selection (captured D_00282178[0] = 25)',
                0x18: '001FAE70 override cue (D_008104E4 == 1)',
@@ -165,6 +177,20 @@ def cue_list(elf: Elf):
         raise ValueError('D_0026EC60 has no terminator')
     for cue, why in MUSIC_EXTRA.items():
         music.setdefault(cue, why)
+    import export_spawn_table as spawn
+    areas, _ranges = spawn.walk(elf.read)
+    starts = sorted({e for _t, rooms in areas.values() for e in rooms})
+    floor = min(t for t, _r in areas.values())
+    for area in SPAWN_AREAS:
+        for room, entries in enumerate(areas[area][1]):
+            later = [a for a in starts if a > entries]
+            end = later[0] if later else min(floor, SPAWN_TABLE)
+            for entry in range((end - entries) // SPAWN_RECORD):
+                word = struct.unpack('<I', elf.read(entries + SPAWN_RECORD * entry + 0x1C, 4))[0]
+                cue = (word >> 8) & 0x7F
+                if cue:
+                    music.setdefault(cue, f'spawn record area {area:#x} room {room} entry {entry}: '
+                                          f'word +0x1C {word:#x} (001B0250 -> D_008106C8; 001FAE70)')
     voice = dict(VOICE_CUES)
     pointers = struct.unpack('<24I', elf.read(0x264DD0, 24 * 4))
     starts = {p for p in pointers if p}

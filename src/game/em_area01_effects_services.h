@@ -15,6 +15,9 @@ typedef struct {
     uint32_t function, id, f12;
     int has_position;
     float position[4], rotation[4];
+    /* 001EFEB0(id, m) (byte-matched C): 001EF9D0(id, m + 0x30, 1.0) and,
+     * with a node, copy_qw4(node + 0xD0, m): the 64-byte matrix m. */
+    uint8_t matrix[64];
 } EmArea01EffectsSpawn;
 /* Preferred native boundary: prepare while byte views are active, suspend,
  * invoke, resume. No host pointers survive prepare; only call-local vectors. */

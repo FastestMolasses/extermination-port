@@ -26,10 +26,15 @@ static EmActorCellTable *cells(const EmArea01CollisionView *v)
 { return v->host.segment->world->cells->table; }
 static const EmActorClassLists *lists(const EmArea01CollisionView *v)
 { return v->host.segment->world->cells->lists; }
+/* The aim/fire composition's proxy of D_008102B0 (em_aim_fire_world_live's
+ * player_body), which its segment probes leave in 0x700031D4: registered by
+ * that composition, the same word. */
+static const void *s_player_proxy;
+void em_area01_collision_set_player_proxy(const void *proxy) { s_player_proxy=proxy; }
 uint32_t em_area01_collision_pool_address(const EmActorPool *pool,const EmPlayerLiveActor *player,const void *p)
 {
     if(!p)return 0;
-    if(p==player)return 0x008102B0u;
+    if(p==player || (s_player_proxy && p==s_player_proxy))return 0x008102B0u;
     /* uintptr comparisons avoid relational comparisons of unrelated C objects. */
     uintptr_t at=(uintptr_t)p,base=pool?(uintptr_t)pool->records:0;
     if(!pool||at<base||at-base>=sizeof pool->records||(at-base)%sizeof pool->records[0])return 0;
@@ -155,7 +160,7 @@ int em_area01_collision_view_begin(EmArea01CollisionView *v)
     if(record_word(v,s,&w->record_word)<0)return -1;
     w->entity_word=encode(v,s->entity);v->self_word=encode(v,s->self);
     if((s->entity&&!w->entity_word)||(s->self&&!v->self_word))return fail(v,0x700031D4,3);
-    v->entity_before=s->entity;v->self_before=s->self;v->record_before=s->record;v->node_before=s->node;
+    v->entity_before=s->entity;v->self_before=s->self;v->entity_word_before=w->entity_word;v->record_before=s->record;v->node_before=s->node;
     memcpy(w->point16,s->point,12);w->point16[3]=w->word_31BC;memcpy(v->point_before,w->point16,16);
     static const uint32_t base[]={0x28B020,0x28AFF0,0x28AF30,0x28AE30,0x28AC30,0x28AB30};
     const EmActorClassLists *ls=lists(v);
@@ -247,7 +252,9 @@ int em_area01_collision_view_commit(EmArea01CollisionView *v)
     if(v->host.pool)for(unsigned i=0;i<EM_ACTOR_POOL_CAPACITY;i++)
         if(v->pool_generation[i]!=v->host.pool->records[i].generation||v->pool_allocated[i]!=v->host.pool->records[i].allocated)
             return fail(v,EM_ACTOR_POOL_BASE+i*EM_ACTOR_RECORD_SIZE,2);
-    const void *entity=decode(v,w->entity_word);
+    /* An unchanged word keeps the representation it had (another
+     * composition's proxy of the same record). */
+    const void *entity=w->entity_word==v->entity_word_before ? v->entity_before : decode(v,w->entity_word);
     const void *self=decode(v,v->self_word);
     if((w->entity_word&&(!entity||encode(v,entity)!=w->entity_word))||(v->self_word&&(!self||encode(v,self)!=v->self_word)))
         return fail(v,0x700031D4,3);

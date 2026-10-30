@@ -11,25 +11,35 @@ static uint32_t word(const uint8_t *p)
 { uint32_t v;memcpy(&v,p,4);return v; }
 
 typedef struct {
+    unsigned area;
     uint32_t overlay_id, script_lo, script_hi, data, size;
     const char *destinations;
 } AreaScripts;
 /* Delivered module headers and original script entry/placement tables:
  * export_area00_tables.scripts_window / overlay_data_window and the
  * corresponding AREA01 exports. Mutable script words stay in the loader. */
-static const AreaScripts areas[4]={
-    {1,0x008284E0u,0x0082BB50u,0x00826F80u,0x6500u,EM_AREA00_SCRIPT_DEST_PATH},
-    {2,0x00829860u,0x0082BD50u,0x00828A00u,0x4300u,EM_AREA01_SCRIPT_DEST_PATH},
+static const AreaScripts k_areas[]={
+    {0,1,0x008284E0u,0x0082BB50u,0x00826F80u,0x6500u,EM_AREA00_SCRIPT_DEST_PATH},
+    {1,2,0x00829860u,0x0082BD50u,0x00828A00u,0x4300u,EM_AREA01_SCRIPT_DEST_PATH},
     /* AREA02 (export_area02_tables: the scripts window 0x826780..0x829190,
      * the overlay data 0x825680 + 0x3C00). */
-    {3,0x00826780u,0x00829190u,0x00825680u,0x3C00u,EM_AREA02_SCRIPT_DEST_PATH},
+    {2,3,0x00826780u,0x00829190u,0x00825680u,0x3C00u,EM_AREA02_SCRIPT_DEST_PATH},
     /* AREA04 (export_area04_tables: the scripts window 0x8272A0..0x82C8D0,
-     * the overlay data 0x826600 + 0x6300), at index 3. */
-    {5,0x008272A0u,0x0082C8D0u,0x00826600u,0x6300u,EM_AREA04_SCRIPT_DEST_PATH}
+     * the overlay data 0x826600 + 0x6300). */
+    {4,5,0x008272A0u,0x0082C8D0u,0x00826600u,0x6300u,EM_AREA04_SCRIPT_DEST_PATH},
+    /* AREA06 (export_area06_tables: the four chains' window 0x826D40..
+     * 0x827AC0, the overlay data 0x826000 + 0x2F00). */
+    {6,6,0x00826D40u,0x00827AC0u,0x00826000u,0x2F00u,EM_AREA06_SCRIPT_DEST_PATH},
+    /* AREA22: no script chains (SIXTH_LEVEL_ROUTE.md section 2.1); the
+     * overlay data 0x823600 + 0x800 holds only its placement tables. */
+    {0x16,0x13,0,0,0x00823600u,0x800u,EM_AREA22_SCRIPT_DEST_PATH}
 };
-/* The areas[] row of an area id (0, 1, 2 or 4), or -1. */
-static int area_row(unsigned area)
-{ return area<=2 ? (int)area : area==4 ? 3 : -1; }
+static const AreaScripts *area_scripts(unsigned area)
+{
+    for (unsigned i=0;i<sizeof k_areas/sizeof k_areas[0];++i)
+        if (k_areas[i].area==area) return &k_areas[i];
+    return NULL;
+}
 
 void em_area01_script_free(EmArea01Script *s)
 {
@@ -63,10 +73,10 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
 }
 EmScriptImage *em_area01_script_image(EmArea01Script *s,uint32_t entry)
 {
-    if (!s || !s->bound || area_row(s->area)<0) return NULL;
+    if (!s || !s->bound || !area_scripts(s->area)) return NULL;
     for (unsigned i=0;i<4;++i)
         if (em_script_image_read(&s->boot[i],entry,EM_SCRIPT_RECORD_SIZE)) return &s->boot[i];
-    const AreaScripts *a=&areas[area_row(s->area)];
+    const AreaScripts *a=area_scripts(s->area);
     if (!contains(entry,EM_SCRIPT_RECORD_SIZE,a->script_lo,a->script_hi)) return NULL;
     const uint8_t *h=em_module_loader_memory(s->loader,0x00823500u,12);
     if (!h || memcmp(h,"MWo3",4) || word(h+4)!=a->overlay_id || word(h+8)!=0x00823500u) return NULL;
@@ -165,7 +175,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
                   uint32_t rec,int32_t *result)
 {
     EmArea01Script *s=ctx;
-    if (!s || !s->bound || area_row(s->area)<0 || !result) return -1;
+    if (!s || !s->bound || !area_scripts(s->area) || !result) return -1;
     /* The callback address is meaningful only in the bound overlay. Boot
      * door callbacks are shared originals. Unknown callbacks never succeed. */
     switch (fn) {
@@ -184,6 +194,9 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
         break;
     case 0x00823B40u: /* AREA04 script 0x8278D0's op09 (em_area04_port) */
         if (s->area!=4) return -1;
+        break;
+    case 0x008242C0u: /* AREA06's op09 callback (em_area06_port) */
+        if (s->area!=6) return -1;
         break;
     case 0x00824E40u: /* AREA00 arrival script 00828D60 */
     case 0x008253E0u: /* AREA00 terminal script 008299E0 */
@@ -213,7 +226,7 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
                               EmModuleLoader *loader,const char *boot_path,const char *dest_path,
                               unsigned area_id)
 {
-    if (!s || !host || !host->worker || !loader || s->bound || area_row(area_id)<0) return -1;
+    if (!s || !host || !host->worker || !loader || s->bound || !area_scripts(area_id)) return -1;
     const uint32_t lo[4]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u};
     /* panels: through the medical station's scripts (export_area01_boot_scripts.py). */
     const uint32_t hi[4]={0x00248120u,0x0024DF80u,0x00248540u,0x002668A0u};
@@ -225,11 +238,11 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
         if (n<0 || (size_t)n>=sizeof path || !em_script_image_load(&s->boot[i],path) ||
             s->boot[i].base!=lo[i] || s->boot[i].entry!=entry[i] || s->boot[i].length!=hi[i]-lo[i]) goto fail;
     }
-    if (em_spawn_table_load(&s->destinations,dest_path ? dest_path : areas[area_row(area_id)].destinations)<0) goto fail;
+    if (em_spawn_table_load(&s->destinations,dest_path ? dest_path : area_scripts(area_id)->destinations)<0) goto fail;
     int n=snprintf(path,sizeof path,"%s/timeline.emsp",boot_path ? boot_path : EM_AREA01_SCRIPT_BOOT_PATH);
     if(n<0 || (size_t)n>=sizeof path || em_spawn_table_load(&s->timeline_tables,path)<0)goto fail;
     s->host=*host;s->loader=loader;s->area=area_id;s->bound=1;
-    EmAreaScriptHostArea area={.ctx=s,.overlay_id=areas[area_row(area_id)].overlay_id,.image=image,.resource=resource,
+    EmAreaScriptHostArea area={.ctx=s,.overlay_id=area_scripts(area_id)->overlay_id,.image=image,.resource=resource,
         .owner_bank=owner_bank,.clip=clip,.record=record,.camera=camera,.advance=advance};
     if (em_area11_script_host_area(&area)<0) goto fail;
     return 0;

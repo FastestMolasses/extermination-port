@@ -2019,7 +2019,15 @@ static int32_t f_1B8AB0(Run *r, uint32_t sp0, uint32_t a1, uint32_t a2)
  *  2, 3  001D2830(9, 0); 001AFC10(p).
  *  other: nothing.
  * ---------------------------------------------------------------------- */
-static void f_1E7310(Run *r, uint32_t sp0, uint32_t p)
+/* 001E7440(p): 001E7310's byte-matched twin (src/func_001E7440.c, the
+ * same instructions with other constants): +0x60 = 1.5, +0x64 = 128.0,
+ * 001DEE80(9, 0x0026E980), the step 0.145 (the player stage's 0x80000062
+ * node; an area change's flash). */
+typedef struct { uint32_t c60, c64, table, step; } Ramp9;
+static const Ramp9 k_1E7310 = {0x3F000000u, 0x42800000u, 0x0026E970u, 0x3C75C28Fu};
+static const Ramp9 k_1E7440 = {0x3FC00000u, 0x43000000u, 0x0026E980u, 0x3E147AE1u};
+
+static void f_1E7xx0(Run *r, uint32_t sp0, uint32_t p, const Ramp9 *k)
 {
     uint32_t sp = sp0 - 0x20u;
     uint32_t st = u8(r, p + 4u), x, v;
@@ -2032,21 +2040,24 @@ static void f_1E7310(Run *r, uint32_t sp0, uint32_t p)
         return;
     if (st == 0) {
         st8(r, p + 4u, 1);
-        st32(r, p + 0x60u, 0x3F000000u);
-        st32(r, p + 0x64u, 0x42800000u);
+        st32(r, p + 0x60u, k->c60);
+        st32(r, p + 0x64u, k->c64);
         CALL2(0x001D2830u, 9u, 1u);
-        CALL2(0x001DEE80u, 9u, 0x0026E970u);
+        CALL2(0x001DEE80u, 9u, k->table);
     }
     v = (uint32_t)callg(r, sp, FN_F2I, 0, 0, 0, 0, 0, 1, w32(r, p + 0x64u), 0, 0).v0;
     CALL2(0x001DEEC0u, 9u, v);
     FCALL1(0x001DF5A0u, fmul(0x3E4CCCCDu, w32(r, p + 0x60u)));
     st32(r, p + 0x64u, fmul(w32(r, p + 0x64u), 0x3F7AE148u));
     x = w32(r, p + 0x60u);
-    x = fadd(x, fsub(fmul(0x3D4CCCCDu, em_ee_neg_bits(x)), 0x3C75C28Fu));
+    x = fadd(x, fsub(fmul(0x3D4CCCCDu, em_ee_neg_bits(x)), k->step));
     st32(r, p + 0x60u, x);
     if (fle(x, F_ZERO))
         st8(r, p + 4u, 3);
 }
+
+static void f_1E7310(Run *r, uint32_t sp0, uint32_t p) { f_1E7xx0(r, sp0, p, &k_1E7310); }
+static void f_1E7440(Run *r, uint32_t sp0, uint32_t p) { f_1E7xx0(r, sp0, p, &k_1E7440); }
 
 /* ------------------------------------------------------------------------
  * 001FF030(a0). Leaf with a tail jump. When a0 & 0x80: byte (0x00810730 +
@@ -2238,6 +2249,13 @@ int em_area00_low_001E7310(EmArea00Low *s, uint32_t a0)
 {
     ENTER(0x001E7310u)
     f_1E7310(r, s->sp, a0);
+    return 0;
+}
+
+int em_area00_low_001E7440(EmArea00Low *s, uint32_t a0)
+{
+    ENTER(0x001E7440u)
+    f_1E7440(r, s->sp, a0);
     return 0;
 }
 

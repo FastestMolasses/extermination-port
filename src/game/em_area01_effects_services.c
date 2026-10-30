@@ -16,6 +16,22 @@ int em_area01_effects_services_prepare(const EmArea01RuntimeHost *h, const EmAre
                                       EmArea01EffectsSpawn *s)
 {
     if (!c || !s) return -1;
+    if (c->function == 0x001EFEB0u) {
+        /* 001EFEB0(id, m): 001EF9D0's position is m + 0x30 (the matrix's
+         * translation row), f12 = 1.0; the matrix is read while the views
+         * are active (the original copies it after the allocation, which
+         * writes only the new node). */
+        const uint32_t m = (uint32_t)c->a[1];
+        if (c->na != 2 || c->nf || !m || (m & 15) || !h || !h->bytes) return -1;
+        memset(s, 0, sizeof *s);
+        s->function = c->function; s->id = (uint32_t)c->a[0]; s->f12 = 0x3F800000u;
+        const uint8_t *p = h->bytes(h->ctx, m, 64, 0);
+        if (!p) return -1;
+        memcpy(s->matrix, p, 64);
+        memcpy(s->position, p + 0x30, 16);
+        s->has_position = 1;
+        return 0;
+    }
     if (c->function != 0x001EFD90u && c->function != 0x001EF9D0u && c->function != 0x001EFD20u)
         return 1;
     if (c->na != (c->function == 0x001EFD90u ? 3u : 2u) ||
@@ -44,7 +60,14 @@ int em_area01_effects_services_invoke(const EmArea01EffectsSpawn *s, EmArea01Cal
     } else if (c->function == 0x001EFD20u)
         rc = p ? em_effects_live_001EFD20_result(s->id, p, &node) : -1;
     else if (c->function == 0x001EF9D0u) rc = em_effects_live_001EF9D0(s->id, p, s->f12, &node);
-    else return -1;
+    else if (c->function == 0x001EFEB0u) {
+        rc = em_effects_live_001EF9D0(s->id, p, s->f12, &node);
+        if (rc >= 0 && node) {
+            void *dst = em_effects_live_node_field(node + 0xD0u, 64, 1);   /* copy_qw4(node + 0xD0, m) */
+            if (!dst) return -1;
+            memcpy(dst, s->matrix, 64);
+        }
+    } else return -1;
     if (rc < 0) return -1;
     c->v0 = node;
     return 0;

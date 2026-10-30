@@ -52,7 +52,11 @@ def container_name(sub):
     return f'area06_sub{sub}_banks.bin'
 
 
-def export_sub(sub, out):
+def sub_binding(sub):
+    """({(6, sub): binding}, caps, label, data, parsed, names, first, bound,
+    refused, report, why, name): the sub's capture-checked bank binding
+    (export_sub's first half; export_sfx_registry.py adds its scope to the
+    port's registry)."""
     A6.configure(sub)
     caps = C.captures()
     gdata = (C.DECOMP / X.GLOBAL_CONTAINER).read_bytes()
@@ -78,6 +82,11 @@ def export_sub(sub, out):
     why = {k: f'{v} in AREA06 sub {sub}' for k, v in E04.refusal_reasons(caps, refused).items()}
     binding = {(C.AREA, sub): dict(groups=groups, binding=f'AREA06 sub {sub} captures (D_00281D50/D_0027C6C0)',
                                    refused=why)}
+    return binding, caps, label, data, parsed, names, first, bound, refused, report, why, name
+
+
+def export_sub(sub, out):
+    binding, caps, label, data, parsed, names, first, bound, refused, report, why, name = sub_binding(sub)
     ids = list(range(0x3E8, 0x5DC)) + list(range(0x7D0, 0x9C4))
     saved = X.area_bindings, X.scene_ids, X.census_report
     X.area_bindings = lambda _elf: binding

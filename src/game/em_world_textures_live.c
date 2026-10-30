@@ -27,7 +27,7 @@ static uint32_t rd32(const uint8_t *p)
 static int supported(void)
 {
     return ((S.area == 0u || S.area == 2u) && S.subarea <= 1u) ||
-           (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u));
+           (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u));
 }
 
 static int fail(const char *what, const char *path)
@@ -115,6 +115,10 @@ int em_world_textures_live_ensure(EmGfx *gfx)
                                    : "assets/area02_sub1_world_textures.emot";
     if (S.area == 4u)   /* tools/export_area04_world_textures.py (sub 0 only) */
         paths[0] = "assets/area04_sub0_world_textures.emot";
+    /* tools/export_level_world_textures.py --profile 22 / 06 (mode 0,
+     * costume 0: the recorded deliveries) */
+    if (S.area == 0x16u) paths[0] = "assets/levels/22/sub0/world_textures_mode0_costume0.emot";
+    if (S.area == 6u) paths[0] = "assets/levels/06/sub0/world_textures_mode0_costume0.emot";
     Texture textures[EM_GFX_OBJECT_TEX_MAX];
     uint8_t *storage[2] = {NULL, NULL};
     unsigned count = 0;

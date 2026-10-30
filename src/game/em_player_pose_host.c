@@ -796,6 +796,12 @@ int player_pose_publish(const float *palette)
     return 1;
 }
 
+void player_pose_set_hip(const float hip[3])
+{
+    if (!hip || !source.valid || !source.hip_valid) return;
+    memcpy(source.hip, hip, sizeof source.hip);
+}
+
 int player_pose_hip(float out[3])
 {
     if (!out || !source.valid || !source.hip_valid) return 0;

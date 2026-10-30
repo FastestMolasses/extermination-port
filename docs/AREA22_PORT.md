@@ -284,9 +284,73 @@ contract sites. 69 do not compile. Of the 920 that run:
   (both killed by the added `|d| = 0.1` and `42 + y` exact cases) were
   found by a 40-mutant trial before that.
 
-## Binding
+## Live binding (lane C1, 2026-10-30, branch `mid-route`)
 
-Nothing calls these entries. To run them live a host must:
+AREA22 now loads and plays in the live composition. From the start-point
+card `area22` (the a04_05 arrival, docs/STARTUP.md) the chain a22_00,
+a22_01, a22_02 runs to its end without a fault: door [7]'s room move, the
+corridor with its bugs and the two model-0x52 owners, and door [8]'s area
+change into AREA01 entry 6 with control there; each beat's end state
+(position and progress block) equals its recording's
+(`python3 tools/mid_route_beats.py a22`, docs/LEVEL8_PORT.md "Start-card
+runs"). Not a row-by-row comparison: a loaded game is not the route's
+machine state.
+
+What binds it:
+
+- **The area load.** The module pack holds area 0x16 room 0
+  (tools/export_module_loader.py's default areas); AREA22's assets are
+  the AREA02 layout (`assets/area22/sub0/`: collision, cells, roster,
+  world models, message data; `em_scene_bindings.c` mid_area / mid_file);
+  the world textures and shadow receivers are the level exports
+  (`assets/levels/22/sub0/`, export_level_world_textures.py /
+  export_level_shadow_receivers.py --profile 22).
+- **The overlay state.** em_area01_state binds the delivered AREA22 module
+  (header id 0x13, text 0xC0, data 0x800, BSS 0x140C00 at 0x823E00) and
+  its 001E7780 key 0x1600 runs `em_area22_port_00823580` (above). The
+  runtime refuses any AREA22 overlay address (the module holds no owner).
+- **Messages.** AREA22 has no area message table (D_00264DD0[0x17] is 0):
+  em_message_live accepts an EMMD with no area records and no area bank;
+  an area message request there faults in the service.
+- **Music.** D_00810D38 = 15, which AREA04's director 0x823B90 sets with
+  001FB0B0(0xF) and the block carries on: cue 15 is exported
+  (export_streams.py MUSIC_EXTRA), with the music cue of every AREA01 /
+  AREA04 / AREA06 / AREA22 spawn record.
+- **SFX.** The registry's scope (0x16, 0) (export_sfx_registry.py
+  MID_SCOPES, export_area22_sfx.scope_binding), resolved after every
+  earlier scope (their samples and indices unchanged).
+- **The library pickup model 0x41** (the 0015AFA0 pickup g[4]):
+  tools/export_mid_library.py extends the 0x40 span to 0x41's end and
+  checks it against nine AREA22 snapshots (53 live handles).
+- **The crates' registry** (001553E4 / 00155FE0 over D_0024A850[0x16],
+  D_0024D820[0x16] and the group table D_00275A84): read-only ELF windows
+  (export_area00_runtime_tables.py MID_WINDOWS, checked against every
+  AREA22 / AREA06 capture).
+- **001C1A80** (the model-0x52 owners [19] / [20]): `em_area04_port`'s
+  translation through generated typed hooks into the area runtime
+  (tools/gen_mid_route_bridge.py, src/game/em_mid_route_bridge.inc); its
+  sampler rows D_0024F8F0 and reach pair D_00275660 as ELF windows.
+- **00183010** (001C1A80's push of the player) and **0012D940** (the
+  0012A5D0 bugs' +5 = 10 / 11): this module's translations through the
+  same bridge. The push moves the player's +0xA0 and +0xB0 quadwords: the
+  player view lets an owner store the homogeneous lanes with their own
+  value and move the hip, which the commit publishes to the pose host
+  (player_pose_set_hip; the next 0015BCF0 tail recomputes it, as the
+  original's does).
+- **001B5360** (0012D940's walk step): em_area00_low's translation on the
+  composition's low-routine list.
+- **001E7440** (the player stage's 0x80000062 node at door [8]'s area
+  change: a channel-9 flash): translated as 001E7310's byte-matched twin
+  in em_area00_low (test_area00_low_reference, full sweep with both
+  outcomes of all 5 branches), bound as 001E7310 is, with its ramp row
+  D_0026E980 as an ELF window.
+
+Not bound yet: 001963A0 (the ladder camera, a22_s1), 001BB310 (door [10]'s
+locked branch, a22_s2): the side beats a22_s1 / a22_s2 are not run.
+
+## Binding (the 2026-09-28 survey)
+
+To run the entries live a host must:
 
 - supply `bytes` over the scene's original-byte storage (actor pool, the
   player block 0x8102B0, the camera block 0x8101E0 and the eye / target

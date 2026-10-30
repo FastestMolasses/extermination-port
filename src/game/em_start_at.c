@@ -1,6 +1,7 @@
 /* EM_START_AT=<name> (em_start_at.h; docs/STARTUP.md "Developer switches"). */
 #define _POSIX_C_SOURCE 200809L
 #include "game/em_start_at.h"
+#include "game/em_random.h"
 #include "em_input.h"
 
 #include <dirent.h>
@@ -38,6 +39,27 @@ static const struct {
     {"a00_01", 0x00},
     {"a00_04", 0x00},
     {"a01r_01", 0x01},
+    /* the middle of the route to the first boss (lane C1) */
+    {"area22", 0x16},
+    {"a22_01", 0x16},
+    {"a22_02", 0x16},
+    {"a01u", 0x01},
+    {"a01u_01", 0x01},
+    {"a01u_02", 0x01},
+    {"a01u_s0", 0x01},
+    {"area06", 0x06},
+    {"a06_01", 0x06},
+    {"a06_02", 0x06},
+    {"a06_03", 0x06},
+    {"a06_04", 0x06},
+    {"a06_05", 0x06},
+    {"a06b", 0x06},
+    {"a06b_01", 0x06},
+    {"a01v", 0x01},
+    {"a01v_01", 0x01},
+    {"a01v_02", 0x01},
+    {"a22b", 0x16},
+    {"a22b_01", 0x16},
 };
 
 static struct {
@@ -62,7 +84,17 @@ static struct {
      * (camera-relative, at the recorded stick's magnitude), so the route
      * survives a loaded camera that differs from the recording's. */
     unsigned path_count, hold;
+    float last_pos[2];         /* the player's x, z at the previous step */
     int t;                     /* the script's clock (frames since control) */
+    /* EM_START_AT_RAND=<hex>: the recording's rand() state word at the
+     * beat's source state (*D_0024295C + 0x58), put in place at control
+     * (comparison only, as EM_RAND_REPLAY: the creatures then draw the
+     * recording's stream from the beat's start). */
+    int rand_set;
+    uint32_t rand_state;
+    /* EM_START_AT_MARKS: the script frames to report the block at. */
+    unsigned mark_count, mark_next;
+    int mark[64];
     float path[PATH_MAX_ROWS][2];
 } pad;
 
@@ -387,7 +419,9 @@ int em_start_at_check(void)
     if (!s.name) {
         s.name = "";
         return refuse("an unknown start point (area01, area00, area01-revisit, area02, a02_01 .. a02_05, "
-                             "a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01)", NULL);
+                             "a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01, area22, a22_01, "
+                             "a22_02, a01u, a01u_01, a01u_02, a01u_s0, area06, a06_01 .. a06_05, a06b, "
+                             "a06b_01, a01v, a01v_01, a01v_02, a22b, a22b_01)", NULL);
     }
     const char *ng = getenv("EM_NEW_GAME");
     if (ng && ng[0] && strcmp(ng, "0") != 0)
@@ -424,6 +458,24 @@ int em_start_at_check(void)
         if (!ok) return refuse("EM_START_AT_PAD: not an EMA1 pad script", script);
         pad.last = (unsigned)last;
         pad.loaded = 1;
+        const char *marks = getenv("EM_START_AT_MARKS");
+        for (const char *m = marks; m && *m;) {
+            char *end;
+            const long v = strtol(m, &end, 10);
+            if (end == m || v < 0 || v > last || pad.mark_count == 64 ||
+                (pad.mark_count && v <= pad.mark[pad.mark_count - 1]) || (*end && *end != ','))
+                return refuse("EM_START_AT_MARKS: not increasing script frames", marks);
+            pad.mark[pad.mark_count++] = (int)v;
+            m = *end ? end + 1 : end;
+        }
+        const char *seed = getenv("EM_START_AT_RAND");
+        if (seed && seed[0]) {
+            char *end;
+            const unsigned long v = strtoul(seed, &end, 16);
+            if (*end || v > 0xFFFFFFFFul) return refuse("EM_START_AT_RAND: not a 32-bit hex word", seed);
+            pad.rand_set = 1;
+            pad.rand_state = (uint32_t)v;
+        }
         const char *path = getenv("EM_START_AT_PATH");
         if (path && path[0]) {
             FILE *g = fopen(path, "r");
@@ -440,6 +492,13 @@ int em_start_at_check(void)
             fclose(g);
             if (!good) return refuse("EM_START_AT_PATH: not a frame-ordered x z path", path);
         }
+    }
+    {
+        const char *seed = getenv("EM_START_AT_RAND");
+        if (seed && seed[0] && !pad.loaded) return refuse("EM_START_AT_RAND works with EM_START_AT_PAD only", seed);
+        const char *marks = getenv("EM_START_AT_MARKS");
+        if (marks && marks[0] && !pad.loaded)
+            return refuse("EM_START_AT_MARKS works with EM_START_AT_PAD only", marks);
     }
     s.on = 1;
     printf("startup: EM_START_AT=%s: the boot title's LOAD GAME of slot 1 on the start-point card %s "
@@ -472,6 +531,10 @@ void em_start_at_pad_control(unsigned counter)
     em_input_set_filter(pad_filter, NULL);
     printf("startup: EM_START_AT_PAD: %u rows over %u frames from control at engine frame %u\n", pad.count,
            pad.last, counter);
+    if (pad.rand_set) {
+        em_random_seed(pad.rand_state);
+        printf("startup: EM_START_AT_RAND: rand() state %08x at control (comparison only)\n", pad.rand_state);
+    }
 }
 
 int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3])
@@ -485,8 +548,20 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
     (void)counter;
     const int t = pad.t;
     if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u) {
+        /* A recorded position more than 20 units away is another room's
+         * (a load the host drive ends earlier than the recording's: the
+         * recorded rows still hold the old area's position): no wait. */
+        /* A player that stands still with a neutral recorded stick is not
+         * lagging (it is ahead: a recorded walk-in the native already
+         * ended): no wait either. */
         const float hx = pad.path[t][0] - pos[0], hz = pad.path[t][1] - pos[2];
-        if (hx * hx + hz * hz > 2.5f * 2.5f) pad.hold++;
+        const float d2 = hx * hx + hz * hz;
+        const float mx = pos[0] - pad.last_pos[0], mz = pos[2] - pad.last_pos[1];
+        const int moving = mx * mx + mz * mz > 1e-4f;
+        pad.last_pos[0] = pos[0];
+        pad.last_pos[1] = pos[2];
+        const int stick = pad.now.lx * pad.now.lx + pad.now.ly * pad.now.ly > 0.01f;
+        if (d2 > 2.5f * 2.5f && d2 < 20.0f * 20.0f && (moving || stick)) pad.hold++;
         else { pad.hold = 0; pad.t++; }
     } else {
         pad.hold = 0;
@@ -510,7 +585,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         const float d = sqrtf(dx * dx + dz * dz);
         float fx = fwd[0], fz = fwd[2];
         const float n = sqrtf(fx * fx + fz * fz);
-        if (d > 0.25f && n > 0.0f) {
+        if (d > 0.25f && d < 20.0f && n > 0.0f) {
             fx /= n;
             fz /= n;
             const float mag = m > 1.0f ? 1.0f : m;
@@ -524,7 +599,14 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
 int em_start_at_pad_progress(unsigned counter)
 {
     (void)counter;
-    return pad.active && pad.t > 0 && pad.t % 300 == 0 && !pad.hold;
+    return pad.active && pad.t > 0 && pad.t % 100 == 0 && !pad.hold;
 }
 
 int em_start_at_pad_clock(void) { return pad.t; }
+
+int em_start_at_pad_mark(void)
+{
+    if (!pad.active || pad.mark_next >= pad.mark_count || pad.t < pad.mark[pad.mark_next]) return 0;
+    ++pad.mark_next;
+    return 1;
+}

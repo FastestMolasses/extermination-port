@@ -45,6 +45,13 @@ route's manifest: its first beat's source state):
                    the source state of that route beat: a loaded game
                    placed where the beat starts (the cutscene skip runs,
                    tools/test_cutscene_skip.py)
+  area22, a22_01, a22_02, a01u, a01u_01, a01u_02, a01u_s0, area06,
+  a06_01 .. a06_05, a06b, a06b_01, a01v, a01v_01, a01v_02, a22b, a22b_01
+                   the middle of the route to the first boss (route_a22,
+                   route_a01u, route_a06, route_a06b, route_a01v,
+                   route_a22b): the source state of that beat, a loaded
+                   game placed where it starts (discovery runs; the area
+                   byte 0x16 is AREA22)
 
 Output, disc-derived (the icon, the block): build/start_saves/<name>/, a
 host card root (slot1/BASCUS-97112-DS00-00/ with the eight files the writer
@@ -119,6 +126,32 @@ START_POINTS = {
     'a00_01': {'route': 's87/route_a00', 'first': 'a00_01_', 'area': 0},
     'a00_04': {'route': 's87/route_a00', 'first': 'a00_04_', 'area': 0},
     'a01r_01': {'route': 's87/route_a01r', 'first': 'a01r_01_', 'area': 1},
+    # The middle of the route to the first boss (lane C1; docs/STARTUP.md
+    # "EM_START_AT=<name>"): AREA22 (SIXTH_LEVEL_ROUTE.md), AREA01's upper
+    # floor and AREA06 (SEVENTH_LEVEL_ROUTE.md), and the way back over the
+    # beam, the upper floor and AREA22 (EIGHTH_LEVEL_ROUTE.md). Each is the
+    # source state of that beat; a group's first beat is its arrival (the
+    # side beats a01u_s1 / a06_s0 start from the a01u / area06 states).
+    'area22': {'route': 's87/route_a22', 'first': 'a22_00_', 'area': 0x16},
+    'a22_01': {'route': 's87/route_a22', 'first': 'a22_01_', 'area': 0x16},
+    'a22_02': {'route': 's87/route_a22', 'first': 'a22_02_', 'area': 0x16},
+    'a01u': {'route': 's87/route_a01u', 'first': 'a01u_00_', 'area': 1},
+    'a01u_01': {'route': 's87/route_a01u', 'first': 'a01u_01_', 'area': 1},
+    'a01u_02': {'route': 's87/route_a01u', 'first': 'a01u_02_', 'area': 1},
+    'a01u_s0': {'route': 's87/route_a01u', 'first': 'a01u_s0_', 'area': 1},
+    'area06': {'route': 's87/route_a06', 'first': 'a06_00_', 'area': 6},
+    'a06_01': {'route': 's87/route_a06', 'first': 'a06_01_', 'area': 6},
+    'a06_02': {'route': 's87/route_a06', 'first': 'a06_02_', 'area': 6},
+    'a06_03': {'route': 's87/route_a06', 'first': 'a06_03_', 'area': 6},
+    'a06_04': {'route': 's87/route_a06', 'first': 'a06_04_', 'area': 6},
+    'a06_05': {'route': 's87/route_a06', 'first': 'a06_05_', 'area': 6},
+    'a06b': {'route': 's87/route_a06b', 'first': 'a06b_00_', 'area': 6},
+    'a06b_01': {'route': 's87/route_a06b', 'first': 'a06b_01_', 'area': 6},
+    'a01v': {'route': 's87/route_a01v', 'first': 'a01v_00_', 'area': 1},
+    'a01v_01': {'route': 's87/route_a01v', 'first': 'a01v_01_', 'area': 1},
+    'a01v_02': {'route': 's87/route_a01v', 'first': 'a01v_02_', 'area': 1},
+    'a22b': {'route': 's87/route_a22b', 'first': 'a22b_00_', 'area': 0x16},
+    'a22b_01': {'route': 's87/route_a22b', 'first': 'a22b_01_', 'area': 0x16},
 }
 
 

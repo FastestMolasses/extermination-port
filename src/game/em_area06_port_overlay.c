@@ -365,6 +365,24 @@ int em_area06_port_00823580(const EmArea06PortHooks *h, uint32_t self, EmArea06P
  * D_008106C5 = 1, st +4 + 1, returns 0; 1 with D_00810845 bit 5 set
  * 001FABB0() and 001FB0B0(0), returns 1; other values return 0.
  * ---------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------
+ * 0x824290 (C byte-identical, func_overlay_AREA06_00824250.c): AREA06's
+ * area init, which 001E7780 calls for the keys 0x600 / 0x601: D_00275C2C =
+ * 1, D_00275C28 = 0x20, D_00275C20 = the overlay's BSS 0x828F00, D_00275C24 =
+ * 0, D_00275C1C = 0x832F80 (the order of the original's stores).
+ * ---------------------------------------------------------------------- */
+int em_area06_port_00824290(const EmArea06PortHooks *h, EmArea06PortFault *fault)
+{
+    A6 o;
+    if (a6_begin(&o, h, fault)) return -1;
+    a6_w32(&o, 0x00275C2Cu, 1);
+    a6_w32(&o, 0x00275C28u, 0x20);
+    a6_w32(&o, 0x00275C20u, 0x00828F00u);
+    a6_w32(&o, 0x00275C24u, 0);
+    a6_w32(&o, 0x00275C1Cu, 0x00832F80u);
+    return a6_end(&o);
+}
+
 int em_area06_port_008242C0(const EmArea06PortHooks *h, uint32_t self, uint32_t st, int32_t *result,
                             EmArea06PortFault *fault)
 {

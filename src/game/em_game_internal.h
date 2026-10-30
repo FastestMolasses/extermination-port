@@ -1901,6 +1901,8 @@ int player_pose_row0(int clip, int16_t *value);
  * identity root of 001C6960 while +0x2F3 holds the special bank). */
 int player_pose_publish(const float *palette);
 int player_pose_hip(float out[3]);
+/* The hip an owner moved (00183010's push, em_player.c external_publish). */
+void player_pose_set_hip(const float hip[3]);
 void player_pose_finish_palette(void);
 int player_pose_align(const float position[3]);
 int player_pose_face(float yaw);

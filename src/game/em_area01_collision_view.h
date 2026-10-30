@@ -43,6 +43,7 @@ typedef struct {
     int staged;
     uint32_t self_word, point_before[4];
     const void *entity_before, *self_before;
+    uint32_t entity_word_before;   /* 0x700031D4 as begin encoded it */
     int record_before, node_before;
     uint64_t generation;
     uint32_t pool_generation[EM_ACTOR_POOL_CAPACITY];
@@ -69,4 +70,9 @@ uint8_t *em_area01_collision_view_bytes(EmArea01CollisionView *, uint32_t, uint3
 int em_area01_collision_view_commit(EmArea01CollisionView *);
 /* Requires an inactive view; original translated workers only. */
 int em_area01_collision_view_call(EmArea01CollisionView *, EmArea01Call *);
+/* The aim/fire composition's proxy of the player record D_008102B0 (a
+ * segment probe of that composition that hit the player leaves it in the
+ * shared probe state): encoded as 0x008102B0. */
+void em_area01_collision_set_player_proxy(const void *proxy);
+
 #endif

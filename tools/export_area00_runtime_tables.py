@@ -105,6 +105,49 @@ AREA02_EFFECT_WINDOWS = ((0x00256D30, 0x90), (0x00256C10, 0x120), (0x00253C50, 0
 # light owner of a02_00 onwards). Sub 1 (0x201) has no list (state 3).
 AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS = 0x00269680, 6
 AREA02_LIGHT_WINDOWS = ((AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS * 0x40 + 4),)
+# The middle of the route to the first boss (lane C1): the crate registry
+# rows 001553E4 / 00155FE0 read for AREA06 and AREA22 (D_0024A850[area],
+# D_0024D820[area]) and AREA22's group table D_00275A80 (its first word is
+# not read: D_0024A850[0x16] is 0, so the first index is 1; the nest
+# groups the table names live in the AREA22 overlay's data). AREA06's
+# table 0x826A60 is in its overlay's data (the loader's).
+AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS = 0x00269D40, 9
+MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4), (0x00275A84, 8),
+               # 001C1A80 (the model-0x52 owners of AREA22 / AREA06): its
+               # 0x28 seven-float sampler rows D_0024F8F0 (001D0D40 / 001D0D60)
+               # and its +0x208 / +0x30 reach pair D_00275660 (001BE5F0).
+               (0x0024F8F0, 0x28 * 7 * 4), (0x00275660, 8),
+               # the area change's flash node 001E7440's ramp row
+               # (001DEE80(9, D_0026E980)), 001E7310's D_0026E970 twin
+               (0x0026E980, 0x10),
+               # 001C50B0's AREA06 (keys 0x600 / 0x601) light offset vector
+               # D_0026E2E0 (001028B8 / 001028D0 around its 001C5050)
+               (0x0026E2E0, 0x10),
+               # AREA06's 0022DCD0 light list D_00269D40 (its owner 0x7AD1A0):
+               # nine 0x40-byte records, then the word -1
+               (AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS * 0x40 + 4),
+               # 0015A2C0's floor-field config row 6 (AREA06's owners; rows
+               # 0, 1, 3 and 5 are exported above): one 20-byte record
+               (0x00248198, 0x14),
+               # 0021A180's 001CFBE0 source block D_002668A0 (the strip owner
+               # 00219870's; the port's mutable copy starts from these bytes)
+               (0x002668A0, 0x90),
+               # AREA06's effect handlers' 001CFBE0 sources: 001ECA20's
+               # D_00256DC0 / D_00256E50 and 001EBE10's D_002564C0
+               (0x00256DC0, 0x120), (0x002564C0, 0x90),
+               # 0019C6F0's per-area room-list words D_0024D7C0[6] / [0x16]
+               # and AREA06's per-sub list pointers D_00275948 (sub 0, 1: the
+               # lists lie in the overlay's data); AREA22's D_00275A88 is in
+               # the D_00275A84 window above. One window from D_00275940:
+               # 00183EF0 reads AREA06's pickup descriptor there (a
+               # candidate's floats may cross into the next word)
+               (0x0024D7D8, 4), (0x0024D818, 4), (0x00275940, 0x10),
+               # the strip node 0021A500's (AREA06 0x823580's sparks) 001CFBE0
+               # sources D_00266930 (kind 1) and D_002669C0 (kind 2)
+               (0x00266930, 0x120),
+               # 001BF5B0's second sampler table D_00250750 (0x41 seven-float
+               # rows; 001BF6B0 on AREA01's way back, a01v)
+               (0x00250750, 0x41 * 7 * 4))
 HAZARD_EFFECT_ROWS = {0x00257530: struct.pack('<8f', 8, 24, 8, 0, 0, 0, 0, 0),
                       0x00257650: struct.pack('<8f', 24, 112, 24, 128, 24, 112, 24, 0)}
 
@@ -154,7 +197,7 @@ def blocks(elf):
     common = (*E.BLOCKS, *AREA01_EFFECT_WINDOWS)
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
-               *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS)
+               *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS, *MID_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -162,9 +205,10 @@ def blocks(elf):
 
 
 def verify_light_table(data):
-    """The 0022DCD0 lists (AREA00, AREA02 sub 0): their records, then the
-    word -1."""
-    for base, records in ((LIGHT_TABLE, LIGHT_RECORDS), (AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS)):
+    """The 0022DCD0 lists (AREA00, AREA02 sub 0, AREA06): their records,
+    then the word -1."""
+    for base, records in ((LIGHT_TABLE, LIGHT_RECORDS), (AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS),
+                          (AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS)):
         table = data[base]
         for index in range(records):
             if struct.unpack_from('<i', table, index * 0x40)[0] == -1:
@@ -242,6 +286,33 @@ def verify_preserved(previous, data):
     return count
 
 
+def verify_mid_windows(wanted, decomp):
+    """The middle route's crate registry windows equal every AREA22 /
+    AREA06 capture's bytes."""
+    root = decomp / 'build/fork_refs/s87'
+    paths = [root / 'route_a04/a04_05_progression_exit/eeMemory.bin']
+    for route in ('route_a22', 'route_a22b', 'route_a01u', 'route_a01v', 'route_a06', 'route_a06b'):
+        paths += sorted((root / route).glob('*/eeMemory.bin'))
+    seen = 0
+    for path in paths:
+        ram = path.read_bytes()
+        if ram[0x810700] not in (6, 0x16):
+            continue
+        for address, size in MID_WINDOWS:
+            got, want = bytearray(ram[address:address + size]), bytearray(wanted[address])
+            if address == 0x002668A0:
+                # .data 0021A180 stores into (+0x08 the strip's length,
+                # +0x80 = 0x40): the rest must be the ELF's
+                for at in (*range(0x08, 0x0C), *range(0x80, 0x84)):
+                    got[at] = want[at]
+            if got != want:
+                raise ValueError(f'{path.parent.name}: crate registry window {address:#x} differs from the ELF')
+        seen += 1
+    if not seen:
+        raise ValueError('no AREA22 / AREA06 capture')
+    return seen
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--elf', type=Path, default=E.DECOMP / 'config/SCUS_971.12')
@@ -252,6 +323,7 @@ def main():
     paths = captures(args.decomp)
     count = verify_windows(data, paths)
     verify_area02_windows(dict(data), args.decomp)
+    verify_mid_windows(dict(data), args.decomp)
     output = args.out.absolute()
     if output.is_symlink() or any(parent.is_symlink() for parent in output.parents):
         raise ValueError('Output must use the worktree\'s private directories')

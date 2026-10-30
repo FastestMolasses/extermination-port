@@ -954,10 +954,40 @@ static void start_at_give_up(const char *why)
  * status screen (Triangle closing the revisit's item page) is played. */
 static int start_at_pad_stepped;
 
+/* The pad script's end: where the player is and the whole progress block,
+ * for a beat's end-state comparison with its recording (tools/
+ * mid_route_beats.py compares the block with the recording's end state). */
+static void start_at_pad_end(void)
+{
+    const EmSceneState *sc = em_scene_state();
+    printf("%s: pad end at (%.3f,%.3f,%.3f) area %02X %02X %02X 3B8D %u\n", load_prefix(), g.pos[0], g.pos[1],
+           g.pos[2], sc->d810700, sc->d810701, sc->d810702, sc->spad3B8D);
+    load_test_block("at the pad end");
+    fflush(stdout);
+}
+
+/* A mark of EM_START_AT_MARKS (a chained beat's end): its block. */
+static void start_at_pad_mark(void)
+{
+    if (!em_start_at_pad_mark()) return;
+    const EmSceneState *sc = em_scene_state();
+    char when[48];
+    snprintf(when, sizeof when, "at pad mark %d", em_start_at_pad_clock());
+    printf("%s: pad mark %d at (%.3f,%.3f,%.3f) area %02X %02X %02X 3B8D %u\n", load_prefix(),
+           em_start_at_pad_clock(), g.pos[0], g.pos[1], g.pos[2], sc->d810700, sc->d810701, sc->d810702,
+           sc->spad3B8D);
+    load_test_block(when);
+    fflush(stdout);
+}
+
 void em_frontend_start_at_after_frame(void)
 {
-    if (f.start_at && lt.phase == 6 && !start_at_pad_stepped)
-        (void)em_start_at_pad_frame(em_frame_counter(), NULL, g.cam.fwd);
+    if (f.start_at && lt.phase == 6 && !start_at_pad_stepped) {
+        if (em_start_at_pad_frame(em_frame_counter(), NULL, g.cam.fwd) == 1)
+            start_at_pad_end();
+        else
+            start_at_pad_mark();
+    }
     start_at_pad_stepped = 0;
 }
 
@@ -968,19 +998,24 @@ void em_frontend_load_test_before_frame(void)
      * (0x70003B8D clear): a scripted stretch moves the player itself, so
      * the clock does not wait on the recorded position there. */
     const int path_control = f.start_at && lt.phase == 6 && ((const EmSceneState *)em_scene_state())->spad3B8D == 0;
-    if (f.start_at && lt.phase == 6 &&
-        em_start_at_pad_frame(em_frame_counter(), path_control ? g.pos : NULL, g.cam.fwd) == 0 &&
-        em_start_at_pad_progress(em_frame_counter())) {
+    const int pad_step = f.start_at && lt.phase == 6 ?
+                         em_start_at_pad_frame(em_frame_counter(), path_control ? g.pos : NULL, g.cam.fwd) : 0;
+    if (pad_step == 1)
+        start_at_pad_end();
+    else if (pad_step == 0 && f.start_at && lt.phase == 6)
+        start_at_pad_mark();
+    if (f.start_at && lt.phase == 6 && pad_step == 0 && em_start_at_pad_progress(em_frame_counter())) {
         /* EM_START_AT_PAD's progress line every 300 frames: where the player
          * is and the AREA01 revisit's story bytes (D_008107DF event stage,
          * D_008107E0 bridge counter, D_0081075F, D_00810760). */
         EmSceneState *sc = (EmSceneState *)em_scene_state();
         const uint8_t *df = em_scene_progress_at(sc, 0x008107DFu, 2);
         const uint8_t *e5f = em_scene_progress_at(sc, 0x0081075Fu, 2);
-        printf("%s: pad frame %d at (%.2f,%.2f,%.2f) area %02X %02X 3B8D %u DF %02X E0 %02X 75F %02X 760 %02X\n",
+        printf("%s: pad frame %d at (%.2f,%.2f,%.2f) area %02X %02X 3B8D %u DF %02X E0 %02X 75F %02X 760 %02X "
+               "health %.1f infection %.1f latch %d\n",
                load_prefix(), em_start_at_pad_clock(), g.pos[0], g.pos[1], g.pos[2], sc->d810700,
                sc->d810701, sc->spad3B8D, df ? df[0] : 0xEEu, df ? df[1] : 0xEEu, e5f ? e5f[0] : 0xEEu,
-               e5f ? e5f[1] : 0xEEu);
+               e5f ? e5f[1] : 0xEEu, sc->d810858, sc->d81085C, g.pd_infected);
         fflush(stdout);
     }
     if (!load_drive() || f.failed || lt.phase < 3 || lt.phase > 5) return;

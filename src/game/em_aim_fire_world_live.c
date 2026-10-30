@@ -533,6 +533,7 @@ static int player_chain(void *context,const EmActor *body,EmCollHullChain *out)
     *out=(EmCollHullChain){player_hull.bytes,PLAYER_HULL_SIZE,player_hull.slots,r[9]};
     return 0;
 }
+const void *em_aim_fire_world_live_player_body(void) { return &player_body; }
 const uint8_t *em_aim_fire_world_live_player_hull(uint32_t address,uint32_t *size)
 {
     if(!size || player_hull_load()<0 || address<PLAYER_HULL_ADDRESS ||

@@ -1050,6 +1050,14 @@ static void external_publish(void *ctx, EmPlayerLiveActor *actor)
 {
     (void)ctx;
     memcpy(g.pos,actor->bytes+0xA0,12); memcpy(&g.yaw,actor->bytes+0xC4,4);
+    /* A hip an owner moved (00183010's push; the view projected the pose
+     * host's hip there at its begin): the pose host's until the next
+     * 0015BCF0 tail recomputes it. */
+    float hip[3];
+    if (player_pose_hip(hip) && memcmp(hip,actor->bytes+0xB0,12)) {
+        memcpy(hip,actor->bytes+0xB0,12);
+        player_pose_set_hip(hip);
+    }
     /* Same owner publication and infected HUD limit as the player stage. */
     vitals_store();
 }

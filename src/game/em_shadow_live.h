@@ -59,6 +59,8 @@ extern "C" {
 #define EM_SHADOW_LIVE_AREA02_SUB0_RECEIVERS_PATH "assets/area02_sub0_shadow_receivers.emsr"
 #define EM_SHADOW_LIVE_AREA02_SUB1_RECEIVERS_PATH "assets/area02_sub1_shadow_receivers.emsr"
 #define EM_SHADOW_LIVE_AREA04_SUB0_RECEIVERS_PATH "assets/area04_sub0_shadow_receivers.emsr"
+#define EM_SHADOW_LIVE_AREA22_SUB0_RECEIVERS_PATH "assets/levels/22/sub0/shadow_receivers.emsr"
+#define EM_SHADOW_LIVE_AREA06_SUB0_RECEIVERS_PATH "assets/levels/06/sub0/shadow_receivers.emsr"
 #define EM_SHADOW_LIVE_PROXY_PATH "assets/player_shadow.emdl"      /* D_0028A490[0x28] */
 #define EM_SHADOW_LIVE_PROXY_29_PATH "assets/roger_shadow.emdl"    /* D_0028A490[0x29] */
 #define EM_SHADOW_LIVE_KIND_ROGER 0x29       /* Roger's +0x96 (001BA8E0 for model 0x47) */

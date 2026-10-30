@@ -55,6 +55,10 @@ static uint32_t shot_flag;                 /* 0x700031E8 */
  * used (its transform takes the fourth row's factor from vf0.w;
  * PLAYER_EQUIPMENT.md section 5). AIM_FIRE.md section 7. */
 static uint32_t scratch_3600[16];          /* 0x70003600..0x7000363F */
+/* 0x70003680..0x7000368F: 001CE860's scratch quadword (its +0xC, the
+ * reciprocal of the strip's screen-space width vector length; AREA06's
+ * strip nodes 0x8000003B through 0021A500). No other reader. */
+static uint32_t scratch_3680[4];
 static uint32_t *shared_3600;
 static uint32_t d275C3C;                   /* D_00275C3C (001F0190 / 001F0290) */
 /* 0x700036E0..0x7000371F: the glow node 001F6FB0's spark matrix (each
@@ -655,6 +659,17 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
             fprintf(stderr,"aim/fire: 001E7310 fault code %d at %08X\n",(int)low.fault,(unsigned)low.fault_address);
         return rc;
     }
+    case 0x1E7440: {
+        /* Its twin 001E7440 (em_area00_low's translation; the player
+         * stage's 0x80000062 node: an area change's flash, a22_02): the
+         * same composition, its ramp row D_0026E980. */
+        EmArea00Low low;memset(&low,0,sizeof low);
+        low.call=flash_call;low.ctx=live;low.sp=f->sp;low.view=flash_view;low.view_ctx=live;
+        const int rc=em_area00_low_001E7440(&low,(uint32_t)f->a[0]);
+        if (rc<0)
+            fprintf(stderr,"aim/fire: 001E7440 fault code %d at %08X\n",(int)low.fault,(unsigned)low.fault_address);
+        return rc;
+    }
     case 0x21B9A0:
         /* 0021B9A0(mode, f12, f13): the render context's parameter rows
          * (em_render_context_live, its one owner). */
@@ -878,7 +893,7 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (rc<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
-    if (callback==0x001E2E80u || callback==0x001F6FB0u || callback==0x001E7310u) {
+    if (callback==0x001E2E80u || callback==0x001F6FB0u || callback==0x001E7310u || callback==0x001E7440u) {
         /* The spat hazard node 001E2E80 (em_area00_hud) and the creatures'
          * glow node 001F6FB0 (em_area00_fx), through the composition, with
          * D_00275B40 = its +0x110 (the walk's 001CB590); 1 while its record
@@ -945,11 +960,12 @@ static int add_windows(void)
     if (glow) R.bss[n++]=(EmPoseRegion){0x25D800,0x90,glow,1};
     R.bss[n++]=(EmPoseRegion){0x700036E0,sizeof scratch_36E0,(uint8_t *)scratch_36E0,1};
     R.bss[n++]=(EmPoseRegion){0x7E000000,sizeof ramp_stack,ramp_stack,1};
+    R.bss[n++]=(EmPoseRegion){0x70003680,sizeof scratch_3680,(uint8_t *)scratch_3680,1};
     /* The flash node 001E7310's ramp data (CREATURE_EFFECT_WINDOWS):
      * 001DEE80's D_0026E970 and 001DF180's colour D_0026E860, read only;
      * optional as the glow's block. */
-    static const uint32_t ramp[2][2]={{0x26E860,0x10},{0x26E970,0x10}};
-    for (unsigned k=0;k<2;++k) {
+    static const uint32_t ramp[3][2]={{0x26E860,0x10},{0x26E970,0x10},{0x26E980,0x10}};
+    for (unsigned k=0;k<3;++k) {
         const uint8_t *p=em_effects_live_window(ramp[k][0],ramp[k][1]);
         if (p) R.bss[n++]=(EmPoseRegion){ramp[k][0],ramp[k][1],(uint8_t *)(uintptr_t)p,0};
     }

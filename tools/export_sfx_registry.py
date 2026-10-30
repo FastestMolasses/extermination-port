@@ -68,6 +68,12 @@ AREA02_IDS = AREA00_IDS
 # resolved after AREA02 so every earlier scope keeps its samples.
 AREA04_SCOPES = ((4, 0),)
 AREA04_IDS = AREA00_IDS
+# The middle of the route to the first boss (lane C1): AREA22 sub 0
+# (export_area22_sfx.scope_binding) and AREA06 sub 0
+# (export_area06_sfx.sub_binding), each its captures' binding; resolved
+# after AREA04, so every earlier scope keeps its samples and indices.
+MID_SCOPES = ((0x16, 0), (6, 0))
+MID_IDS = AREA00_IDS
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -265,6 +271,28 @@ def area04_bindings():
             setattr(C, name, value)
 
 
+def mid_bindings():
+    """AREA22's and AREA06's sub-0 bindings; restores the shared AREA01
+    exporter configuration afterwards, as area02_bindings does."""
+    import export_area01_common as C
+    names = ('OVERLAY_PATH', 'OVERLAY_SIZE', 'OVERLAY_ID', 'AREA', 'SUB',
+             'OUT', 'SCRATCH', 'ROUTE_A01', 'ARRIVAL', 'captures', 'build_load_map')
+    saved = {name: getattr(C, name) for name in names}
+    try:
+        # AREA06's helper first: it needs AREA01's nested load-map builder,
+        # which AREA22's configure replaces (export_area06_common's guard)
+        import export_area06_common  # noqa: F401
+        import export_area22_sfx as S22
+        result = dict(S22.scope_binding()[0])
+        import export_area06_sfx as S6
+        result.update(S6.sub_binding(0)[0])
+        assert sorted(result) == sorted(MID_SCOPES), sorted(result)
+        return result
+    finally:
+        for name, value in saved.items():
+            setattr(C, name, value)
+
+
 def area_bindings(elf):
     """(area, sub) -> {group: [Bank]} plus provenance."""
     global_rows = containers_by_type(GLOBAL_CONTAINER,
@@ -309,6 +337,7 @@ def area_bindings(elf):
     bindings.update(area00_bindings())
     bindings.update(area02_bindings())
     bindings.update(area04_bindings())
+    bindings.update(mid_bindings())
     return bindings
 
 
@@ -619,6 +648,9 @@ def scene_ids(census=True):
     for scope in AREA04_SCOPES:
         scenes.setdefault(scope, [])
         scenes[scope] += [i for i in AREA04_IDS if i not in scenes[scope]]
+    for scope in MID_SCOPES:
+        scenes.setdefault(scope, [])
+        scenes[scope] += [i for i in MID_IDS if i not in scenes[scope]]
     if census:
         scope, ids = census_ids()
         scenes.setdefault(scope, [])
@@ -653,8 +685,9 @@ def export(out_dir: Path):
     # Registry entry rows still sort by scope/id after sample allocation.
     def scope_order(kv):
         scope = kv[0]
-        return (4 if scope in AREA04_SCOPES else 3 if scope in AREA02_SCOPES else 2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0,
-                scope)
+        return (5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES else 3 if scope in AREA02_SCOPES
+                else 2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0,
+                MID_SCOPES.index(scope) if scope in MID_SCOPES else scope)
     for (area, sub), ids in sorted(scene_ids().items(), key=scope_order):
         for sound_id in ids:
             entry = resolve(elf, bindings, sound_id, area, sub, samples)

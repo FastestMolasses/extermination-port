@@ -74,6 +74,24 @@ static const uint8_t *resource(void *,uint32_t,uint32_t);
 #define D822CF0_BASE 0x00822CF0u
 #define D822CF0_SIZE 0x7D0u
 static uint8_t s_d822CF0[D822CF0_SIZE];
+/* D_002668A0: the boot data block 0021A180 (AREA06's strip owner 00219870)
+ * hands 001CFBE0 as its 0x90-byte source, after storing its +0x08 length
+ * (D_002668A8) and +0x80 (D_00266920 = 0x40). Boot data: the ELF's bytes
+ * (export_area00_runtime_tables.py MID_WINDOWS) at the first access, then
+ * one process-lifetime block, as the original's .data is. */
+#define D2668A0_BASE 0x002668A0u
+#define D2668A0_SIZE 0x90u
+static uint8_t s_d2668A0[D2668A0_SIZE];
+static int s_d2668A0_ready;
+static uint8_t *d2668A0(void)
+{
+    if(!s_d2668A0_ready) {
+        const uint8_t *elf=em_effects_live_window(D2668A0_BASE,D2668A0_SIZE);
+        if(!elf)return NULL;
+        memcpy(s_d2668A0,elf,D2668A0_SIZE);s_d2668A0_ready=1;
+    }
+    return s_d2668A0;
+}
 static EmActor *actor(EmArea01Live *l,uint32_t a)
 {
     if(a<EM_ACTOR_POOL_BASE)return NULL;
@@ -225,6 +243,8 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     }
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
         return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
+    if(overlaps(a,n,D2668A0_BASE,D2668A0_SIZE))
+        return contains(a,n,D2668A0_BASE,D2668A0_SIZE) && d2668A0() ? s_d2668A0+(a-D2668A0_BASE) : NULL;
     if(overlaps(a,n,0x00275C00u,4))
         return l->active && contains(a,n,0x00275C00u,4)
             ? (uint8_t *)&l->d275C00+a-0x00275C00u : NULL;
@@ -440,6 +460,7 @@ static int model_function(uint32_t fn)
     case 0x001C62C0u: case 0x001C63E0u: case 0x001C67E0u: case 0x001C68C0u: case 0x001C69A0u:
     case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:
     case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
+    case 0x001C63D0u: /* 001BE6C0 (AREA01's way back, a01v) */
         return 1;
     default:return 0;
     }
@@ -570,6 +591,9 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     /* 00128830(a0; f12, f13, f14): the AREA01 revisit creatures' (0x824340)
      * hop, em_area00_low's translation (byte-matched decomp C). */
     case 0x00128830u: rc=c->na<1 || c->nf<3 ? -1 : em_area00_low_00128830(&low,a0,c->f[0],c->f[1],c->f[2]);break;
+    /* 001B5360(node): the 0012A5D0 bugs' walk step from 0012D940's state 1
+     * (AREA22's corridor bugs, +5 = 10 / 11), em_area00_low's translation. */
+    case 0x001B5360u: rc=c->na<1 ? -1 : em_area00_low_001B5360(&low,a0);break;
     default: rc=-1;break;
     }
     if(rc<0)
@@ -582,7 +606,7 @@ static int low_entry_handles(uint32_t fn)
     switch(fn) {
     case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
     case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
-    case 0x0012DE90u: case 0x00102870u: case 0x00128830u:
+    case 0x0012DE90u: case 0x00102870u: case 0x00128830u: case 0x001B5360u:
         return 1;
     default:
         return 0;
@@ -922,6 +946,23 @@ static int worker(void *ctx,EmArea01Call *c)
         memcpy(view,block,0x60);
         return 0;
     }
+    if(c->function==0x001D04B0u) {
+        /* 001D04B0(matrix, kind, source; f12, f13): the particle draw
+         * (em_effects_live's translation, as the spat hazard's) over the
+         * matrix as it stands and the 0x90-byte source the caller names
+         * (AREA06's 0x8240E0 hands one of its overlay's). */
+        if(c->na<3 || c->nf<2)return worker_result(l,-1,c->function);
+        const uint8_t *m=bytes(l,(uint32_t)c->a[0],64,0);
+        if(!m)return worker_result(l,-1,(uint32_t)c->a[0]);
+        const uint8_t *src=bytes(l,(uint32_t)c->a[2],0x90,0);
+        if(!src)return worker_result(l,-1,(uint32_t)c->a[2]);
+        float matrix[16];uint8_t source[0x90];
+        memcpy(matrix,m,64);memcpy(source,src,0x90);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_effects_live_001D04B0(matrix,(int32_t)c->a[1],(uint32_t)c->a[2],source,c->f[0],c->f[1]);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,rc<0 ? em_effects_live_fault() : 0);
+    }
     if(c->function==0x001CFBE0u) {
         const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
         EmArea01FlamePacket packet;
@@ -1004,7 +1045,8 @@ static int worker(void *ctx,EmArea01Call *c)
     if(c->function==0x001C9E40u)return rest_001C9E40(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);
     if(em_area01_pickup_handles(c->function))return em_area01_pickup_call(&l->pickups,c);
-    if(c->function==0x001EFD90u || c->function==0x001EFD20u || c->function==0x001EF9D0u) {
+    if(c->function==0x001EFD90u || c->function==0x001EFD20u || c->function==0x001EF9D0u ||
+       c->function==0x001EFEB0u) {
         EmArea01EffectsSpawn spawn;
         const EmArea01RuntimeHost host={l,bytes,worker};
         if(em_area01_effects_services_prepare(&host,c,&spawn)<0 || em_area01_live_suspend(l)<0)return -1;
@@ -1443,7 +1485,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
        !h->resource_epoch || !h->rebind)
         return -1;
     const unsigned area=h->scene->d810700;
-    if((area>2 && area!=4) || h->area->area!=area)return -1;
+    if(!em_area01_state_supported(area) || h->area->area!=area)return -1;
     memset(l,0,sizeof *l);l->host=*h;
     EmPoseHost *pose=player_pose_record_host();
     EmStatusSceneLoader *ld=em_module_loader_state(h->loader);

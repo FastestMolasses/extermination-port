@@ -83,4 +83,8 @@ void *em_aim_fire_world_live_owner_view(uint32_t a, size_t n, int write);
  * (assets/player_hull.emom, tools/export_player_hull.py; its one home): the
  * bytes from `address` to the chain's end, or NULL. */
 const uint8_t *em_aim_fire_world_live_player_hull(uint32_t address, uint32_t *size);
+/* The probes' proxy of the player record D_008102B0 (what 0x700031D4 names
+ * after one of this composition's segment probes hit the player; the host
+ * hands it to em_area01_collision_set_player_proxy). */
+const void *em_aim_fire_world_live_player_body(void);
 #endif

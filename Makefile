@@ -43,6 +43,9 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
            src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c src/game/em_camera_aim.c src/game/em_area22_port.c src/game/em_area00_low.c \
+           src/game/em_area06_port.c src/game/em_area06_port_node.c \
+           src/game/em_area06_port_overlay.c src/game/em_level8_port_gap.c src/game/em_level8_port_creature.c \
+           src/game/em_level8_port_lift.c src/game/em_level8_port_overlay.c src/game/em_level8_port_probe.c \
            src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
            src/game/em_script_door_fan.c src/game/em_interaction_frame.c \
            src/game/em_security_gun.c src/game/em_security_gun_rest.c src/game/em_fan_original.c \

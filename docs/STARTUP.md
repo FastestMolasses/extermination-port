@@ -524,15 +524,28 @@ recording-derived and stay in the ignored `build/`.
   time), so the presses land where the recording made them; it steers and
   holds only while the player has control (0x70003B8D clear: a scripted
   stretch moves the player itself, and a hold there only stretched the
-  script's clock by 300 frames a step). Two limits (lane B1, 2026-10-30):
-  the loaded game's placement clip runs about 65 frames after control and
-  ignores the stick, so a route's pad replayed from control starts that
-  much early (a02_05's recorded pad reaches door [25] only delayed by 66
-  frames); and the steering turns a recorded turn in place into a walk, so
-  a Use that needs a facing (a door's cone, 00183EF0) may not be taken; a
-  progress
-  line every 300 script frames prints the position and the revisit's story
-  bytes.
+  script's clock by 300 frames a step), and not while the recorded
+  position is more than 20 units away (another room's: a load the host
+  drive ends before the recording's) or the player stands still with a
+  neutral recorded stick (it is ahead, not lagging). Two limits (lane B1,
+  2026-10-30): the loaded game's placement clip runs about 65 frames after
+  control and ignores the stick, so a route's pad replayed from control
+  starts that much early (a02_05's recorded pad reaches door [25] only
+  delayed by 66 frames); and the steering turns a recorded turn in place
+  into a walk, so a Use that needs a facing (a door's cone, 00183EF0) may
+  not be taken; a progress
+  line every 100 script frames prints the position, the revisit's story
+  bytes, the health and the infection, and the script's end prints the
+  position, the area bytes and the
+  whole progress block (`pad end at`). `EM_START_AT_RAND=<hex>` (with
+  EM_START_AT_PAD; comparison only, as EM_RAND_REPLAY) puts that rand()
+  state word in place at control: the recording's word at the beat's
+  source state (*D_0024295C + 0x58), so the creatures draw the recording's
+  stream from the beat's start. `EM_START_AT_MARKS=<f>,<f>,...` (with
+  EM_START_AT_PAD) prints the position and the progress block when the
+  script's clock reaches each frame (`pad mark <f>`): a chained beat's end.
+  `tools/mid_route_beats.py` drives the middle of the route to the first
+  boss this way (docs/LEVEL8_PORT.md "Start-card runs").
 - **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):
   `EM_START_AT=area01 EM_START_AT_TEST=1` checked as `make
   test-title-load-game` checks its copy (the screen's result 2, the handoff

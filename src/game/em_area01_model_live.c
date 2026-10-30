@@ -431,8 +431,11 @@ static int service_call(EmArea01Model *m,uint32_t fn,uint32_t a1,int32_t a2,int3
             service_bone(&v.bone[k],v.slot[k],0);o->bone[k]=&v.bone[k];
         }
     }
+    /* 001C63D0(obj) (byte-matched C): 001C6380's tail alone, 001C9610 over
+     * the bones with the owner's +0xD0 as it stands (001BE6C0's). */
     int rc=binding ? em_owner_services_001B1020(&v.services,o,a1,a2,a3)
-                   : em_owner_services_001C6380(&v.services,o);
+         : fn==0x001C63D0u ? em_owner_services_001C9610(&v.services,o->bone,o->bone_count,o->world)
+                           : em_owner_services_001C6380(&v.services,o);
     service_store(&v,binding);
     return rc;
 }
@@ -611,7 +614,8 @@ int em_area01_model_call(EmArea01Model *m,uint32_t fn,uint32_t node,uint32_t a1,
             switch(fn) {
             case 0x001C5C90u: rc=equipment(m); store=1; break;
             case 0x001C2360u: case 0x001C22A0u: rc=indicator_bind(m,fn); break;
-            case 0x001B1020u: case 0x001C6380u: rc=service_call(m,fn,a1,(int32_t)a2,(int32_t)a3); break;
+            case 0x001B1020u: case 0x001C6380u: case 0x001C63D0u:
+                rc=service_call(m,fn,a1,(int32_t)a2,(int32_t)a3); break;
             case 0x001B10B0u: rc=em_roger_actor_001B10B0(&m->actor,t,a1,(int32_t)a2); store=1; break;
             case 0x001CA5E0u: rc=em_owner_services_model_001CA5E0(&t->model,&t->draw,a1,a2); store=1; break;
             case 0x001CA6E0u: rc=em_roger_actor_001CA6E0(&m->actor,t,a1); store=1; break;

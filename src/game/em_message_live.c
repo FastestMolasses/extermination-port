@@ -235,8 +235,12 @@ static int load(const char *path, int initialize)
     if (memcmp(b, "EMMD", 4) || rd32(b + 4) != 1) return 0;
     uint32_t area = rd32(b + 8), gcount = rd32(b + 12), acount = rd32(b + 16), rows = rd32(b + 20);
     uint32_t gbank = rd32(b + 28), abank = rd32(b + 32);
-    if (area >= AREA_TABLES || !gcount || !acount || gcount > 4096 ||
-        acount > 4096 || rows > 4096 || !gbank || !abank)
+    /* An area without a message table (AREA22: D_00264DD0[0x17] is 0, no
+     * id-0x41 bank; export_area22_tables) has no area records and no area
+     * bank: a request for an area message then faults in the service
+     * (area_table), where the original would read through the zero word. */
+    if (area >= AREA_TABLES || !gcount || gcount > 4096 || acount > 4096 || rows > 4096 || !gbank ||
+        !acount != !abank)
         return 0;
     uint64_t need = 140u + 8u * (uint64_t)gcount + 8u * (uint64_t)acount + 16u * (uint64_t)rows +
                     gbank + abank;
@@ -250,9 +254,9 @@ static int load(const char *path, int initialize)
     s.fallback.style = NULL;
     const uint8_t *p = b + 140;
     s.global_records = calloc(gcount, sizeof *s.global_records);
-    s.area_records = calloc(acount, sizeof *s.area_records);
+    s.area_records = acount ? calloc(acount, sizeof *s.area_records) : NULL;
     s.rows = rows ? calloc(rows, sizeof *s.rows) : NULL;
-    if (!s.global_records || !s.area_records || (rows && !s.rows)) return 0;
+    if (!s.global_records || (acount && !s.area_records) || (rows && !s.rows)) return 0;
     for (uint32_t i = 0; i < gcount + acount; i++, p += 8) {
         EmMessageRecord *r = i < gcount ? &s.global_records[i] : &s.area_records[i - gcount];
         r->duration = (uint16_t)(p[0] | p[1] << 8);

@@ -66,7 +66,9 @@ FULL = os.environ.get('EM_TEST_FULL') == '1'
 # comment; docs/STARTUP.md "EM_START_AT=<name>", Compatible): every other
 # EM_* name the source reads must be refused with it (step 4).
 COMPATIBLE = {
-    'EM_START_AT', 'EM_START_AT_TEST', 'EM_START_AT_DIR', 'EM_START_AT_PAD', 'EM_START_AT_PATH', 'EM_NEW_GAME',  # its own; EM_NEW_GAME=1 refused apart
+    'EM_START_AT', 'EM_START_AT_TEST', 'EM_START_AT_DIR', 'EM_START_AT_PAD', 'EM_START_AT_PATH', 'EM_START_AT_RAND',
+    'EM_START_AT_MARKS',
+    'EM_NEW_GAME',  # its own; EM_NEW_GAME=1 refused apart
     'EM_HEADLESS', 'EM_HEADLESS_RASTER', 'EM_UNCAPPED', 'EM_MUTE', 'EM_INPUT_TEST',  # the host; the pad's changes printed
     'EM_PS2_DRIVE_REPLAY', 'EM_IOP_TICK_PHASE',                           # the disc-drive timing
     'EM_GS_BANDS', 'EM_GS_EARLY_OPS', 'EM_GS_EARLY_PARSE', 'EM_GS_LIST', 'EM_GS_SPEC', 'EM_GS_SPEC_CHECK',
