@@ -116,7 +116,38 @@ The node callback of effects 0x8000000A..C, 0x21, 0x31, 0x32, 0x36, 0x4C,
 
 | addr | decomp source | what it does |
 |---|---|---|
-| 001F6FB0(node) | undecompiled | The parent is node +0x24 (001EFE00 stores the parent's +0x14 there). **State 0** copies the parent's +0x60, zeroes the phase (work +0) and +4, and seeds the LCG (work +8) with rand. **State 1** first checks the parent: in state 3, the node takes state 3 too and ends. Otherwise it copies the parent's matrix (+0xD0, whose fourth row is then overwritten by the parent's +0xB0) and sets the LCG word +0xC = +8. By the byte +5: 0 advances +4 by 0.016 until the parent's halfword +0x2E4 has 0x1000; 1 blends the parent's +0x60..+0x68 and +0x80..+0x88 by 1 − +4 and advances +4 to 1.0; 2 zeroes the parent's +0x60..+0x68. The glow scale g = min(phase / 1.5, 1) sets 0x700038A0.. (1.2g, 0.2, 4.8g, 1) and the colour pair at 0x700036A0 / 0x700036B0. While the phase is below 3.5 it draws 24 sparks. Each spark takes f20 = 2·phase − 2·k from the LCG (MULA then MSUB); outside [0, 4] it is −1, otherwise its fraction (001281C0). Its direction comes from two more LCG draws (0011DE90 / 0011E2A8), and the direction scaled by f20 and moved by the matrix goes to 0x700038B0, with its y lane plus 0. The colour is the pair's blend by (f20 − 0.5) / 0.5, clamped to 0..255 (VU max / min), or the first colour. For f20 ≥ 0 the spark is drawn through 001C7900 / 001C6120(…, 6) / 001CA940 when 001CA7B0 accepts it. Then a sprite: 001CFA60 and 001CFBE0(depth, 1, D_0025D800, frame, 1), with D_0025D810.. set to the scale. The phase grows by 0.016; above 4.0 the parent and the node take state 3. States 2 / 3 call 001AFC10. |
+| 001F6FB0(node) | NEARMISS (src/func_001F6FB0.c, since 2026-10-28) | The parent is node +0x24 (001EFE00 stores the parent's +0x14 there). **State 0** copies the parent's +0x60, zeroes the phase (work +0) and +4, and seeds the LCG (work +8) with rand. **State 1** first checks the parent: in state 3, the node takes state 3 too and ends. Otherwise it copies the parent's matrix (+0xD0, whose fourth row is then overwritten by the parent's +0xB0) and sets the LCG word +0xC = +8. By the byte +5: 0 advances +4 by 0.016 until the parent's halfword +0x2E4 has 0x1000; 1 blends the parent's +0x60..+0x68 and +0x80..+0x88 by 1 − +4 and advances +4 to 1.0; 2 zeroes the parent's +0x60..+0x68. The glow scale g = min(phase / 1.5, 1) sets 0x700038A0.. (1.2g, 0.2, 4.8g, 1) and the colour pair at 0x700036A0 / 0x700036B0. While the phase is below 3.5 it draws 24 sparks. Each spark takes f20 = 2·phase − 2·k from the LCG (MULA then MSUB); outside [0, 4] it is −1, otherwise its fraction (001281C0). Its direction comes from two more LCG draws (0011DE90 / 0011E2A8), and the direction scaled by f20 and moved by the matrix goes to 0x700038B0, with its y lane plus 0. The colour is the pair's blend by (f20 − 0.5) / 0.5, clamped to 0..255 (VU max / min), or the first colour. For f20 ≥ 0 the spark is drawn through 001C7900 / 001C6120(…, 6) / 001CA940 when 001CA7B0 accepts it. Then a sprite: 001CFA60 and 001CFBE0(depth, 1, D_0025D800, frame, 1), with D_0025D810.. set to the scale. The phase grows by 0.016; above 4.0 the parent and the node take state 3. States 2 / 3 call 001AFC10. |
+
+**The live dissolve (2026-10-29, lane G1).** States 2 and 3 only call
+001AFC10(node) and return, and any state above 3 returns at once: only
+states 0 and 1 dereference the parent (checked in the original's
+instructions). On the frame after the phase passes 4.0 the parent, ahead
+of the node in the pool walk, frees itself first (00128C10 / 0012A5D0 at
++4 = 3), so in the node's state-3 tick the parent's record is free (or
+already another node's). The aim / fire composition
+(`em_aim_fire_world_live.c`) mapped the parent's header, +0x60, +0x80,
++0xB0, +0xD0 and work block for every tick and fail-stopped there ("FAULT
+at 001F6FB0", the parent's address) whenever no new node had taken the
+freed record, i.e. a few seconds after a kill when the player stopped
+firing. It now reads the node's +4 first and builds the parent's views only
+for states 0 and 1 (a parent it cannot map there still faults).
+Evidence: the original on the debugging fork from route state
+`phase/route/a00_03_padlock` (the a00_04 start point) with a kill pad, the
+pool sampled every frame
+(`../Extermination/build/startup-reference/glow_dissolve/a00_04_kill.json`):
+the nest creature 0012A5D0's glow runs 250 ticks in state 1 (sub-states 0
+for 62, 1 for 63, 2 for 1, 3 for 124), sets both +4 bytes to 3 on tick 250
+(phase 4.016) and both records are freed on tick 251. The native run of the
+same pad from the a00_04 card (`make test-glow-dissolve`,
+`tools/test_glow_dissolve.py`, EM_GLOW_TRACE=1) kills an 00128C10 and the
+0012A5D0; the 0012A5D0 dissolve is equal to the original's tick by tick
+(the state bytes, phase, fade and the parent's +0x60..+0x68 and
++0x80..+0x88: 251 ticks, 0 differences) and both are freed on tick 251;
+the 00128C10 one has the same shape (no original sample of that kind). The
+kill frames themselves are not compared (a loaded game is not the
+recording's state). Without the fix the test fails at the first state-3
+tick (the user's fault, 2026-10-29: a kill in AREA00's cage room after
+EM_START_AT=a01_07 and the shaft door).
 
 ## 2. Where the decomp's C differs from the instructions
 
@@ -137,9 +168,10 @@ points into the decomp:
   magnitude against |w|) and the raw-order VU min / max (a positive NaN
   pattern counts as huge, and −0 is below +0). The translation follows the
   VU rules.
-- **001F6FB0** has no C (undecompiled). **001D6DD0** is asm words, and
-  **001EFF10 / 001EFFD0 / 001F00A0** are inline asm. All five are described
-  here from the instructions.
+- **001F6FB0** has NEARMISS C since 2026-10-28 (its state dispatch, the
+  parent read only in states 0 / 1, agrees with the instructions).
+  **001D6DD0** is asm words, and **001EFF10 / 001EFFD0 / 001F00A0** are
+  inline asm. They are described here from the instructions.
 
 No other difference was found. The NEARMISS C of 001D7510, 001D7A80,
 001EF510, 001F15F0, 001F3340, 001F3620 and 001F5F60 agrees with the

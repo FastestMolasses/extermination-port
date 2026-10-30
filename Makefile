@@ -1606,6 +1606,16 @@ test-title-load-game: $(BIN)
 test-start-at: $(BIN)
 	python3 tools/test_start_at.py
 
+# A killed creature's dissolve, the glow node 001F6FB0 (docs/AREA00_FX.md
+# "the glow"): EM_START_AT=a00_04 with a pad that kills two creatures and
+# then stops firing; no fault, every node's 250 ticks and its free on tick
+# 251 with its parent, the 0012A5D0 creature's dissolve tick by tick equal
+# to the original's capture (../Extermination/build/startup-reference/
+# glow_dissolve). Needs start-saves (about 17 s).
+.PHONY: test-glow-dissolve
+test-glow-dissolve: $(BIN)
+	python3 tools/test_glow_dissolve.py
+
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model
 # bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against

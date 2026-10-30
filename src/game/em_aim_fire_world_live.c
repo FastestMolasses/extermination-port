@@ -633,7 +633,18 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
      * the runtime's private stack view below 0x7E001400 (em_aim_fire_runtime
      * add_windows), which its SDK callees reach through the same map. */
     const uint32_t ramp_sp=c->function==0x001DF5A0u ? 0x7E001400u : c->sp;
-    if(c->function==0x001F6FB0u) {
+    /* 001F6FB0 dereferences its parent (node +0x24) only in its states 0
+     * and 1 (0 falls into 1). In states 2 and 3 it only frees itself
+     * (001AFC10(node)) and in any other state it returns at once. By its
+     * state-3 frame the parent is normally free already: the glow set
+     * both +4 bytes to 3 the frame before, and the parent, ahead of it in
+     * the pool walk, frees itself at +4 = 3 (00128C10's state 3), its
+     * record then free or reused. So the parent's views below are made
+     * only for states 0 and 1, where a parent that is not mapped still
+     * faults. */
+    const uint8_t *glow_state=c->function==0x001F6FB0u ? em_aim_fire_live_map(h,a+4u,1,0) : NULL;
+    if(c->function==0x001F6FB0u && !glow_state)return fault(h,c->function,a+4u);
+    if(c->function==0x001F6FB0u && *glow_state<=1u) {
         /* The glow's parent (node +0x24): the pool fields it reads and
          * writes and its +0xD0 matrix as it stands. */
         const uint8_t *pp=em_aim_fire_live_map(h,a+0x24u,4,0);

@@ -811,6 +811,40 @@ static int death_decal_tick(uint32_t node)
     }
     return a->allocated && a->generation==generation ? 1 : 0;
 }
+/* EM_GLOW_TRACE=1 (observer only): after each tick of a glow node
+ * 001F6FB0, one line with the frame, the node's state and sub-state bytes
+ * (+4 / +5), its phase and fade (work +0 / +4), its parent (+0x24) and
+ * the parent's record as the pool holds it: allocated or free, its state
+ * byte +4 and its fade fields +0x60..+0x68 / +0x80..+0x88. Once the node
+ * has freed itself, the line says so and gives the parent's record. Reads
+ * only; nothing is written and no access can fault. */
+static void glow_trace(uint32_t node,int live)
+{
+    static int on=-1;
+    if (on<0) on=getenv("EM_GLOW_TRACE")!=NULL;
+    if (!on) return;
+    static uint32_t last_parent[EM_ACTOR_POOL_CAPACITY];
+    const unsigned i=(node-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE;
+    uint32_t parent=last_parent[i];
+    const uint8_t *pp=live ? em_effects_live_node_field(node+0x24u,4,0) : NULL;
+    if (pp) { memcpy(&parent,pp,4);last_parent[i]=parent; }
+    const EmActor *p=pool_actor(parent);
+    char pstate[160];
+    if (!p) snprintf(pstate,sizeof pstate,"parent %08X none",(unsigned)parent);
+    else if (!p->allocated) snprintf(pstate,sizeof pstate,"parent %08X free",(unsigned)parent);
+    else snprintf(pstate,sizeof pstate,"parent %08X live cb %08X st %u p60 %.4f %.4f %.4f p80 %.4f %.4f %.4f",
+                  (unsigned)parent,(unsigned)p->callback,p->u04[0],p->f60[0],p->f60[1],p->f60[2],
+                  p->f80[0],p->f80[1],p->f80[2]);
+    const uint8_t *st=live ? em_effects_live_node_field(node+4u,2,0) : NULL;
+    const uint8_t *wk=live ? em_effects_live_node_field(node+0x1F0u,8,0) : NULL;
+    if (!st || !wk) {
+        fprintf(stderr,"glow: frame %u node %08X freed, %s\n",(unsigned)em_frame_counter(),(unsigned)node,pstate);
+        return;
+    }
+    float phase,fade;memcpy(&phase,wk,4);memcpy(&fade,wk+4,4);
+    fprintf(stderr,"glow: frame %u node %08X st %u sub %u phase %.3f t %.3f %s\n",(unsigned)em_frame_counter(),
+            (unsigned)node,st[0],st[1],phase,fade,pstate);
+}
 static int other_tick(void *context,uint32_t node,uint32_t callback)
 {
     (void)context;
@@ -838,7 +872,9 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (!a) return -1;
         const uint32_t generation=a->generation;
         if (em_aim_fire_binding_run_bones(callback,node,node+0x110u)<0) return -1;
-        return a->allocated && a->generation==generation ? 1 : 0;
+        const int live=a->allocated && a->generation==generation;
+        if (callback==0x001F6FB0u) glow_trace(node,live);
+        return live ? 1 : 0;
     }
     if (callback==EM_BONE_BURST_CALLBACK) {
         /* The bone-burst node 0022BBC0 (em_area01_ui through the
