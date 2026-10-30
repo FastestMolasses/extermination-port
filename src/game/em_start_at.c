@@ -118,12 +118,12 @@ static struct {
      * recording's state word at those script frames (comparison only). */
     unsigned rands, rand_next;
     struct { int f; uint32_t state; } rand_at[8192];
-    /* EM_START_AT_RESTORE=<ram image>:<f>:<clock>: at that script frame the
+    /* EM_START_AT_RESTORE=<ram image>:<f>:<clock>[,...]: at that script frame the
      * hall bugs, the items' glow timers and the NPC's face take the image's
      * bytes and 0x70003B68 the recording's value (the actors' staggered
      * periods read it; comparison only; em_scene_restore_bugs). */
     const char *restore;
-    int restore_f, restored;
+    int restore_f;
     unsigned restore_clock;
     /* EM_START_AT_SYNC=<byte address>:<value>:<f>: when that progress byte
      * first holds the value the script's clock is set to f (a scripted
@@ -131,6 +131,7 @@ static struct {
      * after it; comparison only). */
     unsigned sync_address, sync_value;
     int sync_f, sync_done;
+    unsigned sync_counter;
     /* EM_START_AT_MARKS: the script frames to report the block at. */
     unsigned mark_count, mark_next;
     int mark[64];
@@ -641,6 +642,12 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
             printf("startup: EM_START_AT_RAND: rand() state %08x (comparison only)\n", pad.rand_state);
         }
     }
+    /* With EM_START_AT_SYNC the script's clock is the recording's: the two
+     * or three frames the frame machine's state changes step no hook (a
+     * status page's open and close) pass on it too. */
+    if (pad.sync_address && pad.sync_done && pad.sync_counter && counter - pad.sync_counter - 1u <= 2u)
+        pad.t += (int)(counter - pad.sync_counter - 1u);
+    pad.sync_counter = counter;
     if (!pad.sync_done) {
         const uint8_t *b = em_scene_progress_at(em_scene_state(), pad.sync_address, 1);
         if (b && *b == pad.sync_value) {
@@ -657,8 +664,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
                pad.rand_at[pad.rand_next].state, t);
         pad.rand_next++;
     }
-    if (pad.restore && !pad.restored && t >= pad.restore_f) {
-        pad.restored = 1;
+    if (pad.restore && t >= pad.restore_f) {
         char path[512];
         snprintf(path, sizeof path, "%.*s", (int)(strchr(pad.restore, ':') - pad.restore), pad.restore);
         static uint8_t ram[0x2000000];
@@ -667,7 +673,18 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         if (g) fclose(g);
         const int n = got == sizeof ram ? em_scene_restore_bugs(ram) : -1;
         em_scene_state()->spad3B68 = (int32_t)pad.restore_clock;
+        if (got == sizeof ram) {
+            /* The vitals the hall's bugs left: their bites before the anchor
+             * are not the recording's (EM_START_AT_RESTORE's stretch). */
+            memcpy(&em_scene_state()->d810858, ram + 0x810858, 4);
+            memcpy(&em_scene_state()->d81085C, ram + 0x81085C, 4);
+        }
         printf("startup: EM_START_AT_RESTORE: %d bugs at script frame %d (comparison only)\n", n, t);
+        const char *next = strchr(pad.restore, ',');
+        pad.restore = next ? next + 1 : NULL;
+        if (next && (!(next = strchr(pad.restore, ':')) ||
+                     sscanf(next + 1, "%d:%x", &pad.restore_f, &pad.restore_clock) != 2))
+            pad.restore = NULL;
     }
     if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u) {
         /* A recorded position more than 20 units away is another room's

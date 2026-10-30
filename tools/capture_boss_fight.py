@@ -507,31 +507,41 @@ def write_manifest():
 
 
 def anchors():
-    """The comparison anchors tools/test_boss_fight.py uses, from g_store:
-    build/boss_fight/anchor.bin (the RAM at the row before the creature
-    spawns), rands.txt and sync.txt (disc-derived; ignored)."""
+    """The comparison anchors tools/test_boss_fight.py uses, from g_store,
+    all at the row reader [50]'s lock byte is set (a04b_g2): the script's
+    clock (sync.txt), build/boss_fight/anchor.bin (that row's RAM, restore.txt
+    with the clock word) and the rand() word (rands.txt). Disc-derived;
+    ignored. The row is the first the native run can hold exactly: until the
+    lock the loaded game's hall bugs run on other draws (one bit the player
+    at about f800 and died at f1230 in a native run)."""
     sys.path.insert(0, str(DECOMP.parent / 'pcsx2-fork/extermination/python'))
     from pcsx2dbg import pxfs
     names = ('a04b_g0_shotgun', 'a04b_g1_door45', 'a04b_g2_reader')
     first = json.loads((OUT / names[0] / 'trace.json').read_text())['first_counter']
     reader = json.loads((OUT / names[2] / 'trace.json').read_text())
     lock = next(r for r in reader['rows'] if r['l845'] == 'a8')
-    spawn = next(r for r in reader['rows'] if r['d2'][36:38] == '10')
     store = pxfs.Store(OUT.parent / 'g_store')
-    frame = spawn['counter'] - 1 - first
-    if store.read_addr('ee', 0x8107E8, frame + 1, 4)[2] != 0x10 or store.read_addr('ee', 0x8107E8, frame, 4)[2]:
+    frame = lock['counter'] - first
+    if store.read_addr('ee', 0x810845, frame, 1)[0] != 0xA8 or store.read_addr('ee', 0x810845, frame - 1, 1)[0] == 0xA8:
         raise SystemExit('the store frames are not the rows')
     out = Path(__file__).resolve().parents[1] / 'build/boss_fight'
     out.mkdir(parents=True, exist_ok=True)
     (out / 'anchor.bin').write_bytes(store.image('ee_ram', frame))
     rows = json.loads((OUT.parent / 'g_rand_rows.json').read_text())
-    # the script clock is the row + 1 at the lock byte, the row's own pad rule
-    f = spawn['f'] - 1 + 1
-    (out / 'rands.txt').write_text(f'{f} {rows[str(spawn["counter"] - 1)]:08x}\n')
-    (out / 'sync.txt').write_text(f'810845:a8:{lock["f"] + 1}\n')
+    # the script's clock is the row + 1 once the row has run
+    f = lock['f'] + 1
+    (out / 'rands.txt').write_text(f'{f} {rows[str(lock["counter"])]:08x}\n')
+    (out / 'sync.txt').write_text(f'810845:a8:{f}\n')
     clock = struct.unpack('<I', store.read('ee_scratch', frame, 0x3B68, 4))[0]
-    (out / 'restore.txt').write_text(f'build/boss_fight/anchor.bin:{f}:{clock:x}\n')
-    print('anchor at row', spawn['f'] - 1, 'lock row', lock['f'])
+    # A loaded game puts every bug back at its placement, one beside the
+    # reader: a first restore at the script's start keeps them where the
+    # recording has them until the lock.
+    start = reader['rows'][0]['counter'] - first
+    (out / 'anchor0.bin').write_bytes(store.image('ee_ram', start))
+    clock0 = struct.unpack('<I', store.read('ee_scratch', start, 0x3B68, 4))[0]
+    (out / 'restore.txt').write_text(f'build/boss_fight/anchor0.bin:1:{clock0:x},'
+                                     f'build/boss_fight/anchor.bin:{f}:{clock:x}\n')
+    print('anchors at rows', reader['rows'][0]['f'], lock['f'])
 
 
 def rand_log():
