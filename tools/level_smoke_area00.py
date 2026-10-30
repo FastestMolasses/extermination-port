@@ -22,11 +22,12 @@ MAIN_BEATS = dict(zip((f'a00_{i:02}' for i in range(11)), (
 SIDE_BEATS = {'a00_s0': 'a00_s0_shaft_door_back'}
 ROUTE_PHASES = ('a00_s0', *MAIN_BEATS)
 SOURCES = dict(zip(MAIN_BEATS, ('a00_arrival', *tuple(MAIN_BEATS)[:-1]))) | {'a00_s0': 'a00_arrival'}
-RETURN_TICKS = {'a00_10': 116, 'a00_s0': 176, 'a01r_03': 205, 'a02_00': 143, 'a02_05': 1076, 'a04_05': 205}
+RETURN_TICKS = {'a00_10': 116, 'a00_s0': 176, 'a01r_03': 205, 'a02_00': 143, 'a02_05': 1076, 'a04_05': 205,
+                'a22_02': 205, 'a01u_02': 205}
 # The destination's state-0 rows (D_00810700..703): the AREA01 return, and
 # the revisit's door [16] into AREA02 sub 1 (level_smoke_area01r).
 RETURN_AREA = {'a00_10': '01000001', 'a00_s0': '01000001', 'a01r_03': '02010102', 'a02_00': '02000502',
-               'a02_05': '04000004', 'a04_05': '16000016'}
+               'a02_05': '04000004', 'a04_05': '16000016', 'a22_02': '01000601', 'a01u_02': '06000006'}
 OWNERS = dict(shaft_door_r52=0x7B7C00, door_r56=0x7B87C0, door_r51=0x7B7910,
               lock_r54=0x7B81E0, door_r55=0x7B84D0, terminal_r40=0x7B58C0,
               ferry_cab_r47=0x7B6D50, ferry_r48=0x7B7040, r43_825920=0x7B6190,

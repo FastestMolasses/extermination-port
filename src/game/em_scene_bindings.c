@@ -918,7 +918,8 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         log_hex(f, bytes, windows[i][1]);
     }
     fputc(']', f);
-    if (!strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04")) {
+    const int later = !strcmp(key, "a22") || !strcmp(key, "a01u") || !strcmp(key, "a06");
+    if (!strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04") || later) {
         /* D_00810760..63 (the bridge's event 8 and its neighbours), the
          * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
         uint8_t bytes[4];
@@ -929,7 +930,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         fputs(", \"s760\": ", f);
         log_hex(f, bytes, 4);
     }
-    if (!strcmp(key, "a04")) {
+    if (!strcmp(key, "a04") || later) {
         /* AREA04's rows (FIFTH_LEVEL_ROUTE.md section 1): story764
          * (D_00810764..67, the event's end byte) and s830 (D_00810830..3F,
          * the console's D_0081083B). */
@@ -946,7 +947,30 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
             log_hex(f, bytes, sizes[i]);
         }
     }
-    if (!strcmp(key, "a00") || !strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04")) {
+    if (later) {
+        /* AREA22's rows on (SIXTH_LEVEL_ROUTE.md section 1): s768
+         * (D_00810768..6B), l857 (D_00810857), c87 / c88 (the counts
+         * D_00810C87 / C88, items 0x23 and 0x24). */
+        uint8_t bytes[4];
+        for (uint32_t k = 0; k < 4; ++k) {
+            const uint8_t *p = em_scene_progress_at(&s_state, 0x00810768u + k, 1);
+            bytes[k] = p ? *p : 0;
+        }
+        fputs(", \"s768\": ", f);
+        log_hex(f, bytes, 4);
+        const uint8_t *l857 = em_scene_progress_at(&s_state, 0x00810857u, 1);
+        const uint8_t *c87 = em_scene_progress_at(&s_state, 0x00810C87u, 1);
+        const uint8_t *c88 = em_scene_progress_at(&s_state, 0x00810C88u, 1);
+        fputs(", \"l857\": ", f);
+        log_hex(f, l857, 1);
+        fprintf(f, ", \"c87\": %u, \"c88\": %u", c87 ? *c87 : 0u, c88 ? *c88 : 0u);
+    }
+    if (!strcmp(key, "a06")) {
+        /* AREA06's rows (SEVENTH_LEVEL_ROUTE.md section 1): D_00810CCA. */
+        const uint8_t *cca = em_scene_progress_at(&s_state, 0x00810CCAu, 1);
+        fprintf(f, ", \"cca\": %u", cca ? *cca : 0u);
+    }
+    if (!strcmp(key, "a00") || !strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04") || later) {
         static const uint32_t starts[] = {0x00810840u, 0x00810C60u};
         static const char *const names[] = {"locks", "wpn"};
         for (unsigned i = 0; i < 2; ++i) {
@@ -1049,6 +1073,57 @@ static void log_area04(FILE *f)
         log_area_owners(f, "a04c", &at, 1);
         break;
     }
+}
+
+/* AREA22's recorded owners (SIXTH_LEVEL_ROUTE.md section 1.1, A22_OWNERS),
+ * logged in AREA22 and on through door [8]'s AREA01 load (a22_02: entry 6,
+ * the upper floor), whose recorded rows keep reading the same addresses. */
+static void log_area22(FILE *f)
+{
+    if (s_state.d810700 != 0x16 && !(s_state.d810700 == 1 && s_state.d810702 == 6))
+        return;
+    static const uint32_t nodes[] = {0x7A5640, 0x7A5930, 0x7A5C20, 0x7A5F10, 0x7A6200, 0x7A67E0, 0x7A73A0,
+                                     0x7A9FB0, 0x7AA2A0, 0x7AA590, 0x7AA880, 0x7AAB70, 0x7AAE60, 0x7AB440,
+                                     0x7AC000, 0x7AC2F0, 0x7AC5E0, 0x7AC8D0};
+    log_area_owners(f, "a22", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* AREA01's upper floor (SEVENTH_LEVEL_ROUTE.md section 1.1, A01U_OWNERS):
+ * AREA01 entered at entry 6, and on through door [19]'s AREA06 load
+ * (a01u_02). The a06 rows take the AREA06 load's nodes (A06_OWNERS). */
+static void log_area01u(FILE *f)
+{
+    if (!(s_state.d810700 == 1 && s_state.d810702 == 6) && s_state.d810700 != 6)
+        return;
+    static const uint32_t nodes[] = {0x7AFAC0, 0x7AFDB0, 0x7A7690, 0x7A7C70, 0x7ABA20, 0x7B8DA0,
+                                     0x7AA880, 0x7AAB70, 0x7AAE60, 0x7AB150, 0x7AB440, 0x7AB730};
+    log_area_owners(f, "a01u", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+static void log_area06(FILE *f)
+{
+    if (s_state.d810700 != 6)
+        return;
+    static const uint32_t nodes[] = {0x7AB730, 0x7ABA20, 0x7ABD10, 0x7AC000, 0x7AC5E0, 0x7AC8D0, 0x7ACBC0,
+                                     0x7AD1A0, 0x7AD490, 0x7B0C60, 0x7B2FA0, 0x7B3B60, 0x7B4FF0, 0x7B55D0,
+                                     0x7A5C20, 0x7A6DC0, 0x7A7690, 0x7AA590, 0x7AA880, 0x7AAB70};
+    log_area_owners(f, "a06", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
+/* From AREA22 on the whole progress block D_00810700..D_00810D3F, one
+ * storage byte for byte: the checker compares it with each beat's end RAM
+ * (level_smoke_area01r.check_block_end). */
+static void log_route_block(FILE *f)
+{
+    if (s_state.d810700 != 0x16 && s_state.d810700 != 6 && !(s_state.d810700 == 1 && s_state.d810702 == 6))
+        return;
+    uint8_t block[0x640];
+    for (uint32_t k = 0; k < sizeof block; ++k) {
+        const uint8_t *p = em_scene_progress_at(&s_state, 0x00810700u + k, 1);
+        block[k] = p ? *p : 0;
+    }
+    fputs(", \"blk\": ", f);
+    log_hex(f, block, sizeof block);
 }
 
 /* Chain step AUDIO: the EE sound state at this tick's main-loop top (the
@@ -1536,6 +1611,10 @@ static void log_tick_end(int rc)
         log_area01r(f);
         log_area02(f);
         log_area04(f);
+        log_area22(f);
+        log_area01u(f);
+        log_area06(f);
+        log_route_block(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */

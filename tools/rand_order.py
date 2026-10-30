@@ -145,6 +145,12 @@ PORT_FN = {
     'em_effect_manager_001F6210': 0x1F6210,
     'em_area04_port_001C1A80': 0x1C1A80,         # 001C1A80's timed sound (NEARMISS C, oracle-checked)
     'a04_1C1A80': 0x1C1A80,                      # its body (a static of the module)
+    # AREA06's overlay owners (a01u_02's arrival on; no per-call capture;
+    # AREA06_PORT.md, oracle-checked): 0x823580 with its child spawn, the
+    # strip node 0x823B50, 0x8240E0 and the beam 0x824560
+    'em_area06_port_00823580': 0x823580, 'a6_823580_spawn': 0x823580,
+    'em_area06_port_00823B50': 0x823B50, 'em_area06_port_008240E0': 0x8240E0,
+    'em_area06_port_00824560': 0x824560, 'a6_00824560': 0x824560,
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -176,7 +182,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
-            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'a6_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

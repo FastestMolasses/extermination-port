@@ -14,6 +14,47 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-30, lane E1 (branch `route-chain`): AREA22, AREA01's upper floor
+and AREA06's first walk row-exact from New Game.** The whole-run checker
+passes 63 live phases through a06_00 (`--run --until a06_00`, about 13.5
+minutes headless):
+
+| Beat | Rows | What it covers |
+|---|---|---|
+| a22_00 | 626 / 626 | the north arm, door [7] (a room move, entry 1) |
+| a22_01 | 663 / 663 | the corridor with its bugs, the south arm |
+| a22_02 | 683 / 683 | door [8], the AREA01 load (entry 6), the arrival, control |
+| a01u_00 | 235 / 235 | the running jump over the gap |
+| a01u_01 | 1,446 / 1,446 | the catwalk event (placement [45], script 0x82B590) |
+| a01u_02 | 1,064 / 1,064 | door [19], the AREA06 load (entry 0), the arrival, control |
+| a06_00 | 357 / 357 | the east floor, over the beam [11] to the west pad |
+
+Tables: drive `build/drive_replay/route_a22_a06_20261030` (0 replay
+differences on all seven beats), rand() `build/rand_replay/route_a01u_02_20261030`
+(the earlier anchors plus `entry01.3`, a22_02, and `entry06`, a01u_02). Pass
+`--rand-replay` with that table.
+
+No gameplay port change was needed: lane C1's bindings (AREA22_PORT.md and
+AREA06_PORT.md "Live binding", em_mid_route_bridge.inc), which start cards
+had only checked at the beats' ends, hold row for row. What the beats added
+is on the harness side:
+
+- **Phases and owners**: A22_OWNERS, A01U_OWNERS, A06_OWNERS in
+  level_smoke_area01r; the tick log's `a22`, `a01u`, `a06` observations
+  (em_scene_bindings.c) with D_00810768..6B, D_00810857, the counts
+  D_00810C87 / C88 and, in AREA06, D_00810CCA. a22_02 and a01u_02 are return
+  phases (205 rows after the destination's state 0).
+- **The whole progress block at each beat's end** (`check_block_end`, the
+  tick log's `blk`): D_00810700..D_00810D3F equals the beat's end RAM on all
+  seven beats, only the frame count D_00810750..53 excluded (the first
+  level is navigated). The start-card runs could not hold this (a loaded
+  game's pose, flag and check bytes); the infection word is covered here.
+- **rand_order**: AREA06's overlay callers (0x823580 with its spawn,
+  0x823B50, 0x8240E0, 0x824560) and the adapters `m06_w_00122BB8`, `a6_rand`.
+
+The rows do not sample the keypad's page object (`kpad`) or the owners'
+rotations (`rot`). a06_01 on is lane C1's (AREA06's faults).
+
 **2026-10-30, lane D1 (branch `area04-boss`): AREA04's main line row-exact
 from New Game, through door [37] into AREA22.** The whole-run checker passes
 56 live phases through a04_05 (`--run --until a04_05`):

@@ -51,13 +51,16 @@ STATE_BLOCK = 0x24295C       # D_0024295C; the state word is at +0x58
 # Door [16] enters AREA02 (entry02, a01r_03) and the duct's sub change runs
 # 0x1AE040 state 0 again in AREA02 (entry02.2, a02_00), each after an area
 # read at host speed. Door [25] enters AREA04 (entry04, a02_05); door [37]
-# enters AREA22 (entry22, a04_05).
+# enters AREA22 (entry22, a04_05); door [8] enters AREA01 a third time
+# (entry01.3, a22_02) and door [19] AREA06 (entry06, a01u_02).
 BEATS = {'15_level_exit': ('route/15_level_exit', 1, 'entry01'),
          'a00_10_progression_exit': ('route_a00/a00_10_progression_exit', 1, 'entry01.2'),
          'a01r_03_door16': ('route_a01r/a01r_03_door16', 2, 'entry02'),
          'a02_00_duct': ('route_a02/a02_00_duct', 2, 'entry02.2'),
          'a02_05_progression_exit': ('route_a02/a02_05_progression_exit', 4, 'entry04'),
-         'a04_05_progression_exit': ('route_a04/a04_05_progression_exit', 0x16, 'entry22')}
+         'a04_05_progression_exit': ('route_a04/a04_05_progression_exit', 0x16, 'entry22'),
+         'a22_02_progression_exit': ('route_a22/a22_02_progression_exit', 1, 'entry01.3'),
+         'a01u_02_progression_exit': ('route_a01u/a01u_02_progression_exit', 6, 'entry06')}
 
 
 def record(beat, path, area, key, out):

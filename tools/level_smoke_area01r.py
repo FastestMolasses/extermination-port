@@ -7,7 +7,8 @@ D_00810760 = 0xFF). a01r_00 starts where AREA00's a00_10 return ends.
 The side beats (FOURTH_LEVEL_ROUTE.md section 4) branch from a main beat's
 end: a01r_s0 (the event's pickup) from a01r_01, a01r_s1 (door [14],
 locked) from a01r_02; a run --until a side plays the main line to its
-source, then only the side.
+source, then only the side. The main line goes on through AREA02, AREA04,
+AREA22, AREA01's upper floor and AREA06's first walk (a06_00).
 Preparation exports pads only. A native route is certified only by the row
 comparisons below; they do not certify rendered pixels.
 """
@@ -26,25 +27,34 @@ ROUTE_DIR = refs.capture('s87/route_a01r')
 A02_ROUTE_DIR = refs.capture('s87/route_a02')
 # AREA04's main line (FIFTH_LEVEL_ROUTE.md) follows a02_05 on the same path.
 A04_ROUTE_DIR = refs.capture('s87/route_a04')
+# AREA22 (SIXTH_LEVEL_ROUTE.md) follows a04_05, then AREA01's upper floor and
+# AREA06 (SEVENTH_LEVEL_ROUTE.md); their recordings are their route sets'.
+A22_ROUTE_DIR = refs.capture('s87/route_a22')
+A01U_ROUTE_DIR = refs.capture('s87/route_a01u')
+A06_ROUTE_DIR = refs.capture('s87/route_a06')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
               'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel',
               'a02_05': 'a02_05_progression_exit', 'a04_00': 'a04_00_door45_event', 'a04_01': 'a04_01_door40',
               'a04_02': 'a04_02_console', 'a04_03': 'a04_03_back_to_hall', 'a04_04': 'a04_04_conveyor',
-              'a04_05': 'a04_05_progression_exit'}
+              'a04_05': 'a04_05_progression_exit', 'a22_00': 'a22_00_door7', 'a22_01': 'a22_01_corridor',
+              'a22_02': 'a22_02_progression_exit', 'a01u_00': 'a01u_00_gap_jump',
+              'a01u_01': 'a01u_01_catwalk_event', 'a01u_02': 'a01u_02_progression_exit',
+              'a06_00': 'a06_00_beam'}
 SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed',
               # HEALING's item 0x20 from the menu (tools/capture_heal_beats.py)
               'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure'}
 # em_level_smoke_test.c's phase order: each side right after its source.
 ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_s2', 'a01r_03', 'a02_s0', 'a02_s1',
                 'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05', 'a04_00', 'a04_01', 'a04_02', 'a04_03',
-                'a04_04', 'a04_05')
+                'a04_04', 'a04_05', 'a22_00', 'a22_01', 'a22_02', 'a01u_00', 'a01u_01', 'a01u_02', 'a06_00')
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
            'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a01r_s2': 'a01r_02', 'a02_00': 'a01r_03',
            'a02_s0': 'a01r_03', 'a02_s1': 'a01r_03',
            'a02_01': 'a02_00', 'a02_02': 'a02_01', 'a02_03': 'a02_02', 'a02_04': 'a02_03',
            'a02_05': 'a02_04', 'a04_00': 'a02_05', 'a04_01': 'a04_00', 'a04_02': 'a04_01', 'a04_03': 'a04_02',
-           'a04_04': 'a04_03', 'a04_05': 'a04_04'}
+           'a04_04': 'a04_03', 'a04_05': 'a04_04', 'a22_00': 'a04_05', 'a22_01': 'a22_00', 'a22_02': 'a22_01',
+           'a01u_00': 'a22_02', 'a01u_01': 'a01u_00', 'a01u_02': 'a01u_01', 'a06_00': 'a01u_02'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -70,10 +80,36 @@ A04_OWNERS = dict(director_r1=0x7A9FB0, npc_r2=0x7AA2A0, r3_8246B0=0x7AA590, r4_
                   door42_r42=0x7B1820, door45_r45=0x7B20F0, r47_823EE0=0x7B26D0, lock_r48=0x7B29C0,
                   door49_r49=0x7B2CB0, lift_r51=0x7B3290, lift_r62=0x7B52E0, console_r69=0x7B6770,
                   reel_r70=0x7B6A60, pick_g8=0x7A6DC0, pick_g12=0x7A7690)
+# SIXTH_LEVEL_ROUTE.md section 1.1, A22_OWNERS (the a04_05 end snapshot); the
+# tick log's "a22" observation (em_scene_bindings.c log_area22).
+A22_OWNERS = dict(pick_g0=0x7A5640, pick_g1=0x7A5930, pick_g2=0x7A5C20, pick_g3=0x7A5F10, pick_g4=0x7A6200,
+                  bug_g6=0x7A67E0, bug_g10=0x7A73A0, door6_r6=0x7A9FB0, door7_r7=0x7AA2A0, door8_r8=0x7AA590,
+                  reader_r9=0x7AA880, door10_r10=0x7AAB70, lamp_r11=0x7AAE60, r13_158D30=0x7AB440,
+                  r17_156F30=0x7AC000, r18_156F30=0x7AC2F0, r19_1C1A80=0x7AC5E0, r20_1C1A80=0x7AC8D0)
+# SEVENTH_LEVEL_ROUTE.md section 1.1, A01U_OWNERS (the a22_02 arrival's AREA01
+# load) and A06_OWNERS (the a01u_02 end snapshot); the tick log's "a01u" and
+# "a06" observations (log_area01u, log_area06).
+A01U_OWNERS = dict(door18_r18=0x7AFAC0, door19_r19=0x7AFDB0, pick_g11=0x7A7690, pick_g13=0x7A7C70,
+                   n_g36_1C02E0=0x7ABA20, n_1BFFD0=0x7B8DA0, bug_g30=0x7AA880, bug_g31=0x7AAB70,
+                   bug_g32=0x7AAE60, bug_g33=0x7AB150, bug_g34=0x7AB440, bug_g35=0x7AB730)
+A06_OWNERS = dict(door1_r1=0x7AB730, door2_r2=0x7ABA20, door3_r3=0x7ABD10, lamp_r4=0x7AC000, keypad_r6=0x7AC5E0,
+                  r7_1C50B0=0x7AC8D0, r8_823B50=0x7ACBC0, r10_22DCD0=0x7AD1A0, beam_r11=0x7AD490,
+                  crate_r31=0x7B0C60, save_r43=0x7B2FA0, r47_1E7D20=0x7B3B60, r54_15A2C0=0x7B4FF0,
+                  r56_1C1A80=0x7B55D0, doc_g2=0x7A5C20, pick_g8=0x7A6DC0, g11_219870=0x7A7690,
+                  bug_g27=0x7AA590, bug_g28=0x7AA880, bug_g29=0x7AAB70)
+# The tick log's keys that carry AREA04's extra bytes (compare_route_row);
+# AREA22 on adds D_00810768..6B, D_00810857 and the counts of items 0x23 / 0x24.
+LATER_KEYS = ('a22', 'a01u', 'a06')
 
 
 def owners_of(phase):
     """The recorded owner table and the tick log's observation key."""
+    if phase.startswith('a06_'):
+        return A06_OWNERS, 'a06'
+    if phase.startswith('a01u_'):
+        return A01U_OWNERS, 'a01u'
+    if phase.startswith('a22_'):
+        return A22_OWNERS, 'a22'
     if phase.startswith('a04_'):
         return A04_OWNERS, 'a04'
     return (A02_OWNERS, 'a02') if phase.startswith('a02_') else (OWNERS, 'a01r')
@@ -86,7 +122,9 @@ PAD_CORRECTIONS = {'a01r_01': [('late', 0, 5)], 'a02_02': [('late', 0, 2)]}
 def capture_path(phase):
     if phase == 'a00_10':
         return a00.capture_path(phase)
-    folder = A04_ROUTE_DIR if phase.startswith('a04_') else A02_ROUTE_DIR if phase.startswith('a02_') else ROUTE_DIR
+    prefix = phase.split('_')[0]
+    folder = {'a02': A02_ROUTE_DIR, 'a04': A04_ROUTE_DIR, 'a22': A22_ROUTE_DIR, 'a01u': A01U_ROUTE_DIR,
+              'a06': A06_ROUTE_DIR}.get(prefix, ROUTE_DIR)
     return folder / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
 
 
@@ -227,6 +265,22 @@ def check_camera_end(tick, phase):
         assert bytes.fromhex(value) == ram[address:address + size], (phase, 'ending camera differs', hex(address))
 
 
+# The progress block in a beat's end RAM against the tick log's "blk"
+# (em_scene_bindings.c log_route_block). The frame count D_00810750..53 is
+# the run's own clock: the first level is navigated, not replayed.
+BLOCK, BLOCK_SIZE = 0x810700, 0x640
+BLOCK_CLOCK = range(0x50, 0x54)
+
+
+def check_block_end(tick, phase):
+    got = bytes.fromhex(tick.get('blk', ''))
+    assert len(got) == BLOCK_SIZE, (phase, 'missing progress block observation')
+    want = capture_path(phase).with_name('eeMemory.bin').read_bytes()[BLOCK:BLOCK + BLOCK_SIZE]
+    differ = [i for i in range(BLOCK_SIZE) if got[i] != want[i] and i not in BLOCK_CLOCK]
+    assert not differ, (phase, 'ending progress block differs',
+                        [(hex(BLOCK + i), got[i], want[i]) for i in differ[:24]], len(differ))
+
+
 def compare_route_row(smoke, ticks, i, row, phase):
     """Every field a00's rows compare (player, ground, camera, task, request,
     message, fade, health, progress, locks, weapon bytes), the revisit's
@@ -255,12 +309,24 @@ def compare_route_row(smoke, ticks, i, row, phase):
                locks=observed['locks'], wpn=observed['wpn'], d7dc=observed['progress'][0][8:10])
     want.update(hp=row['hp'], progress=[row['d2'], row['story758'], row['taken'], row['docs']],
                 s760=row['story760'], locks=row['locks'], wpn=row['wpn'], d7dc=row['d7dc'])
-    if key == 'a04':
+    if key == 'a04' or key in LATER_KEYS:
         # AREA04's rows: D_00810764..67 (the event's end byte) and
         # D_00810830..3F (D_0081083B, the console's); D_008107E4 / E5 / E9 /
         # EA are bytes 12, 13, 17 and 18 of the compared D_008107D8 window.
         got.update(s764=observed.get('s764'), s830=observed.get('s830'))
         want.update(s764=row['story764'], s830=row['s830'])
+    if key in LATER_KEYS:
+        # AREA22's rows on: D_00810768..6B, D_00810857 (l857) and the counts
+        # D_00810C87 / C88 (items 0x23, 0x24); D_00810766, D_00810845 and
+        # D_00810847 (the a01u rows' s766, l845, l847) are bytes of the
+        # compared story764 and locks.
+        got.update(s768=observed.get('s768'), l857=observed.get('l857'), c87=observed.get('c87'),
+                   c88=observed.get('c88'))
+        want.update(s768=row['s768'], l857=row['l857'], c87=row['c87'], c88=row['c88'])
+    if key == 'a06':
+        # AREA06's rows: D_00810CCA (cca, 001C4760(7, 1)).
+        got.update(cca=observed.get('cca'))
+        want.update(cca=row['cca'])
     for name, address in owners.items():
         value = observed['owners'].get(str(address))
         assert value is not None, (phase, row['f'], name, 'missing canonical owner')
@@ -307,13 +373,15 @@ def check_route(smoke, ticks, run, state, phase):
     for i, row in pairs:
         compare_route_row(smoke, ticks, i, row, phase)
     check_camera_end(ticks[end], phase)
+    if owners_of(phase)[1] in LATER_KEYS:
+        check_block_end(ticks[end], phase)
     state['cursor'] = end + 1
     state.setdefault('a01r_ends', {})[phase] = ticks[end]['counter']
     last = rows[-1]
     print(f'{phase}: PASS {len(rows)} native rows: player, ground, camera, task, request, message, fade, '
           f'health, progress (D_008107DF {last["df"]}, D_008107E0 {last["e0"]}, D_00810760 '
           f'{last["story760"][:2]}), locks, weapon bytes and {len(owners_of(phase)[0])} recorded owners; ending camera bytes '
-          'equal to saved RAM')
+          + ('and progress block ' if owners_of(phase)[1] in LATER_KEYS else '') + 'equal to saved RAM')
 
 
 def prefix_report(smoke, ticks, run, phase):

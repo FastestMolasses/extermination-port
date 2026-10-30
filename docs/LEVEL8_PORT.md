@@ -52,8 +52,8 @@ so these runs are not row-by-row comparisons.
 
 | Chain | Card | Beats | Status (2026-10-30) |
 |---|---|---|---|
-| a22 | area22 | a22_00, a22_01, a22_02 | pass (AREA22_PORT.md "Live binding") |
-| a01u | a01u | a01u_00, a01u_01, a01u_02 | pass (AREA06_PORT.md "Live binding") |
+| a22 | area22 | a22_00, a22_01, a22_02 | pass (AREA22_PORT.md "Live binding"); row-exact from New Game since lane E1 (LEVEL3_BINDING.md) |
+| a01u | a01u | a01u_00, a01u_01, a01u_02 | pass (AREA06_PORT.md "Live binding"); row-exact from New Game since lane E1 |
 | a01u_s0 | a01u_s0 | a01u_s0 | pass |
 | a01u_s1 | a01u | a01u_s1 | pass (lane G1, branch gs-arrival: the GS barrier below) |
 | a06 | area06 | a06_00 .. a06_05 | a06_00 passes; a06_01 stops (AREA06_PORT.md "Where AREA06 stops") |

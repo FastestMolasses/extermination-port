@@ -37,7 +37,7 @@ def verify_harness(out):
     """Execute the actual C selector/reader/driver over the recorded inputs.
     Only the driver's game-facing services are mocked."""
     source = (ROOT / 'src/game/em_level_smoke_test.c').read_text()
-    phases = re.findall(r'\{"((?:a01r|a02|a04)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
+    phases = re.findall(r'\{"((?:a01r|a02|a04|a22|a01u|a06)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
                         source, re.S)
     assert [p[0] for p in phases] == list(a01r.ROUTE_PHASES), ('C/Python phase order', phases)
     selector = source[source.index('static int side_played('):source.index('static void report_not_live(')]
@@ -183,7 +183,10 @@ def verify_checker():
             camblk=[block.hex(), struct.pack('<3fI', *row['fwd'], 0).hex(), bytes(20).hex(), bytes(48).hex()],
             **{key: dict(hp=bits(row['hp']), progress=[row['d2'], row['story758'], row['taken'], row['docs']],
                          owners=owners, locks=row['locks'], wpn=row['wpn'], s760=row['story760'],
-                         **(dict(s764=row['story764'], s830=row['s830']) if key == 'a04' else {}))})
+                         **(dict(s764=row['story764'], s830=row['s830']) if key == 'a04' or key in a01r.LATER_KEYS else {}),
+                         **(dict(s768=row['s768'], l857=row['l857'], c87=row['c87'], c88=row['c88'])
+                            if key in a01r.LATER_KEYS else {}),
+                         **(dict(cca=row['cca']) if key == 'a06' else {}))})
 
     count = rejected = 0
     for phase in a01r.ROUTE_PHASES:
@@ -200,6 +203,9 @@ def verify_checker():
                                 loader_pre=loader.hex())
         ram = a01r.capture_path(phase).with_name('eeMemory.bin').read_bytes()
         ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in a01.CAMERA_BLOCKS]
+        later = okey in a01r.LATER_KEYS
+        if later:
+            ticks[-2]['blk'] = ram[a01r.BLOCK:a01r.BLOCK + a01r.BLOCK_SIZE].hex()
         gap = a01r.source_gap(phase, capture)
         source_counter = rows[0]['counter'] - gap
         aligned = [dict(counter=source_counter + k + 1) for k in range(gap - 1)] + ticks
@@ -218,6 +224,8 @@ def verify_checker():
             for k, row in enumerate(rows):
                 a01r.compare_route_row(smoke, ticks, k, row, phase)
             a01r.check_camera_end(ticks[-2], phase)
+            if later:
+                a01r.check_block_end(ticks[-2], phase)
             count += len(rows)
             continue
         with contextlib.redirect_stdout(io.StringIO()):
@@ -278,6 +286,15 @@ def verify_checker():
             rejected += 1
         else:
             raise AssertionError((phase, 'checker accepted corrupt ending camera'))
+        if later:
+            block = bytearray.fromhex(ticks[-2]['blk']); block[0x100] ^= 1
+            ticks[-2]['blk'] = block.hex()
+            try:
+                a01r.check_block_end(ticks[-2], phase)
+            except AssertionError:
+                rejected += 1
+            else:
+                raise AssertionError((phase, 'checker accepted corrupt ending block'))
     print(f'AREA01 revisit checker contract: PASS {count} capture-shaped rows, {rejected} rejected corruptions '
           '(no native gameplay or drawing parity claim)')
 

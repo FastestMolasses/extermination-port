@@ -36,7 +36,14 @@ main line a04_00..a04_05: 56 live phases, `--until a04_05` (about 13 minutes
 headless), with `build/drive_replay/route_a04_20261030` and the anchors of
 `build/rand_replay/route_a04_05_20261030` (LEVEL3_BINDING.md "2026-10-30, lane
 D1"). a04_05 is a return phase: its boundary is AREA22 entry 0's state 0, 205
-rows after it to the trace end.
+rows after it to the trace end. Lane E1 added AREA22, AREA01's upper floor and
+AREA06's first walk (a22_00..02, a01u_00..02, a06_00): 63 live phases, `--until
+a06_00` (about 13.5 minutes headless), with
+`build/drive_replay/route_a22_a06_20261030` and the anchors of
+`build/rand_replay/route_a01u_02_20261030` (LEVEL3_BINDING.md "2026-10-30, lane
+E1"). a22_02 (boundary: AREA01 entry 6) and a01u_02 (AREA06 entry 0) are return
+phases, 205 rows after state 0; from AREA22 on each beat's end also compares the
+whole progress block with its end RAM (`check_block_end`).
 Since lane B2
 (2026-10-30) three more side beats, fork recordings of HEALING's menu use
 (tools/capture_heal_beats.py), are phases: a01r_s2 (from a01r_02: item
