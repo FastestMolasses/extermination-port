@@ -74,8 +74,8 @@ What it needed, each from original code with its evidence:
   the flags, the heights and the slopes).
 - 0019AD00's hull lock for a non-class-0 mover: the player's call-local
   record, as 0019AA80's; the shove 0x700031C0 as a quadword read.
-- The lift: its scripts in doors.emsc (the image now ends at 0x24E960, so
-  AREA01 / AREA11 builds need the re-export), op09 001BC560 / 001BC6D0,
+- The lift: its scripts as the boot image lift.emsc (0x24E1A0..0x24E960;
+  the script binding refuses a tree without it), op09 001BC560 / 001BC6D0,
   0018D7B0 (em_camera_live_solve), 001AEBA0 (the screen fade), the script
   workers (001B8AB0's camera shake and the others) in area 4.
 - Assets: library models 0x53..0x56, bank 0x3A beside the door bank, the
