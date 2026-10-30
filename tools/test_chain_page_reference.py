@@ -278,6 +278,7 @@ class Counts(C.Structure):
                 ('mscal_kind2', C.c_uint32), ('kind2_prims', C.c_uint32), ('lane_strips', C.c_uint32),
                 ('direct_strips', C.c_uint32), ('mscal_grid', C.c_uint32),
                 ('mscal_dynamic', C.c_uint32), ('mscal_dynamic_clip', C.c_uint32),
+                ('mscal_level', C.c_uint32), ('mscal_box_clip', C.c_uint32),
                 ('mscal_floor', C.c_uint32), ('mscal_ripple', C.c_uint32),
                 ('mscal_kind6', C.c_uint32), ('kind6_prims', C.c_uint32), ('passes', C.c_uint32),
                 ('pass_prims', C.c_uint32), ('pass_direct', C.c_uint32), ('again', C.c_uint32),

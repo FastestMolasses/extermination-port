@@ -444,6 +444,13 @@ static int address_data(Walk *w, const uint8_t *q, uint32_t at)
     }
     switch (reg) {
     case 0x00: prim_write(w, (uint32_t)data); return 0;               /* PRIM */
+    case 0x01:                                                    /* RGBAQ */
+        /* 001D7080's colour (the gun lamp's cone shells, 001D91A0): the
+         * whole register, its Q the word's upper half, as in list mode. */
+        for (unsigned k = 0; k < 4u; ++k) w->rgba[k] = (uint8_t)(data >> (8u * k));
+        w->rq = (uint32_t)(data >> 32);
+        w->rq_known = 1;
+        return 0;
     case 0x06: w->tex0 = data; w->set |= EM_GFX_GS_TEX0; return 0;     /* TEX0_1 */
     case 0x08: w->clamp = data; w->set |= EM_GFX_GS_CLAMP; return 0;   /* CLAMP_1 */
     case 0x14: w->tex1 = data; w->set |= EM_GFX_GS_TEX1; return 0;     /* TEX1_1 */
@@ -535,7 +542,11 @@ static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
 {
     EmChainPage *p = w->p;
-    if (w->program == EM_CHAIN_PAGE_DYNAMIC) {
+    if (w->program == EM_CHAIN_PAGE_DYNAMIC || w->program == EM_CHAIN_PAGE_LEVEL) {
+        /* AREA01's three-vertex variant 00237450, or the level kernel
+         * 00237180 itself (32 vertices; the cone shells): one translation,
+         * the same registers carried from the neighbouring producers. */
+        const int level = w->program == EM_CHAIN_PAGE_LEVEL;
         EmVu1ObjQword mem[1024];
         EmVu1LvlBatch result;
         memcpy(mem, p->dmem, sizeof mem);
@@ -547,7 +558,8 @@ static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
             memcpy(s->rgbaq.w, p->regs.vf[14], 16); memcpy(s->st.w, p->regs.vf[2], 16);
             memcpy(s->tex0.w, p->regs.vf[27], 16); memcpy(s->xyzf.w, p->regs.vf[7], 16);
         }
-        const int rc = em_vu1_dynamic_kernel_batch(&w->dynamic, mem, top, &result);
+        const int rc = level ? em_vu1_level_kernel_batch(&w->dynamic, mem, top, &result)
+                             : em_vu1_dynamic_kernel_batch(&w->dynamic, mem, top, &result);
         memcpy(p->dmem, mem, sizeof mem);
         if (rc < 0) return fault(w, EM_CHAIN_PAGE_FAULT_VU, at,
                                 (result.fault << 8) | result.fault_vertex);
@@ -555,17 +567,21 @@ static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
         p->regs.vf[9][3] = w->dynamic.w_prev;
         memcpy(p->regs.vf[14], w->dynamic.rgbaq.w, 16); memcpy(p->regs.vf[2], w->dynamic.st.w, 16);
         memcpy(p->regs.vf[27], w->dynamic.tex0.w, 16); memcpy(p->regs.vf[7], w->dynamic.xyzf.w, 16);
-        p->counts.mscal_dynamic++;
+        if (level) p->counts.mscal_level++;
+        else p->counts.mscal_dynamic++;
         return kick(w, p->dmem, result.kick);
     }
     EmVu1Qword mem[1024];
     EmVu1ClipResult result;
     memcpy(mem, p->dmem, sizeof mem);
-    const int rc = em_vu1_dynamic_clip_run(mem, top, &result, p->regs.vf);
+    const int box = w->program == EM_CHAIN_PAGE_BOX_CLIP;
+    const int rc = box ? emvu_clip_run(EM_VU1_CLIP_BOX, mem, top, &result, p->regs.vf)
+                       : em_vu1_dynamic_clip_run(mem, top, &result, p->regs.vf);
     memcpy(p->dmem, mem, sizeof mem);
     em_vu1_level_kernel_forget(&w->dynamic);
     if (rc < 0) return fault(w, EM_CHAIN_PAGE_FAULT_VU, at, result.fault);
-    p->counts.mscal_dynamic_clip++;
+    if (box) p->counts.mscal_box_clip++;
+    else p->counts.mscal_dynamic_clip++;
     for (uint32_t k = 0; k < result.kicks; ++k) {
         const EmVu1ClipKick *q = &result.kick[k];
         uint32_t used;
@@ -598,6 +614,8 @@ static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
 #define GRID_CODE    0x0023C9B8u
 #define DYNAMIC_CODE 0x00237480u
 #define DYNAMIC_CLIP_CODE 0x00237750u
+#define LEVEL_CODE   0x002371B0u   /* D_00237180's MPG (the level kernel) */
+#define BOX_CLIP_CODE 0x00239CC0u  /* D_00239C90's first MPG (the box clip kernel) */
 #define FLOOR_CODE   0x00234610u   /* D_002345E0's MPG (001E9E60's floor fields) */
 #define RIPPLE_CODE  0x00234B30u   /* D_00234B00's MPG (001E7D20's ripple surface) */
 #define SURFACE_CODE 0x00235010u   /* D_00234FE0's MPG (001E9280's AREA00 surface) */
@@ -698,7 +716,8 @@ static int vif(Walk *w)
             const uint32_t vn = (cmd >> 2) & 3u, vl = cmd & 3u, cnt = num ? num : 256u;
             if ((cmd & 0x10u) || vl != 0u || (vn != 0u && vn != 3u) || (imm & 0x4000u) ||
                 ((imm & 0x8000u) && w->program != EM_CHAIN_PAGE_DYNAMIC &&
-                 w->program != EM_CHAIN_PAGE_DYNAMIC_CLIP && w->program != EM_CHAIN_PAGE_FLOOR &&
+                 w->program != EM_CHAIN_PAGE_DYNAMIC_CLIP && w->program != EM_CHAIN_PAGE_LEVEL &&
+                 w->program != EM_CHAIN_PAGE_BOX_CLIP && w->program != EM_CHAIN_PAGE_FLOOR &&
                  w->program != EM_CHAIN_PAGE_RIPPLE && w->program != EM_CHAIN_PAGE_SURFACE) ||
                 (w->cycle_set && (w->wl == 0u || w->wl > w->cl)))
                 return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
@@ -746,13 +765,16 @@ static int vif(Walk *w)
             }
             if (first == DYNAMIC_CODE && cnt == 79u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_DYNAMIC; w->mpg_parts = 1;
-            } else if (first == DYNAMIC_CLIP_CODE && cnt == 256u && imm == 0u) {
+            } else if (first == LEVEL_CODE && cnt == 79u && imm == 0u) {
+                w->program = EM_CHAIN_PAGE_LEVEL; w->mpg_parts = 1;
+            } else if ((first == DYNAMIC_CLIP_CODE || first == BOX_CLIP_CODE) && cnt == 256u && imm == 0u) {
                 w->program = 0; w->mpg_parts = 1; w->mpg_first = first;
-            } else if (w->mpg_first == DYNAMIC_CLIP_CODE && w->program == 0u &&
+            } else if ((w->mpg_first == DYNAMIC_CLIP_CODE || w->mpg_first == BOX_CLIP_CODE) && w->program == 0u &&
                        w->mpg_parts >= 1u && w->mpg_parts < 5u &&
-                       first == DYNAMIC_CLIP_CODE + 0x808u * w->mpg_parts &&
+                       first == w->mpg_first + 0x808u * w->mpg_parts &&
                        imm == 0x100u * w->mpg_parts && cnt == (w->mpg_parts == 4u ? 159u : 256u)) {
-                if (++w->mpg_parts == 5u) w->program = EM_CHAIN_PAGE_DYNAMIC_CLIP;
+                if (++w->mpg_parts == 5u)
+                    w->program = w->mpg_first == BOX_CLIP_CODE ? EM_CHAIN_PAGE_BOX_CLIP : EM_CHAIN_PAGE_DYNAMIC_CLIP;
             } else if (first == FLOOR_CODE && cnt == 153u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_FLOOR; w->mpg_parts = 1; w->floor_ran = 0;
             } else if (first == RIPPLE_CODE && cnt == 145u && imm == 0u) {
@@ -790,7 +812,8 @@ static int vif(Walk *w)
             break;
         }
         case 0x14: case 0x17: {                                        /* MSCAL / MSCNT */
-            const int dynamic = w->program == EM_CHAIN_PAGE_DYNAMIC || w->program == EM_CHAIN_PAGE_DYNAMIC_CLIP;
+            const int dynamic = w->program == EM_CHAIN_PAGE_DYNAMIC || w->program == EM_CHAIN_PAGE_DYNAMIC_CLIP ||
+                                w->program == EM_CHAIN_PAGE_LEVEL || w->program == EM_CHAIN_PAGE_BOX_CLIP;
             /* The floor / ripple / surface program's MSCNT resumes after
              * its end bit, whose branch returns to micro 0: only after a
              * batch of its own. */

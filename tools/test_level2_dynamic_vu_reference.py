@@ -303,10 +303,12 @@ def mixed_page(ram):
 def failstops(ram):
     roots=unit_roots(ram); source=page_for(ram,roots)
     checks=[]
-    # A different program is not silently treated as either known variant.
+    # A different program is not silently treated as either known variant
+    # (the receiver kernel 0023C200, which no page uploads; the level kernel
+    # 00237180 itself is a page program since the gun lamp's cone shells).
     p=M.Page(M.ram_reader(source));p.dma(PAGE)
     normal_call=next(a for a,t,n,d in p.transfers if t==5 and d==NORMAL)
-    b=bytearray(source);struct.pack_into('<I',b,normal_call+4,0x237180)
+    b=bytearray(source);struct.pack_into('<I',b,normal_call+4,0x23C200)
     checks.append(('unknown program',[(0,b)],5))
     b=bytearray(source);word=struct.unpack_from('<Q',b,0x8159E0)[0]
     struct.pack_into('<Q',b,0x8159E0,word&~(1<<32))

@@ -54,6 +54,10 @@ PROGRAM_FLOOR = 0x2345E0          # D_002345E0: 001E9E60's floor fields (AREA01 
 PROGRAM_RIPPLE = 0x234B00         # D_00234B00: 001E7D20's ripple surface (AREA01)
 PROGRAM_KIND6 = 0x23D930          # D_0023D930: 001CFBE0 kind 6 (001E3D90's near-fire layer, AREA01)
 PROGRAM_SURFACE = 0x234FE0        # D_00234FE0: 001E9280's surface (AREA00 0015AB00)
+PROGRAM_LEVEL = 0x237180          # D_00237180: the level kernel (the gun lamp's cone shells, 001D4E20)
+PROGRAM_BOX_CLIP = 0x239C90       # D_00239C90: the box clip kernel (the cone shells, 001D4B80)
+PROGRAM_DYNAMIC = 0x237450        # D_00237450: AREA01's dynamic three-vertex program (001D4FC0)
+PROGRAM_DYNAMIC_CLIP = 0x237720   # D_00237720: its partial-clip program (001D5170)
 # Their MPG uploads: (source address of the code, instructions, micro address).
 LANE_MPG = (0x2332B8, 138, 0)
 SPRITE_MPG = ((0x231798, 256, 0), (0x231FA0, 79, 0x100))
@@ -64,13 +68,25 @@ FLOOR_MPG = (0x234610, 153, 0)
 RIPPLE_MPG = (0x234B30, 145, 0)
 SURFACE_MPG = (0x235010, 142, 0)
 KIND6_MPG = ((0x23D958, 256, 0), (0x23E160, 130, 0x100))
+LEVEL_MPG = (0x2371B0, 79, 0)
+BOX_CLIP_MPG = tuple((0x239CC0 + 0x808 * k, 159 if k == 4 else 256, 0x100 * k) for k in range(5))
+DYNAMIC_MPG = (0x237480, 79, 0)
+DYNAMIC_CLIP_MPG = tuple((0x237750 + 0x808 * k, 159 if k == 4 else 256, 0x100 * k) for k in range(5))
+CLIP_KERNELS = {BOX_CLIP_MPG[0][0]: (BOX_CLIP_MPG, PROGRAM_BOX_CLIP),
+                DYNAMIC_CLIP_MPG[0][0]: (DYNAMIC_CLIP_MPG, PROGRAM_DYNAMIC_CLIP)}
 PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW, PROGRAM_STREAK, PROGRAM_KIND2, PROGRAM_FLOOR,
-            PROGRAM_RIPPLE, PROGRAM_KIND6, PROGRAM_SURFACE)
-BATCHED = (PROGRAM_FLOOR, PROGRAM_RIPPLE, PROGRAM_SURFACE)   # TOPS-relative batches, MSCAL then MSCNT
+            PROGRAM_RIPPLE, PROGRAM_KIND6, PROGRAM_SURFACE, PROGRAM_LEVEL, PROGRAM_BOX_CLIP, PROGRAM_DYNAMIC,
+            PROGRAM_DYNAMIC_CLIP)
+# TOPS-relative batches, MSCAL then MSCNT (the level and box clip kernels'
+# blocks: an object's first ends in MSCAL 0, the others in MSCNT, which
+# re-runs the program from micro 0: its last branch returns there).
+BATCHED = (PROGRAM_FLOOR, PROGRAM_RIPPLE, PROGRAM_SURFACE, PROGRAM_LEVEL, PROGRAM_BOX_CLIP, PROGRAM_DYNAMIC,
+           PROGRAM_DYNAMIC_CLIP)
 # Each packet's bytes: its CNT tag and data, then its RET tag.
 PROGRAM_PACKET_SIZE = {PROGRAM_LANE: 0x570, PROGRAM_SPRITE: 0xDD0, PROGRAM_SNOW: 0xDE0, PROGRAM_STREAK: 0xF70,
                        PROGRAM_KIND2: 0xD50, PROGRAM_FLOOR: 0x510, PROGRAM_RIPPLE: 0x4D0,
-                       PROGRAM_KIND6: 0xF70, PROGRAM_SURFACE: 0x4B0}
+                       PROGRAM_KIND6: 0xF70, PROGRAM_SURFACE: 0x4B0, PROGRAM_LEVEL: 0x2C0,
+                       PROGRAM_BOX_CLIP: 0x2560, PROGRAM_DYNAMIC: 0x2C0, PROGRAM_DYNAMIC_CLIP: 0x2560}
 
 # The EFU (the streak program's ERCPR / ERLENG, read back by MFP). No
 # capture holds an EFU result, so its arithmetic is a model, the one the
@@ -290,6 +306,11 @@ class VuOracle(sh.VU1):
                 self.cf = ((self.cf << 6) | value) & 0xFFFFFF
             elif kind == 'mac':
                 self.mac = value
+                # the status register's Z and S (any lane's), and their
+                # sticky copies; U / O / I / D are not modelled (FSAND
+                # below refuses a mask that reads them)
+                st = (1 if value & 0xF else 0) | (2 if value & 0xF0 else 0)
+                self.status = (self.status & 0xFC0) | st | st << 6
             elif kind == 'q':
                 self.q = value
             elif kind == 'p':
@@ -345,6 +366,12 @@ class VuOracle(sh.VU1):
         if op == 0x1A:                                        # FMAND vi_t = vi_s & MAC
             it, iss = lo >> 16 & 15, lo >> 11 & 15
             self.vi[it] = self.vi[iss] & self.mac
+            return None
+        if op == 0x16 and not ((lo & 0x7FF) | (lo >> 21 & 1) << 11) & ~0x0C3:
+            # FSAND vi_t = status & imm12 (the level kernel 00237180's S
+            # test at micro 0x039: the sign of cross * w_i, the cull)
+            imm = (lo & 0x7FF) | (lo >> 21 & 1) << 11
+            self.vi[lo >> 16 & 15] = self.status & imm
             return None
         if op in (0x16, 0x18, 0x1B):
             fail(f'VU flag op {lo:#010x} at {pc:#x} (not in the page programs)')
@@ -511,6 +538,14 @@ class Gs:
             z, f = ((value >> 32) & 0xFFFFFF, value >> 56) if reg == 0x04 else (value >> 32, None)
             self.vertex((x, y, z, f, self.rgba, self.rq, self.st[0], self.st[1], self.uv[0], self.uv[1],
                          self.rq_known), 0)
+        elif reg == 0x4E:                                   # ZBUF_1 (the class-1 / dynamic GS state REF)
+            # as em_chain_page.c: the page draws into the frame's depth
+            # buffer, so only a masked depth write (ZMSK) is accepted
+            if not (value >> 32) & 1:
+                fail(f'{path}: A+D ZBUF_1 {value:#x} without ZMSK')
+        elif reg == 0x01:                                   # A+D RGBAQ (001D7080's colour): its own Q
+            self.rgba = tuple((value >> (8 * k)) & 0xFF for k in range(4))
+            self.rq, self.rq_known = value >> 32, 1
         elif reg in AD_STATE:
             self.state[AD_STATE[reg]] = value
         elif reg == 0x00:
@@ -779,9 +814,13 @@ class Page:
                 continue
             self.gs.pass_regs = wpass[i - 1]
             if at is None:
-                tex0, prim = self.units[v]
-                self.gs.state.update({'TEX0_1': tex0, 'CLAMP_1': 0, 'TEX1_1': 0x60, 'ALPHA_1': 0x8000000068,
-                                      'TEST_1': 0x53001, 'COLCLAMP': 1})
+                tex0, prim, *left = self.units[v]
+                if left:    # the state the unit's class leaves (alpha, test, tex1, clamp, colclamp)
+                    alpha, test, tex1, clamp, colclamp = left
+                else:       # class 2's (001CABA0)
+                    alpha, test, tex1, clamp, colclamp = 0x8000000068, 0x53001, 0x60, 0, 1
+                self.gs.state.update({'TEX0_1': tex0, 'CLAMP_1': clamp, 'TEX1_1': tex1, 'ALPHA_1': alpha,
+                                      'TEST_1': test, 'COLCLAMP': colclamp})
                 self.gs.prim, self.gs.queue = prim, []
                 self.cycle_set, self.cl, self.wl = True, 4, 4
                 self.program, self.parts = None, 0
@@ -833,6 +872,16 @@ class Page:
                     self.program, self.parts, self.floor_ran = PROGRAM_SURFACE, 1, False
                 elif (first, cnt, imm) == LANE_MPG:
                     self.program, self.parts = PROGRAM_LANE, 1
+                elif (first, cnt, imm) in (LEVEL_MPG, DYNAMIC_MPG):
+                    self.program = PROGRAM_LEVEL if first == LEVEL_MPG[0] else PROGRAM_DYNAMIC
+                    self.parts, self.floor_ran = 1, False
+                elif first in CLIP_KERNELS and (first, cnt, imm) == CLIP_KERNELS[first][0][0]:
+                    self.program, self.parts, self.first = None, 1, first
+                elif self.program is None and self.first in CLIP_KERNELS and 1 <= self.parts < 5 \
+                        and (first, cnt, imm) == CLIP_KERNELS[self.first][0][self.parts]:
+                    self.parts += 1
+                    if self.parts == 5:
+                        self.program, self.floor_ran = CLIP_KERNELS[self.first][1], False
                 elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0], STREAK_MPG[0], KIND2_MPG[0], KIND6_MPG[0]):
                     self.program, self.parts, self.first = None, 1, first
                 elif (first, cnt, imm) == SPRITE_MPG[1] and self.parts == 1 and self.program is None \
@@ -888,7 +937,7 @@ class Page:
             if cmd == 0x14:                                 # MSCAL
                 self.mscal(imm, at)
                 continue
-            if cmd == 0x17:                                 # MSCNT (the floor / ripple / surface program)
+            if cmd == 0x17:                                 # MSCNT (the batched programs)
                 self.mscal(0, at, cont=True)
                 continue
             if cmd in (0x00, 0x10, 0x11, 0x13):

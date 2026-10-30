@@ -225,6 +225,14 @@ int em_rcl_001D1FF0(int32_t chan, int32_t a1);
 int em_rcl_001D1F20(int32_t chan);
 int em_rcl_001D7080(int32_t chan, uint32_t a1, uint32_t f12);
 int em_rcl_001CB760(uint32_t table, int32_t id, uint32_t address);
+/* The gun lamp's cone shell callees (001D91A0 / 001D4E20 / 001D4B80, from
+ * em_aim_fire_runtime): 001D4750(chan), 001D2090(chan, src) and the runs
+ * 001D4F30 / 001D4A90(chan, obj) with `head` the model's count word (read
+ * only; the blocks are REFed, not read). 0, or -1. */
+int em_rcl_001D4750(int32_t chan);
+int em_rcl_001D2090(int32_t chan, uint32_t src);
+int em_rcl_001D4F30(int32_t chan, uint32_t obj, const uint8_t head[4]);
+int em_rcl_001D4A90(int32_t chan, uint32_t obj, const uint8_t head[4]);
 /* 001D2040(chan, a1): the GS state packet the channel's list gets (the aim
  * camera's 001999C0 (1, 0) on the sight switch). */
 int em_rcl_001D2040(int32_t chan, int32_t a1);

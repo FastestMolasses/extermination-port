@@ -147,7 +147,8 @@ runs only (the start-point save is not the route's RNG or timers):
 `EM_START_AT=area01-revisit EM_START_AT_PAD=<a01r pad> EM_START_AT_PATH=<a01r
 path> EM_HEADLESS=1 EM_UNCAPPED=1 build/extermination`. The effect tables
 need `export_effect_tables.py`, `export_area01_water_effects.py` and
-`export_area00_runtime_tables.py` in that order; the library export needs
+`export_area00_runtime_tables.py` in that order (the gun lamp's cone data
+is in the first: AIM_FIRE.md section 10.8); the library export needs
 `export_roger_banks.py` and then `export_area00_library.py`.
 
 Done since the entry below (commits on `revisit`):

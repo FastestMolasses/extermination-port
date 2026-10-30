@@ -618,6 +618,26 @@ open perspective-STQ residue on a one-Z span (GS_EXACT.md 8.2, the p5_s
 class: Q 1, S / T planes); every other word of the 4 MiB is the original's.
 The test fails on anything else.
 
+### 6.4 The gun lamp's cone shells (2026-10-29)
+
+Outside AREA11 (D_008106C8 without 0x20000000) 00187780's 001D9530 puts a
+channel-3 list on the page (001CB760(D_007635C0, 0, list, context);
+AIM_FIRE.md section 10.8): 001DA290's DIRECT alpha-clear strip, then per
+shell 001D91A0's matrix and colour uploads, the GS preset REF
+(001D1F80(3, 2, 9 / 5)), 001D4E20 / 001D4EB0 (001D4750's constants, a REF
+of the level kernel packet D_00237180, the skin template REF), 001D7080's
+A+D RGBAQ, 001D4F30's REFs of the model's blocks (UNPACK to TOPS, MSCAL 0
+then MSCNT), and 001D4B80 / 001D4C30 with the box clip kernel packet
+D_00239C90 and 001D4A90's runs. The page recognises both kernels by their
+MPG sources (0x2371B0, 79 instructions; 0x239CC0 + 0x808 k, five parts) and
+runs them with the static world's and the drop shadow's translations
+(em_vu1_level_kernel.h, em_vu1_shadow_clip.h box kernel), the registers
+carried as for AREA01's dynamic pair; A+D RGBAQ sets the whole register
+(its Q) as in list mode. The kernel packets come from the effect table
+export, the models' blocks from the Roger export's library spans.
+tools/chain_page_model.py runs the same pages with the ORIGINAL microcode
+(test-aim-fire-lamp-cone).
+
 ## 7. Binding (live)
 
 - **001D1EA0's kick.** em_render_context_live wraps the frame close's 001CB800

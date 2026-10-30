@@ -2271,6 +2271,53 @@ int em_rcl_001D1F80(int32_t a0, int32_t a1, int32_t a2)
     return 0;
 }
 
+/* The gun lamp's cone shells (001D91A0 / 001D4E20 / 001D4B80, composed by
+ * em_aim_fire_runtime): 001D4750, 001D2090 and 001D4F30 / 001D4A90 on a
+ * channel of this context, em_static_world's translations over this
+ * module's views (as the dynamic table pass runs 001D2090 / 001D4750) plus,
+ * for the runs, a read-only view of the model's header word (the count the
+ * runs read; the blocks themselves are only REFed). */
+typedef struct { u32 fn, chan, obj; } ConeCall;
+static int cone_body(EmStaticWorld *sw, void *arg)
+{
+    const ConeCall *a = arg;
+    switch (a->fn) {
+    case 0x001D4750u: return em_static_world_001D4750(sw, (int32_t)a->chan);
+    case 0x001D2090u: return em_static_world_001D2090(sw, (int32_t)a->chan, a->obj);
+    case 0x001D4F30u: return em_static_world_001D4F30(sw, (int32_t)a->chan, a->obj);
+    case 0x001D4A90u: return em_static_world_001D4A90(sw, (int32_t)a->chan, a->obj);
+    default: return -1;
+    }
+}
+static int cone_call(u32 fn, int32_t chan, u32 obj, const uint8_t *head)
+{
+    if (!R.bound || R.fault) return -1;
+    if (head && R.view_count >= VIEWS_MAX) return fail(fn, "no room for the model's view");
+    EmStaticWorldView views[VIEWS_MAX];
+    uint8_t read_only[VIEWS_MAX];
+    memcpy(views, R.swc_views, sizeof views[0] * R.view_count);
+    memcpy(read_only, R.swc_read_only, R.view_count);
+    u32 count = R.view_count;
+    if (head) {
+        views[count] = (EmStaticWorldView){obj, 4, (uint8_t *)(uintptr_t)head};
+        read_only[count++] = 1;
+    }
+    EmSwc c;
+    memset(&c, 0, sizeof c);
+    c.views = views;
+    c.view_count = count;
+    c.read_only = read_only;
+    c.host.ctx = &c;
+    const ConeCall a = {fn, (u32)chan, obj};
+    return swc_done(&c, em_swc_with_static_world(&c, cone_body, (void *)&a), fn);
+}
+int em_rcl_001D4750(int32_t chan) { return cone_call(0x001D4750u, chan, 0, NULL); }
+int em_rcl_001D2090(int32_t chan, uint32_t src) { return cone_call(0x001D2090u, chan, src, NULL); }
+int em_rcl_001D4F30(int32_t chan, uint32_t obj, const uint8_t head[4])
+{ return head ? cone_call(0x001D4F30u, chan, obj, head) : -1; }
+int em_rcl_001D4A90(int32_t chan, uint32_t obj, const uint8_t head[4])
+{ return head ? cone_call(0x001D4A90u, chan, obj, head) : -1; }
+
 int em_rcl_001D2910(int32_t a0, uint32_t *result)
 {
     if (!R.loaded || R.fault || !result) return -1;

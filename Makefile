@@ -1961,6 +1961,16 @@ test-aim-fire-target-reference:
 test-aim-fire-lamp-reference:
 	python3 tools/test_aim_fire_lamp_reference.py
 
+# The gun lamp live outside AREA11 (AIM_FIRE.md section 10.8): loaded games
+# (EM_START_AT area01, area01-revisit, area02) with the lamp on, the cell
+# record's quadword 0x700030D0, the reload, the lamp off and on, and the
+# cone shells' pages walked again with the ORIGINAL microcode
+# (tools/chain_page_model.py). Needs start-saves (about 16 s; EM_TEST_FULL=1
+# adds area00 and a02_03 and three pages a game).
+.PHONY: test-aim-fire-lamp-cone
+test-aim-fire-lamp-cone: $(BIN)
+	python3 tools/test_aim_fire_lamp_cone.py
+
 .PHONY: test-aim-fire-shots-reference
 test-aim-fire-shots-reference:
 	python3 tools/test_aim_fire_shots_reference.py

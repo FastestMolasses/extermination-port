@@ -78,7 +78,7 @@ COMPATIBLE = {
     'EM_GS_Z_COUNTERS', 'EM_LOG_AIM_RECORDS', 'EM_PRESENT_LOG', 'EM_PRESENT_PX', 'EM_PROBE_TRACE',
     'EM_RAND_TRACE', 'EM_STARTUP_CAPTURE_DIR', 'EM_STATUS_PAGES_TRACE', 'EM_STEP_TRACE',  # observe only
     'EM_GLOW_TRACE',                                                      # observe only
-    'EM_STATUS_GS_DUMP',                                                  # a dump file: observe only
+    'EM_STATUS_GS_DUMP', 'EM_LAMP_PAGE_DUMP',                             # a dump file: observe only
     'EM_LEVEL_SMOKE_FB_CAPTURE', 'EM_LEVEL_SMOKE_HUB_CAPTURE', 'EM_LEVEL_SMOKE_MESSAGE_CAPTURE',
     'EM_LEVEL_SMOKE_PAGES_CAPTURE', 'EM_LEVEL_SMOKE_PAGES_DEBUG', 'EM_LEVEL_SMOKE_PAGE_CAPTURE',
     'EM_LEVEL_SMOKE_PHASE_CAPTURE', 'EM_REPLAY_AUDIO', 'EM_REPLAY_CAPTURE', 'EM_REPLAY_CAPTURE_EVERY',

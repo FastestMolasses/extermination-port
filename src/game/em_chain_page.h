@@ -23,7 +23,10 @@
  *          sprite program of table 0x231770, the snow program of
  *          D_00233800 and the streak program of table 0x230800) on a
  *          1024-qword data memory; AREA01's 00237450 / 00237720 use the
- *          shared level and box-clip kernels with three-vertex bounds, and
+ *          shared level and box-clip kernels with three-vertex bounds, the
+ *          gun lamp's cone shells (001D9530's channel-3 list) the level
+ *          kernel 00237180 (MPG of 79 from 0x2371B0) and the box clip
+ *          kernel 00239C90 (five MPGs from 0x239CC0) themselves, and
  *          AREA01's floor-field packet D_002345E0 (MPG of 153 instructions
  *          from ELF 0x00234610) em_vu1_floor_program_mscal and its
  *          ripple-surface packet D_00234B00 (145 from ELF 0x00234B30)
@@ -127,6 +130,8 @@ extern "C" {
 #define EM_CHAIN_PAGE_GRID      0x0023C990u   /* packet 0x23C990 (call mode) */
 #define EM_CHAIN_PAGE_DYNAMIC   0x00237450u   /* AREA01 three-vertex program */
 #define EM_CHAIN_PAGE_DYNAMIC_CLIP 0x00237720u /* its partial-clip program */
+#define EM_CHAIN_PAGE_LEVEL     0x00237180u   /* the level kernel (the lamp's cone shells, 001D4E20) */
+#define EM_CHAIN_PAGE_BOX_CLIP  0x00239C90u   /* the box clip kernel (the cone shells, 001D4B80) */
 #define EM_CHAIN_PAGE_FLOOR     0x002345E0u   /* AREA01 floor fields (001E9E60) */
 #define EM_CHAIN_PAGE_RIPPLE    0x00234B00u   /* AREA01 ripple surface (001E7D20) */
 #define EM_CHAIN_PAGE_KIND6     0x0023D930u   /* D_0023D930: 001CFBE0 kind 6 (AREA01 near fire) */
@@ -184,6 +189,7 @@ typedef struct {
                                * triangles (PRIM type 4)                     */
     uint32_t mscal_grid;      /* MSCALs of the grid program (0x23C990)       */
     uint32_t mscal_dynamic, mscal_dynamic_clip; /* AREA01 dynamic batches */
+    uint32_t mscal_level, mscal_box_clip; /* the gun lamp's cone shell batches */
     uint32_t mscal_floor;     /* floor-field batches (D_002345E0; MSCAL + MSCNT) */
     uint32_t mscal_ripple;    /* ripple-surface batches (D_00234B00; MSCAL + MSCNT) */
     uint32_t mscal_kind6;     /* MSCALs of the kind-6 program (D_0023D930)   */

@@ -1,7 +1,9 @@
 /* em_chain_page_live.c - the chain page drawn live at the frame close
  * (em_chain_page_live.h, docs/CHAIN_PAGE.md section 7). */
 #include "game/em_chain_page_live.h"
+#include "game/em_area11_roger.h"
 #include "game/em_aim_fire_tables.h"
+#include "game/em_aim_fire_world_live.h"
 #include "game/em_diag.h"
 #include "game/em_object_unit.h"
 #include "game/em_owner_draw_live.h"
@@ -9,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "game/em_effects_live.h"
@@ -59,6 +62,14 @@ const uint8_t *em_chain_page_live_read(uint32_t address, uint32_t size)
     if (!p && em_aim_fire_tables_contains(address, size)) {
         p = em_aim_fire_tables_bytes(address, size);
         if (!p && em_aim_fire_tables_load() == 0) p = em_aim_fire_tables_bytes(address, size);
+    }
+    /* The library models' blocks (the Roger export's D_0028A56C spans,
+     * read only): the gun lamp's cone shells (001D9530's 001D4F30 /
+     * 001D4A90 REF the blocks of models 0x10 / 0x11 / 0x16 into channel 3). */
+    if (!p) {
+        uint32_t rest = 0;
+        const uint8_t *q = em_area11_roger_library_rest(address, &rest);
+        if (q && size <= rest) p = q;
     }
     return p;
 }
@@ -202,6 +213,85 @@ static int page_unit(void *ctx, uint32_t address, EmGfxGsPrim *out, uint32_t cap
     return 1;
 }
 
+/* Verification aid (observe only): EM_LAMP_PAGE_DUMP=<file> appends, for
+ * the first three pages that ran the level kernel 00237180 (the gun lamp's
+ * cone shells, 001D9530), one JSON line (for every later one, its frame,
+ * its kernel counts and the 0x700030D0 count only): the start tag, the slot-0xFFF
+ * CALLs (and whether they were walked as passes, with the draw
+ * environments), the class-2 unit CALLs with the state they leave, the
+ * counts, the digest of the primitives outside the units and every
+ * (address, bytes) the walk read, for tools/test_aim_fire_lamp_cone.py to
+ * walk again with the ORIGINAL microcode (tools/chain_page_model.py). */
+static void lamp_dump(const EmChainPage *p, uint32_t start, int pass, const uint32_t *targets, uint32_t npass,
+                      uint32_t bank, uint32_t slot)
+{
+    static int on = -1;
+    static unsigned dumped;
+    if (on < 0) on = getenv("EM_LAMP_PAGE_DUMP") && *getenv("EM_LAMP_PAGE_DUMP");
+    if (!on || !p->counts.mscal_level) return;
+    FILE *f = fopen(getenv("EM_LAMP_PAGE_DUMP"), dumped ? "a" : "w");
+    if (!f) return;
+    if (dumped >= 3u) {
+        /* later cone pages: their counts only */
+        fprintf(f, "{\"frame\": %u, \"mscal_level\": %u, \"mscal_box_clip\": %u, \"cell_quadwords\": %u}\n",
+                (unsigned)em_frame_counter(), (unsigned)p->counts.mscal_level, (unsigned)p->counts.mscal_box_clip,
+                (unsigned)em_aim_fire_world_live_cell_quadwords());
+        fclose(f);
+        return;
+    }
+    dumped++;
+    uint32_t h = 2166136261u, from = 0, unit_prims = 0;
+    for (uint32_t k = 0; k <= p->counts.units; ++k) {
+        const uint32_t to = k < p->counts.units ? p->unit_first[k] : p->prim_count;
+        h = digest_more(h, p->prims + from, S.q + from, to - from);
+        if (k < p->counts.units) {
+            from = p->unit_first[k] + p->unit_prims[k];
+            unit_prims += p->unit_prims[k];
+        }
+    }
+    fprintf(f, "{\"frame\": %u, \"start\": %u, \"pass\": %d, \"draw_envs\": %u, \"slot\": %u, \"targets\": [",
+            (unsigned)em_frame_counter(), (unsigned)start, pass, (unsigned)bank, (unsigned)slot);
+    for (uint32_t k = 0; k < npass; ++k) fprintf(f, "%s%u", k ? ", " : "", (unsigned)targets[k]);
+    fputs("], \"units\": [", f);
+    /* each unit's CALL, the TEX0 and PRIM it leaves and its class's state
+     * (ALPHA, TEST, TEX1, CLAMP, COLCLAMP: class 2's, or AREA02's class 1) */
+    for (uint32_t k = 0; k < p->counts.units && k < EM_CHAIN_PAGE_UNITS_MAX; ++k) {
+        const EmGfxGsPrim *g = p->unit_prims[k] ? &p->prims[p->unit_first[k] + p->unit_prims[k] - 1u] : NULL;
+        fprintf(f, "%s[%u, %llu, %u", k ? ", " : "", (unsigned)p->unit_call[k],
+                (unsigned long long)p->unit_tex0[k], (unsigned)p->unit_prim[k]);
+        if (g)
+            fprintf(f, ", %llu, %llu, %llu, %llu, %llu", (unsigned long long)g->alpha, (unsigned long long)g->test,
+                    (unsigned long long)g->tex1, (unsigned long long)g->clamp, (unsigned long long)g->colclamp);
+        fputc(']', f);
+    }
+    fprintf(f, "], \"prims\": %u, \"directs\": %u, \"kicks\": %u, \"mscal_level\": %u, \"mscal_box_clip\": %u, "
+               "\"digest\": %u, \"cell_quadwords\": %u, \"prim_digests\": [",
+            (unsigned)(p->prim_count - unit_prims), (unsigned)p->counts.direct, (unsigned)p->counts.kicks,
+            (unsigned)p->counts.mscal_level, (unsigned)p->counts.mscal_box_clip, (unsigned)h,
+            (unsigned)em_aim_fire_world_live_cell_quadwords());
+    int written = 0;
+    for (uint32_t k = 0, i = 0; i < p->prim_count; ++i) {
+        while (k < p->counts.units && i >= p->unit_first[k] + p->unit_prims[k]) ++k;
+        if (k < p->counts.units && i >= p->unit_first[k]) continue;
+        fprintf(f, "%s%u", written++ ? ", " : "", (unsigned)digest_more(2166136261u, p->prims + i, S.q + i, 1));
+    }
+    fputs("], \"reads\": [", f);
+    written = 0;
+    for (uint32_t r = 0; r < S.nreads; ++r) {
+        int seen = 0;
+        for (uint32_t k = 0; k < r && !seen; ++k)
+            seen = S.reads[k].address == S.reads[r].address && S.reads[k].size == S.reads[r].size;
+        if (seen) continue;
+        const uint8_t *b = em_chain_page_live_read(S.reads[r].address, S.reads[r].size);
+        if (!b) continue;
+        fprintf(f, "%s[%u, \"", written++ ? ", " : "", (unsigned)S.reads[r].address);
+        for (uint32_t i = 0; i < S.reads[r].size; ++i) fprintf(f, "%02x", b[i]);
+        fputs("\"]", f);
+    }
+    fputs("]}\n", f);
+    fclose(f);
+}
+
 int em_chain_page_live_draw(EmGfx *gfx)
 {
     if (S.fault) return -1;
@@ -325,6 +415,7 @@ int em_chain_page_live_draw(EmGfx *gfx)
         }
         S.log.digest_without_units = digests ? h : 0u;
     }
+    lamp_dump(p, start, pass, targets, npass, bank, slot);
     S.log.total_prims += p->prim_count;
     S.log.total_stale_q += p->counts.stale_q;
     S.log.total_skipped += p->counts.skipped;

@@ -37,7 +37,8 @@ addresses, from the user's own extracted disc:
     L28), the indicator children's 001C2360 models (0x73 the pickup
     light, 0x74 / 0x75 the panel's, 0x7A the security gun's lamp;
     em_indicator_bind_live.c), the muzzle node 001F5040's (0x07..0x0F;
-    em_aim_fire_flash.c), the shell casing's 0x19 (001F3E30), and a box's
+    em_aim_fire_flash.c), the gun lamp's cone shells 0x10 / 0x11 (001D9530;
+    the span 0x06..0x11), the shell casing's 0x19 (001F3E30), and a box's
     damage break (001551B0, BRANCH br_04 / br_06): its husk 0x22 (the
     rebind 001CA6E0(self, 001C6120(D_0028A56C, 0x22)) of a model-6 box) and
     its debris pieces 0x1C / 0x1E (effect 0x8000000A's node 001F2BA0,
@@ -119,11 +120,17 @@ DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # (001BAD40's 001C6120(D_0028A56C, id)) are in the last span and in
 # export_area00_library.py's 0x4D..0x4F extension. 0x67..0x69 precede 0x6A
 # in file order, so the last span grows and the region count stays 16.
-EQUIPMENT_SPANS = ((0x06, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x67, 0x7A))
+# The gun lamp's cone shells 001D9530 bind 0x10 and 0x11 (with 0x16, the
+# writable FADE_MODEL below) through 001C6120(D_0028A56C, id) where
+# D_008106C8 lacks 0x20000000 (AREA01, AREA00, AREA02); its 001D4F30 /
+# 001D4A90 read each model's block count and REF its blocks into the chain
+# page. They follow 0x0F in file order: the shot's span grows to 0x11 and the
+# region count stays 16.
+EQUIPMENT_SPANS = ((0x06, 0x11), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x67, 0x7A))
 # The shot's spans carry the region header's word +0x0C = 1: library model
 # spans no pose host reads (em_area11_roger_regions leaves them out, so the
 # record pose hosts that map the other regions keep their count).
-SHOT_SPANS = ((0x06, 0x0F), (0x19, 0x19))
+SHOT_SPANS = ((0x06, 0x11), (0x19, 0x19))
 # A model-6 box's damage break (001551B0; BRANCH br_04 / br_06): the husk 0x22
 # and the subtype-0 debris pieces 0x1C / 0x1E (D_0025A350 row 0's +0x54 /
 # +0x58); a model 0x1C / 0x50 box's break (AREA00 a00_09's barricade crate:

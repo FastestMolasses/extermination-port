@@ -278,14 +278,30 @@ static int dispatch(EmAimFireLive *h,EmAimFireTargetCall *f)
     }
     case 0x170A60: case 0x171320: case 0x171670: case 0x171B00: case 0x171E90: case 0x1723D0:
         return machine(h,f->function,a,em_ee_word_int(b));
-    case 0x187780: case 0x187690: {
-        /* The gun lamp (AIM_FIRE.md section 10): 00188ED0's 00187780 and
-         * its flare 00187690. Their cone 001D9530 is not composed: AREA11's
-         * D_008106C8 has 0x20000000, which skips it (a call faults). */
+    case 0x187780: case 0x187690: case 0x1D9530: case 0x1D91A0: case 0x1DA290: case 0x1DA1E0:
+    case 0x1D4E20: case 0x1D4EB0: case 0x1D4B80: case 0x1D4C30: {
+        /* The gun lamp (AIM_FIRE.md section 10): 00188ED0's 00187780, its
+         * flare 00187690 and, where D_008106C8 lacks 0x20000000 (AREA01,
+         * AREA00, AREA02), its cone shells 001D9530 with their helpers. */
         EmAimFireTarget lamp={0}; lamp.context=h; lamp.map=target_map; lamp.call=target_call; lamp.sp=sp;
-        int status=f->function==0x187780
-            ? em_aim_fire_lamp_00187780(&lamp,a,em_ee_word_int(b),em_ee_word_int(c))
-            : em_aim_fire_lamp_00187690(&lamp,a,b,c,em_ee_word_int((uint32_t)f->a[3]),f->a[4],f->f[0],f->f[1],f->f[2]);
+        int status;uint32_t data=0;
+        switch(f->function) {
+        case 0x187780:status=em_aim_fire_lamp_00187780(&lamp,a,em_ee_word_int(b),em_ee_word_int(c));break;
+        case 0x187690:
+            status=em_aim_fire_lamp_00187690(&lamp,a,b,c,em_ee_word_int((uint32_t)f->a[3]),f->a[4],f->f[0],f->f[1],f->f[2]);
+            break;
+        case 0x1D9530:status=em_aim_fire_lamp_001D9530(&lamp,a);break;
+        case 0x1D91A0:
+            status=em_aim_fire_lamp_001D91A0(&lamp,a,b,c,em_ee_word_int((uint32_t)f->a[3]),f->f[0]);break;
+        case 0x1DA290:status=em_aim_fire_lamp_001DA290(&lamp,em_ee_word_int(a),em_ee_word_int(b));break;
+        case 0x1DA1E0:
+            status=em_aim_fire_lamp_001DA1E0(&lamp,em_ee_word_int(a),b,em_ee_word_int(c),&data);
+            f->v0=data;break;
+        case 0x1D4E20:status=em_aim_fire_lamp_001D4E20(&lamp,em_ee_word_int(a));break;
+        case 0x1D4EB0:status=em_aim_fire_lamp_001D4EB0(&lamp,em_ee_word_int(a));break;
+        case 0x1D4B80:status=em_aim_fire_lamp_001D4B80(&lamp,em_ee_word_int(a),b);break;
+        default:status=em_aim_fire_lamp_001D4C30(&lamp,em_ee_word_int(a),b);break;
+        }
         if (status<0) {
             if (!h->fault_function) h->fault_function=lamp.fault_function;
             if (!h->fault_address) h->fault_address=lamp.fault_address;

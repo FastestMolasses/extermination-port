@@ -96,7 +96,7 @@ All four PASS (section 10.6); `r1` and `r2` faulted at AIMLIVE on the
 | 00189EC0, 00189FE0, 0018A180, 001EFF10, 001F18C0 / 001F1550 / 001F15F0 | the knife's entity test, strike, reaction, trail spawn and trail node | em_area00_world, em_area00_fx (spawn, trail), em_aim_fire_trail (slots) | tools/test_area00_world / area00_fx_reference.py, the side run aim_melee |
 | 0018A6B0, 00188630 | the equipment nodes and the gun tick | em_player_equipment through em_equipment_live (live) | test-player-equipment-reference, the level smoke's check_effects |
 | 00827490 | the AREA11 cable | em_security_gun (live) | SECURITY_GUN.md |
-| 00187780, 00187690, 001D9530, 001D91A0, 001DA290, 001DA1E0, 001D4E20, 001D4EB0, 001D4B80, 001D4C30 | the gun lamp: its matrix, probe, attenuation and flare (001CFBE0 kind 1 over D_002487E0), and the cone shells with their helpers (section 10.2) | em_aim_fire_lamp, dispatched by em_aim_fire_live; the equipment node's 00187780 call through em_equipment_live_set_lamp | test-aim-fire-lamp-reference (60 cases quick, 156 full); the side run aim_light |
+| 00187780, 00187690, 001D9530, 001D91A0, 001DA290, 001DA1E0, 001D4E20, 001D4EB0, 001D4B80, 001D4C30 | the gun lamp: its matrix, probe, attenuation and flare (001CFBE0 kind 1 over D_002487E0), and the cone shells with their helpers (section 10.2) | em_aim_fire_lamp, dispatched by em_aim_fire_live; the equipment node's 00187780 call through em_equipment_live_set_lamp; the cone's channel builders em_rcl_001D1F80 / 001D4750 / 001D2090 / 001D4F30 / 001D4A90 and the page programs 00237180 / 00239C90 (section 10.8) | test-aim-fire-lamp-reference (60 cases quick, 156 full); the side run aim_light; test-aim-fire-lamp-cone (live, outside AREA11) |
 | 001EBBB0 | the ring decal's draw handler (subtype 7, 0x8000000E from 001F0460) | em_effect_kinds | test-effect-kinds-reference |
 | the VU1 program 0x230800 (kinds 0 / 4 of 001CFBE0) | the impact effect 0x80000060's streak quads | em_vu1_page_programs (`em_vu1_streak_program_mscal`), run by em_chain_page | test-chain-page-reference (the program's own microcode executed by tools/chain_page_model.py); the side runs aim_world / aim_cable (section 10.1) |
 | 001A9C40 | 001A9D20's pair callee: a class-1 record (the impact marker) near a class-2 record (Roger) sets its +0x0A bit 0 | em_coll_list_passes, bound in em_collision_world | test-coll-list-passes-reference (executed on its own, 5,460 staged runs) |
@@ -652,7 +652,8 @@ At AIMLIVE this section listed what kept the gate. Corrected and closed:
   (section 10.7).
 - **The gun lamp.** 00187780 / 00187690 and 001D9530 -> 001D91A0 (with
   001DA290) are translated (section 10.2); in AREA11 001D9530 is not
-  reached (D_008106C8 has 0x20000000).
+  reached (D_008106C8 has 0x20000000); outside AREA11 it is composed
+  (section 10.8).
 - **aim_11 (the knife on the cable)** is replayed: the stick replays walk
   with the capture's own stick bytes (section 10.4).
 - **The gate** is gone (section 10.3).
@@ -708,8 +709,9 @@ and compares every store, call and fault (60 cases by default, about 5 s;
 
 In AREA11 D_008106C8 is 0x20081910 (bit 0x20000000 set) in every capture,
 so the cone shells are skipped and the lamp draws only the flare sprite
-(decomp CURIOSITIES "The gun light draws"); the composition refuses
-001D9530 with a message if it is ever reached here. The flare's block
+(decomp CURIOSITIES "The gun light draws"). Where the bit is clear
+(AREA01, AREA00, AREA02) the cone shells are composed since 2026-10-29
+(section 10.8). The flare's block
 D_002487E0 lies inside the pose tables' read-only region 0x248740..0x248ACC
 (the EMAF export); the composition owns the block's 0x90 bytes as a
 writable view into the same table bytes (`aim_regions`,
@@ -870,11 +872,82 @@ other sessions):
 - **The decomp's FUNCTIONS.csv** still lists 001EAB50 and 001A9C40 as
   undecompiled while their C exists (without a NEARMISS marker); that is
   the decomp lane's to reconcile.
-- **001D9530's cone shells** are translated and instruction-tested but no
-  AREA11 frame reaches them (D_008106C8); a later level that clears
-  0x20000000 (AREA01's 0x8D00 / 0x8D01) is where they first draw.
+- **001D9530's cone shells**: no AREA11 frame reaches them (D_008106C8);
+  they draw from AREA01 on, composed since 2026-10-29 (section 10.8).
 - The original death states (0021E240 / 0021E830) are not translated;
   em_player_damage keeps the legacy death sequence (L02).
+
+### 10.8 The lamp outside AREA11 (2026-10-29, lane L1)
+
+The user hit a fail-stop with the lamp on in the AREA01 revisit (after the
+event movie E008S4): `aim/fire: original 00187780 faulted at function
+00102948 address 700030D0`, then `em_scene: FAULT at 00187780`. Reproduced
+headless from a loaded game (`EM_START_AT=area01`, `area01-revisit`,
+`a01r_01`, `area02`, `a01_03` with an `EM_START_AT_PAD` script: R1, Square,
+the stick turning). Two faults, one behind the other:
+
+- **The cell record's quadword.** When 00187780's probe 0019A570(.., 6, 0)
+  names the cell record (0x700031D0 = D_700030B0, the cell walkers' hit),
+  the lamp copies `*0x700031D0 + 0x24` with 00102948 (decomp
+  src/func_00187780.c; the copy is a quadword load, which drops the low
+  four address bits): the original reads 0x700030D0..0x700030DF, the
+  record's +0x20 word (the hull locks') and its normal +0x24..+0x2C. The
+  composition kept those as two fields of the walkers' state and had no
+  16-byte view: the map refused the read. `em_aim_fire_world_live_map` now
+  serves the quadword (`cell16`, read only) from the same two fields, as
+  it serves 0x700031B0's (`point16`). The copy's destination sp+0xD0 is
+  passed on to 001D9530, whose byte-matched C never reads it, so the
+  value reaches no output; the read itself is the original's.
+- **The cone shells.** Past that copy, 00187780 calls 001D9530 unless
+  001B0070() has 0x20000000. Every AREA01, AREA00 and AREA02 route capture
+  (s87 route_a00 / a01 / a01r / a02 end snapshots) has D_008106C8 without
+  it (0x8D00, 0x8D01, 0x0D00), so the original draws the cone there; the
+  composition refused 001D9530 (a reached refusal is a fail-stop). Now:
+  em_aim_fire_live dispatches 001D9530, 001D91A0, 001DA290, 001DA1E0 and
+  the kernel heads 001D4E20 / 001D4EB0 / 001D4B80 / 001D4C30 to their
+  translations (em_aim_fire_lamp, instruction-tested above); their callees
+  are the render context's own builders over its storage
+  (em_render_context_live: `em_rcl_001D1F80`, and the new
+  `em_rcl_001D4750`, `em_rcl_001D2090`, `em_rcl_001D4F30`,
+  `em_rcl_001D4A90`, em_static_world's translations as the AREA01 dynamic
+  table pass runs them), 001D7080 / 001CB760 as before, 00128250 (the
+  soft-float float -> unsigned, em_stream_lanes' translation of the
+  byte-matched C; its 32-bit result sign-extended in v0) and 001C6120 over
+  the library D_0028A56C (em_aim_fire_flash). The data: the colours
+  D_00253190..D_002531BF, D_0026E540 and the two kernel packets D_00237180
+  (the level kernel) and D_00239C90 (the box clip kernel) joined
+  `tools/export_effect_tables.py`; the library models 0x10 and 0x11 joined
+  the Roger export's shot span (`tools/export_roger_banks.py`, 0x06..0x11;
+  0x16 was already there). Re-export both (the effect tables with
+  export_area01_water_effects.py and export_area00_runtime_tables.py after
+  it, the Roger banks with export_area00_library.py and
+  export_area02_library.py after it).
+- **The page.** 001CB760 puts the channel-3 list on the chain page, which
+  now runs the level kernel 00237180 (MPG of 79 from 0x2371B0: the static
+  world's translation em_vu1_level_kernel, 32 vertices, the registers
+  carried as for AREA01's 00237450) and the box clip kernel 00239C90 (five
+  MPGs from 0x239CC0: em_vu1_shadow_clip's box kernel), MSCAL and MSCNT,
+  TOPS-relative UNPACKs, and 001D7080's A+D RGBAQ (the whole register, its
+  Q included). The library models' blocks the runs REF are read from the
+  Roger export (em_chain_page_live_read).
+
+Verified: test-aim-fire-lamp-cone (about 16 s): loaded games in area01,
+area01-revisit and area02 (EM_TEST_FULL=1: also area00 and a02_03) with the
+lamp on, the stick turning, four rounds, L3 (the reload), the lamp off and
+on again: no fault, no cone page while the lamp is off and cone pages after
+it is on again, the cell record's quadword read (68 times in area01, 4 in
+area02), and the first cone page (full: the first three) walked again by
+tools/chain_page_model.py, which executes the ORIGINAL microcode the page
+uploads (the two kernels; the model learned them, the AREA01 dynamic pair
+00237450 / 00237720, FSAND over the Z / S status flags, A+D RGBAQ and the
+masked ZBUF, and a unit's class state), over the port's own page bytes:
+the same primitives (digest and count), DIRECTs, XGKICKs and kernel MSCALs
+on all 15 pages of the full run. With the 0x700030D0 view removed the test
+fails with the user's message. The EE side is test-aim-fire-lamp-reference.
+
+Not measured: no original capture holds a frame with the lamp on outside
+AREA11, so the cone's pixels are the original microcode's over the port's
+page, not a capture's.
 
 ## 11. Chain step AIMCAP (2026-10-02): every AIM beat against its recording, whole records
 

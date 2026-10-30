@@ -57,6 +57,12 @@ typedef struct {
      * one owner here: 0 at the attach, and a store through the
      * composition lands in it. point16 is the quadword read's snapshot. */
     uint32_t word_31BC, point16[4];
+    /* 0x700030D0..0x700030DF, the quadword 00187780's 00102948 copies
+     * from *0x700031D0 + 0x24 when the probe names the cell record
+     * D_700030B0 (the copy's load drops the low four address bits): the
+     * record's +0x20 word and its normal +0x24..+0x2C, a read-only
+     * snapshot of the walker's fields (em_aim_fire_world_live_map). */
+    uint32_t cell16[4];
     /* 1 while the move walkers' scratch is the one a composition call
      * wrote last (0019B2C0); the scratchpad views then show it. */
     int move_last;
@@ -64,6 +70,9 @@ typedef struct {
 } EmAimFireWorldLive;
 
 void *em_aim_fire_world_live_map(void *, uint32_t address, size_t size, int write);
+/* How many times the quadword 0x700030D0 (cell16) was served: the
+ * EM_LAMP_PAGE_DUMP observer's count (em_chain_page_live). */
+uint32_t em_aim_fire_world_live_cell_quadwords(void);
 int em_aim_fire_world_live_call(void *, EmAimFireLive *, EmAimFireTargetCall *);
 /* The innermost running em_aim_fire_world_live_call's resolution for its
  * region-only effect owners (the bytes they get for [a, a + n), with the

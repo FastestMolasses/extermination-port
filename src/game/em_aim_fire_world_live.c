@@ -139,6 +139,8 @@ static void *class2_map(EmAimFireWorldLive *w,uint32_t a,size_t n,int write)
     }
     return (uint8_t *)w->class2_words+4u*EM_ACTOR_LIST_MAX-(CLASS2_BASE-a);
 }
+static uint32_t cell16_reads;
+uint32_t em_aim_fire_world_live_cell_quadwords(void) { return cell16_reads; }
 void *em_aim_fire_world_live_map(void *context,uint32_t a,size_t n,int write)
 {
     EmAimFireWorldLive *w=context;
@@ -154,6 +156,17 @@ void *em_aim_fire_world_live_map(void *context,uint32_t a,size_t n,int write)
         if (!pt) return NULL;
         memcpy(w->point16,pt,12);w->point16[3]=w->word_31BC;
         return w->point16;
+    }
+    if (a==0x700030D0u && n==16 && !write) {
+        /* The cell record's +0x20 and +0x24..+0x2C as one quadword: the
+         * two fields the walkers keep at those addresses (the hull locks'
+         * +0x20 word, the cell walkers' normal). */
+        const void *w20=collision_map(w,0x700030D0u,4,0);
+        const void *nrm=w20?collision_map(w,0x700030D4u,12,0):NULL;
+        if (!nrm) return NULL;
+        memcpy(w->cell16,w20,4);memcpy(w->cell16+1,nrm,12);
+        ++cell16_reads;
+        return w->cell16;
     }
     void *p=collision_map(w,a,n,write);
     if(p)return p;

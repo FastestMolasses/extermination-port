@@ -760,3 +760,15 @@ player meets it):
    (a01_s1 row 314, a01_s2 row 258, a01_s5 row 1623), so those beats are
    compared only up to those rows.
 
+
+## The gun lamp (2026-10-29, lane L1)
+
+A user run with the lamp on (Square while aiming) fail-stopped in the
+AREA01 revisit: `aim/fire: original 00187780 faulted at function 00102948
+address 700030D0`. Two faults in the lamp's path outside AREA11, both
+fixed: the cell record's quadword 0x700030D0 (00187780 copies
+`*0x700031D0 + 0x24` when its probe names D_700030B0) had no 16-byte view,
+and the cone shells 001D9530, which the original draws wherever
+D_008106C8 lacks 0x20000000 (every AREA01 / AREA00 / AREA02 capture), were
+not composed. Cause, fix and evidence: AIM_FIRE.md section 10.8;
+CHAIN_PAGE.md section 6.4; test-aim-fire-lamp-cone.

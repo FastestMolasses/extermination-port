@@ -119,6 +119,12 @@ Blocks (original address, bytes, what reads them):
                       drop shadow's alpha-clear strip (001DA290 copies them
                       into 001DA1E0's DIRECT packet), read by the Original
                       profile's GS frame (src/gs/em_gs_world.h, em_gfx.h)
+  0x00253190  0x40    D_00253190 / D_002531A0 / D_002531B0, the gun
+                      lamp's cone shell colours (001D9530), and
+  0x0026E540  0x10    D_0026E540, the offset 001D91A0 adds to each
+  0x00237180  0x2C0   the level kernel's DMA packet and RET tag, and
+  0x00239C90  0x2560  the box clip kernel's, which the cone shells'
+                      001D4E20 / 001D4B80 REF into the chain page
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -194,6 +200,13 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           # D_002531D0: the drop shadow's alpha-clear strip, read by the
           # Original profile's GS frame.
           (0x002531D0, 0x40),
+          # The gun lamp's cone shells 001D9530 (AREA01 / AREA00 / AREA02,
+          # where D_008106C8 lacks 0x20000000): its three colour quadwords
+          # D_00253190 / D_002531A0 / D_002531B0, 001D91A0's colour offset
+          # D_0026E540, and the two kernel packets 001D4E20 / 001D4B80
+          # REF into the page, each with its RET tag: the level kernel
+          # D_00237180 and the box clip kernel D_00239C90.
+          (0x00253190, 0x40), (0x0026E540, 0x10), (0x00237180, 0x2C0), (0x00239C90, 0x2560),
           # 001E9280's AREA00 surface program packet D_00234FE0 (CALLed by
           # 001CB760 for 0015AB00's surface) and its RET tag.
           (0x00234FE0, 0x4B0),

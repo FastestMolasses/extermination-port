@@ -13,6 +13,7 @@
 #include "game/em_shadow_live.h"
 #include "game/em_aim_fire_leaves.h"
 #include "game/em_area11_roger.h"
+#include "game/em_stream_lanes_original.h"
 #include "game/em_aim_fire_render_live.h"
 #include "game/em_aim_fire_world_live.h"
 #include "game/em_area00_low.h"
@@ -618,6 +619,26 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
     case 0x1D1F20: return em_rcl_001D1F20((int32_t)f->a[0]);
     case 0x1D2040: return em_rcl_001D2040((int32_t)f->a[0],(int32_t)f->a[1]);
     case 0x1D7080: return em_rcl_001D7080((int32_t)f->a[0],(uint32_t)f->a[1],f->f[0]);
+    /* The gun lamp's cone shells (001D9530 -> 001DA290 / 001D91A0 and the
+     * kernel heads 001D4E20 / 001D4B80; AREA01, AREA00, AREA02): the
+     * render context's channel builders, over its own storage. */
+    case 0x128250:
+        /* 00128250(f12), the soft-float float -> unsigned (byte-matched
+         * decomp C; em_stream_lanes' translation): 001D91A0's colour lanes.
+         * Its 32-bit result sits in v0 sign-extended, as every 32-bit
+         * operation leaves a register. */
+        f->v0=(uint64_t)(int64_t)(int32_t)em_stream_lanes_00128250(f->f[0]);return 0;
+    case 0x1D1F80: return em_rcl_001D1F80((int32_t)f->a[0],(int32_t)f->a[1],(int32_t)f->a[2]);
+    case 0x1D4750: return em_rcl_001D4750((int32_t)f->a[0]);
+    case 0x1D2090: return em_rcl_001D2090((int32_t)f->a[0],(uint32_t)f->a[1]);
+    case 0x1D4F30: case 0x1D4A90: {
+        /* The runs read the model's count word: a library model's (the
+         * Roger export, 001C6120's D_0028A56C). */
+        const uint8_t *head=em_area11_roger_resource((uint32_t)f->a[1],4);
+        if (!head) return -1;
+        return f->function==0x1D4F30 ? em_rcl_001D4F30((int32_t)f->a[0],(uint32_t)f->a[1],head)
+                                     : em_rcl_001D4A90((int32_t)f->a[0],(uint32_t)f->a[1],head);
+    }
     case 0x1CB760: return em_rcl_001CB760((uint32_t)f->a[0],(int32_t)f->a[1],(uint32_t)f->a[2]);
     case 0x1D2830:
         /* 001D2830(flag, value): the render context's flag (the flash node
@@ -645,12 +666,6 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
         if (em_pad_actuator_001B61C0((uint8_t)f->a[0],(uint8_t)f->a[1],(int)(int32_t)f->a[2],
                                      (int)(int32_t)f->a[3])<0) return -1;
         return 0;   /* its v0 is unused by 0018A180, its one caller here */
-    case 0x1D9530:
-        /* The lamp's cone shells: 00187780 calls it only when D_008106C8
-         * lacks 0x20000000, which AREA11 sets in every capture (decomp
-         * CURIOSITIES "The gun light draws"). Not composed. */
-        fprintf(stderr,"aim/fire: 001D9530 (the lamp's cone shells) is not composed: D_008106C8 lacks 0x20000000\n");
-        return -1;
     default:return em_aim_fire_world_live_call(&R.world,live,f);
     }
 }
