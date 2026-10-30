@@ -110,6 +110,9 @@ int em_area01_live_call_active(EmArea01Live *, EmArea01Call *);
 /* The Use dispatch's scan inside the existing player stage. Its actual
  * in-stage record is borrowed read-only, without post-stage projections. */
 int em_area01_live_scan(EmArea01Live *,EmPlayerLiveActor *,int *result);
+/* 00185420(item): the device record the status pages' BATTERY page talks
+ * to (*owner 0 for none). */
+int em_area01_live_find_device(EmArea01Live *l,EmPlayerLiveActor *p,int32_t item,uint32_t *owner);
 /* Read-only player borrow for an in-stage worker such as water contact. */
 int em_area01_live_player_call(EmArea01Live *,EmPlayerLiveActor *,EmArea01Call *);
 #endif

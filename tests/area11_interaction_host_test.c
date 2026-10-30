@@ -273,6 +273,7 @@ uint8_t *em_scene_bindings_device_bytes(uint32_t address, uint32_t size) { (void
 int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
 { (void)owner; (void)offset; (void)size; (void)value; return -1; }
 void player_states_vitals_publish(void) {}
+int em_scene_bindings_find_device(int32_t item, uint32_t *owner) { (void)item; (void)owner; return -2; }
 const EmPlayerLiveActor *player_states_actor(void) { return &player_record; }
 int em_scene_bindings_001FABB0(void) { ++stream_stops; return 0; }
 int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)

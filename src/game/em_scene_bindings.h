@@ -50,10 +50,15 @@ EmSceneState *em_scene_state(void);
  * +0x0A..+0x0B of an allocated record, or NULL. */
 uint8_t *em_scene_bindings_device_bytes(uint32_t address, uint32_t size);
 /* The BATTERY page's typed reads of an AREA01 / AREA02 battery panel (the
- * pool owner 00158EC0, AREA02's [24]) that D_008106D0 names: +3 (1 byte)
+ * pool owners 00158EC0, AREA02's [24], and 00159210, AREA02's console [4])
+ * that D_008106D0 or 00185420 names: +3 (1 byte)
  * and +0x34 (2 bytes, signed), through the canonical actor view. 0, or -1
  * for any other record or field. */
 int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value);
+/* 00185420(item) over the AREA01 / AREA02 live composition's published
+ * list: 0 (*owner the record, 0 for none), -1 failure, -2 when no AREA01 /
+ * AREA02 composition is bound (AREA11's host list decides). */
+int em_scene_bindings_find_device(int32_t item, uint32_t *owner);
 int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
                                           int32_t *value);
 int em_scene_bindings_terminal_reset(void);

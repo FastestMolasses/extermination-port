@@ -28,7 +28,7 @@ def build():
         '-shared','-fPIC','-Isrc','-Wl,-dead_strip','-Wl,-exported_symbol,_ai_*',
         'tests/area01_interaction_bridge.c','src/game/em_area01_interaction_live.c',
         'src/game/em_interaction_scan.c','src/game/em_door_candidate.c',
-        'src/game/em_roger.c','src/game/em_item_sdk_math.c','-o',str(target)],cwd=ROOT,check=True)
+        'src/game/em_roger.c','src/game/em_item_sdk_math.c','src/game/em_item_device.c','-o',str(target)],cwd=ROOT,check=True)
     lib=C.CDLL(str(target));lib.ai_seed.argtypes=[C.c_void_p,C.c_void_p,C.c_int]+[C.c_uint32]*3
     lib.ai_call.argtypes=[C.c_uint32]*3+[C.POINTER(C.c_uint32)]
     lib.ai_query.argtypes=[C.c_uint];lib.ai_query.restype=C.c_void_p

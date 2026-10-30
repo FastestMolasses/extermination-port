@@ -608,6 +608,10 @@ static int page_sound(void *context, int32_t id, int32_t a1, int32_t a2, int32_t
 static int page_find_device(void *context, int32_t item, uint32_t *owner)
 {
     (void)context;
+    /* AREA01 / AREA02: the live composition's list (its 00185420). */
+    const int area = em_scene_bindings_find_device(item, owner);
+    if (area != -2)
+        return area;
     void *selected = NULL;
     int result = device_lookup((unsigned)item, &selected);
     if (result < 0) return -1;

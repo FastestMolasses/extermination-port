@@ -2,6 +2,7 @@
 #include "game/em_door_candidate.h"
 #include "game/em_roger.h"
 #include "game/em_ee_float.h"
+#include "game/em_item_device.h"
 #include <math.h>
 #include <string.h>
 
@@ -176,7 +177,42 @@ int em_area01_interaction_bind(EmArea01Interaction *s,const EmArea01RuntimeHost 
 int em_area01_interaction_call(EmArea01Interaction *s,EmArea01Call *c)
 {
     if (!s || !c || s->fault) return -1;
-    if (c->na<1 || (c->function!=0x00184BA0u && c->function!=0x00183EF0u)) return fail(s,c->function);
+    if (c->na<1 || (c->function!=0x00184BA0u && c->function!=0x00183EF0u && c->function!=0x00185420u))
+        return fail(s,c->function);
+    if (c->function==0x00185420u) {
+        /* 00185420(item) (byte-matched C) over D_00275B5C / D_00275B64:
+         * the first node with +0 bit 0, +2 bit 7 and +0xB == 0 that
+         * 00184D20(D_008102B0, node, item) accepts; em_item_device_find is
+         * that test for the battery items 0x1B..0x1D (any other item
+         * faults, as there). */
+        Frame f={.binding=s,.player=0x008102B0u,.sp=c->sp};
+        const unsigned item=(unsigned)c->a[0];
+        int count=(int16_t)read_value(&f,0x00275B64u,2);
+        if (s->fault || count<0 || count>EM_INTERACTION_CAPACITY) return fail(s,0x00275B64u);
+        uint32_t table=read_value(&f,0x00275B5Cu,4);
+        EmItemDevice devices[EM_INTERACTION_CAPACITY];
+        for (int i=0;i<count;++i) {
+            const uint32_t node=read_value(&f,table+4u*(unsigned)i,4);
+            EmItemDevice *d=&devices[i];
+            memset(d,0,sizeof *d);
+            d->owner=(void *)(uintptr_t)node;
+            d->status=(uint8_t)read_value(&f,node,1);d->class_flags=(uint8_t)read_value(&f,node+2,1);
+            d->subtype=(uint8_t)read_value(&f,node+3,1);d->shape=(uint8_t)read_value(&f,node+8,1);
+            d->armed=(uint8_t)read_value(&f,node+0xB,1);
+            if (floats(&f,node+0xB0,d->position,3)<0 || floats(&f,node+0xC4,&d->yaw,1)<0) return -1;
+            /* The descriptor at +0x30: the words the node's shape reads
+             * (0 / 3 / 4: two; 1 / 2: six; 5: none). */
+            const unsigned words=d->shape==5 ? 0u : d->shape==1 || d->shape==2 ? 6u : 2u;
+            if (words && floats(&f,read_value(&f,node+0x30,4),d->parameters,words)<0) return -1;
+        }
+        float player[3],yaw;
+        if (floats(&f,0x008102B0u+0xA0u,player,3)<0 || floats(&f,0x008102B0u+0xC4u,&yaw,1)<0) return -1;
+        void *owner=NULL;
+        int rc=em_item_device_find(devices,(size_t)count,item,player,yaw,s->math,&owner);
+        if (rc<0) return fail(s,c->function);
+        c->v0=rc ? (uint32_t)(uintptr_t)owner : 0u;
+        return 0;
+    }
     Frame f={.binding=s,.player=(uint32_t)c->a[0],.sp=c->sp};
     float score=em_ee_float(read_value(&f,0x70003B98u,4));
     if (c->function==0x00183EF0u) {

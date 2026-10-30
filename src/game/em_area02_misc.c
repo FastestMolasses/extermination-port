@@ -1125,6 +1125,15 @@ static void f_1EC5F0(Run *r, uint32_t sp_in, uint32_t a0, uint32_t a1)
     seeded_pass(r, sp, a0, a1, 0x40A00000u, 0, 0x00256B80u, 0);
 }
 
+/* 001EC820(a0, a1), frame 0x30 (byte-matched C): two seeded passes (3.0;
+ * kind 1, t0 0) with the tables 0x00256C10, 0x00256CA0. */
+static void f_1EC820(Run *r, uint32_t sp_in, uint32_t a0, uint32_t a1)
+{
+    const uint32_t sp = sp_in - 0x30u;
+    seeded_pass(r, sp, a0, a1, 0x40400000u, 1, 0x00256C10u, 0);
+    seeded_pass(r, sp, a0, a1, 0x40400000u, 1, 0x00256CA0u, 0);
+}
+
 /* The unseeded packet of 001EC9A0 / 001ECEF0: c = D_00275C34, the packet
  * (0x0081F8F0, 0, a0; c +0x54, c +0x5C, 1.0, 1e-6, f16). */
 static void plain_packet(Run *r, uint32_t sp, uint32_t a0, uint32_t f16)
@@ -1498,6 +1507,13 @@ int em_area02_misc_001EC5F0(EmArea02Misc *s, uint32_t a0, uint32_t a1)
 {
     ENTER(0x001EC5F0u)
     f_1EC5F0(r, s->sp, a0, a1);
+    return 0;
+}
+
+int em_area02_misc_001EC820(EmArea02Misc *s, uint32_t a0, uint32_t a1)
+{
+    ENTER(0x001EC820u)
+    f_1EC820(r, s->sp, a0, a1);
     return 0;
 }
 

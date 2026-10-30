@@ -33,6 +33,7 @@
  *             tables read from the instructions)
  *   001EBD20  the 0x70003400 copy, its +0x34 step and one packet (NEARMISS)
  *   001EC5F0  three packets with the D_00275C34 +4 draw (NEARMISS)
+ *   001EC820  two seeded packets, tables 0x00256C10 / 0x00256CA0 (C)
  *   001EC9A0  one packet, table 0x00256D30 (NEARMISS)
  *   001ECEF0  one packet, table by D_00275C30 +0x38 (C)
  *   001EDAF0  the three records' fields, three packets, the +8 ease
@@ -190,6 +191,7 @@ int em_area02_misc_001E4A00(EmArea02Misc *s, uint32_t a0, uint32_t f12, uint32_t
 int em_area02_misc_001E4CE0(EmArea02Misc *s, uint32_t a0);
 int em_area02_misc_001EBD20(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001EC5F0(EmArea02Misc *s, uint32_t a0, uint32_t a1);
+int em_area02_misc_001EC820(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001EC9A0(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001ECEF0(EmArea02Misc *s, uint32_t a0, uint32_t a1);
 int em_area02_misc_001EDAF0(EmArea02Misc *s, uint32_t a0, uint32_t a1);

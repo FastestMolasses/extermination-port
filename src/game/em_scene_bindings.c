@@ -3360,6 +3360,12 @@ uint8_t *em_scene_bindings_device_bytes(uint32_t address, uint32_t size)
         return NULL;
     return &a->u0A[offset - 0x0Au];
 }
+int em_scene_bindings_find_device(int32_t item, uint32_t *owner)
+{
+    if (!s_area01_live.bound)
+        return -2;
+    return em_area01_live_find_device(&s_area01_live, player_states_actor_mut(), item, owner) < 0 ? -1 : 0;
+}
 int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
 {
     if (!value || !s_area01_live.bound || owner < EM_ACTOR_POOL_BASE ||
@@ -3368,7 +3374,7 @@ int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t
         !((offset == 3 && size == 1) || (offset == 0x34 && size == 2)))
         return -1;
     const EmActor *a = &s_pool.records[(owner - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE];
-    if (!a->status || a->self != a || a->callback != 0x00158EC0u)
+    if (!a->status || a->self != a || (a->callback != 0x00158EC0u && a->callback != 0x00159210u))
         return -1;
     uint8_t b[2];
     if (em_area01_actor_view_snapshot(&s_area01_live.actors, owner + offset, size, b) < 0)

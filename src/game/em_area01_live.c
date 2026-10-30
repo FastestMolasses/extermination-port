@@ -966,7 +966,7 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_live_resume(l)<0)return -1;
         return rc;
     }
-    if(c->function==0x00183EF0u || c->function==0x00184BA0u)
+    if(c->function==0x00183EF0u || c->function==0x00184BA0u || c->function==0x00185420u)
         return em_area01_interaction_call(&l->interaction,c);
     if(c->function==0x0018C4B0u || c->function==0x0018C6A0u) {
         const EmArea01RuntimeHost host={l,bytes,nested};
@@ -1516,6 +1516,16 @@ int em_area01_live_player_call(EmArea01Live *l,EmPlayerLiveActor *p,EmArea01Call
     l->player_stage=1;
     int rc=em_area01_live_call(l,c);
     l->player_stage=0;
+    return rc;
+}
+/* 00185420(item) for the status pages (the BATTERY page's device): the
+ * record address in *owner, 0 for none. */
+int em_area01_live_find_device(EmArea01Live *l,EmPlayerLiveActor *p,int32_t item,uint32_t *owner)
+{
+    if(!owner)return -1;
+    EmArea01Call c={.function=0x00185420u,.a={(uint64_t)(int64_t)item},.na=1};
+    int rc=em_area01_live_player_call(l,p,&c);
+    if(rc>=0)*owner=(uint32_t)c.v0;
     return rc;
 }
 int em_area01_live_scan(EmArea01Live *l,EmPlayerLiveActor *p,int *result)
