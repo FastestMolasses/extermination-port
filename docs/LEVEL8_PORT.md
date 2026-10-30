@@ -57,7 +57,7 @@ so these runs are not row-by-row comparisons.
 | a01u_s0 | a01u_s0 | a01u_s0 | pass |
 | a01u_s1 | a01u | a01u_s1 | pass (lane G1, branch gs-arrival: the GS barrier below) |
 | a06 | area06 | a06_00 .. a06_05 | a06_00 passes; the rest play to their ends, the block differing in bites and taken bits (AREA06_PORT.md "Where AREA06 stands") |
-| a06b | area06 | a06_00 .. a06_03, a06b_00, a06b_01 | chained from the arrival (a card restarts the cable 0x823B50); see the latest run in the lane report |
+| a06b | area06 | a06_00 .. a06_03, a06b_00, a06b_01 | chained from the arrival (a card restarts the cable 0x823B50); the a06 beats as above, a06b_00 misses its jump over the trigger quad: the beam falls (D_00810768) |
 | a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 depends on a bite (creature result); a01v_02 passes from its own card |
 | a04b | a04b_00 | a04b_00 .. a04b_04 | lane D1: a04b_00..03 play to their ends, their blocks equal but for one infection word (the loaded bugs did not bite); a04b_04's recorded pad ends without a fault, the Use at button [54] not taken from a card; a scratch pad takes it and rides to AREA13's load, which has no module yet (EIGHTH_LEVEL_ROUTE.md "Native status") |
 | a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 loads AREA04 (lane B1's host, main 64e70c2), gets past the arrival (the GS barrier below) and passes |
