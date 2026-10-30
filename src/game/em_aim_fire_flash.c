@@ -338,8 +338,15 @@ int em_aim_fire_flash_call(EmAimFireTargetCall *c)
     EmActor *a = NULL;
     switch (c->function) {
     case 0x001C6120u: {
-        /* 001C6120(bank, id): only the library D_0028A56C is exported. */
+        /* 001C6120(bank, id): the library D_0028A56C, or the world bank
+         * D_0028A59C (001F3E30's beam pieces). */
         u32 handle = 0;
+        if ((u32)c->a[0] == em_area11_boxes_world_bank_word() && (u32)c->a[0] != S.d0028A56C) {
+            if (em_area11_boxes_world_001C6120((u32)c->a[0], (u32)c->a[1], &handle) < 0)
+                return fail(0x001C6120u, "the model is not in the world bank");
+            c->v0 = handle;
+            return 1;
+        }
         if ((u32)c->a[0] != S.d0028A56C) return fail(0x001C6120u, "a bank other than D_0028A56C");
         if (em_area11_roger_001C6120((u32)c->a[0], (u32)c->a[1], &handle) < 0)
             return fail(0x001C6120u, "the library model is not in the Roger export");

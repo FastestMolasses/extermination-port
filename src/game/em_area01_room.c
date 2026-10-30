@@ -259,6 +259,41 @@ static int32_t f_1BB400(Run *r, uint32_t a0)
 }
 
 /* ------------------------------------------------------------------------
+ * 001BB310(a0), 0x10-byte frame (byte-matched C; the op09 callback of the
+ * door records 0x24DA80): 0x700038A0 = the +0xB0 point of the entity at
+ * a0 +0x1C, w = 1; 00102948(D_008105E0, it); then x = D_00810360 - 15 *
+ * 0011E2A8(D_00810374), y = 5 + D_00810364, z = D_00810368 - 15 *
+ * 0011DE90(D_00810374); 00102948(D_008105D0, it). The result is 1.
+ * ---------------------------------------------------------------------- */
+#define F_15 0x41700000u
+
+static int32_t f_1BB310(Run *r, uint32_t sp0, uint32_t a0)
+{
+    uint32_t sp = sp0 - 0x10u, e, t0, t1, heading, s;
+    uint64_t a[2];
+    uint32_t f[1];
+    e = w32(r, a0 + 0x1Cu);
+    st32(r, 0x700038A0u, w32(r, e + 0xB0u));
+    st32(r, 0x700038A4u, w32(r, e + 0xB4u));
+    st32(r, 0x700038A8u, w32(r, e + 0xB8u));
+    st32(r, 0x700038ACu, 0x3F800000u);
+    calli(r, sp, FN_COPY_QW, 2, D_008105E0, 0x700038A0u, 0);
+    f[0] = w32(r, 0x00810374u);
+    a[0] = 0;
+    s = call(r, sp, 0x0011E2A8u, 0, a, 1, f).f0;
+    t0 = em_ee_sub_bits(w32(r, 0x00810360u), em_ee_mul_bits(F_15, s));
+    t1 = em_ee_add_bits(F_FIVE, w32(r, 0x00810364u));
+    heading = w32(r, 0x00810374u);
+    f[0] = heading;
+    st32(r, 0x700038A0u, t0);
+    st32(r, 0x700038A4u, t1);
+    s = call(r, sp, 0x0011DE90u, 0, a, 1, f).f0;
+    st32(r, 0x700038A8u, em_ee_sub_bits(w32(r, 0x00810368u), em_ee_mul_bits(F_15, s)));
+    calli(r, sp, FN_COPY_QW, 2, D_008105D0, 0x700038A0u, 0);
+    return 1;
+}
+
+/* ------------------------------------------------------------------------
  * 001BB7C0(a0), 0x10-byte frame: 001BA1F0(a0); the result is 1 when its
  * whole v0 register is non-zero, else 0.
  * ---------------------------------------------------------------------- */
@@ -419,6 +454,17 @@ int em_area01_room_001BB400(EmArea01Room *s, uint32_t a0, int32_t *out)
     if (!out)
         return out_null(s, 0x001BB400u);
     v = f_1BB400(r, a0);
+    *out = v;
+    return 0;
+}
+
+int em_area01_room_001BB310(EmArea01Room *s, uint32_t a0, int32_t *out)
+{
+    int32_t v;
+    ENTER(s, 0x001BB310u);
+    if (!out)
+        return out_null(s, 0x001BB310u);
+    v = f_1BB310(r, s->sp, a0);
     *out = v;
     return 0;
 }

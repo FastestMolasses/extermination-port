@@ -120,6 +120,8 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # the area change's flash node 001E7440's ramp row
                # (001DEE80(9, D_0026E980)), 001E7310's D_0026E970 twin
                (0x0026E980, 0x10),
+               # the bugs' (0012A5D0, 00128C10) countdown halfwords D_00275380
+               (0x00275380, 8),
                # the third ramp twin 001E7570's (0x80000063): 001DEE80's row
                # D_0026E990 and 001DF600's 001D6B60 colour D_0026E870
                (0x0026E990, 0x10), (0x0026E870, 0x10),

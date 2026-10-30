@@ -15,6 +15,7 @@
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_object_unit.h"
+#include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
 #include "game/em_diag.h"
 #include "game/em_packet_chain_original.h"
@@ -1202,13 +1203,17 @@ int em_owner_draw_live_001CA940_library(int32_t flags, uint32_t model)
     if (bind_views(&L.library) < 0) return -1;
     /* The model (header, blocks, skeleton records) from the Roger export,
      * at its library address. */
-    const uint8_t *m = em_area11_roger_resource(model, 0x40);
-    if (!m) return report(model, "001CA940 of a model outside the Roger export");
+    /* A model of the area's world bank (001F3E30 of slot 0x43: AREA06's beam
+     * pieces), else the library's. */
+    const EmWorldModels *world = em_area11_boxes_world_models();
+    const EmWorldModel *resident = world ? em_world_models_at(world, model) : NULL;
+    const uint8_t *m = resident ? resident->bytes : em_area11_roger_resource(model, 0x40);
+    if (!m) return report(model, "001CA940 of a model outside the Roger export and the world bank");
     const uint32_t bones = (uint32_t)m[8] | (uint32_t)m[9] << 8 | (uint32_t)m[10] << 16 | (uint32_t)m[11] << 24;
     const uint32_t skeleton = (uint32_t)m[12] | (uint32_t)m[13] << 8 | (uint32_t)m[14] << 16 | (uint32_t)m[15] << 24;
     if (bones > 0xFFu || skeleton > 0x01000000u) return report(model, "not a block model");
     const EmWorldModel *entry = NULL;
-    const uint8_t *all = em_area11_roger_resource(model, skeleton + 0x50u * bones);
+    const uint8_t *all = resident ? resident->bytes : em_area11_roger_resource(model, skeleton + 0x50u * bones);
     if (!all || em_world_models_add(&L.library, model, all, skeleton + 0x50u * bones, &entry) < 0)
         return report(model, "the library model does not parse");
     if (channel_open() < 0) return report(0x00811CD0u, "the channel-0 cursor is outside the packet arena");

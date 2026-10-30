@@ -13,7 +13,7 @@
 
 enum {
     AREA_TABLES = 23,          /* D_00264DD0[1..23]                 */
-    FRAME_FLUSHES = 64,        /* 001CC3B0 calls kept per frame      */
+    FRAME_FLUSHES = 512,       /* 001CC3B0 calls kept per frame      */
     FRAME_UPLOADS = 1024       /* strip uploads kept per frame       */
 };
 

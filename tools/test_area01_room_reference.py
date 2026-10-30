@@ -112,7 +112,7 @@ SAMPLER = 0x7DCD40              # node 0x7A93F0's +0x90 record (001C02E0 hands i
 D275B40 = 0x275B40
 
 # Translated routines (address -> size in bytes, from the census).
-FUNCS = {0x188610: 0x1C, 0x198D90: 0x174, 0x1BB400: 0x11C, 0x1BB7C0: 0x28, 0x1BB7F0: 0x6C,
+FUNCS = {0x188610: 0x1C, 0x198D90: 0x174, 0x1BB310: 0xE8, 0x1BB400: 0x11C, 0x1BB7C0: 0x28, 0x1BB7F0: 0x6C,
          0x1D0D60: 0x1BC, 0x225A00: 0x14}
 FUNC_RANGES = tuple((a, a + n) for a, n in FUNCS.items())
 
@@ -124,6 +124,7 @@ CALLEES = {
     0x102948: (R, 2, 0), 0x1029C0: (R, 1, 0), 0x102C58: (R, 3, 0), 0x1026A0: (R, 3, 0),
     0x1028B8: (R, 3, 0), 0x1281C0: (R, 0, 1), 0x121A28: (R, 3, 0),
     0x18C4B0: (S, 1, 2), 0x18C6A0: (S, 2, 1), 0x1BA1F0: (S, 1, 0),
+    0x11E2A8: (R, 0, 1), 0x11DE90: (R, 0, 1),
 }
 
 REG_FILL, FREG_FILL = 0x01F0A000, 0x449A5000
@@ -384,6 +385,7 @@ def build_native():
     native.em_area01_room_00188610.argtypes = [RP, U32, P(I32)]
     native.em_area01_room_00198D90.argtypes = [RP, U32, U32]
     native.em_area01_room_001BB400.argtypes = [RP, U32, P(I32)]
+    native.em_area01_room_001BB310.argtypes = [RP, U32, P(I32)]
     native.em_area01_room_001BB7C0.argtypes = [RP, U32, P(I32)]
     native.em_area01_room_001BB7F0.argtypes = [RP, U32, P(I32)]
     native.em_area01_room_001D0D60.argtypes = [RP, U32, U32, P(I32)]
@@ -624,7 +626,7 @@ class Perturb:
 # One case
 # ======================================================================
 
-RETURNS = {0x188610, 0x1BB400, 0x1BB7C0, 0x1BB7F0, 0x1D0D60}
+RETURNS = {0x188610, 0x1BB310, 0x1BB400, 0x1BB7C0, 0x1BB7F0, 0x1D0D60}
 
 
 def native_call(fn, roomp, args, fargs):
@@ -638,6 +640,8 @@ def native_call(fn, roomp, args, fargs):
         return N.em_area01_room_00198D90(roomp, a[0], a[1]), None
     if fn == 0x1BB400:
         return N.em_area01_room_001BB400(roomp, a[0], C.byref(out)), out.value & MASK
+    if fn == 0x1BB310:
+        return N.em_area01_room_001BB310(roomp, a[0], C.byref(out)), out.value & MASK
     if fn == 0x1BB7C0:
         return N.em_area01_room_001BB7C0(roomp, a[0], C.byref(out)), out.value & MASK
     if fn == 0x1BB7F0:
@@ -811,6 +815,23 @@ def door_writes(node, kind=None, flag=None, panels=None):
 
 
 KINDS = (None, 8, 0x16, 0x3D, 0x3E, 0x17, 0x09, 0x00, 0xFF, 0x3C, 0x3F, 0x15)
+
+
+def cases_1BB310(rng):
+    """The door records' camera callback on a designed record (+0x1C names
+    an entity); the player's position and heading from the capture and
+    random."""
+    out = []
+    beat = 'a01_s4_east_room'
+    rec, ent = SCRATCH + 0x400, SCRATCH + 0x500
+    for n, (x, y, z, h) in enumerate(((1.0, 2.0, 3.0, 0.0), (-340.5, 60.0, -649.25, 1.5708), (0.0, 0.0, 0.0, -3.1),
+                                      (1e6, -1e6, 0.25, 2.5))):
+        w = [W32(rec + 0x1C, ent), W32(ent + 0xB0, FB(x)), W32(ent + 0xB4, FB(y)), W32(ent + 0xB8, FB(z))]
+        out.append(case('1BB310 t %d' % n, 0x1BB310, beat, (rec,), writes=w))
+        out.append(case('1BB310 t %d heading' % n, 0x1BB310, beat, (rec,),
+                        writes=w + [W32(0x810360, FB(z)), W32(0x810364, FB(x)), W32(0x810368, FB(y)),
+                                    W32(0x810374, FB(h))]))
+    return out
 
 
 def cases_1BB400(rng):
@@ -1011,7 +1032,7 @@ FX_FNS = {0x198D90, 0x1D0D60}
 def all_cases():
     rng = random.Random(0xA01200)
     base = []
-    for gen in (cases_188610, cases_198D90, cases_1BB400, cases_1BB7C0, cases_1BB7F0, cases_1D0D60, cases_225A00):
+    for gen in (cases_188610, cases_198D90, cases_1BB310, cases_1BB400, cases_1BB7C0, cases_1BB7F0, cases_1D0D60, cases_225A00):
         base += gen(rng)
     fx = [dict(c, name=c['name'] + ' fx ' + kind, fx=kind) for c in base if c['fn'] in FX_FNS
           for kind in ('after', 'before')]

@@ -63,11 +63,8 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         return -1;
     switch (state->phase) {
     case 0:
-        /* The no-request passcode route remains untranslated. Request 6
-         * enters the existing BATTERY confirmation; only its accepted-save
-         * follow-up (phase 6 / 00225AC0) remains unsupported. */
-        if (!state->request && state->status_request)
-            return -1;
+        /* Request 6 enters the existing BATTERY confirmation; only its
+         * accepted-save follow-up (phase 6 / 00225AC0) remains unsupported. */
         if (!emit(worker, context, state, EM_STATUS_PAGE_BLACK_HOLD, 0) ||
             !emit(worker, context, state, EM_STATUS_PAGE_OPEN_SOUND, 0))
             return -1;
@@ -87,8 +84,15 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         state->phase = 1;
         state->saved_status = state->current_status;
         state->saved_module = inventory_module(state);
-        if (!state->request)
+        if (!state->request) {
+            /* No request: a pending D_008106C5 opens a passcode page (not
+             * 2: page 4, module 0x25; 2: page 5, 0x26). */
+            if (state->status_request) {
+                state->phase = 3;
+                state->item.screen = state->status_request != 2 ? 4 : 5;
+            }
             break;
+        }
         /* The request map, in 0020CDC0's test order. The B1 compares are
          * signed compares of the zero-extended byte; bit 0xC0 is tested
          * first. Branches that do not store t[0x15] keep its old value. */
@@ -146,13 +150,10 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         case 1:
             if (!state->transition_step) {
                 /* The page module: 0x1F ITEM, 0x1E MAP, 0x2C SPR4, 0x24
-                 * DATABASE (0x25 / 0x26, the passcode pages, are not
-                 * reachable in AREA11: fault). Any other page id only
-                 * advances t[3]. */
-                static const uint8_t modules[4] = {0x1F, 0x1E, 0x2C, 0x24};
-                if (state->item.screen == 4 || state->item.screen == 5)
-                    return -1;
-                if (state->item.screen < 4) {
+                 * DATABASE, 0x25 / 0x26 the passcode pages. Any other page
+                 * id only advances t[3]. */
+                static const uint8_t modules[6] = {0x1F, 0x1E, 0x2C, 0x24, 0x25, 0x26};
+                if (state->item.screen < 6) {
                     state->item.asset_busy = 1;
                     if (!emit(worker, context, state, EM_STATUS_PAGE_LOAD,
                               modules[state->item.screen]))
@@ -184,8 +185,9 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
                 if (!emit(worker, context, state, EM_STATUS_PAGE_PAGE_TICK, state->item.screen))
                     return -1;
             } else if (state->item.screen == 4 || state->item.screen == 5) {
-                /* The passcode pages: not reachable in AREA11. */
-                return -1;
+                /* The passcode pages: 002072C0. */
+                if (!emit(worker, context, state, EM_STATUS_PAGE_PAGE_TICK, state->item.screen))
+                    return -1;
             } else if (state->item.screen == 8) {
                 /* Page 8 (HEALING kinds 2..4's Yes): D_002821B4 = 0, phase
                  * 2 (the hub's health count-up), 00200970(1). */

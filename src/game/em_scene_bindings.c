@@ -3659,7 +3659,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
-    if (s_state.d810700 == 2 && fn == 0x001E4CE0u)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 6) && fn == 0x001E4CE0u)
         goto bind;
     /* AREA04's pool owners (em_area04_port through em_area01_runtime area
      * 4; docs/AREA04_PORT.md) and its boot owner 001C1A80. */

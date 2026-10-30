@@ -46,7 +46,9 @@ DATA_WINDOWS = [
     (0x00265500, 0x002655A0),   # text styles D_00265510 / 518 / 520 ...
     (0x00265600, 0x00266700),   # MAP rows, page frame and row tables, D_002659C0, part pages
     (0x0026A980, 0x0026AA00),   # 00210F30's marker corners D_0026A990 / 9A0 / 9B0
-    (0x00275860, 0x00275880),   # 002134C0's text style word D_00275870
+    (0x00275858, 0x00275880),   # the keypads' D_00275858 / 60 / 68, 002134C0's style word D_00275870
+    (0x00264FE0, 0x00265160),   # the keypads' cells D_00264FE0 / D_00265010 and textures D_00265020 / C0
+    (0x00273508, 0x00273528),   # the keypads' strings
     # the options screen and its card screen (docs/OPTIONS.md)
     (0x00264CB0, 0x00264CC8),   # 001FC770's config D_00264CB0 for 001FCBD0 / 001FCE30
     (0x00264D30, 0x00264DB0),   # 001FCBD0's 128-byte line template D_00264D30
@@ -71,7 +73,7 @@ DATA_WINDOWS = [
 BOOT_MODULE, BOOT_BASE, RECORD_SLOT, HELP_SLOT = 0, 0x00B00000, 3, 2
 # The page modules the first level can load (0020CDC0 phase 3 and the ITEM
 # root / SPR4 child loads), docs/STATUS_PAGES.md section 1.
-MODULES = [0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31,
+MODULES = [0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31,
            0x2A, 0x2B]   # the card screen's (00225AC0) and the options' row screens' (0022A590)
 RESTORE = 0xFF          # the 00200970(1) step's id in the file
 D_0028A490 = 0x0028A490 # the resource-slot word table 001FF830 state 7 fills

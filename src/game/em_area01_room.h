@@ -139,6 +139,9 @@ void em_area01_room_clear_fault(EmArea01Room *s);
 int em_area01_room_00188610(EmArea01Room *s, uint32_t a0, int32_t *out);
 int em_area01_room_00198D90(EmArea01Room *s, uint32_t a0, uint32_t a1);
 int em_area01_room_001BB400(EmArea01Room *s, uint32_t a0, int32_t *out);
+/* 001BB310: the door records' camera callback (D_008105E0 at the entity,
+ * D_008105D0 15 units behind the player, 5 up); the result is 1. */
+int em_area01_room_001BB310(EmArea01Room *s, uint32_t a0, int32_t *out);
 int em_area01_room_001BB7C0(EmArea01Room *s, uint32_t a0, int32_t *out);
 int em_area01_room_001BB7F0(EmArea01Room *s, uint32_t a0, int32_t *out);
 int em_area01_room_001D0D60(EmArea01Room *s, uint32_t a0, uint32_t f12, int32_t *out);

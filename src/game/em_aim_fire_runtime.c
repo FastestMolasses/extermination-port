@@ -96,6 +96,7 @@ static struct {
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
     EmPoseRegion bss[24];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
+    uint32_t d28A59C;                    /* D_0028A490[0x43], the world bank's word */
 } R;
 
 int em_aim_fire_runtime_scratch_3600_bind(uint32_t *words16)
@@ -889,6 +890,9 @@ static void glow_trace(uint32_t node,int live)
 static int other_tick(void *context,uint32_t node,uint32_t callback)
 {
     (void)context;
+    /* D_0028A59C follows the area's world bank (AREA06's beam: 001F3E30's
+     * pieces of the bank at slot 0x43). */
+    R.d28A59C=em_area11_boxes_world_bank_word();
     if (callback==EM_EFFECT_001F77B0_CALLBACK) return death_decal_tick(node);
     if (callback==EM_AIM_FIRE_TRAIL_CALLBACK || callback==EM_AIM_FIRE_DEBRIS_CALLBACK) {
         /* The knife's trail node 001F18C0 and a box's debris node 001F2BA0
@@ -961,6 +965,7 @@ static int add_windows(void)
     R.bss[n++]=(EmPoseRegion){0x275C04,4,(uint8_t *)d275C04,1};
     if (em_area11_roger_table_word(0x28A56Cu,&R.d28A56C)<0) return -1;
     R.bss[n++]=(EmPoseRegion){0x28A56C,4,(uint8_t *)&R.d28A56C,0};
+    R.bss[n++]=(EmPoseRegion){0x28A59C,4,(uint8_t *)&R.d28A59C,0};
     const EmRogerActorWorld *slots=em_area11_boxes_slot_world();
     if (!slots || !slots->d00275BCC) return -1;
     R.bss[n++]=(EmPoseRegion){0x275BCC,2,(uint8_t *)slots->d00275BCC,0};

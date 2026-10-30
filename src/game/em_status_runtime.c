@@ -102,7 +102,7 @@ static int module_ready(EmStatusRuntime *runtime)
  * one chunk, the screen's GS upload, with no B section (docs/OPTIONS.md). */
 static int page_module(unsigned module)
 {
-    return (module >= 0x1E && module <= 0x24) || (module >= 0x2A && module <= 0x31);
+    return (module >= 0x1E && module <= 0x26) || (module >= 0x2A && module <= 0x31);
 }
 
 static int begin_module(EmStatusRuntime *runtime, unsigned module)
@@ -645,9 +645,10 @@ static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent even
         em_item_trail_reset(&runtime->trail);
         return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
     case EM_STATUS_PAGE_PAGE_TICK: {
-        /* 0020CDC0 phase 3 sub-state 2: page id 1 MAP, 2 SPR4, 3 DATABASE. */
-        static const uint32_t pages[4] = {0, 0x0020F950u, 0x00211970u, 0x00214020u};
-        if (!runtime->pages || argument < 1 || argument > 3)
+        /* 0020CDC0 phase 3 sub-state 2: page id 1 MAP, 2 SPR4, 3 DATABASE,
+         * 4 / 5 the passcode keypads. */
+        static const uint32_t pages[6] = {0, 0x0020F950u, 0x00211970u, 0x00214020u, 0x002072C0u, 0x002072C0u};
+        if (!runtime->pages || argument < 1 || argument > 5)
             return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
         return pages_tick(runtime, pages[argument]);
     }

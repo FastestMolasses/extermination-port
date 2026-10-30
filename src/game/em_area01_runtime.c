@@ -644,9 +644,10 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
-    if (r->area == 2 && c->function == 0x001E4CE0u) {
-        /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20):
-         * em_area02_misc's translation over this runtime's bytes. */
+    if ((r->area == 2 || r->area == 6) && c->function == 0x001E4CE0u) {
+        /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20,
+         * and by AREA06's g[11] 00219870): em_area02_misc's translation
+         * over this runtime's bytes. */
         if (c->na < 1 || c->nf) return fail(r, c->function);
         EmArea02Misc m;
         memset(&m, 0, sizeof m);
@@ -807,9 +808,11 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         if (c->na < 2) return fail(r, c->function);
         rc = em_area01_room_00198D90(&r->room, c->a[0], c->a[1]);
         break;
-    case 0x001BB400u: case 0x001BB7C0u: case 0x001BB7F0u:
+    case 0x001BB400u: case 0x001BB7C0u: case 0x001BB7F0u: case 0x001BB310u:
         if (c->na < 1) return fail(r, c->function);
-        if (c->function == 0x001BB400u)
+        if (c->function == 0x001BB310u)
+            rc = em_area01_room_001BB310(&r->room, (uint32_t)c->a[0], &i32);
+        else if (c->function == 0x001BB400u)
             rc = em_area01_room_001BB400(&r->room, (uint32_t)c->a[0], &i32);
         else if (c->function == 0x001BB7C0u)
             rc = em_area01_room_001BB7C0(&r->room, (uint32_t)c->a[0], &i32);

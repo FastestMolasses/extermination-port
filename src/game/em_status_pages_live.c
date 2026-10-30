@@ -18,7 +18,9 @@
 #include "game/em_status_models.h"
 #include "game/em_status_pages.h"
 #include "game/em_status_ui_leftovers.h"
+#include "game/em_area06_port.h"
 #include "game/em_effect_original.h"
+#include "game/em_frame.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_render_context_live.h"
 #include "game/em_sdk_vu0.h"
@@ -1197,6 +1199,122 @@ static int node_002101C0(void *ctx, uint32_t fn, uint32_t record)
     return 0;
 }
 
+/* ---- the passcode keypads (0020CDC0 pages 4 / 5): 002072C0 and its node
+ * 00207350, em_area06_port's translations over this frame's views, their
+ * callees through the dispatcher. ---- */
+#define NODE_00207350 0x00207350u
+static uint8_t *kp_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    EmStatusPagesLive *l = ctx;
+    for (uint32_t i = 0; i < l->view_count; ++i) {
+        const EmArea01RenderView *v = &l->views[i];
+        if (v->bytes && address >= v->address && size <= v->size && address - v->address <= v->size - size)
+            return v->bytes + (address - v->address);
+    }
+    fprintf(stderr, "status pages: the keypad reached %08X (%u bytes), which no view holds\n", (unsigned)address,
+            (unsigned)size);
+    return NULL;
+}
+static int kp_call(EmStatusPagesLive *l, uint32_t target, const uint64_t *a, unsigned na, const uint32_t *f,
+                   unsigned nf, uint64_t *v0, uint32_t *f0)
+{
+    uint64_t r = 0;
+    uint32_t q = 0;
+    const int rc = dispatch(l, target, l->s.sp, a, na, f, nf, &r, &q);
+    if (v0) *v0 = r;
+    if (f0) *f0 = q;
+    return rc;
+}
+static int kp_001AFF10(void *c, uint32_t *result)
+{
+    uint64_t v0 = 0;
+    const int rc = kp_call(c, 0x001AFF10u, NULL, 0, NULL, 0, &v0, NULL);
+    if (rc >= 0) *result = (uint32_t)v0;
+    return rc;
+}
+static int kp_001AFF90(void *c, uint32_t a0)
+{
+    const uint64_t a[1] = {a0};
+    return kp_call(c, 0x001AFF90u, a, 1, NULL, 0, NULL, NULL);
+}
+static int kp_001B0000(void *c) { return kp_call(c, 0x001B0000u, NULL, 0, NULL, 0, NULL, NULL); }
+static int kp_001AED80(void *c, int32_t n0)
+{
+    (void)c;
+    em_frame_fade_clear((uint8_t)n0);
+    return 0;
+}
+static int kp_001AEDB0(void *c, int32_t n0, int32_t n1, uint32_t a2)
+{
+    (void)c;
+    (void)n1;
+    (void)a2;
+    em_frame_fade_full((uint8_t)n0);
+    return 0;
+}
+static int kp_00207D00(void *c, int32_t n0, int32_t n1)
+{
+    const uint64_t a[2] = {(uint64_t)(int64_t)n0, (uint64_t)(int64_t)n1};
+    return kp_call(c, 0x00207D00u, a, 2, NULL, 0, NULL, NULL);
+}
+static int kp_00207E40(void *c, int32_t n0, int32_t n1, int32_t n2, int32_t n3, int32_t n4, uint32_t a5, uint64_t q6)
+{
+    const uint64_t a[7] = {(uint64_t)(int64_t)n0, (uint64_t)(int64_t)n1, (uint64_t)(int64_t)n2, (uint64_t)(int64_t)n3,
+                           (uint64_t)(int64_t)n4, a5, q6};
+    return kp_call(c, 0x00207E40u, a, 7, NULL, 0, NULL, NULL);
+}
+static int kp_001FB9F0(void *c, int32_t n0, int32_t n1, int32_t n2, int32_t n3)
+{
+    const uint64_t a[4] = {(uint64_t)(int64_t)n0, (uint64_t)(int64_t)n1, (uint64_t)(int64_t)n2, (uint64_t)(int64_t)n3};
+    return kp_call(c, 0x001FB9F0u, a, 4, NULL, 0, NULL, NULL);
+}
+static int kp_0020CD60(void *c) { return kp_call(c, 0x0020CD60u, NULL, 0, NULL, 0, NULL, NULL); }
+static int kp_001281C0(void *c, float f0, int32_t *result)
+{
+    const uint32_t f[1] = {em_ee_bits(f0)};
+    uint64_t v0 = 0;
+    const int rc = kp_call(c, 0x001281C0u, NULL, 0, f, 1, &v0, NULL);
+    if (rc >= 0) *result = (int32_t)(uint32_t)v0;
+    return rc;
+}
+static int kp_001CC1E0(void *c, int32_t n0, int32_t n1, int32_t n2, int32_t n3, int32_t n4, uint32_t a5, int32_t n6)
+{
+    return sul_text_proportional(c, n0, n1, n2, n3, n4, a5, (uint32_t)n6);
+}
+static void kp_hooks(EmStatusPagesLive *l, EmArea06PortHooks *h)
+{
+    memset(h, 0, sizeof *h);
+    h->ctx = l;
+    h->bytes = kp_bytes;
+    h->w_001AFF10 = kp_001AFF10;
+    h->w_001AFF90 = kp_001AFF90;
+    h->w_001B0000 = kp_001B0000;
+    h->w_001AED80 = kp_001AED80;
+    h->w_001AEDB0 = kp_001AEDB0;
+    h->w_00207D00 = kp_00207D00;
+    h->w_00207E40 = kp_00207E40;
+    h->w_001FB9F0 = kp_001FB9F0;
+    h->w_0020CD60 = kp_0020CD60;
+    h->w_001281C0 = kp_001281C0;
+    h->w_001CC1E0 = kp_001CC1E0;
+}
+static int node_00207350(void *ctx, uint32_t fn, uint32_t record)
+{
+    EmStatusPagesLive *l = ctx;
+    if (fn != NODE_00207350 || !l->frame)
+        return -1;
+    EmArea06PortHooks h;
+    kp_hooks(l, &h);
+    EmArea06PortFault fault = {0, 0};
+    const uint32_t saved_sp = l->s.sp;
+    l->s.sp = l->dispatch_sp - 0x100u;
+    const int rc = em_area06_port_00207350(&h, record, l->dispatch_sp, &fault);
+    l->s.sp = saved_sp;
+    if (rc < 0)
+        fprintf(stderr, "status pages: 00207350 fault code %d at %08X\n", (int)fault.code, (unsigned)fault.address);
+    return rc < 0 ? -1 : 0;
+}
+
 /* The page stream's 001B0000 place: the host draws the walk's models. */
 static int models_draw(void *ctx, EmGfx *gfx, const float clip[4])
 {
@@ -1317,16 +1435,18 @@ int em_status_pages_live_tick(EmStatusPagesLive *l, uint32_t page, const EmStatu
     l->s.sp = STACK_BASE + STACK_SIZE - 0x100;
     l->s.leaf_calls = 1; /* 0020F950 / 00210F30's 00207D90 / 00208040 reach em_page_draw */
     if (page != 0x00214570u && page != 0x00215870u && page != 0x002160B0u &&
-        page != 0x00211970u && page != 0x00214020u && page != 0x0020F950u) {
+        page != 0x00211970u && page != 0x00214020u && page != 0x0020F950u && page != 0x002072C0u) {
         fprintf(stderr, "status pages: the page %08X is not bound\n", (unsigned)page);
         return -1;
     }
-    if (page == 0x0020F950u && !f->models) {
-        fprintf(stderr, "status pages: MAP 0020F950 has no UI pool (em_status_models)\n");
+    if ((page == 0x0020F950u || page == 0x002072C0u) && !f->models) {
+        fprintf(stderr, "status pages: MAP 0020F950 / the keypad 002072C0 has no UI pool (em_status_models)\n");
         return -1;
     }
-    if (f->models)
+    if (f->models) {
         em_status_models_set_node(f->models, NODE_002101C0, node_002101C0, l);
+        em_status_models_set_node(f->models, NODE_00207350, node_00207350, l);
+    }
     if (l->trace) {
         trace_byte(l, 'T');
         trace_u32(l, page);
@@ -1355,6 +1475,16 @@ int em_status_pages_live_tick(EmStatusPagesLive *l, uint32_t page, const EmStatu
     case 0x0020F950u:
         rc = em_area01_ui_0020F950(&l->s, T_UI);
         break;
+    case 0x002072C0u: {
+        EmArea06PortHooks keypad;
+        kp_hooks(l, &keypad);
+        EmArea06PortFault fault = {0, 0};
+        rc = em_area06_port_002072C0(&keypad, T_UI, &fault);
+        if (rc < 0)
+            fprintf(stderr, "status pages: 002072C0 fault code %d at %08X\n", (int)fault.code,
+                    (unsigned)fault.address);
+        break;
+    }
     default:
         fprintf(stderr, "status pages: the page %08X is not bound\n", (unsigned)page);
         return -1;
