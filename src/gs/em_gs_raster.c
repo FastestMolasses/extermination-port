@@ -9,7 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__linux__) && defined(__GNUC__) && !defined(__clang__)
+__extension__ typedef __int128 i128;
+#else
 typedef __int128 i128;
+#endif
 
 /* ------------------------------------------------------------------------
  * Small helpers */

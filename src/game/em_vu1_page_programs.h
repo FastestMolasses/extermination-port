@@ -155,7 +155,7 @@ static inline uint32_t emvup_chk(EmVu1PCtx *c, uint32_t w)
  * path call the model's arithmetic, so the result is always the model's. */
 #if defined(__GNUC__) || defined(__clang__)
 #define EMVUP_INLINE static inline __attribute__((always_inline))
-#define EMVUP_CALL static inline __attribute__((noinline))
+#define EMVUP_CALL EM_VU_HOST_STATIC_NOINLINE
 #else
 #define EMVUP_INLINE static inline
 #define EMVUP_CALL static inline
@@ -208,7 +208,7 @@ static inline uint32_t emvup_div(EmVu1PCtx *c, uint32_t a, uint32_t b)
 /* XGKICK of dmem qword `at`. On the host path the consumer runs in the
  * caller's FP environment: the trampoline leaves the host environment,
  * calls it and enters the host environment again before it returns. */
-static inline EM_VU_HOST_NOINLINE int emvup_kick_outside(EmVu1PCtx *c, uint32_t at)
+EM_VU_HOST_STATIC_NOINLINE int emvup_kick_outside(EmVu1PCtx *c, uint32_t at)
 {
     EmVuHostEnv again;
     em_vu_host_leave(&c->env);
@@ -954,7 +954,7 @@ static inline double emvup_efu_lane(uint32_t w)
     memcpy(&f, &w, sizeof f);
     return (double)f;
 }
-static inline EM_VU_HOST_NOINLINE uint32_t emvup_erleng_double(EmVu1PCtx *c, const uint32_t v[4])
+EM_VU_HOST_STATIC_NOINLINE uint32_t emvup_erleng_double(EmVu1PCtx *c, const uint32_t v[4])
 {
     const double x = emvup_efu_lane(emvup_chk(c, v[0]));
     const double y = emvup_efu_lane(emvup_chk(c, v[1]));
@@ -975,7 +975,7 @@ static inline EM_VU_HOST_NOINLINE uint32_t emvup_erleng_double(EmVu1PCtx *c, con
 }
 /* The host path's ERLENG: out of the host environment for the double
  * arithmetic, back in before it returns. */
-static inline EM_VU_HOST_NOINLINE uint32_t emvup_erleng_outside(EmVu1PCtx *c, const uint32_t v[4])
+EM_VU_HOST_STATIC_NOINLINE uint32_t emvup_erleng_outside(EmVu1PCtx *c, const uint32_t v[4])
 {
     EmVuHostEnv again;
     em_vu_host_leave(&c->env);
@@ -1705,7 +1705,7 @@ static inline int emvup_program(EmVu1PCtx *c, unsigned program, uint32_t top)
 /* The host path's program: the only function that runs in the host
  * environment (em_vu1p_mscal enters it before the call and leaves it
  * after; the trampolines leave and re-enter it inside). */
-static inline EM_VU_HOST_NOINLINE int emvup_program_host(EmVu1PCtx *c, unsigned program, uint32_t top)
+EM_VU_HOST_STATIC_NOINLINE int emvup_program_host(EmVu1PCtx *c, unsigned program, uint32_t top)
 {
     return emvup_program(c, program, top);
 }

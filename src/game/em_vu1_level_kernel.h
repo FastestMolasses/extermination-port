@@ -109,7 +109,7 @@
 #else
 #define EMVUL_ALWAYS_INLINE static inline
 #endif
-#define EMVUL_NOINLINE static inline EM_VU_HOST_NOINLINE
+#define EMVUL_NOINLINE EM_VU_HOST_STATIC_NOINLINE
 
 #define EM_VU1_LVL_KERNEL 0x00237180u     /* the static run's CALL target  */
 #define EM_VU1_LVL_BASE 0x190u            /* the kernel packet's VIF BASE   */

@@ -434,7 +434,18 @@ static int receivers(EmShadowOriginalPlan *plan, const EmShadowOriginalScene *sc
                 }
                 if (plan->receiver_count >= EM_SHADOW_RECEIVER_MAX)
                     return fail(fault, 0x1D5C80u, EM_SHADOW_FAULT_OVERFLOW);
+#if defined(__linux__) && defined(__GNUC__) && !defined(__clang__)
+                /* The plan is zero-filled and its complete bytes are traced.
+                 * GCC's aggregate copy also copies r's indeterminate padding
+                 * after cls. Keep that destination padding zero. */
+                EmShadowOriginalReceiver *dst = &plan->receiver[plan->receiver_count++];
+                dst->id = r.id;
+                dst->cls = r.cls;
+                dst->clip_lo = r.clip_lo;
+                dst->clip_hi = r.clip_hi;
+#else
                 plan->receiver[plan->receiver_count++] = r;
+#endif
                 if (!w->w_receiver) return fail(fault, 0x1D4FB0u, EM_SHADOW_FAULT_NULL_WORKER);
                 if (worker(fault, 0x1D4FB0u, w->w_receiver(w->ctx, &r))) return -1;
             }

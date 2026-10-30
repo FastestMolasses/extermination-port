@@ -459,7 +459,9 @@ and the tools extract the assets locally.
   `.gitignore`; decomp `docs/HANDOFF.md` (decision 2026-09-26). PCSX2 is used
   only as an external measuring instrument.
 - Status: **PARTIAL**. **macOS only for now**: the Windows and Linux
-  backends are skeletons, and the Linux build has no movie playback. Do not
+  backends are skeletons, and the Linux build has no movie decoder (its
+  headless CPU backend, docs/LINUX.md, runs gameplay and CPU proofs only,
+  with movies from a locally exported decoded cache). Do not
   advertise Windows or Linux yet. An iPhone build for the user's own device,
   played with a game controller (docs/IOS.md, 2026-10-04), runs the same
   game code on UIKit/Metal/RemoteIO: `newgame-control` reproduces the macOS

@@ -134,6 +134,7 @@ PORT_FN = {
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
+            'rand_value',  # em_effect_original's checked w_00122BB8 forward (out of line in GCC)
             'w_00122BB8', 'random_word', 'gun_rand',
             'aim_fire_binding_call', 'em_aim_fire_live_call',   # the aim/fire binding's 00122BB8 and dispatch
             'target_call0', 'em_aim_fire_binding_frame',        # em_aim_fire_target's callee adapter
@@ -213,6 +214,24 @@ def symbols(binary):
         if symbol in ('__mh_execute_header', '__executable_start'):
             base = address
         table.append((address, symbol[1:] if symbol.startswith('_') else symbol))
+    if base is None:
+        # Linux ELF executables need not export __executable_start. dladdr's
+        # image base is the first load mapping, not the text section. Read
+        # that address from the executable's own ELF64 program headers.
+        import struct
+        data = Path(binary).read_bytes()
+        if data[:6] == b'\x7fELF\x02\x01':
+            phoff = struct.unpack_from('<Q', data, 32)[0]
+            entsize, count = struct.unpack_from('<HH', data, 54)
+            assert entsize >= 56 and phoff + entsize * count <= len(data), 'invalid ELF program headers'
+            loads = []
+            for i in range(count):
+                at = phoff + i * entsize
+                if struct.unpack_from('<I', data, at)[0] == 1:  # PT_LOAD
+                    offset, address = struct.unpack_from('<QQ', data, at + 8)
+                    loads.append(address - offset)
+            assert loads, 'ELF has no load mapping'
+            base = min(loads)
     assert base is not None, ('no image base symbol in', binary)
     rows = sorted((a - base, s) for a, s in table)
     for s in PORT_FN:

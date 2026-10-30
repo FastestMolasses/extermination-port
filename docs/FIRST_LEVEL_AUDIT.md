@@ -2322,7 +2322,9 @@ pool's free list (item 5): those are port work that needs no new recording
     (D3D12) and Linux (Vulkan) backends are skeletons that cannot present
     the GS field (the Original profile refuses to start there; only
     EM_GPU_RENDERER=1 runs), the GPU pixel tests are Metal only, and the
-    Linux build has no movie playback.
+    Linux build has no movie decoder. Linux has a headless CPU backend for
+    gameplay and CPU proofs (`make HEADLESS=1`, docs/LINUX.md; movies from a
+    locally exported decoded cache), not a presenter.
 17. **Assets.** Every first-level asset comes from the user's disc (chain
     step ASSETS); only `--iso` is exercised.
 18. **Frame cost.** The VU1 kernels and the GS model run on the CPU. Measured at

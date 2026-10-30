@@ -314,7 +314,12 @@ static void workers_memory_written(EmGsWorld *w, uint32_t first, uint32_t blocks
 static int fail(EmGsWorld *w, const char *what, unsigned long long detail)
 {
     if (!w->fault[0]) {
+#if defined(__linux__) && defined(__GNUC__) && !defined(__clang__)
+        /* Bound the diagnostic prefix; GCC checks the maximum suffix too. */
+        snprintf(w->fault, sizeof w->fault, "%.*s (%#llx)", (int)sizeof w->fault - 25, what, detail);
+#else
         snprintf(w->fault, sizeof w->fault, "%s (%#llx)", what, detail);
+#endif
         fprintf(stderr, "gs world: %s\n", w->fault);
     }
     return -1;

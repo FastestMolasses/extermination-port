@@ -59,7 +59,7 @@
 
 #include "game/em_ee_float.h"
 
-#if (defined(__GNUC__) || defined(__clang__)) && (defined(__aarch64__) || defined(__x86_64__))
+#if !defined(EM_VU_HOST_FORCE_INTEGER) && (defined(__GNUC__) || defined(__clang__)) && (defined(__aarch64__) || defined(__x86_64__))
 #define EM_VU_HOST_LANES 1
 #else
 #define EM_VU_HOST_LANES 0
@@ -71,6 +71,14 @@
 #define EM_VU_HOST_NOINLINE __attribute__((noinline))
 #else
 #define EM_VU_HOST_NOINLINE
+#endif
+
+/* GCC rejects inline + noinline under -Werror. Keep Apple's spelling,
+ * while Linux GCC gets an unused-safe out-of-line header definition. */
+#if defined(__linux__) && defined(__GNUC__) && !defined(__clang__)
+#define EM_VU_HOST_STATIC_NOINLINE static __attribute__((noinline, unused))
+#else
+#define EM_VU_HOST_STATIC_NOINLINE static inline EM_VU_HOST_NOINLINE
 #endif
 
 typedef struct {

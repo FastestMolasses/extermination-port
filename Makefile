@@ -140,12 +140,35 @@ endif
 # ---------------------------------------------------------------- Linux
 ifeq ($(UNAME),Linux)
 CC        := cc
+# glibc exposes Dl_info for the existing random-call trace with _GNU_SOURCE.
+# Keep the contraction rule even when callers supply their own CFLAGS.
+override CFLAGS += -D_GNU_SOURCE -ffp-contract=off
+ifeq ($(shell uname -m),x86_64)
+override CFLAGS += -msse2 -mfpmath=sse
+endif
+LINUX_GFX := src/gfx/vulkan/em_gfx_vk.c
+ifeq ($(HEADLESS),1)
+LINUX_GFX := src/gfx/offscreen/em_gfx_offscreen.c
+endif
 SRC       := $(COMMON) \
-             src/platform/em_movie_unavailable.c \
+             src/platform/linux/em_movie_cache.c \
              src/platform/linux/em_platform_linux.c \
-             src/gfx/vulkan/em_gfx_vk.c \
+             src/platform/linux/em_gamepad_linux.c \
+             $(LINUX_GFX) \
              src/audio/linux/em_audio_linux.c
-LDFLAGS   := -lX11 -lvulkan -lm
+LDFLAGS   := -pthread -ldl -lm
+ifneq ($(HEADLESS),1)
+LDFLAGS   += -lX11 -lvulkan
+endif
+LINUX_OBJ_DIR ?= build/linux-$(notdir $(CC))-$(if $(filter 1,$(HEADLESS)),headless,vulkan)
+LINUX_OBJ := $(SRC:%.c=$(LINUX_OBJ_DIR)/%.o)
+$(BIN): $(LINUX_OBJ)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(LINUX_OBJ) $(LDFLAGS) -o $@
+$(LINUX_OBJ_DIR)/%.o: %.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+-include $(LINUX_OBJ:.o=.d)
 endif
 
 # Windows is built via its own toolchain (cl/clang-cl); see src/platform/win
@@ -156,9 +179,11 @@ endif
 .PHONY: all clean run test-input
 all: $(BIN)
 
+ifneq ($(UNAME),Linux)
 $(BIN): $(SRC) $(wildcard src/*.h src/game/*.h src/game/*.inc)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o $(BIN)
+endif
 
 run: $(BIN)
 	$(BIN)
@@ -489,6 +514,7 @@ test-collision-world-capture: $(BIN)
 # br_panel_decline) have no count here: run them with test-level-smoke-side.
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,battery)
 LEVEL_SMOKE_END = $(or $(EM_LEVEL_SMOKE_UNTIL),$(LEVEL_SMOKE_UNTIL),last)
+LEVEL_SMOKE_PRESENT_ENV = $(if $(filter Darwin,$(UNAME)),EM_PRESENT_LOG=build/level_smoke/present.log)
 PRESENT_AGAIN_ENTRIES = $(strip \
     $(if $(filter first_control,$(LEVEL_SMOKE_END)),0, \
     $(if $(filter status,$(LEVEL_SMOKE_END)),1, \
@@ -499,17 +525,21 @@ PRESENT_AGAIN_ENTRIES = $(strip \
 test-level-smoke: $(BIN)
 	@test -n "$(PRESENT_AGAIN_ENTRIES)" || { echo "test-level-smoke: no status-entry count for the side beat $(LEVEL_SMOKE_END) (make test-level-smoke-side runs it)"; false; }
 	mkdir -p build/level_smoke
-	rm -f build/level_smoke/status_pages.trace
+	rm -f "$(CURDIR)/build/level_smoke/status_pages.trace"
 	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$${EM_LEVEL_SMOKE_UNTIL:-$(LEVEL_SMOKE_UNTIL)} \
 	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl EM_RAND_TRACE=build/level_smoke/rand.trace \
-	    EM_STATUS_PAGES_TRACE=build/level_smoke/status_pages.trace EM_PRESENT_LOG=build/level_smoke/present.log \
+	    EM_STATUS_PAGES_TRACE=build/level_smoke/status_pages.trace $(LEVEL_SMOKE_PRESENT_ENV) \
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log \
 	    --rand-trace build/level_smoke/rand.trace --status-pages-trace build/level_smoke/status_pages.trace \
 	    --require-through $${EM_LEVEL_SMOKE_UNTIL:-$(or $(LEVEL_SMOKE_UNTIL),last)}
+ifeq ($(UNAME),Darwin)
 	python3 tools/check_present_again.py --present build/level_smoke/present.log --ticks build/level_smoke/ticks.jsonl \
 	    --entries $(PRESENT_AGAIN_ENTRIES)
+else
+	@echo "present-again: macOS-only Metal readback (docs/LINUX.md); game-state assertions above unchanged"
+endif
 	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 
 .PHONY: test-level-smoke-full

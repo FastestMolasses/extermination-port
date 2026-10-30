@@ -82,6 +82,11 @@ int main(int argc, char **argv)
     fseek(f, 0, SEEK_END);
     const size_t n = (size_t)ftell(f) / 9u;
     fseek(f, 0, SEEK_SET);
+#if defined(__linux__) && defined(__GNUC__) && !defined(__clang__)
+    /* GCC's integer-only specialization needs the nonempty input contract
+     * explicit before the out-of-environment probe writes out[0]. */
+    if (!n) return 2;
+#endif
     uint32_t *a = malloc(4 * n), *b = malloc(4 * n), *out = malloc(4 * n);
     uint8_t *op = malloc(n);
     for (size_t i = 0; i < n; ++i) {
