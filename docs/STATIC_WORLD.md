@@ -679,6 +679,11 @@ bank TEX0s are in the object texture export (tools/export_object_textures.py
 now reads the bank too; each decodes identically from the GS memory of the
 15 route captures).
 
+Some vertex records hold TEX0 = 0: the kernel passes it on, and the original
+draws those triangles so (TW = TH = 0: the one texel at GS address 0, the first
+pixel of FBP 0; GS dumps of three door arrivals, LEVEL8_PORT.md "The GS barrier
+at three door arrivals"). The walk keeps them; the recorder lists the read.
+
 The shadow chain's box and receivers are positioned from their own kicked
 words the same way (SHADOW_ORIGINAL.md), so a receiver meets the level
 surface it lies on at the same depth, as on the GS.

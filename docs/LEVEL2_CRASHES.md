@@ -864,5 +864,5 @@ fail-stops:
 | a06_02, a06_03 (cards) | player closure 00161020 at 0x00160220, then 00184BA0 | the keypad's Use closure |
 | a06_04, a06b_00 (cards) | 001AAD00's collision close-out at 001A8734 | not traced |
 | a06_05 (card) | the effect node 0021AE90 (0x80000044) | translated in em_area06_port, not bound on the effect binder |
-| a01u_s1, a01v_02, a22b_01 | the GS frame's parse: a barrier inside a span | LEVEL8_PORT.md "The GS barrier at three door arrivals" |
+| a01v_02 | none past the arrival; the end block's D_0081083C is 01 (original 00) | the grab-slot bits, not GS; not diagnosed. The arrivals' GS fault is fixed (LEVEL8_PORT.md "The GS barrier at three door arrivals") |
 | a01v_01 | none; the end block has one more creature taken bit (D_0081088F 0x04) | a loaded game's bug (the route's machine state differs) |

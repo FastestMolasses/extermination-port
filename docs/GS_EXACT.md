@@ -1499,8 +1499,11 @@ the span has already ended (a parser or worker with queued primitives there
 faults, so a barrier never moves a span boundary), with one exact case: a
 barrier the recorder places just before the register write that ends the
 span (a target marked drawn before its FRAME_1 write is recorded: the
-shadow's target after an object's triangles, met in AREA04's a04_00 event
-and the mid-route door arrivals, 2026-10-30). When one of the register
+shadow's target after an object's triangles, met in AREA04's a04_00 event,
+and the field declared by 001DDE10's pass before its FRAME_1 write, met at
+the mid-route door arrivals after the static world's TEX0_1 = 0 triangles
+read FBP 0; LEVEL8_PORT.md, 2026-10-30, where GS dumps of the original show
+the same order). When one of the register
 writes after the barrier, before any vertex, ends the queued span as a
 measured boundary (section 3.7, em_gs_write_ends_span), the span ends at
 the barrier: the same primitives, the same grid decision

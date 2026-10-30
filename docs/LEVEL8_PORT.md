@@ -55,21 +55,58 @@ so these runs are not row-by-row comparisons.
 | a22 | area22 | a22_00, a22_01, a22_02 | pass (AREA22_PORT.md "Live binding") |
 | a01u | a01u | a01u_00, a01u_01, a01u_02 | pass (AREA06_PORT.md "Live binding") |
 | a01u_s0 | a01u_s0 | a01u_s0 | pass |
-| a01u_s1 | a01u | a01u_s1 | stops at door [18]'s AREA22 arrival: the GS frame's parse refuses a barrier inside a span |
+| a01u_s1 | a01u | a01u_s1 | pass (lane G1, branch gs-arrival: the GS barrier below) |
 | a06 | area06 | a06_00 .. a06_05 | a06_00 passes; a06_01 stops (AREA06_PORT.md "Where AREA06 stops") |
 | a06b | a06b | a06b_00, a06b_01 | a06b_00 stops: the collision close-out 001AAD00 faults at 001A8734 |
-| a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 plays to its end with one creature taken bit more (D_0081088F bit 0x04, a loaded game's bug); a01v_02 stops at door [18]'s AREA22 arrival (the GS barrier, as a01u_s1) |
-| a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 loads AREA04 (lane B1's host, main 64e70c2) and stops at the arrival on the GS barrier (as a01u_s1) |
+| a01v | a01v | a01v_00, a01v_01, a01v_02 | a01v_00 passes; a01v_01 plays to its end with one creature taken bit more (D_0081088F bit 0x04, a loaded game's bug); a01v_02 gets past door [18]'s AREA22 arrival (the GS barrier below) and plays to its end: in the chain its end block differs only by a01v_01's bit; from its own card, at D_0081083C (port 01, original 00: the grab-slot bits, not GS; not diagnosed) |
+| a22b | a22b | a22b_00, a22b_01 | a22b_00 passes; a22b_01 loads AREA04 (lane B1's host, main 64e70c2), gets past the arrival (the GS barrier below) and passes |
 
 **The GS barrier at three door arrivals** (a01u_s1 and a01v_02: AREA01's
-door [18] into AREA22; a22b_01: AREA22's door [6] into AREA04). In the
-first world frames after the load the frame reads its other buffer (TEX0
-TBP 0x2580 = FBP 0x12C, PSMCT32, 128 x 128, TBW 2) while a span of 22
-primitives is still pending; em_gs_world's parse refuses a barrier inside
-a span ("a barrier fell inside a span", parse spans 0x44B / 0x6C9) and the
-frame fail-stops. The same areas loaded from a card, and the other door
-loads on this route (AREA22 into AREA01, AREA01 into AREA06), do not. Not
-diagnosed further here: it is the GS head's (the renderer lane's).
+door [18] into AREA22; a22b_01: AREA22's door [6] into AREA04; lane G1,
+2026-10-30). The frame fail-stopped with "a barrier fell inside a span".
+The cause is not a state the door load carries, and not a read of the other
+buffer. Three things meet in a frame whose field is FBP 0:
+
+1. The static world draws triangles with TEX0_1 = 0: the bank's vertex records
+   of those batches hold a zero TEX0. Both banks equal the original's, offset
+   for offset, outside one stretch that holds none of those records (AREA22:
+   456 words, AREA04: 674). TW = TH = 0, so each triangle samples the one
+   texel at GS address 0, the first pixel of FBP 0. The recorder rightly lists
+   it as a read of a drawn block of the field.
+2. 001DDE10's depth-of-field pass then declares the field
+   (em_gs_world_page_pass), and a draw into a block read since the last
+   barrier takes a barrier (drawn_buffer's fread branch). Its next write is
+   FRAME_1 = 0x4012C, the 256 x 256 copy at FBP 0x12C. That is the buffer C1
+   saw; TEX0 TBP 0x2580 reads the copy back, at a later barrier.
+3. A span of PRIM 0x7C (attr 0x78, 22 or 24 primitives) is still queued, and
+   no barrier fell between the last such read and the pass. In a frame whose
+   field is FBP 0x38 the read overlaps nothing, so which frames meet the case
+   depends on the field's parity.
+
+Evidence, from the fork (a01u_s1, a01v_02 and a22b_01 replayed from their
+source states with the recorded pads: 969, 600 and 720 rows, none different;
+a GS dump over each arrival). Every world frame dumped draws TEX0_1 = 0
+triangles into the field (6 a frame at door [18]; at AREA04's arrival 4, then
+10). From the second world frame at door [18], and from the first at AREA04,
+the write just before FRAME_1 = 0x4012C is a PRIM 0x7C vertex kick, on both
+fields. So the original's span also runs up to that FRAME_1 write, and it is
+the write that ends it (GS_EXACT.md 3.7).
+
+The fix is the parser's look-ahead (commit "GS world: a recorder barrier just
+before the span-ending write ends the span there", GS_EXACT.md section 9). It
+ends the span at the barrier, immediately before that write, with nothing
+drawn between, so the pixels cannot change; moving the recorder's barrier
+would give the same stream. In a debug build each run's queued-span barriers
+(1 or 2 a run) were all this one, each followed by that write.
+
+Not measured: the port's first world frames against the original's, pixel by
+pixel. These are loaded games, not the route's machine state, and the port's
+field leaves out the fade and the area title (its overlay pass); after the
+fade the two pictures show the same view by eye. Why the same areas from a
+card, and the other door loads, never met the case was not measured either.
+The port's banks lie 0x2340 below the original's at both arrivals (AREA22
+01365F80 against 013682C0, AREA04 016BF4C0 against 016C1800): nothing here
+depends on it, and its cause is not traced.
 
 On the way back AREA01's 001C02E0 takes its bit-5 branch (D_00810845 bit 5,
 set in AREA06): its behaviour 001BF6B0, the companion 001BE6C0 it spawns
