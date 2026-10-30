@@ -346,7 +346,11 @@ What binds it:
   D_0026E980 as an ELF window.
 
 Not bound yet: 001963A0 (the ladder camera, a22_s1), 001BB310 (door [10]'s
-locked branch, a22_s2): the side beats a22_s1 / a22_s2 are not run.
+locked branch, a22_s2): the side beats a22_s1 / a22_s2 are not run. The
+way back (a22b) passes a22b_00 from its card; entering AREA22 through
+AREA01's door [18] (a01u_s1, a01v_02) and leaving it through door [6] into
+AREA04 (a22b_01) stop on the GS barrier of LEVEL8_PORT.md "The GS barrier
+at three door arrivals".
 
 ## Binding (the 2026-09-28 survey)
 

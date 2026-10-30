@@ -224,7 +224,9 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
 {
-    if (!r || !host || !host->bytes || !host->worker || !em_area01_state_supported(area)) return -1;
+    /* the areas em_area01_state binds: AREA00..02, AREA04, AREA06, AREA22 */
+    if (!r || !host || !host->bytes || !host->worker || !(area <= 2 || area == 4 || area == 6 || area == 0x16))
+        return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
     r->area = area;

@@ -44,7 +44,8 @@ def build():
                 'src/game/em_area01_revisit.c', 'src/game/em_area00_return.c',
                 'src/game/em_script_door_fan.c',
                 'src/game/em_startup_load_gaps.c', 'src/game/em_area02_misc.c',
-                'src/game/em_area02_overlay.c', 'src/game/em_area02_math.c', 'src/game/em_area04_port.c']
+                'src/game/em_area02_overlay.c', 'src/game/em_area02_math.c', 'src/game/em_area04_port.c',
+                'src/game/em_area22_port.c', 'src/game/em_area06_port.c', 'src/game/em_area06_port_node.c', 'src/game/em_area06_port_overlay.c', 'src/game/em_area06_port_strip.c', 'src/game/em_level8_port_gap.c', 'src/game/em_level8_port_creature.c', 'src/game/em_level8_port_lift.c', 'src/game/em_level8_port_overlay.c', 'src/game/em_level8_port_probe.c', 'src/game/em_level8_port_fx.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', *sources, '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
