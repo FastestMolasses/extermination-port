@@ -18,6 +18,8 @@
  *   001DF180  a 16 x 16 jittered grid on the stack, then 15 rows of
  *             0x430-byte packets at the context's slot cursor (NEARMISS;
  *             followed from the original code)
+ *   001DF600  001DF180's sibling: the radial warp grid
+ *   001DF9D0  001DF600(3, 0, 0x80808080), then 001DF5A0's header (C)
  *   001DF5A0  001DF180(3), the same header and 001CB760 as 001DF110 (C
  *             linked from asm)
  *   001E2800  VU0 projection of two points, a depth fade of two colours,
@@ -154,6 +156,8 @@ int em_area00_hud_001DF020(EmArea00Hud *s, uint32_t a0, uint32_t a1, uint32_t *o
 int em_area00_hud_001DF110(EmArea00Hud *s, uint32_t a0);
 int em_area00_hud_001DF180(EmArea00Hud *s, uint32_t a0, uint32_t f12, uint32_t *out);
 int em_area00_hud_001DF5A0(EmArea00Hud *s, uint32_t f12);
+int em_area00_hud_001DF600(EmArea00Hud *s, uint32_t a0, uint32_t a1, uint32_t colour, uint32_t f12, uint32_t *out);
+int em_area00_hud_001DF9D0(EmArea00Hud *s, uint32_t f12);
 int em_area00_hud_001E2800(EmArea00Hud *s, uint32_t mode, uint32_t pa, uint32_t ca, uint32_t pb, uint32_t cb);
 int em_area00_hud_001E2BA0(EmArea00Hud *s, uint32_t a0, uint32_t a1, uint32_t a2);
 int em_area00_hud_001E2E80(EmArea00Hud *s, uint32_t e);

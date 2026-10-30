@@ -61,6 +61,20 @@
  * ---------------------------------------------------------------------- */
 static int a6_rand(A6 *o, int32_t *r) { return a6_c_00122BB8(o, r); }
 
+/* 0x823B10 (byte-matched C): the contact word of 0x823B50's record. A
+ * toucher whose +0 has bit 1 clear gets the spark node 0x80000044 and the
+ * record's +0x1F0 = 60. */
+int em_area06_port_00823B10(const EmArea06PortHooks *h, uint32_t self, uint32_t toucher, EmArea06PortFault *fault)
+{
+    A6 state, *o = &state;
+    if (a6_begin(o, h, fault)) return -1;
+    if (!(a6_u8(o, toucher) & 2)) {
+        if (a6_c_001EFE00(o, (int32_t)0x80000044u, toucher)) return a6_end(o);
+        a6_w32(o, self + 0x1F0, 0x3C);
+    }
+    return a6_end(o);
+}
+
 /* Full-route arrival owner: three phases with local copies of the period
  * tables. The NEARMISS C's table-copy register choice is immaterial here;
  * the oracle compares the original's eight-byte then four-byte accesses. */

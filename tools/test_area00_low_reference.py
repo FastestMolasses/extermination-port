@@ -91,7 +91,7 @@ FUNCS = {
     0x1288D0: 0xE4, 0x129F00: 0xB8, 0x129FC0: 0x604, 0x12B410: 0x434, 0x12B970: 0x4A4, 0x12BE20: 0x66C,
     0x12C490: 0x604, 0x12CAA0: 0x7A0, 0x12D240: 0x33C, 0x12D580: 0x2C4, 0x12D850: 0xE8, 0x12DE90: 0x1E0,
     0x12E070: 0x3C, 0x12E0B0: 0x1A4, 0x12E260: 0x54, 0x12E2C0: 0xE0, 0x198CE0: 0xA4, 0x198F10: 0x308,
-    0x1B5360: 0x280, 0x1B7670: 0x60, 0x1B7700: 0x138, 0x1B8AB0: 0x504, 0x1E7310: 0x128, 0x1E7440: 0x128,
+    0x1B5360: 0x280, 0x1B7670: 0x60, 0x1B7700: 0x138, 0x1B8AB0: 0x504, 0x1E7310: 0x128, 0x1E7440: 0x128, 0x1E7570: 0x128,
     0x1FC580: 0x15C,
     0x1FF030: 0x48,
 }
@@ -118,7 +118,7 @@ CALLEES = {
     0x1FBF50: (S, 4, 2, ()), 0x19A570: (S, 4, 0, ()), 0x19AB20: (S, 4, 0, ()), 0x1F9100: (S, 3, 1, ()),
     0x1F9180: (S, 3, 1, ()), 0x1F4A00: (S, 2, 0, ((0, 16), (1, 16))), 0x18C4B0: (S, 1, 2, ()),
     0x18C6A0: (S, 2, 1, ()), 0x191530: (S, 2, 0, ()), 0x21BD60: (S, 1, 0, ()), 0x1D2830: (S, 2, 0, ()),
-    0x1DEE80: (S, 2, 0, ()), 0x1DEEC0: (S, 2, 0, ()), 0x1DF5A0: (S, 0, 1, ()), 0x1AFC10: (S, 1, 0, ()),
+    0x1DEE80: (S, 2, 0, ()), 0x1DEEC0: (S, 2, 0, ()), 0x1DF5A0: (S, 0, 1, ()), 0x1DF9D0: (S, 0, 1, ()), 0x1AFC10: (S, 1, 0, ()),
     0x1FF080: (S, 2, 0, ()), 0x1179E0: (S, 2, 0, ()), 0x1157F0: (S, 4, 0, ()),
 }
 INDIRECT = (S, 1, 0, ())    # the +0x4C pointer of 00129FC0, called with the record
@@ -419,7 +419,7 @@ def native_call(fn, ctx, args, fargs):
     elif fn == 0x12D580:
         a2 = args[2] & MASK64 if args[2] > MASK or args[2] < -(1 << 31) else sx32(args[2]) & MASK64
         return N.em_area00_low_0012D580(ctx, U32(a[0]), U32(a[1]), U64(a2)), None
-    elif fn in (0x12DE90, 0x12E070, 0x12E260, 0x1B5360, 0x1E7310, 0x1E7440, 0x1FF030):
+    elif fn in (0x12DE90, 0x12E070, 0x12E260, 0x1B5360, 0x1E7310, 0x1E7440, 0x1E7570, 0x1FF030):
         return getattr(N, f'em_area00_low_{fn:08X}')(ctx, U32(a[0])), None
     elif fn in (0x12E0B0, 0x12E2C0):
         rc = getattr(N, f'em_area00_low_{fn:08X}')(ctx, U32(a[0]), U32(a[1]), C.byref(out))
@@ -1074,7 +1074,8 @@ def cases_small(rng):
     # 001E7310 and its twin 001E7440 (the step 0.015 / 0.145 and its
     # neighbourhood; both reach every state)
     ent = SCRATCH + 0x400
-    for fn, xs in ((0x1E7310, (0.5, 0.02, 0.0158, 0.015, 0.0)), (0x1E7440, (1.5, 0.2, 0.1527, 0.145, 0.0))):
+    for fn, xs in ((0x1E7310, (0.5, 0.02, 0.0158, 0.015, 0.0)), (0x1E7440, (1.5, 0.2, 0.1527, 0.145, 0.0)),
+                   (0x1E7570, (1.0, 0.02, 0.0158, 0.015, 0.0))):
         for st in (0, 1, 2, 3, 4):
             for x in xs:
                 if st != 1 and x != xs[0]:
@@ -1285,6 +1286,9 @@ QUICK_PINNED = QUICK_KILLERS | {
     't 1E7440 st0 x1.5',
     't 1E7440 st1 x0.145',
     't 1E7440 st3 x1.5',
+    't 1E7570 st0 x1.0',
+    't 1E7570 st1 x0.015',
+    't 1E7570 st3 x1.0',
     'cap a00_03_padlock 7ad490 12C490',
     't 129FC0 sub1 m0x0 vis0x1 fa0',
     't 12B970 st0 busy0x0 f40 e4101 pr1',
@@ -1485,7 +1489,7 @@ QUICK_PINNED = QUICK_KILLERS | {
     't 1FF030 0x85 area 0',
 }
 FX_FNS = {0x129FC0, 0x12B410, 0x12B970, 0x12BE20, 0x12C490, 0x12CAA0, 0x12D240, 0x12D580, 0x12D850, 0x1B5360,
-          0x129F00, 0x1FC580, 0x1E7310, 0x1E7440, 0x198F10, 0x1B8AB0, 0x12E0B0, 0x1181B0}
+          0x129F00, 0x1FC580, 0x1E7310, 0x1E7440, 0x1E7570, 0x198F10, 0x1B8AB0, 0x12E0B0, 0x1181B0}
 
 
 def fx_cases(cases):

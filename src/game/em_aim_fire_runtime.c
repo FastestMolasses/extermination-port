@@ -94,7 +94,7 @@ static struct {
     EmArea00HudVu vu;
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
-    EmPoseRegion bss[20];
+    EmPoseRegion bss[24];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
 } R;
 
@@ -670,6 +670,17 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
             fprintf(stderr,"aim/fire: 001E7440 fault code %d at %08X\n",(int)low.fault,(unsigned)low.fault_address);
         return rc;
     }
+    case 0x1E7570: {
+        /* The third twin 001E7570 (em_area00_low; the player stage's
+         * 0x80000063 node, a06_01's infection): the same composition, its
+         * ramp row D_0026E990, its draw 001DF9D0. */
+        EmArea00Low low;memset(&low,0,sizeof low);
+        low.call=flash_call;low.ctx=live;low.sp=f->sp;low.view=flash_view;low.view_ctx=live;
+        const int rc=em_area00_low_001E7570(&low,(uint32_t)f->a[0]);
+        if (rc<0)
+            fprintf(stderr,"aim/fire: 001E7570 fault code %d at %08X\n",(int)low.fault,(unsigned)low.fault_address);
+        return rc;
+    }
     case 0x21B9A0:
         /* 0021B9A0(mode, f12, f13): the render context's parameter rows
          * (em_render_context_live, its one owner). */
@@ -893,7 +904,8 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (rc<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
-    if (callback==0x001E2E80u || callback==0x001F6FB0u || callback==0x001E7310u || callback==0x001E7440u) {
+    if (callback==0x001E2E80u || callback==0x001F6FB0u || callback==0x001E7310u || callback==0x001E7440u ||
+        callback==0x001E7570u) {
         /* The spat hazard node 001E2E80 (em_area00_hud) and the creatures'
          * glow node 001F6FB0 (em_area00_fx), through the composition, with
          * D_00275B40 = its +0x110 (the walk's 001CB590); 1 while its record
@@ -964,8 +976,9 @@ static int add_windows(void)
     /* The flash node 001E7310's ramp data (CREATURE_EFFECT_WINDOWS):
      * 001DEE80's D_0026E970 and 001DF180's colour D_0026E860, read only;
      * optional as the glow's block. */
-    static const uint32_t ramp[3][2]={{0x26E860,0x10},{0x26E970,0x10},{0x26E980,0x10}};
-    for (unsigned k=0;k<3;++k) {
+    static const uint32_t ramp[5][2]={{0x26E860,0x10},{0x26E970,0x10},{0x26E980,0x10},{0x26E870,0x10},
+                                      {0x26E990,0x10}};
+    for (unsigned k=0;k<5;++k) {
         const uint8_t *p=em_effects_live_window(ramp[k][0],ramp[k][1]);
         if (p) R.bss[n++]=(EmPoseRegion){ramp[k][0],ramp[k][1],(uint8_t *)(uintptr_t)p,0};
     }

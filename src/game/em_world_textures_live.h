@@ -27,4 +27,10 @@ int em_world_textures_live_ensure(EmGfx *gfx);
 }
 #endif
 
+/* 00200890's player texture packet (D_00810707 mode, D_00810C60 costume),
+ * at an area load and when 0015C1F0 rebinds the player's model: the next
+ * ensure uploads the catalog built with that packet. -1 when no catalog
+ * holds it (the AREA06 / AREA22 variants only). */
+int em_world_textures_live_player_packet(unsigned mode, unsigned costume);
+
 #endif

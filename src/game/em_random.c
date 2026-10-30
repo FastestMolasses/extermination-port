@@ -30,6 +30,11 @@ void em_random_seed(uint32_t seed)
     random_state = seed;
 }
 
+uint32_t em_random_peek(void)
+{
+    return random_state;
+}
+
 /* EM_RAND_TRACE=<path> (test instrumentation; it never changes behaviour):
  * one line per call, "counter state r1 .. r6" in hex: the main-loop counter
  * (0x70003B64, from the clock main.c registers), the state word before

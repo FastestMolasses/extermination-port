@@ -2215,6 +2215,8 @@ static const Binding k_bindings[] = {
      tick_effect_node, NULL},
     {0x001E7440u, "flash (area change): em_area00_low 001E7440 (em_aim_fire_runtime, em_effects_live)",
      tick_effect_node, NULL},
+    {0x001E7570u, "flash (infection): em_area00_low 001E7570 (em_aim_fire_runtime, em_effects_live)",
+     tick_effect_node, NULL},
     {0x001F6FB0u, "glow: em_area00_fx 001F6FB0 (em_aim_fire_world_live, em_effects_live)",
      tick_effect_node, NULL},
     {0x001F77B0u, "death decal: em_effect_001F77B0 (em_shadow_live's 001CE300, em_effects_live)", tick_effect_node,

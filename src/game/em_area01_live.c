@@ -97,6 +97,14 @@ static uint8_t *d2668A0(void)
     }
     return s_d2668A0;
 }
+/* D_0081F970..D_0081FE6F: the boot BSS of the infection node 001F8350
+ * (em_area06_port, effect 0x80000048) only: its 64 ages D_0081F970 and its
+ * 64-slot ring D_0081FA70 (no other decomp function names an address in
+ * it). Boot BSS starts zero and an area change never resets it: one
+ * process-lifetime block. */
+#define D81F970_BASE 0x0081F970u
+#define D81F970_SIZE 0x500u
+static uint8_t s_d81F970[D81F970_SIZE];
 static EmActor *actor(EmArea01Live *l,uint32_t a)
 {
     if(a<EM_ACTOR_POOL_BASE)return NULL;
@@ -260,6 +268,8 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     }
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
         return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
+    if(overlaps(a,n,D81F970_BASE,D81F970_SIZE))
+        return contains(a,n,D81F970_BASE,D81F970_SIZE) ? s_d81F970+(a-D81F970_BASE) : NULL;
     if(overlaps(a,n,D2668A0_BASE,D2668A0_SIZE))
         return contains(a,n,D2668A0_BASE,D2668A0_SIZE) && d2668A0() ? s_d2668A0+(a-D2668A0_BASE) : NULL;
     if(overlaps(a,n,0x00275C00u,4))

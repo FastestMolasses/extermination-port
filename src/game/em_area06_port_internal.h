@@ -694,6 +694,7 @@ static inline int a6_c_0020CD60(A6 *o)
 #define S_70003A20 0x70003A20u
 #define S_70003A24 0x70003A24u
 #define S_70003A28 0x70003A28u
+#define S_70003B68 0x70003B68u
 #define S_70003B88 0x70003B88u
 
 /* Float constants (bit patterns, as the original materializes them). */
@@ -782,5 +783,43 @@ static inline int a6_c_001B17A0(A6 *o, uint32_t self, int32_t *result)
     if (!o->h->w_001B17A0) return a6_latch(o, 0x001B17A0u, EM_AREA06_PORT_FAULT_NULL_WORKER);
     return o->h->w_001B17A0(o->h->ctx, self, result) < 0 ?
         a6_latch(o, 0x001B17A0u, EM_AREA06_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a6_c_001CD070(A6 *o, uint32_t a0, int32_t n1, int32_t *result)
+{
+    if (a6_failed(o)) return -1;
+    if (!o->h->w_001CD070) return a6_latch(o, 0x001CD070u, EM_AREA06_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001CD070(o->h->ctx, a0, n1, result) < 0 ?
+        a6_latch(o, 0x001CD070u, EM_AREA06_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a6_c_001CD2B0(A6 *o, float f0, float f1, float f2, float f3, float *result)
+{
+    if (a6_failed(o)) return -1;
+    if (!o->h->w_001CD2B0) return a6_latch(o, 0x001CD2B0u, EM_AREA06_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001CD2B0(o->h->ctx, f0, f1, f2, f3, result) < 0 ?
+        a6_latch(o, 0x001CD2B0u, EM_AREA06_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a6_c_001CFAE0(A6 *o, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4, float f5, float f6)
+{
+    if (a6_failed(o)) return -1;
+    if (!o->h->w_001CFAE0) return a6_latch(o, 0x001CFAE0u, EM_AREA06_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001CFAE0(o->h->ctx, a0, n1, a2, f3, f4, f5, f6) < 0 ?
+        a6_latch(o, 0x001CFAE0u, EM_AREA06_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a6_c_001EFE00(A6 *o, int32_t n0, uint32_t a1)
+{
+    if (a6_failed(o)) return -1;
+    if (!o->h->w_001EFE00) return a6_latch(o, 0x001EFE00u, EM_AREA06_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001EFE00(o->h->ctx, n0, a1) < 0 ? a6_latch(o, 0x001EFE00u, EM_AREA06_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int a6_c_001F4A00(A6 *o, uint32_t a0, uint32_t a1)
+{
+    if (a6_failed(o)) return -1;
+    if (!o->h->w_001F4A00) return a6_latch(o, 0x001F4A00u, EM_AREA06_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001F4A00(o->h->ctx, a0, a1) < 0 ? a6_latch(o, 0x001F4A00u, EM_AREA06_PORT_FAULT_WORKER_FAILED) : 0;
 }
 #endif /* EM_AREA06_PORT_INTERNAL_H */

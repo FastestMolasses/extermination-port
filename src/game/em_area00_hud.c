@@ -496,6 +496,90 @@ static uint64_t f_1DF180(Run *r, uint32_t sp, uint64_t a0, uint32_t h)
 }
 
 /* ------------------------------------------------------------------------
+ * 001DF600(a0, a1, colour; f12 = h), frame 0x10F0: 001DF180's sibling
+ * (byte-matched C). The same calls with D_0026E870 for the 001D6B60 table
+ * and the colour for 001D7080. The grid is a radial warp: v = i / 15, u =
+ * j / 15, s(x) = 0011DF78(2x - 1), k = 1 - (s(u)^2 + s(v)^2) h, x = 0.5 +
+ * (u - 0.5) k, y = 0.5 + (v - 0.5) k, z = 1.0. The packets are 001DF180's
+ * with the top word of c+0x20 built from (a1 | 0x14) << 47.
+ * ---------------------------------------------------------------------- */
+static uint64_t f_1DF600(Run *r, uint32_t sp, uint64_t a0, uint32_t a1, uint32_t colour, uint32_t h)
+{
+    uint32_t ctx, slot, i, j;
+    uint32_t off = (uint32_t)a0 << 2;
+    sp -= 0x10F0;
+    ctx = w32(r, G_CTX);
+    {
+        uint32_t k8c = w32(r, G_27568C);
+        slot = w32(r, off + ctx + 0x10);
+        calli(r, sp, FN_1D6B60, 5, a0, reg(k8c), 8, 8, 0x0026E870u, 0);
+    }
+    calli(r, sp, FN_1D6BA0, 6, a0, reg(w32(r, G_27568C)), 8, 8, 0, 0);
+    call2(r, sp, FN_1D1FF0, a0, 3);
+    call2(r, sp, FN_1D2040, a0, 0);
+    call2f(r, sp, FN_1D7080, a0, reg(colour), F_ONE);
+
+    for (i = 0; i < 16; i++) {
+        uint32_t v = em_ee_div_bits(em_ee_cvt_s_w_bits(i), F_FIFTEEN);
+        uint32_t t = fcall(r, sp, FN_11DF78, em_ee_sub_bits(em_ee_mul_bits(F_TWO, v), F_ONE));
+        uint32_t sv = em_ee_mul_bits(t, t);
+        for (j = 0; j < 16; j++) {
+            uint32_t at = sp + 0xD0 + 0x100 * i + 0x10 * j;
+            uint32_t u = em_ee_div_bits(em_ee_cvt_s_w_bits(j), F_FIFTEEN);
+            uint32_t su = fcall(r, sp, FN_11DF78, em_ee_sub_bits(em_ee_mul_bits(F_TWO, u), F_ONE));
+            uint32_t k;
+            su = em_ee_mul_bits(su, su);
+            k = em_ee_add_bits(su, sv);
+            k = em_ee_sub_bits(F_ONE, em_ee_mul_bits(k, h));
+            st32(r, at, em_ee_add_bits(F_HALF, em_ee_mul_bits(em_ee_sub_bits(u, F_HALF), k)));
+            st32(r, at + 4, em_ee_add_bits(F_HALF, em_ee_mul_bits(em_ee_sub_bits(v, F_HALF), k)));
+            st32(r, at + 8, F_ONE);
+        }
+    }
+
+    for (i = 0; i < 15; i++) {
+        uint32_t p = w32(r, G_CTX) + off;
+        uint32_t c, rows = 0xE0u * i, next = 0xE0u * (i + 1), out;
+        st8(r, w32(r, p + 0x10) + 3, 0x10);
+        st32(r, w32(r, p + 0x10) + 4, 0);
+        st16(r, w32(r, p + 0x10), 0x42);
+        c = w32(r, p + 0x10);
+        st32(r, p + 0x10, c + 0x430);
+        {
+            static const uint32_t zero[4] = {0, 0, 0, 0};
+            st128(r, c + 0x10, zero);
+        }
+        st32(r, c + 0x1C, 0x50000041u);
+        st64(r, c + 0x20, ((uint64_t)(int64_t)(int32_t)(a1 | 0x14u) << 0x2F) | UINT64_C(0x4000400000008010));
+        st64(r, c + 0x28, 0x4242u);
+        st32(r, sp + 0x10D0, 0x7000);
+        st32(r, sp + 0x10E0, 0x7000);
+        st32(r, sp + 0x10D4, (div15(rows) + 0x790u) << 4);
+        st32(r, sp + 0x10E4, (div15(next) + 0x790u) << 4);
+        st32(r, sp + 0x10D8, 0xFFFFFFu);
+        st32(r, sp + 0x10E8, 0xFFFFFFu);
+        st32(r, sp + 0x10DC, 0);
+        st32(r, sp + 0x10EC, 0);
+        out = c + 0x30;
+        for (j = 0; j < 16; j++) {
+            uint32_t v;
+            call2(r, sp, FN_COPY_QW, reg(out), reg(sp + 0xD0 + 0x100 * i + 0x10 * j));
+            call2(r, sp, FN_COPY_QW, reg(out + 0x10), reg(sp + 0x10D0));
+            call2(r, sp, FN_COPY_QW, reg(out + 0x20), reg(sp + 0xD0 + 0x100 * (i + 1) + 0x10 * j));
+            call2(r, sp, FN_COPY_QW, reg(out + 0x30), reg(sp + 0x10E0));
+            v = em_ee_add_bits(em_ee_cvt_s_w_bits(w32(r, sp + 0x10D0)), F_546);
+            st32(r, sp + 0x10D0, (uint32_t)icall(r, sp, FN_FLOAT_TO_INT, v));
+            v = em_ee_add_bits(em_ee_cvt_s_w_bits(w32(r, sp + 0x10E0)), F_546);
+            st32(r, sp + 0x10E0, (uint32_t)icall(r, sp, FN_FLOAT_TO_INT, v));
+            out += 0x40;
+        }
+    }
+    call1(r, sp, FN_1D1F20, a0);
+    call2(r, sp, FN_1D1FF0, a0, 1);
+    return reg(slot);
+}
+
+/* ------------------------------------------------------------------------
  * 001E2800(mode, pa, ca, pb, cb), frame 0x40, VU0.
  * Each point p (pa to 0x70003600, then pb to 0x70003610): vf1 = p; vf2 =
  * vf28 * x + vf29 * y + vf30 * z + vf31 (ACC chain); Q = 1 / vf2.w;
@@ -1230,6 +1314,27 @@ int em_area00_hud_001DF5A0(EmArea00Hud *s, uint32_t f12)
     ENTER(s, 0x001DF5A0u);
     sp = s->sp - 0x10;
     v = f_1DF180(&run, sp, 3, f12);
+    header_tail(&run, sp, v);
+    return 0;
+}
+
+int em_area00_hud_001DF600(EmArea00Hud *s, uint32_t a0, uint32_t a1, uint32_t colour, uint32_t f12, uint32_t *out)
+{
+    uint64_t v;
+    ENTER(s, 0x001DF600u);
+    v = f_1DF600(&run, s->sp, reg(a0), a1, colour, f12);
+    put32(out, (uint32_t)v);
+    return 0;
+}
+
+/* 001DF9D0(f12): 001DF600(3, 0, 0x80808080), then 001DF5A0's header. */
+int em_area00_hud_001DF9D0(EmArea00Hud *s, uint32_t f12)
+{
+    uint32_t sp;
+    uint64_t v;
+    ENTER(s, 0x001DF9D0u);
+    sp = s->sp - 0x10;
+    v = f_1DF600(&run, sp, 3, 0, 0x80808080u, f12);
     header_tail(&run, sp, v);
     return 0;
 }

@@ -15,9 +15,20 @@
 #define METHOD_001CAA00 UINT32_C(0x001CAA00)
 #define NODE_BYTES 0xD0u      /* a node record (001AF780's slot) */
 
+/* The player's other models (0015C1F0's kinds 0x3D, 0x3E, 0x3F, 0x40: the
+ * turned player of 0021E830 and the status and infection variants,
+ * tools/export_player_model_variants.py), added beside 0x3B when
+ * exported; a bind of a missing one still faults. */
+static const char *const k_variants[] = {"assets/scene_snow/player_model_3d.emom",
+                                         "assets/scene_snow/player_model_3e.emom",
+                                         "assets/scene_snow/player_model_3f.emom",
+                                         "assets/scene_snow/player_model_40.emom"};
+#define VARIANTS (sizeof k_variants / sizeof k_variants[0])
+
 static struct {
-    EmWorldModels bank;       /* the one model, a table-less bank */
+    EmWorldModels bank;       /* 0x3B and the variants, a table-less bank */
     uint8_t *file;
+    uint8_t *variant[VARIANTS];
     int loaded, tried;
     EmOwnerBone bone[EM_OWNER_SERVICES_MAX_BONES];
     EmOwnerServicesOwner view;
@@ -56,12 +67,32 @@ const EmWorldModels *em_player_draw_live_bank(void)
         return NULL;
     }
     P.file = data;
+    for (unsigned v = 0; v < VARIANTS; ++v) {
+        FILE *g = fopen(k_variants[v], "rb");
+        if (!g) continue;
+        fseek(g, 0, SEEK_END);
+        const long n = ftell(g);
+        fseek(g, 0, SEEK_SET);
+        uint8_t *b = n > 0x20 ? malloc((size_t)n) : NULL;
+        const int read_ok = b && fread(b, 1, (size_t)n, g) == (size_t)n;
+        fclose(g);
+        const EmWorldModel *m = NULL;
+        if (!read_ok || rd32(b) != EM_OBJECT_MODEL_MAGIC || rd32(b + 4) != EM_OBJECT_MODEL_VERSION ||
+            (long)rd32(b + 0xC) != n - 0x20 ||
+            em_world_models_add(&P.bank, rd32(b + 8), b + 0x20, rd32(b + 0xC), &m) < 0) {
+            free(b);
+            report(0x0028A490u, "a player model variant export is not valid (tools/export_player_model_variants.py)");
+            continue;
+        }
+        P.variant[v] = b;
+    }
     P.loaded = 1;
     return &P.bank;
 }
 
 void em_player_draw_live_unload(void)
 {
+    for (unsigned v = 0; v < VARIANTS; ++v) free(P.variant[v]);
     free(P.file);
     memset(&P, 0, sizeof P);
 }

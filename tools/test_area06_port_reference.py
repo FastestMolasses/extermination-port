@@ -102,13 +102,19 @@ for _b in ('a01u_00_gap_jump', 'a01u_01_catwalk_event', 'a01u_02_progression_exi
 for _b in ('a06_00_beam', 'a06_01_crate_door2', 'a06_02_keypad', 'a06_03_room_out', 'a06_04_beam_collapse',
            'a06_05_door3_locked', 'a06_s0_door1_back', 'a06_s1_bar'):
     BEAT_DIRS[_b] = refs.v263('s87/route_a06', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
+# The fork's a06_05 recording: the player infected (mode 1), the infection
+# node 001F8350 live (state 1, parent the player); only that node's cases
+# run on it (infection_cases).
+FORK_A06_05 = 'fork a06_05_door3_locked'
+BEAT_DIRS[FORK_A06_05] = refs.capture('s87/route_a06') / 'a06_05_door3_locked'
 BEATS = list(BEAT_DIRS)
 # The overlay each image holds (header id at 0x823504).
 RESIDENT = {'a22_02_progression_exit': 2, 'a01u_00_gap_jump': 2, 'a01u_01_catwalk_event': 2,
             'a01u_02_progression_exit': 6, 'a01u_s0_pickup': 2, 'a01u_s1_door18_back': 0x13,
             'a06_00_beam': 6, 'a06_01_crate_door2': 6, 'a06_02_keypad': 6, 'a06_03_room_out': 6,
-            'a06_04_beam_collapse': 6, 'a06_05_door3_locked': 6, 'a06_s0_door1_back': 2, 'a06_s1_bar': 6}
-AREA06_BEATS = [b for b in BEATS if RESIDENT[b] == 6]
+            'a06_04_beam_collapse': 6, 'a06_05_door3_locked': 6, 'a06_s0_door1_back': 2, 'a06_s1_bar': 6,
+            FORK_A06_05: 6}
+AREA06_BEATS = [b for b in BEATS if RESIDENT[b] == 6 and b != FORK_A06_05]
 AREA01_BEATS = [b for b in BEATS if RESIDENT[b] == 2]
 POOL, NODE, NODES = 0x7A5640, 0x2F0, 400
 PLAYER = 0x8102B0
@@ -153,8 +159,10 @@ FUNCS = {
     0x21A180: ('em_area06_port_0021A180', 0x2BC, [U, S], I),
     0x21A440: ('em_area06_port_0021A440', 0xB8, [U, U], None),
     0x21AE90: ('em_area06_port_0021AE90', 0x2F0, [U], None),
+    0x1F8350: ('em_area06_port_001F8350', 0x484, [U, S], None),
     0x1CE860: ('em_area06_port_001CE860', 0x678, [I, I, U, U, I, Q, F, S], None),
     0x823580: ('em_area06_port_00823580', 0x58C, [U], None),
+    0x823B10: ('em_area06_port_00823B10', 0x40, [U, U], None),
     0x823B50: ('em_area06_port_00823B50', 0x58C, [U, S], None),
     0x8240E0: ('em_area06_port_008240E0', 0x1A4, [U], None),
     0x824340: ('em_area06_port_00824340', 0x214, [U], None),
@@ -163,7 +171,7 @@ FUNCS = {
     0x824560: ('em_area06_port_00824560', 0x18BC, [U, S], None),
     0x826950: ('em_area06_port_00826950', 0x244, [U, U, U], I),
 }
-OVERLAY_OF = {0x823B50: 6, 0x8240E0: 6, 0x824340: 6, 0x823580: 6, 0x8242C0: 6, 0x824560: 6, 0x826950: 2,
+OVERLAY_OF = {0x823B10: 6, 0x823B50: 6, 0x8240E0: 6, 0x824340: 6, 0x823580: 6, 0x8242C0: 6, 0x824560: 6, 0x826950: 2,
               0x824290: 6}
 
 
@@ -251,6 +259,11 @@ HOOKS = [
     ('w_001C4760', 0x1C4760, [(I, 4), (I, 5)], None),
     ('w_001D04B0', 0x1D04B0, [(U, 4), (I, 5), (U, 6), (F, 12), (F, 13)], None),
     ('w_001B17A0', 0x1B17A0, [(U, 4)], I),
+    ('w_001CD070', 0x1CD070, [(U, 4), (I, 5)], I),
+    ('w_001CD2B0', 0x1CD2B0, [(F, 12), (F, 13), (F, 14), (F, 15)], F),
+    ('w_001CFAE0', 0x1CFAE0, [(U, 4), (I, 5), (U, 6), (F, 12), (F, 13), (F, 14), (F, 15)], None),
+    ('w_001F4A00', 0x1F4A00, [(U, 4), (U, 5)], None),
+    ('w_001EFE00', 0x1EFE00, [(I, 4), (U, 5)], None),
 ]
 BY_ADDRESS = {address: (name, args, result) for name, address, args, result in HOOKS}
 
@@ -1546,6 +1559,10 @@ def case_list(elf):
 
     for beat in BEATS:
         ram, spad = CAPTURES[beat]
+        if beat == FORK_A06_05:
+            for node in owners(ram, 0x1F8350):
+                add('capture %s 1F8350 @%X' % (beat, node), beat, 0x1F8350, [node])
+            continue
         if RESIDENT[beat] == 6:
             for entry in (0x823B50, 0x8240E0, 0x824340):
                 for node in owners(ram, entry):
@@ -1559,6 +1576,8 @@ def case_list(elf):
                 add('capture %s 823580 @%X' % (beat, node), beat, 0x823580, [node])
             for node in owners(ram, 0x824560):
                 add('capture %s 824560 @%X' % (beat, node), beat, 0x824560, [node])
+            for node in owners(ram, 0x1F8350):
+                add('capture %s 1F8350 @%X' % (beat, node), beat, 0x1F8350, [node])
         add('capture %s 169250' % beat, beat, 0x169250, [PLAYER])
         add('capture %s 1944B0' % beat, beat, 0x1944B0, [CAM, PLAYER, 0])
         add('capture %s 1885B0' % beat, beat, 0x1885B0, [PLAYER])
@@ -1877,6 +1896,8 @@ def node_cases(add):
         base + [(self_ + 4, b8(1)), (own + 4, b8(3))])
     for st in (2, 3, 4):
         add('21AE90 s%d' % st, 'a06_05_door3_locked', 0x21AE90, [self_], base + [(self_ + 4, b8(st))])
+    infection_cases(add)
+    contact_cases(add)
     # 001A8F40 (a pair): a +0xB0 / +0x30 -> radius, b +0xB0
     pa, pb, rad = FREE + 0x8000, FREE + 0x8400, FREE + 0x8800
     for d, r in ((0.0, 1.0), (3.9, 1.0), (4.0, 1.0), (4.1, 1.0), (10.0, 7.0), (10.0, 6.99), (-5.0, -8.0)):
@@ -1891,6 +1912,51 @@ def node_cases(add):
                 [PLAYER, 0, FREE + 0x100],
                 [(PLAYER + 0x1F0, b8(c3)), (PLAYER + 4, bytes([s4, s5])), (FREE + 0x100, fw(5.0, 60.5, -7.0, 1.0))],
                 queues={0x19AFE0: [hit]})
+
+
+def contact_cases(add):
+    """0x823B10 on a designed toucher: bit 1 of its +0 clear (the spark
+    node, +0x1F0 = 60) and set (nothing)."""
+    self_, toucher = FREE + 0x4000, FREE + 0x5000
+    for head in (0, 1, 2, 3, 0xFD, 0xFF):
+        add('823B10 head %X' % head, 'a06_05_door3_locked', 0x823B10, [self_, toucher],
+            [(toucher, b8(head)), (self_ + 0x1F0, w32(7))])
+
+
+def infection_cases(add):
+    """001F8350, the infection node 0x80000048, on the a06_05 capture's
+    node (state 1, parent the player): every state, the parent ending,
+    the frame gate 0x70003B68 & 7, each rand % 3 source and a negative
+    remainder (rand stubbed), the ring index's wrap, ages around 0 and the
+    1.2 end (and -0.0 / NaN), 001CD2B0 results 0 / -0.0 / drawn."""
+    beat = FORK_A06_05
+    ram, _ = CAPTURES[beat]
+    nodes = owners(ram, 0x1F8350)
+    assert nodes, 'the fork a06_05 recording: no 001F8350 node'
+    node = nodes[0]
+    ages, frame = 0x81F970, 0x70003B68
+    stub = RUN - {0x122BB8}
+    for st in (0, 2, 3, 4, 0xFF):
+        add('1F8350 s%d' % st, beat, 0x1F8350, [node], [(node + 4, b8(st))])
+    for st in (0, 1, 2):
+        add('1F8350 s%d parent ends' % st, beat, 0x1F8350, [node], [(node + 4, b8(st)), (PLAYER + 4, b8(3))])
+    for fr in (0, 1, 7, 8):
+        add('1F8350 s1 frame %d' % fr, beat, 0x1F8350, [node], [(node + 4, b8(1))], spad=[(frame, w32(fr))])
+    for r, q0 in ((0, 5), (1, 5), (2, 5), (3, 63), (-1, 5), (-2, 63), (-3, 0), (0x7FFFFFFF, 62), (4, 63)):
+        add('1F8350 s1 rand %d q0 %d' % (r, q0), beat, 0x1F8350, [node],
+            [(node + 4, b8(1)), (node + 0x1F0, w32(q0))], spad=[(frame, w32(16))],
+            queues={0x122BB8: [r]}, run_set=stub)
+    add('1F8350 s2 frame 0', beat, 0x1F8350, [node], [(node + 4, b8(2))], spad=[(frame, w32(0))])
+    edge = [-1.0, -0.0, 0.0, 1.0e-6, 0.5, 1.18, 1.184, 1.185, 1.1850001, 1.19, 1.2, 1.3, -1.0e-30, 2.0]
+    patch = [(ages + 4 * i, fw(edge[i % len(edge)])) for i in range(64)]
+    patch[13] = (ages + 4 * 13, w32(NAN))
+    patch[40] = (ages + 4 * 40, w32(0x80000000))
+    for seed in (0, 0x12345678, 0xFFFFFFFF):
+        add('1F8350 ages seed %X' % seed, beat, 0x1F8350, [node],
+            [(node + 4, b8(2)), (node + 0x1F4, w32(seed))] + patch)
+    for name, value in (('0', 0), ('-0', 0x80000000), ('1', F_ONE_B), ('nan', NAN)):
+        add('1F8350 draw %s' % name, beat, 0x1F8350, [node], [(node + 4, b8(2))] + patch,
+            default={0x1CD2B0: value, 0x1CD070: -7})
 
 
 def strip_cases(add):

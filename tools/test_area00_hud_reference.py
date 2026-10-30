@@ -82,7 +82,7 @@ CTX_PTR, WORK_PTR, C30_PTR = 0x275670, 0x275C34, 0x275C30
 
 FUNCS = {
     0x1DEDB0: 0x28, 0x1DEE80: 0x34, 0x1DEEC0: 0x20, 0x1DF020: 0xE4, 0x1DF110: 0x64, 0x1DF180: 0x41C,
-    0x1DF5A0: 0x60, 0x1E2800: 0x3A0, 0x1E2BA0: 0x2D8, 0x1E2E80: 0x798, 0x1EAB50: 0x19C, 0x1EB980: 0x9C,
+    0x1DF5A0: 0x60, 0x1DF600: 0x3C4, 0x1DF9D0: 0x70, 0x1E2800: 0x3A0, 0x1E2BA0: 0x2D8, 0x1E2E80: 0x798, 0x1EAB50: 0x19C, 0x1EB980: 0x9C,
     0x1EBBB0: 0x7C, 0x1EBC30: 0xE4, 0x1ECB00: 0x368, 0x1ECFB0: 0x14C, 0x1ED7A0: 0x34C, 0x1EEBA0: 0x30C,
     0x1EEEB0: 0x30C,
 }
@@ -116,7 +116,7 @@ STACK_ARG_BYTES = {(0x1D7A80, 2): 32, (0x1D7A80, 3): 32}
 # register (a0..t0), 'f' a raw float register (f12..).
 ENTRIES = {
     0x1DEDB0: ('p', 'u'), 0x1DEE80: ('pp', 'u'), 0x1DEEC0: ('pp', 'u'), 0x1DF020: ('pp', 'u'),
-    0x1DF110: ('p', None), 0x1DF180: ('pf', 'u'), 0x1DF5A0: ('f', None), 0x1E2800: ('ppppp', None),
+    0x1DF110: ('p', None), 0x1DF180: ('pf', 'u'), 0x1DF5A0: ('f', None), 0x1DF600: ('pppf', 'u'), 0x1DF9D0: ('f', None), 0x1E2800: ('ppppp', None),
     0x1E2BA0: ('ppp', None), 0x1E2E80: ('p', None),
 }
 for _h in HANDLERS:
@@ -987,6 +987,11 @@ def cases_context(rng):
     for n, h in enumerate((0.05, 0.25)):
         out.append(case(f'1DF5A0 {n}', 0x1DF5A0, [], fargs=[FB(h)], writes=[seed_write(B09, rng.getrandbits(32))],
                         pin=n == 0))
+    for n, (a0, a1, colour, h) in enumerate(((3, 0, 0x80808080, 0.2), (1, 0, 0x12345678, 0.0), (3, 8, 0x80808080, 1.0),
+                                             (3, 0xFFFFFFFF, 0, -0.3), (2, 0x20000, 0xFFFFFFFF, 3.0e10))):
+        out.append(case(f'1DF600 {n}', 0x1DF600, [a0, a1, colour], fargs=[FB(h)], pin=n == 0))
+    for n, h in enumerate((0.2, 0.05, 0.0)):
+        out.append(case(f'1DF9D0 {n}', 0x1DF9D0, [], fargs=[FB(h)], pin=n == 0))
     return out
 
 

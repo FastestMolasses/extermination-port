@@ -13,7 +13,8 @@
  *            page) with 002079F0 / 00207BB0 / 00207CA0 / 00207CD0,
  *            00219870 (the node behaviour of AREA06's deferred g[11]) with
  *            00219F50 / 0021A180 / 0021A440, 0021AE90, 001CE860 (the
- *            strip packet builder of the 0x8000003B strip nodes 0021A500)
+ *            strip packet builder of the 0x8000003B strip nodes 0021A500),
+ *            001F8350 (the infection node 0x80000048)
  *   AREA06   0x823580 (placement [9]), 0x8242C0 (a script op09
  *            callback), 0x824560 (the beam [11]); runtime addresses
  *            (OVERLAY/AREA06.BIN, id 6, splat/link names 0x40 lower)
@@ -168,6 +169,15 @@ typedef struct {
     int (*w_001D04B0)(void *ctx, uint32_t matrix, int32_t count, uint32_t table, float time, float phase);
     int (*w_001B17A0)(void *ctx, uint32_t self, int32_t *result);
 
+    /* The infection node 001F8350's (0x80000048). */
+    int (*w_001CD070)(void *ctx, uint32_t a0, int32_t n1, int32_t *result);
+    int (*w_001CD2B0)(void *ctx, float f0, float f1, float f2, float f3, float *result);
+    int (*w_001CFAE0)(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4, float f5, float f6);
+    int (*w_001F4A00)(void *ctx, uint32_t a0, uint32_t a1);
+
+    /* 0x823B10's. */
+    int (*w_001EFE00)(void *ctx, int32_t n0, uint32_t a1);
+
     /* The actor's +0x4C method, called by 00219870, 0x824340 and 0x824560
      * with the function read from +0x4C and the actor. */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t actor);
@@ -203,6 +213,9 @@ int em_area06_port_0021A180(const EmArea06PortHooks *h, uint32_t self, uint32_t 
                             EmArea06PortFault *fault);
 int em_area06_port_0021A440(const EmArea06PortHooks *h, uint32_t self, uint32_t src, EmArea06PortFault *fault);
 int em_area06_port_0021AE90(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault);
+/* 001F8350: the infection node 0x80000048 (0021C190's spawn when the
+ * player's infection turns him; its parent +0x24 is the player). */
+int em_area06_port_001F8350(const EmArea06PortHooks *h, uint32_t self, uint32_t sp, EmArea06PortFault *fault);
 /* 001CE860 (the strip packet): a0 / a1 as the original's words, the point
  * array (16 bytes per point), the colour block, the point count, the 64-bit
  * GIF tag word, the half width, and `sp`. */
@@ -215,6 +228,9 @@ int em_area06_port_008240E0(const EmArea06PortHooks *h, uint32_t self, EmArea06P
 int em_area06_port_00824340(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault);
 
 int em_area06_port_00823580(const EmArea06PortHooks *h, uint32_t self, EmArea06PortFault *fault);
+/* 0x823B10: the contact word (+0x34) 0x823B50 stores: the spark node
+ * 0x80000044 at a toucher that is not protected. */
+int em_area06_port_00823B10(const EmArea06PortHooks *h, uint32_t self, uint32_t toucher, EmArea06PortFault *fault);
 /* 0x824290: AREA06's area init (001E7780 keys 0x600 / 0x601). */
 int em_area06_port_00824290(const EmArea06PortHooks *h, EmArea06PortFault *fault);
 int em_area06_port_008242C0(const EmArea06PortHooks *h, uint32_t self, uint32_t st, int32_t *result,

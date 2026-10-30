@@ -246,6 +246,7 @@ static const char *mid_cells(unsigned area)
 }
 
 static const uint8_t *closure_spawn_read(uint32_t address, uint32_t size);
+static int player_packet(void);
 
 /* What 001B6990 spawned at the last state 0 (S10b). */
 enum { POOL_NONE = 0, POOL_ROSTER, POOL_LEGACY_WORLD };
@@ -3360,7 +3361,7 @@ static int area_read(void)
         /* The original area delivery replaced GS texture memory. Invalidate
          * the one native TEX0 registry at that same completed-load point. */
         ++s_area_resource_epoch;
-        if (em_world_textures_live_bind(s_state.d810700, s_state.d810701) < 0)
+        if (em_world_textures_live_bind(s_state.d810700, s_state.d810701) < 0 || player_packet() < 0)
             return -1;
         return em_shadow_live_select_area(s_state.d810700, s_state.d810701);
     }
@@ -3694,7 +3695,11 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     }
     if (s_state.d810700 == 0x16 && fn >= 0x00823500u)
         return -1;
-    if (s_state.d810700 == 6 && fn == 0x00219870u)
+    /* AREA06's boot owners: g[11]'s node 00219870, the debris spawner
+     * 0021AE90 (effect 0x80000044) and the infection node 001F8350
+     * (effect 0x80000048, 0021C190's when the player turns; em_area06_port
+     * through em_area01_runtime dispatch_a06). */
+    if (s_state.d810700 == 6 && (fn == 0x00219870u || fn == 0x0021AE90u || fn == 0x001F8350u))
         goto bind;
     /* The muzzle node 001F4F40 allocates (the AREA01 revisit's 0x826010 ->
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
@@ -3923,8 +3928,16 @@ static int area01_contact(void *ctx, uint32_t function, uint32_t entry, uint32_t
         memset(&m, 0, sizeof m);
         return em_area02_misc_001E49F0(&m);
     }
-    if (function != 0x001E3D20u || player != EM_AREA01_PLAYER_BASE || player_b0 != player + 0xB0u ||
-        em_area01_collision_view_begin(&l->collision) < 0)
+    /* 0x823B10: AREA06's contact word (0x823B50's record +0x34; another
+     * overlay's code at the address never reaches here: only AREA06
+     * records hold it). */
+    const int contact = function == 0x001E3D20u || (s_state.d810700 == 6 && function == 0x00823B10u);
+    if (!contact || player != EM_AREA01_PLAYER_BASE || player_b0 != player + 0xB0u) {
+        fprintf(stderr, "em_area01: 001A8660: a +0x34 contact %08X (entry %08X, player %08X) with no binding\n",
+                (unsigned)function, (unsigned)entry, (unsigned)player);
+        return -1;
+    }
+    if (em_area01_collision_view_begin(&l->collision) < 0)
         return -1;
     EmArea01Call c = {.function = function, .a = {entry, player}, .na = 2};
     int rc = em_area01_live_call_active(l, &c);
@@ -5709,13 +5722,26 @@ void em_scene_bindings_module_loader_shutdown(void)
     s_loader_replay_n = 0;
 }
 
+/* The player texture packet 00200890 sends, by D_00810707 / D_00810C60
+ * (the world texture catalog that holds it). */
+static int player_packet(void)
+{
+    const uint8_t *mode = em_scene_progress_at(&s_state, 0x00810707u, 1);
+    const uint8_t *costume = em_scene_progress_at(&s_state, 0x00810C60u, 1);
+    if (!mode || !costume)
+        return -1;
+    return em_world_textures_live_player_packet(*mode, *costume);
+}
+
 int em_scene_bindings_00200890(void)
 {
     if (!s_loader) {
         fprintf(stderr, "em_scene: 00200890 without the screen-module loader\n");
         return -1;
     }
-    return em_module_loader_00200890(s_loader);
+    if (em_module_loader_00200890(s_loader) < 0)
+        return -1;
+    return player_packet();
 }
 
 void em_scene_bindings_module_loader_field(void)

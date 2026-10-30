@@ -543,11 +543,19 @@ recording-derived and stay in the ignored `build/`.
   position, the area bytes and the
   whole progress block (`pad end at`). `EM_START_AT_RAND=<hex>` (with
   EM_START_AT_PAD; comparison only, as EM_RAND_REPLAY) puts that rand()
-  state word in place at control: the recording's word at the beat's
-  source state (*D_0024295C + 0x58), so the creatures draw the recording's
-  stream from the beat's start. `EM_START_AT_MARKS=<f>,<f>,...` (with
-  EM_START_AT_PAD) prints the position and the progress block when the
-  script's clock reaches each frame (`pad mark <f>`): a chained beat's end.
+  state word in place when the script starts: the recording's word at the
+  beat's source state (*D_0024295C + 0x58), so the creatures draw the
+  recording's stream from the beat's start. `EM_START_AT_FADE=<level>` (0..255,
+  default 0; with EM_START_AT_PAD) is the transition level at the
+  recording's row 0 (D_0028A9A0 +4): a loaded game fades in with the
+  player's input refused, about 50 frames past control, so the script's row
+  0 (and the rand word) wait until the fade reaches that level.
+  `EM_START_AT_MARKS=<f>,<f>,...` (with EM_START_AT_PAD) prints the position,
+  the rand() state and the progress block when the script's clock reaches
+  each frame (`pad mark <f>`): a chained beat's end. A path wait of 10 frames
+  or more is reported (`waited <n> frames at script frame <t>`); the clock
+  waits only for a player behind the recorded position along the path (a
+  player ahead of it used to be turned back to it).
   `tools/mid_route_beats.py` drives the middle of the route to the first
   boss this way (docs/LEVEL8_PORT.md "Start-card runs").
 - **Proof:** `make test-start-at` (tools/test_start_at.py, about 11 s):

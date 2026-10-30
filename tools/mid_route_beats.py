@@ -149,6 +149,15 @@ def source_rand(beat):
     return int.from_bytes(ram[block + 0x58:block + 0x5C], 'little')
 
 
+def row0_fade(beat):
+    """The transition level at the recording's row 0 (D_0028A9A0 +4; 0 when
+    no fade runs there): a loaded game's fade-in refuses the player's input,
+    so the script starts at the same level (EM_START_AT_FADE)."""
+    t = json.loads((beat_dir(beat) / 'trace.json').read_text())
+    fade = bytes.fromhex(t['rows'][0]['fade'])
+    return fade[4] if fade[0] else 0
+
+
 def end_block(beat):
     ram = (beat_dir(beat) / 'eeMemory.bin').read_bytes()
     return ram[BLOCK:BLOCK + SIZE]
@@ -187,7 +196,8 @@ def run(name, card, beats, timeout):
     log_path = OUT / f'{name}.log'
     env = {k: v for k, v in os.environ.items() if not k.startswith('EM_')}
     env.update(EM_START_AT=card, EM_START_AT_PAD=str(pad), EM_START_AT_PATH=str(path), EM_HEADLESS='1',
-               EM_UNCAPPED='1', EM_MUTE='1', EM_START_AT_RAND=f'{source_rand(beats[0]):08x}')
+               EM_UNCAPPED='1', EM_MUTE='1', EM_START_AT_RAND=f'{source_rand(beats[0]):08x}',
+               EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
     start = time.time()

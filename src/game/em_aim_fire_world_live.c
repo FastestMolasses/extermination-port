@@ -637,7 +637,8 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
        c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u &&
        c->function!=0x001E2E80u && c->function!=0x001F02C0u && c->function!=0x001F6FB0u &&
-       c->function!=0x001DEE80u && c->function!=0x001DEEC0u && c->function!=0x001DF5A0u)return -1;
+       c->function!=0x001DEE80u && c->function!=0x001DEEC0u && c->function!=0x001DF5A0u &&
+       c->function!=0x001DF9D0u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
     b.views=v->views;b.math=v->math;b.hit=v->hit;b.side=v->side;b.fx=v->fx;b.misc=v->misc;b.hud=v->hud;
     v->bridge=&b;
@@ -646,7 +647,7 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
     /* 001DF5A0's 001DF180 keeps a 0x10F0-byte frame (its 16 x 16 grid):
      * the runtime's private stack view below 0x7E001400 (em_aim_fire_runtime
      * add_windows), which its SDK callees reach through the same map. */
-    const uint32_t ramp_sp=c->function==0x001DF5A0u ? 0x7E001400u : c->sp;
+    const uint32_t ramp_sp=c->function==0x001DF5A0u || c->function==0x001DF9D0u ? 0x7E001400u : c->sp;
     /* 001F6FB0 dereferences its parent (node +0x24) only in its states 0
      * and 1 (0 falls into 1). In states 2 and 3 it only frees itself
      * (001AFC10(node)) and in any other state it returns at once. By its
@@ -785,7 +786,8 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
             fprintf(stderr,"aim/fire world: 001E2E80 hud fault %d at %08X\n",(int)s.fault,(unsigned)s.fault_address);
             return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
         }
-    } else if(c->function==0x001DEE80u || c->function==0x001DEEC0u || c->function==0x001DF5A0u) {
+    } else if(c->function==0x001DEE80u || c->function==0x001DEEC0u || c->function==0x001DF5A0u ||
+              c->function==0x001DF9D0u) {
         /* The render context's ramp records (the flash node 001E7310's
          * 001DEE80 / 001DEEC0 / 001DF5A0): em_area00_hud's translations over
          * this depth's views (the render context's storage among them). */
@@ -794,12 +796,13 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
         uint32_t out=0;
         status=c->function==0x001DEE80u ? em_area00_hud_001DEE80(&s,a,d,&out)
               : c->function==0x001DEEC0u ? em_area00_hud_001DEEC0(&s,a,d,&out)
+              : c->function==0x001DF9D0u ? em_area00_hud_001DF9D0(&s,c->f[0])
                                          : em_area00_hud_001DF5A0(&s,c->f[0]);
         if(status<0||s.fault) {
             fprintf(stderr,"aim/fire world: %08X hud fault %d at %08X\n",(unsigned)c->function,(int)s.fault,(unsigned)s.fault_address);
             return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
         }
-        if(c->function!=0x001DF5A0u)c->v0=out;
+        if(c->function!=0x001DF5A0u && c->function!=0x001DF9D0u)c->v0=out;
     } else if(c->function==0x001EFE00u) {
         EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0,NULL};b.side_state=&s;
         status=em_area01_side_001EFE00(&s,(int32_t)a,d,&result);

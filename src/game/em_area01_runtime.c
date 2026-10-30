@@ -129,8 +129,9 @@ static int dispatch_a06(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     unsigned need_a = 1, need_f = 0;
     switch (fn) {
     case 0x00823580u: case 0x008240E0u: case 0x00824340u: case 0x00823B50u: case 0x00824560u:
-    case 0x00219870u: case 0x00219F50u: case 0x0021A180u: break;
-    case 0x008242C0u: case 0x0021A440u: case 0x001EBE10u: case 0x001ECA20u: need_a = 2; break;
+    case 0x00219870u: case 0x00219F50u: case 0x0021A180u: case 0x0021AE90u: break;
+    case 0x001F8350u: break;
+    case 0x008242C0u: case 0x0021A440u: case 0x001EBE10u: case 0x001ECA20u: case 0x00823B10u: need_a = 2; break;
     case 0x001EA210u: need_a = 0; need_f = 1; break;
     default: return 0;
     }
@@ -147,8 +148,11 @@ static int dispatch_a06(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     case 0x008240E0u: x = em_area06_port_008240E0(&h, a0, &f); break;
     case 0x00824340u: x = em_area06_port_00824340(&h, a0, &f); break;
     case 0x00823B50u: x = em_area06_port_00823B50(&h, a0, sp, &f); break;
+    case 0x00823B10u: x = em_area06_port_00823B10(&h, a0, a1, &f); break;
     case 0x00824560u: x = em_area06_port_00824560(&h, a0, sp, &f); break;
     case 0x00219870u: x = em_area06_port_00219870(&h, a0, sp, &f); break;
+    case 0x0021AE90u: x = em_area06_port_0021AE90(&h, a0, &f); break;
+    case 0x001F8350u: x = em_area06_port_001F8350(&h, a0, sp, &f); break;
     case 0x00219F50u: x = em_area06_port_00219F50(&h, a0, &f); break;
     case 0x0021A180u: x = em_area06_port_0021A180(&h, a0, sp, &out, &f); break;
     case 0x008242C0u: x = em_area06_port_008242C0(&h, a0, a1, &out, &f); break;

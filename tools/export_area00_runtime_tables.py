@@ -120,6 +120,15 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # the area change's flash node 001E7440's ramp row
                # (001DEE80(9, D_0026E980)), 001E7310's D_0026E970 twin
                (0x0026E980, 0x10),
+               # the third ramp twin 001E7570's (0x80000063): 001DEE80's row
+               # D_0026E990 and 001DF600's 001D6B60 colour D_0026E870
+               (0x0026E990, 0x10), (0x0026E870, 0x10),
+               # the infection node 001F8350's (effect 0x80000048, a06_05)
+               # 001CFBE0 source block D_0025D890, only read
+               (0x0025D890, 0x90),
+               # the debris spawner 0021AE90's (effect 0x80000044, a06_05)
+               # bone index rows D_00266AE0 / D_00266B00 (six words each)
+               (0x00266AE0, 0x18), (0x00266B00, 0x18),
                # 001C50B0's AREA06 (keys 0x600 / 0x601) light offset vector
                # D_0026E2E0 (001028B8 / 001028D0 around its 001C5050)
                (0x0026E2E0, 0x10),

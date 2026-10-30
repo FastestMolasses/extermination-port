@@ -4,6 +4,7 @@
  */
 #include "game/em_memcard.h"
 #include "game/em_frontend.h"
+#include "game/em_random.h"
 #include "game/em_start_at.h"
 #include "game/em_area01_terminal_status.h"
 #include "game/em_area11_interaction_host.h"
@@ -973,9 +974,9 @@ static void start_at_pad_mark(void)
     const EmSceneState *sc = em_scene_state();
     char when[48];
     snprintf(when, sizeof when, "at pad mark %d", em_start_at_pad_clock());
-    printf("%s: pad mark %d at (%.3f,%.3f,%.3f) area %02X %02X %02X 3B8D %u\n", load_prefix(),
+    printf("%s: pad mark %d at (%.3f,%.3f,%.3f) area %02X %02X %02X 3B8D %u rand %08x\n", load_prefix(),
            em_start_at_pad_clock(), g.pos[0], g.pos[1], g.pos[2], sc->d810700, sc->d810701, sc->d810702,
-           sc->spad3B8D);
+           sc->spad3B8D, (unsigned)em_random_peek());
     load_test_block(when);
     fflush(stdout);
 }

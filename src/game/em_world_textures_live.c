@@ -15,9 +15,10 @@ typedef struct {
 
 static struct {
     unsigned area, subarea;
+    unsigned mode, costume;   /* 00200890's D_00810707 / D_00810C60: the player's texture packet */
     EmGfx *ready;
     int failed;
-} S = {11u, 0u, NULL, 0};
+} S = {11u, 0u, 0u, 0u, NULL, 0};
 
 static uint32_t rd32(const uint8_t *p)
 {
@@ -26,6 +27,11 @@ static uint32_t rd32(const uint8_t *p)
 
 static int supported(void)
 {
+    /* The player's other texture packets (00200890 slots 9..0xC) have
+     * catalogs for AREA06 / AREA22 only (tools/export_player_texture_variants.py). */
+    if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u) && S.subarea == 0u && S.mode <= 2u &&
+                                   S.costume <= 2u))
+        return 0;
     return ((S.area == 0u || S.area == 2u) && S.subarea <= 1u) ||
            (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u));
 }
@@ -37,6 +43,27 @@ static int fail(const char *what, const char *path)
                 what, path ? ": " : "", path ? path : "");
     S.failed = 1;
     return -1;
+}
+
+int em_world_textures_live_player_packet(unsigned mode, unsigned costume)
+{
+    /* Every mode above 1 uploads slot 9 whatever the costume (00200890):
+     * one catalog, (2, 0). */
+    if (mode >= 2u) {
+        mode = 2u;
+        costume = 0u;
+    }
+    if (mode == S.mode && costume == S.costume) return S.failed ? -1 : 0;
+    S.mode = mode;
+    S.costume = costume;
+    S.ready = NULL;           /* the next frame uploads the catalog with the new packet */
+    if (!supported()) {
+        char what[96];
+        snprintf(what, sizeof what, "no catalog for the player's texture packet (mode %u, costume %u)", mode,
+                 costume);
+        return fail(what, NULL);
+    }
+    return 0;
 }
 
 int em_world_textures_live_bind(unsigned area, unsigned subarea)
@@ -117,8 +144,12 @@ int em_world_textures_live_ensure(EmGfx *gfx)
         paths[0] = "assets/area04_sub0_world_textures.emot";
     /* tools/export_level_world_textures.py --profile 22 / 06 (mode 0,
      * costume 0: the recorded deliveries) */
-    if (S.area == 0x16u) paths[0] = "assets/levels/22/sub0/world_textures_mode0_costume0.emot";
-    if (S.area == 6u) paths[0] = "assets/levels/06/sub0/world_textures_mode0_costume0.emot";
+    char mid[96];
+    if (S.area == 0x16u || S.area == 6u) {
+        snprintf(mid, sizeof mid, "assets/levels/%02u/sub0/world_textures_mode%u_costume%u.emot", S.area, S.mode,
+                 S.costume);
+        paths[0] = mid;
+    }
     Texture textures[EM_GFX_OBJECT_TEX_MAX];
     uint8_t *storage[2] = {NULL, NULL};
     unsigned count = 0;

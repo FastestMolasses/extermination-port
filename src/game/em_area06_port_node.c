@@ -557,6 +557,136 @@ int em_area06_port_0021AE90(const EmArea06PortHooks *h, uint32_t self, EmArea06P
 }
 
 /* ------------------------------------------------------------------------
+ * 001F8350 (NEARMISS; the translation follows the instructions): the
+ * infection node 0x80000048. obj = self +0x24 (the player), q = self +
+ * 0x1F0 (q[0] the ring index, q[1] the LCG seed). It reads +4 and +0x24
+ * on entry in every state. By +4:
+ *   0  the 64 ages D_0081F970 = -1, q[0] = 0, q[1] = rand, +4 = 1, then 1;
+ *   1, 2  obj +4 == 3 sets +4 = 3 and returns. In state 1, every eighth
+ *      frame (0x70003B68 & 7 == 0) rand % 3 picks a source for the ring
+ *      slot D_0081FA70 + 16 q[0]: 0 the point (3.2, -1.6, -0.6, 1) through
+ *      the matrix (obj +0x118) +0x90 (001026A0), 1 / 2 the position
+ *      (obj +0x134 / +0x130) +0xC0 (00102948); a negative remainder copies
+ *      nothing. The slot's w = 1.0, its age = 0, q[0] + 1 wraps at 64.
+ *      Then 0x700038A0 = (3.2, -1.5, -0.6, 1) through (obj +0x118) +0x90,
+ *      0x700038B0 = (0x20, 0x70, 0x80, 0x80), 001F4A00 (the glow); and for
+ *      each of the 64 slots, with w the LCG word (q[1] at the start of
+ *      every frame; never stored back): 0x70003A20 = ((w >> 16) & 0xFFFF)
+ *      / 65535 + 1e-4, w = w * 37 + 11; a slot of age >= 0 builds the unit
+ *      matrix moved to the slot (001029C0, 00102918) at 0x700036A0, its
+ *      key 001CD070(0x700036D0, 0x30) and 0x70003A24 = 001CD2B0(6, 6, 96,
+ *      96); a non-zero 0x70003A24 draws (001CFAE0 into the frame's block
+ *      sp - 0x60, then 001CFBE0(key, 1, D_0025D890, block, 0)); the age
+ *      grows by 0.015 and a slot reaching 1.2 ends (-1);
+ *   3  001AFC10(self); any other state returns.
+ * ---------------------------------------------------------------------- */
+#define D_0081F970 0x0081F970u
+#define D_0081FA70 0x0081FA70u
+#define D_0025D890 0x0025D890u
+#define F_3_2   0x404CCCCDu
+#define F_M1_6  0xBFCCCCCDu
+#define F_M1_5  0xBFC00000u
+#define F_M0_6  0xBF19999Au
+#define F_M1    0xBF800000u
+#define F_65535 0x477FFF00u
+#define F_1EM4  0x38D1B717u
+#define F_96    0x42C00000u
+#define F_0_015 0x3C75C28Fu
+#define F_1_2   0x3F99999Au
+static void a6_001F8350(A6 *o, uint32_t self, uint32_t sp)
+{
+    const uint32_t state = a6_u8(o, self + 4);
+    const uint32_t obj = a6_u32(o, self + 0x24);
+    const uint32_t q = self + 0x1F0;
+    if (state == 3) {
+        a6_c_001AFC10(o, self);
+        return;
+    }
+    if (state > 3) return;
+    if (state == 0) {
+        for (uint32_t i = 0; i < 0x40; i++) a6_w32(o, D_0081F970 + 4 * i, F_M1);
+        a6_w32(o, q, 0);
+        int32_t r = 0;
+        if (a6_c_00122BB8(o, &r)) return;
+        a6_w32(o, q + 4, (uint32_t)r);
+        a6_w8(o, self + 4, 1);
+    }
+    if (a6_u8(o, obj + 4) == 3) {
+        a6_w8(o, self + 4, 3);
+        return;
+    }
+    if (a6_u8(o, self + 4) == 1 && (a6_u32(o, S_70003B68) & 7) == 0) {
+        int32_t r = 0;
+        if (a6_c_00122BB8(o, &r)) return;
+        const int32_t sel = r % 3;
+        if (sel == 0) {
+            a6_w32(o, S_700038A0, F_3_2);
+            a6_w32(o, S_700038A0 + 4, F_M1_6);
+            a6_w32(o, S_700038A0 + 8, F_M0_6);
+            a6_w32(o, S_700038A0 + 12, F_ONE);
+            const uint32_t idx = a6_u32(o, q);
+            const uint32_t m = a6_u32(o, obj + 0x118);
+            if (a6_c_001026A0(o, D_0081FA70 + idx * 16u, m + 0x90, S_700038A0)) return;
+        } else if (sel == 1 || sel == 2) {
+            const uint32_t idx = a6_u32(o, q);
+            const uint32_t at = a6_u32(o, obj + (sel == 1 ? 0x134u : 0x130u));
+            if (a6_c_00102948(o, D_0081FA70 + idx * 16u, at + 0xC0)) return;
+        }
+        a6_w32(o, D_0081FA70 + 12 + a6_u32(o, q) * 16u, F_ONE);
+        a6_w32(o, D_0081F970 + a6_u32(o, q) * 4u, F_ZERO);
+        a6_w32(o, q, a6_u32(o, q) + 1);
+        if ((int32_t)a6_u32(o, q) >= 0x40) a6_w32(o, q, 0);
+    }
+    a6_w32(o, S_700038A0, F_3_2);
+    a6_w32(o, S_700038A0 + 4, F_M1_5);
+    a6_w32(o, S_700038A0 + 8, F_M0_6);
+    a6_w32(o, S_700038A0 + 12, F_ONE);
+    const uint32_t m = a6_u32(o, obj + 0x118);
+    if (a6_c_001026A0(o, S_700038A0, m + 0x90, S_700038A0)) return;
+    a6_w32(o, S_700038B0, 0x20);
+    a6_w32(o, S_700038B0 + 4, 0x70);
+    a6_w32(o, S_700038B0 + 8, 0x80);
+    a6_w32(o, S_700038B0 + 12, 0x80);
+    if (a6_c_001F4A00(o, S_700038A0, S_700038B0)) return;
+    uint32_t w = a6_u32(o, q + 4);
+    const uint32_t block = sp - 0x60;
+    for (uint32_t i = 0; i < 0x40; i++) {
+        const uint32_t age_at = D_0081F970 + 4 * i, slot = D_0081FA70 + 16 * i;
+        const uint32_t unit = A6_ADD(A6_DIV(A6_CVT((w >> 16) & 0xFFFFu), F_65535), F_1EM4);
+        a6_w32(o, S_70003A20, unit);
+        const uint32_t age = a6_u32(o, age_at);
+        w = w * 37u + 11u;
+        if (A6_LT(age, F_ZERO)) continue;
+        if (a6_c_001029C0(o, S_700036A0)) return;
+        if (a6_c_00102918(o, S_700036A0, S_700036A0, slot)) return;
+        int32_t key = 0;
+        if (a6_c_001CD070(o, S_700036D0, 0x30, &key)) return;
+        float t = 0.0f;
+        if (a6_c_001CD2B0(o, a6_float(F_6), a6_float(F_6), a6_float(F_96), a6_float(F_96), &t)) return;
+        a6_w32(o, S_70003A24, a6_bits(t));
+        const uint32_t tb = a6_u32(o, S_70003A24);
+        if (!A6_EQ(F_ZERO, tb)) {
+            const uint32_t a = a6_u32(o, age_at);
+            const uint32_t u = a6_u32(o, S_70003A20);
+            if (a6_c_001CFAE0(o, block, 0, S_700036A0, a6_float(a), a6_float(u), a6_float(tb), a6_float(F_1EM6)))
+                return;
+            if (a6_c_001CFBE0(o, key, 1, D_0025D890, block, 0)) return;
+        }
+        const uint32_t grown = A6_ADD(a6_u32(o, age_at), F_0_015);
+        a6_w32(o, age_at, grown);
+        if (!A6_LT(grown, F_1_2)) a6_w32(o, age_at, F_M1);
+    }
+}
+
+int em_area06_port_001F8350(const EmArea06PortHooks *h, uint32_t self, uint32_t sp, EmArea06PortFault *fault)
+{
+    A6 o;
+    if (a6_begin(&o, h, fault)) return -1;
+    a6_001F8350(&o, self, sp);
+    return a6_end(&o);
+}
+
+/* ------------------------------------------------------------------------
  * 00169250 (NEARMISS; the translation follows the instructions, which
  * differed from the decomp's C in the odd-count branch until its 2026-09-28
  * correction: the half step is 0.5 (4.5 +0x2E0), not 0.5 +0x2E0): player

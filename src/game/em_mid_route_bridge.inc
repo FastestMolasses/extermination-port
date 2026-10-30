@@ -1753,6 +1753,65 @@ static int m06_w_001B17A0(void *ctx, uint32_t self, int32_t *result)
     return rc;
 }
 
+static int m06_w_001CD070(void *ctx, uint32_t a0, int32_t n1, int32_t *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CD070u, .sp = r->sp, .na = 2, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)n1;
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = (int32_t)c.v0;
+    return rc;
+}
+
+static int m06_w_001CD2B0(void *ctx, float f0, float f1, float f2, float f3, float *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CD2B0u, .sp = r->sp, .na = 0, .nf = 4};
+    c.f[0] = em_ee_bits(f0);
+    c.f[1] = em_ee_bits(f1);
+    c.f[2] = em_ee_bits(f2);
+    c.f[3] = em_ee_bits(f3);
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = em_ee_float(c.f0);
+    return rc;
+}
+
+static int m06_w_001CFAE0(void *ctx, uint32_t a0, int32_t n1, uint32_t a2, float f3, float f4, float f5, float f6)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CFAE0u, .sp = r->sp, .na = 3, .nf = 4};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)n1;
+    c.a[2] = (uint64_t)(int64_t)(int32_t)a2;
+    c.f[0] = em_ee_bits(f3);
+    c.f[1] = em_ee_bits(f4);
+    c.f[2] = em_ee_bits(f5);
+    c.f[3] = em_ee_bits(f6);
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m06_w_001F4A00(void *ctx, uint32_t a0, uint32_t a1)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001F4A00u, .sp = r->sp, .na = 2, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m06_w_001EFE00(void *ctx, int32_t n0, uint32_t a1)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001EFE00u, .sp = r->sp, .na = 2, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)n0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
 static int m06_w_callback(void *ctx, uint32_t function, uint32_t actor)
 {
     EmArea01Runtime *r = ctx;
@@ -1848,6 +1907,11 @@ static inline void m06_hooks(EmArea01Runtime *r, EmArea06PortHooks *h)
     h->w_001C4760 = m06_w_001C4760;
     h->w_001D04B0 = m06_w_001D04B0;
     h->w_001B17A0 = m06_w_001B17A0;
+    h->w_001CD070 = m06_w_001CD070;
+    h->w_001CD2B0 = m06_w_001CD2B0;
+    h->w_001CFAE0 = m06_w_001CFAE0;
+    h->w_001F4A00 = m06_w_001F4A00;
+    h->w_001EFE00 = m06_w_001EFE00;
     h->w_callback = m06_w_callback;
 }
 

@@ -1,6 +1,7 @@
 /* EM_START_AT=<name> (em_start_at.h; docs/STARTUP.md "Developer switches"). */
 #define _POSIX_C_SOURCE 200809L
 #include "game/em_start_at.h"
+#include "game/em_frame.h"
 #include "game/em_random.h"
 #include "em_input.h"
 
@@ -103,6 +104,13 @@ static struct {
      * recording's stream from the beat's start). */
     int rand_set;
     uint32_t rand_state;
+    /* EM_START_AT_FADE=<level 0..255>: the transition level at the
+     * recording's row 0 (D_0028A9A0 +4; 0 when no fade runs there). A
+     * loaded game fades in with the player's input refused; the script's
+     * row 0 waits for the same level, and the recording's rand() word is
+     * put in place then, so the world's draws start with the script. */
+    int fade_wait;
+    unsigned fade_level;
     /* EM_START_AT_MARKS: the script frames to report the block at. */
     unsigned mark_count, mark_next;
     int mark[64];
@@ -507,6 +515,13 @@ int em_start_at_check(void)
     {
         const char *seed = getenv("EM_START_AT_RAND");
         if (seed && seed[0] && !pad.loaded) return refuse("EM_START_AT_RAND works with EM_START_AT_PAD only", seed);
+        const char *level = getenv("EM_START_AT_FADE");
+        if (level && level[0]) {
+            char *end = NULL;
+            const unsigned long v = strtoul(level, &end, 0);
+            if (*end || v > 255ul) return refuse("EM_START_AT_FADE: not a level 0..255", level);
+            pad.fade_level = (unsigned)v;
+        }
         const char *marks = getenv("EM_START_AT_MARKS");
         if (marks && marks[0] && !pad.loaded)
             return refuse("EM_START_AT_MARKS works with EM_START_AT_PAD only", marks);
@@ -542,10 +557,7 @@ void em_start_at_pad_control(unsigned counter)
     em_input_set_filter(pad_filter, NULL);
     printf("startup: EM_START_AT_PAD: %u rows over %u frames from control at engine frame %u\n", pad.count,
            pad.last, counter);
-    if (pad.rand_set) {
-        em_random_seed(pad.rand_state);
-        printf("startup: EM_START_AT_RAND: rand() state %08x at control (comparison only)\n", pad.rand_state);
-    }
+    pad.fade_wait = 1;
 }
 
 int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[3])
@@ -556,8 +568,19 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
      * path the script's clock waits (up to 300 frames at a time) while the
      * player is more than 2.5 units behind the recorded position, so the
      * presses stay where the recording made them. */
-    (void)counter;
     const int t = pad.t;
+    if (pad.fade_wait) {
+        const EmTransitionFade *fade = em_frame_transition();
+        if (em_frame_fade_active() && fade && (fade->substate != 1 || (unsigned)fade->level > pad.fade_level))
+            return 0;
+        pad.fade_wait = 0;
+        printf("startup: EM_START_AT_PAD: the script starts at engine frame %u (level %u)\n", counter,
+               fade ? (unsigned)fade->level : 0u);
+        if (pad.rand_set) {
+            em_random_seed(pad.rand_state);
+            printf("startup: EM_START_AT_RAND: rand() state %08x (comparison only)\n", pad.rand_state);
+        }
+    }
     if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u) {
         /* A recorded position more than 20 units away is another room's
          * (a load the host drive ends earlier than the recording's: the
@@ -572,8 +595,21 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         pad.last_pos[0] = pos[0];
         pad.last_pos[1] = pos[2];
         const int stick = pad.now.lx * pad.now.lx + pad.now.ly * pad.now.ly > 0.01f;
-        if (d2 > 2.5f * 2.5f && d2 < 20.0f * 20.0f && (moving || stick)) pad.hold++;
-        else { pad.hold = 0; pad.t++; }
+        /* A player ahead of the recorded position along the recorded path
+         * is not lagging either: only a player behind it is waited for. */
+        const unsigned ahead_at = (unsigned)t + 4u < pad.path_count ? (unsigned)t + 4u : pad.path_count - 1u;
+        const float tx = pad.path[ahead_at][0] - pad.path[t][0], tz = pad.path[ahead_at][1] - pad.path[t][1];
+        const int behind = hx * tx + hz * tz > 0.0f;
+        if (d2 > 2.5f * 2.5f && d2 < 20.0f * 20.0f && (moving || stick) && behind) pad.hold++;
+        else {
+            /* A wait of 10 frames or more is reported (where the native
+             * player fell behind the recording). */
+            if (pad.hold >= 10u)
+                printf("startup: EM_START_AT_PATH: waited %u frames at script frame %d (engine frame %u)\n",
+                       pad.hold, t, counter);
+            pad.hold = 0;
+            pad.t++;
+        }
     } else {
         pad.hold = 0;
         pad.t++;
