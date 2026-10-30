@@ -965,7 +965,10 @@ static void log_area01r(FILE *f)
  * pool addresses, so every AREA02 row samples both lists. */
 static void log_area02(FILE *f)
 {
-    if (s_state.d810700 != 2)
+    /* And on through door [25]'s AREA04 load (a02_05 from row 326): its
+     * recorded rows keep reading the same addresses, AREA04's records once
+     * its state 0 rebuilds the pool. */
+    if (s_state.d810700 != 2 && s_state.d810700 != 4)
         return;
     static const uint32_t nodes[] = {0x7A5640, 0x7A5930, 0x7A5C20, 0x7A5F10, 0x7A6200, 0x7A64F0, 0x7A67E0,
                                      0x7A6AD0, 0x7A6DC0, 0x7A70B0, 0x7AD780, 0x7ADA70, 0x7AE050, 0x7AE340,

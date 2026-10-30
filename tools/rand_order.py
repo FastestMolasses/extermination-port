@@ -140,6 +140,11 @@ PORT_FN = {
     'kind_step': 0x128C10,                       # 00128C10's per-kind step (a static step of the routine)
     'random_heading': 0x128C10,                  # its heading draw (the same)
     'a01_state1_track': 0x826D40,                # 0x826D40's state 1 (the same)
+    # AREA04 (the a02_05 arrival; no per-call capture): 001F6210's list
+    # loop (byte-matched; its colour jitter draws once per area model sprite)
+    'em_effect_manager_001F6210': 0x1F6210,
+    'em_area04_port_001C1A80': 0x1C1A80,         # 001C1A80's timed sound (NEARMISS C, oracle-checked)
+    'a04_1C1A80': 0x1C1A80,                      # its body (a static of the module)
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -171,7 +176,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
-            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
