@@ -438,7 +438,11 @@ index 8) lies at (434.1, 15, 79.8). **The recorded route took neither:** a04b_02
 Cross presses are not these pickups (the recorded a04b_02 / a04b_03 ends hold C65 =
 0, CA8 = 0); the guide's room is right. In the R1 stance Square fires one shell
 (0017A970 -> 0017A8B0(p, 3), +275 = 3, 00171B00: sound 0x5DC), Cross toggles +275.
-Leaving the part page reloads 001FEF70's bank, module 0x32, into sound group 3.
+Leaving the part page reloads 001FEF70's bank, module 0x32, into sound group 3:
+that bank holds the attached weapon's cues (R1 stances 0x5DC, R2 stances 0x5DD,
+holster 0x5DE..0x5E0), which are absent in every area without an attachment. R2 is
+the first-person stance (action 0x32; THIRD_LEVEL_ROUTE.md), not L1 as the guide's
+walkthrough says; its control list is right.
 
 **The creature.** +0xD = 3, +0x34 = 200. It arms with +0x56 = 600 only while the
 player stands at y >= 47 inside the 16-vertex polygon D_00245020 (001333F0, +0xD
@@ -486,7 +490,9 @@ creature from its state 2 (00131650), rand()'s by the fourth frame.
 place in both runs: in the pool at the foot of the lift, not where it died. Use
 gives D_00810C91, item 0x2D, line 45 of the catalog: **DOGTAG 1, Private First
 Class Hans Grant** (CURIOSITIES 9), with its item page. The world graph lists no
-gate on item 0x2D.
+gate on item 0x2D. The conveyor tops out near x 505 on the same line (z about
+259), so the tag lies about 40 units past its end, on the flat before the lift;
+the cheat list's "treadmill" is at best this end of the room.
 
 **Does beating it matter?** Not for the lift: a04b_04 rides past it alive. Flag
 0x12 = 0xFF changes the lift's button text line (001BC960) and, by the code, [3]
@@ -508,7 +514,15 @@ EM_START_AT_SYNC at the lock; docs/STARTUP.md) supply those bytes and nothing is
 written after the lock. A normal `EM_START_AT=boss` run plays the same code on
 other draws. AREA13 is not loaded: the pack does not hold it and the run fail-stops
 at that request, the end of this scope. Not compared: pixels (the frames at g3's
-and g4's ends look alike by eye, pool, tag and veil) and sound.
+end match the recording's by eye, pool included; the tag shows at g4) and sound.
+Free pad runs (scripted random stick, fire, melee; shotgun and pistol cards; no
+memory written after the lock): standing still, shooting, melee and wandering down
+the conveyor (state 9) all end with the creature or the infection killing the
+player, game over and the title, with no fail-stop. The Start menu's hub opens and
+closes with the unit fitted; SPR4 reached through Start is not compared with the
+original (the take's own page is, by its end block). Model 0x35 (D_00810CA6 = 3)
+has nodes with binds of their own and is not exported: fitting it fail-stops at
+the hub, named.
 
 ## Fork continuation work (2026-10-18)
 
