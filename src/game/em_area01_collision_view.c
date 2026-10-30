@@ -203,6 +203,12 @@ uint8_t *em_area01_collision_view_bytes(EmArea01CollisionView *v,uint32_t a,uint
     if(v->host.generation(v->host.ctx)!=v->generation){fail(v,a,2);return NULL;}
     EmCollProbeState *s=v->host.segment->state;EmCollSegmentFaceScratch *f=v->host.segment->face;
     uint8_t *p;
+    /* The shove vector as the quadword 001028B8 reads (AREA04's creature,
+     * 001B3440): its xyz and the word beside it, composed for this read. */
+    if(a==0x700031C0u&&n==16u&&!write) {
+        memcpy(v->delta16,s->delta,12);memcpy(&v->delta16[3],&v->host.move->delta[3],4);
+        return (uint8_t *)v->delta16;
+    }
 #define FIELD(at,field) do{p=span(a,n,at,sizeof(field),&(field));if(p)return p;}while(0)
     FIELD(0x70003190u,s->start);FIELD(0x700031A0u,s->end);
     FIELD(0x700031B0u,v->host.shared->point16);FIELD(0x700031C0u,s->delta);

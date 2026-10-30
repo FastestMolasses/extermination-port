@@ -41,7 +41,7 @@ typedef struct {
      * 001AE040 state 0 after 001B6990's bind; zero and refused before). */
     uint32_t metadata[EM_SLG_COLL_SPAD_WORDS];
     int staged;
-    uint32_t self_word, point_before[4];
+    uint32_t self_word, point_before[4], delta16[4];
     const void *entity_before, *self_before;
     uint32_t entity_word_before;   /* 0x700031D4 as begin encoded it */
     int record_before, node_before;

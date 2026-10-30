@@ -702,6 +702,55 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         rc = em_area01_runtime_call(r, &music);
         break;
     }
+    case 0x0019A310u: {
+        /* 0019A310(out) (byte-matched C; em_player_slope_angle's float
+         * operations): the slope of the stage record's normal. AREA04's
+         * creature family (a04b_03). */
+        if (r->area != 4) return r->host.worker(r->host.ctx, c);
+        if (c->na != 1 || c->nf) return fail(r, c->function);
+        const uint8_t *word = bytes(r, 0x700031D0u, 4, 0);
+        if (!word) return fail(r, 0x700031D0u);
+        uint32_t rec, n[3];
+        memcpy(&rec, word, 4);
+        c->v0 = 0;
+        if (!rec) { rc = 0; break; }
+        const uint8_t *normal = bytes(r, rec + 0x24u, 12, 0);
+        if (!normal) return fail(r, rec + 0x24u);
+        memcpy(n, normal, 12);
+        for (unsigned k = 0; k < 3; ++k) {
+            uint8_t *w = bytes(r, 0x70003680u + 4u * k, 4, 1);
+            if (!w) return fail(r, 0x70003680u + 4u * k);
+            memcpy(w, &n[k], 4);
+        }
+        EmArea01Call root = {.function = 0x0011E748u, .sp = c->sp, .na = 0, .nf = 1};
+        root.f[0] = em_ee_madd_bits(em_ee_mula_bits(n[0], n[0]), n[2], n[2]);
+        rc = em_area01_runtime_call(r, &root);
+        if (rc < 0) break;
+        uint32_t ratio = 0x7F7FC99Eu;       /* 3.4e38 below 0.0001 */
+        if (!(em_ee_float(root.f0) < 1.0e-4f)) {
+            EmArea01Call fabs_call = {.function = 0x0011DF78u, .sp = c->sp, .na = 0, .nf = 1};
+            fabs_call.f[0] = n[1];
+            rc = em_area01_runtime_call(r, &fabs_call);
+            if (rc < 0) break;
+            ratio = em_ee_div_bits(fabs_call.f0, root.f0);
+        }
+        for (unsigned k = 0; k < 2; ++k) {
+            uint8_t *w = bytes(r, 0x70003680u + 4u * k, 4, 1);
+            if (!w) return fail(r, 0x70003680u + 4u * k);
+            memcpy(w, k ? &ratio : &root.f0, 4);
+        }
+        EmArea01Call atan_call = {.function = 0x0011DBB8u, .sp = c->sp, .na = 0, .nf = 1};
+        atan_call.f[0] = ratio;
+        rc = em_area01_runtime_call(r, &atan_call);
+        if (rc < 0) break;
+        uint32_t angle = em_ee_sub_bits(0x3FC90FDBu, atan_call.f0);
+        if (em_ee_float(ratio) < 0.0f) angle ^= 0x80000000u;
+        uint8_t *out = bytes(r, (uint32_t)c->a[0], 4, 1);
+        if (!out) return fail(r, (uint32_t)c->a[0]);
+        memcpy(out, &angle, 4);
+        c->v0 = 1;
+        break;
+    }
     case 0x001B15D0u: {
         /* 001B15D0(a, b) (byte-matched C, mwcc 2.3.3): 001028D0(D_70003600,
          * a, b), then 0011E748 of x*x + y*y + z*z over 0x70003600 (mul.s,

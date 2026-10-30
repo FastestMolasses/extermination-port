@@ -50,6 +50,10 @@ SCRIPT_ACTOR = 0x1BB0E0
 # order: the span's start moves down to 0x53 (export_area02_library moved it
 # from 0x58 to 0x57 the same way); the region count is unchanged.
 SPAN_FIRST = 0x53
+# The creature family's callee reads the bank D_0028A490[0x3A] (a04b_03): the
+# file chunk27/f03_id3a.bin, which follows the door bank D_0028A490[0x39]
+# in memory: the door bank's retained region grows over it (one region).
+DOOR_INDEX, NEXT_BANK = B.DOOR_BANK_INDEX, 0x3A
 SECOND_VISIT = 'levels-recordings-20261018-10/s87/route_a04b'
 OUT = ROOT / 'build/levels/area04-library-export'
 
@@ -108,6 +112,18 @@ def extend(previous, library):
     address, writable, retained, data = regions[k]
     if address == base + start:
         regions[k] = (base + first, writable, retained, library[first:start] + data)
+    door = B.u32(header, 32 + 4 * DOOR_INDEX)
+    bank = B.u32(header, 32 + 4 * NEXT_BANK)
+    extra = (B.DECOMP / 'extract/chunk27/f03_id3a.bin').read_bytes()
+    matches = [k for k, r in enumerate(regions) if r[0] == door]
+    if len(matches) != 1:
+        raise ValueError('the door bank region is missing')
+    k = matches[0]
+    address, writable, retained, old = regions[k]
+    if len(old) == bank - door:
+        regions[k] = (address, writable, retained, old + extra)
+    elif old[bank - door:] != extra or bank - door > len(old):
+        raise ValueError('the door bank region does not end where the 0x3A bank starts')
     return E2.rebuild(header, regions)
 
 
@@ -133,6 +149,7 @@ def verify(data, library):
             raise ValueError(f'library model {model:#x} is not delivered exactly')
     script_address = base + (B.u32(library, 4 + 4 * SCRIPT_MODEL) & ~3)
     starts = {base + (B.u32(library, 4 + 4 * m) & ~3) for m in (PREVIOUS, SPAN_FIRST)}
+    starts.add(B.u32(header, 32 + 4 * DOOR_INDEX))
     extended = [(a, raw) for a, _, _, raw in regions if a in starts]
     script_actors = 0
     paths = [refs.capture('s87/route_a02') / 'a02_05_progression_exit/eeMemory.bin']

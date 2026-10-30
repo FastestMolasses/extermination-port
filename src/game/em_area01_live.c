@@ -34,6 +34,8 @@
 #include "game/em_aim_fire_sdk_memory.h"
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
+#include "game/em_actor_collision.h"
+#include "game/em_player_floor.h"
 #include "game/em_effects_live.h"
 #include "game/em_area01_effects_services.h"
 #include "game/em_pickup.h"
@@ -73,6 +75,7 @@ static const uint8_t *resource(void *,uint32_t,uint32_t);
  * word tables up to 0x008233F0 + 64, and the 0x90-byte request record at
  * 0x00823430 that 001D0400 rewrites. Boot BSS starts zero and is never
  * reset by an area change, so it is one process-lifetime block. */
+static EmPlayerFloorTable s_column;
 #define D822CF0_BASE 0x00822CF0u
 #define D822CF0_SIZE 0x7D0u
 static uint8_t s_d822CF0[D822CF0_SIZE];
@@ -194,6 +197,18 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
 {
     if(!l || !l->bound || l->fault || !n || (uint64_t)a+n>UINT64_C(0x100000000))return NULL;
     uint8_t *p;
+    /* 0019BC40's column table as the creature family's 001B30E0 reads it
+     * (the count 0x700031E0, the halfword flags D_70003170, the heights
+     * D_700030F0, the slopes D_00282250; 16 entries, the table's limit),
+     * read-only here: the worker 0019BC40 below is its writer. */
+    if(overlaps(a,n,0x700031E0u,4))
+        return !write && contains(a,n,0x700031E0u,4) ? (uint8_t *)&s_column.count : NULL;
+    if(overlaps(a,n,0x70003170u,32))
+        return !write && contains(a,n,0x70003170u,32) ? (uint8_t *)s_column.flags+(a-0x70003170u) : NULL;
+    if(overlaps(a,n,0x700030F0u,64))
+        return !write && contains(a,n,0x700030F0u,64) ? (uint8_t *)s_column.height+(a-0x700030F0u) : NULL;
+    if(overlaps(a,n,0x00282250u,64))
+        return !write && contains(a,n,0x00282250u,64) ? (uint8_t *)s_column.aux+(a-0x00282250u) : NULL;
     if(overlaps(a,n,0x70003B64u,4))
         return !write && contains(a,n,0x70003B64u,4)
             ? (uint8_t *)(void *)em_frame_counter_storage()+((size_t)a-0x70003B64u) : NULL;
@@ -1268,6 +1283,20 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_collision_view_call(&l->collision,c);
         if(em_area01_collision_view_begin(&l->collision)<0)return fail(l,l->collision.fault_address);
         return rc;
+    }
+    case 0x0019BC40u: {
+        /* 0019BC40(pos): the column table over the world (em_actor_collision,
+         * NEARMISS logic recovered; ACTOR_COLLISION.md), for AREA04's
+         * creature family. Committed actors, as 0019AD00 above. */
+        if(c->na<1 || !em_collision_world_column_player())return -1;
+        float pos[3];
+        const uint8_t *p=bytes(l,(uint32_t)c->a[0],12,0);
+        if(!p)return -1;
+        memcpy(pos,p,12);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_actor_collision_player_column(em_collision_world_column_player(),pos,&s_column);
+        if(em_area01_live_resume(l)<0)return -1;
+        return rc<0 ? -1 : 0;
     }
     case 0x001BA1A0u: case 0x001BA1F0u: {
         if(c->na<(c->function==0x001BA1A0u ? 2u : 1u))return -1;

@@ -44,17 +44,18 @@ static int fx_worker(void *ctx, uint32_t fn, uint32_t sp, const EmArea00FxRegs *
 int em_area01_light_handles(uint32_t fn)
 {
     return fn==0x001F5490u || fn==0x001C5050u || fn==0x001F5F60u ||
-           fn==0x001C24D0u || fn==0x0021BD60u || fn==0x001EFFD0u;
+           fn==0x001C24D0u || fn==0x0021BD60u || fn==0x001EFFD0u || fn==0x001EFF10u;
 }
 int em_area01_light_call(const EmArea01RuntimeHost *host, EmArea01Call *c, uint32_t *fault)
 {
     if (!host || !host->bytes || !host->worker || !c || !fault) return -1;
     if (*fault) return -1;
     unsigned na=c->function==0x001F5F60u || c->function==0x001EFFD0u ? 4u :
-                c->function==0x001C24D0u ? 3u : 1u;
-    unsigned nf=c->function==0x001C5050u || c->function==0x001EFFD0u ? 1u : 0u;
+                c->function==0x001C24D0u ? 3u : c->function==0x001EFF10u ? 6u : 1u;
+    unsigned nf=c->function==0x001C5050u || c->function==0x001EFFD0u || c->function==0x001EFF10u ? 1u : 0u;
     uint32_t frame=c->function==0x001F5F60u ? 0xA0u : c->function==0x001C5050u ? 0x40u :
-                   c->function==0x001EFFD0u ? 0x60u : c->function==0x0021BD60u ? 0u : 0x20u;
+                   c->function==0x001EFFD0u ? 0x60u : c->function==0x001EFF10u ? 0x80u :
+                   c->function==0x0021BD60u ? 0u : 0x20u;
     if (!em_area01_light_handles(c->function) || c->na!=na || c->nf!=nf || c->sp<frame) {
         *fault=c->function; return -1;
     }
@@ -100,6 +101,10 @@ int em_area01_light_call(const EmArea01RuntimeHost *host, EmArea01Call *c, uint3
         rc=c->function==0x001F5490u ? em_area00_fx_001F5490(&x,c->a[0],&c->v0)
             : c->function==0x001EFFD0u
                 ? em_area00_fx_001EFFD0(&x,c->a[0],c->a[1],c->a[2],c->a[3],c->f[0],&c->v0)
+            /* 001EFF10 (decomp C; em_area00_fx's oracle): the trail effect
+             * AREA04's creature family spawns (em_level8_port's hook). */
+            : c->function==0x001EFF10u
+                ? em_area00_fx_001EFF10(&x,c->a[0],c->a[1],c->a[2],c->a[3],c->a[4],c->a[5],c->f[0],&c->v0)
             : em_area00_fx_001F5F60(&x,c->a[0],c->a[1],c->a[2],c->a[3]);
         if (rc<0 && !f.fault) fail(&f,x.core.fault.code==EM_A01R_FAULT_BAD_ADDRESS
                                              ? x.core.fault.detail : x.core.fault.address);
