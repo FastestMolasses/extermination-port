@@ -100,6 +100,8 @@ void em_stream_live_loader_read(uint32_t lsn, uint32_t sectors, int measured);
 int8_t em_stream_live_active(int lane);
 /* D_00282157 (lb): 001FA0D0's read phase; 0 before the boot. */
 uint8_t em_stream_live_read_phase(void);
+/* D_00282154..D_00282156: the three lanes' active bytes (read only), or NULL. */
+const int8_t *em_stream_live_active_bytes(void);
 /* Canonical committed D_0028215B, read-only. NULL before boot or on a fault;
  * callers must not replace an unavailable mode with an assumed stereo bit. */
 const uint8_t *em_stream_live_output_mode(void);

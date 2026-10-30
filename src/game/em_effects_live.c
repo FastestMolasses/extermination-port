@@ -1188,6 +1188,32 @@ static int handler_001ECEF0(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* 001EC5F0 (AREA02 a02_03): em_area02_misc's translation
+ * (test_area02_misc_reference.py): three seeded passes (seed at the work
+ * block's +0x1F4, advanced by each; the accumulator +0x244 and 5.0) with
+ * kind-0 submits of D_00256A60 / D_00256AF0 / D_00256B80
+ * (export_area00_runtime_tables.py AREA02_EFFECT_WINDOWS). Views as
+ * handler_001EDAF0's. */
+static int handler_001EC5F0(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001EC5F0u,"effect 001EC5F0 without its node");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea02MiscRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x1F4u,4,(uint8_t *)&work->seed_copy},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+    };
+    ImpactCall call={node,at};
+    EmArea02Misc owner;
+    memset(&owner,0,sizeof owner);
+    owner.regions=regions;owner.region_count=sizeof regions/sizeof *regions;
+    owner.call=misc_impact_worker;owner.ctx=&call;owner.sp=HANDLER_SP;
+    if(em_area02_misc_001EC5F0(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001EC5F0u,"effect 001EC5F0 fault (em_area02_misc)");
+    return 0;
+}
+
 /* 001EC9A0 (decomp NEARMISS C, logic recovered; AREA02's car run after
  * switch [31]): em_area02_misc's translation (test_area02_misc_reference.py):
  * one packet of the node's matrix with the work block's accumulator +0x244
@@ -1232,6 +1258,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EDAF0u) return handler_001EDAF0(node, depth, work);
     if (handler == 0x001ECEF0u) return handler_001ECEF0(node, depth, work);
     if (handler == 0x001EC9A0u) return handler_001EC9A0(node, depth, work);
+    if (handler == 0x001EC5F0u) return handler_001EC5F0(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -1306,6 +1333,8 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               source == 0x00257090u || source == 0x00257120u || /* 001ECEF0's */
                               source == 0x00256D30u ||                          /* 001EC9A0's */
+                              source == 0x00256A60u || source == 0x00256AF0u || /* 001EC5F0's */
+                              source == 0x00256B80u ||
                               source == 0x00257510u || source == 0x002575A0u || /* 001EDAF0's middle row */
                               source == 0x00257630u || source == 0x00257870u ||
                               source == 0x00257900u || source == 0x002571B0u || source == 0x00257240u ||

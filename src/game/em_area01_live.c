@@ -215,6 +215,14 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return cues && contains(a,n,0x00281F30u,(uint32_t)sizeof(int32_t[EM_SLG_CUES][4]))
             ? (uint8_t *)cues+(a-0x00281F30u) : NULL;
     }
+    if(overlaps(a,n,0x00282154u,3)) {
+        /* D_00282154..56: the stream lanes' active bytes (em_stream_live's,
+         * read only here: switch [31]'s 0x823980 waits on lane 0's before
+         * its 001FAE70(0)). */
+        const int8_t *active=em_stream_live_active_bytes();
+        return !write && active && contains(a,n,0x00282154u,3)
+            ? (uint8_t *)(uintptr_t)active+(a-0x00282154u) : NULL;
+    }
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
         return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
     if(overlaps(a,n,0x00275C00u,4))

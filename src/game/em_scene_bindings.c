@@ -95,6 +95,7 @@
  * room move" below).
  */
 #include "game/em_scene_bindings.h"
+#include "game/em_area02_misc.h"
 #include "game/em_area01_terminal_status.h"
 
 #include <stddef.h>
@@ -3680,6 +3681,13 @@ static int area01_contact(void *ctx, uint32_t function, uint32_t entry, uint32_t
                           uint32_t player_b0)
 {
     EmArea01Live *l = ctx;
+    if (function == 0x001E49F0u && player == EM_AREA01_PLAYER_BASE && player_b0 == player + 0xB0u) {
+        /* The burst emitter 001E4CE0's contact callback (AREA02's car):
+         * em_area02_misc's 001E49F0, which returns at once. */
+        EmArea02Misc m;
+        memset(&m, 0, sizeof m);
+        return em_area02_misc_001E49F0(&m);
+    }
     if (function != 0x001E3D20u || player != EM_AREA01_PLAYER_BASE || player_b0 != player + 0xB0u ||
         em_area01_collision_view_begin(&l->collision) < 0)
         return -1;

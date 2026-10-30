@@ -95,7 +95,9 @@ REVISIT_EFFECT_WINDOWS = ((0x00257090, 0x120),)
 # D_00253C50[10], the colour ramps D_002541F0 / D_00254210, its parameter
 # rows D_00254230..D_002542BC and mesh sets D_002542D0..D_00254D80 (the
 # last 0x1B0 bytes long).
-AREA02_EFFECT_WINDOWS = ((0x00256D30, 0x90), (0x00253C50, 0x50), (0x002541F0, 0xD40))
+# The effect handler 001EC5F0 (a02_03, over the wreck): its three source
+# records D_00256A60 / D_00256AF0 / D_00256B80.
+AREA02_EFFECT_WINDOWS = ((0x00256D30, 0x90), (0x00253C50, 0x50), (0x002541F0, 0xD40), (0x00256A60, 0x1B0))
 # AREA02 sub 0 (key 0x200): 0022DCD0 state 0 fills its tables from
 # D_00269680, six 64-byte records and the word -1 (decomp NEARMISS C; the
 # light owner of a02_00 onwards). Sub 1 (0x201) has no list (state 3).

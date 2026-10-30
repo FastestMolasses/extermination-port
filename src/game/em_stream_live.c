@@ -640,6 +640,11 @@ int8_t em_stream_live_active(int lane)
     return S.booted && lane >= 0 && lane < EM_STREAM_LANES ? S.lanes.state.active[lane] : 0;
 }
 
+const int8_t *em_stream_live_active_bytes(void)
+{
+    return S.booted && !S.fault ? S.lanes.state.active : NULL;
+}
+
 uint8_t em_stream_live_read_phase(void)
 {
     return S.booted ? (uint8_t)S.lanes.state.read_phase : 0;
