@@ -398,6 +398,10 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
  * set's +0x70 doubleword). Only inside an exported window. */
 uint8_t *em_effects_live_window_mutable(uint32_t address, uint32_t size)
 {
+    /* 0015A750's sparks rewrite their descriptor D_00248200 +0x10..+0x3C and
+     * the mode D_00248280 before each 001CFBE0 (AREA07's flames). */
+    if (size && address >= 0x00248200u && address <= 0x00248290u - size)
+        return (uint8_t *)(uintptr_t)em_effects_live_window(address, size);
     if (!size || address < 0x002542D0u || address > 0x00254F30u - size) return NULL;
     return (uint8_t *)(uintptr_t)em_effects_live_window(address, size);
 }

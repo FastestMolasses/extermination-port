@@ -157,7 +157,7 @@ def configure(oid):
     O.RETURN_SITES = O.RETURN_SITES_FULL = tuple(e for e, f in funcs.items() if f[3])
     a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380',
            'w_001B6F00', 'w_001BA1C0', 'w_001C4760', 'w_001F4BF0', 'w_001FABB0', 'w_001FB0B0')
-    used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0', 'w_00102948', 'w_001B2B10', 'w_001028B8',
+    used = {8: [h[0] for h in HOOKS if h[0] != 'w_0019A440'], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0', 'w_00102948', 'w_001B2B10', 'w_001028B8',
                                                                    'w_0019A440')}[oid]
     O.CONTRACT_UNREACHABLE = {h[0]: 'not called in this pass' for h in HOOKS if h[0] not in used}
     O.LOCAL_STORES = set()

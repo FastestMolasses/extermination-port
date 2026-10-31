@@ -105,6 +105,11 @@ int em_coll_segment_0019A570(const EmCollSegment *seg, const float from[3], cons
 /* 0019A910(from, to, mask). */
 int em_coll_segment_0019A910(const EmCollSegment *seg, const float from[3], const float to[3],
                              unsigned mask);
+int em_coll_segment_0019A440(const EmCollSegment *seg, const float from[3], const float to[3],
+                             unsigned mask);
+int em_coll_segment_001A1B80(const EmCollProbeWorld *world, const EmSdkMathContext *math,
+                             EmCollProbeState *s, EmCollSegmentFaceScratch *x);
+int em_coll_segment_0019DB50(const EmCollProbeGrid *grid, EmCollProbeState *s);
 /* 0019AA80(from, to, mask) (byte-matched decomp C): from / to into
  * 0x70003190 / 0x700031A0 (w = 1.0), 0x700031D4 = 0, then 001A7280(mask &
  * 0xFFFF), em_coll_grid_hull's lock against `player` (the world's player

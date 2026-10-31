@@ -1416,6 +1416,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return rc;
     }
     case 0x0019AA80u: /* the AREA01 revisit's 0x8282F0 probe */
+    case 0x0019A440u: /* 00133CD0's rays */
     case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x001A0B10u: case 0x0019D330u: case 0x001A7280u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:

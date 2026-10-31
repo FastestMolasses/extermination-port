@@ -254,7 +254,7 @@ AREA15_WINDOWS = ((0x0024A86E, 2), (0x0024D7FC, 4), (0x0024D85C, 4), (0x002759E8
                   (0x0024A856, 2), (0x0024D7CC, 4), (0x0024D82C, 4))
 # AREA08 / AREA07 (lane P1): their rows, the list pointers D_00275950..7F (AREA07
 # subs 0..3, its slider lists), D_00275980..9F (AREA08's subs, its slider lists).
-AREA08_WINDOWS = ((0x0024A85E, 4), (0x0024D7DC, 8), (0x0024D83C, 8), (0x00275950, 0x50))
+AREA08_WINDOWS = ((0x0024A85E, 4), (0x0024D7DC, 8), (0x0024D83C, 8), (0x00275950, 0x50), (0x0024820C, 0x84))
 
 
 def blocks(elf):
@@ -388,6 +388,8 @@ def verify_area08_windows(wanted, decomp):
     for path in paths:
         ram = path.read_bytes()
         for address, size in AREA08_WINDOWS:
+            if address == 0x0024820C:          # 0015A750 rewrites its descriptor at run time
+                continue
             if ram[address:address + size] != bytes(wanted[address]):
                 raise ValueError(f'{path.parent.name}: AREA08 window {address:#x} differs from the ELF')
     if not paths:
