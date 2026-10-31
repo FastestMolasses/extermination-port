@@ -710,10 +710,13 @@ static int live_link(void *context, const void *owner, int *result)
 }
 static int live_surface39(void *context, int handler)
 {
-    (void)context;
-    /* 0017F9E0 / 0017FB90: untranslated; no AREA11 grid node carries 0x39. */
-    if (!live.b.surface39) return -1;
-    return live.b.surface39(live.b.surface39_context, handler);
+    /* 0017F9E0 / 0017FB90 over the record (em_player_closure_live; AREA19's
+     * east ledge), the floor stage's fields published around it as water's. */
+    LiveFloorContext *c = context;
+    em_player_floor_actor_to_live(c->floor, c->actor);
+    const int rc = em_player_closure_live_surface39(c->actor, handler, em_player_floor_surface_hit());
+    em_player_floor_actor_from_live(c->actor, c->floor);
+    return rc;
 }
 /* The first-contact one-shots (em_player_first_contact: 00187DC0 /
  * 00187EA0, test_player_floor_reference) with the live sound calls:
@@ -1262,6 +1265,8 @@ void player_states_stage(void)
          * snap in the second). */
         live.rebuild = 0;
     } else if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
+        fprintf(stderr, "player states: +4 %u +5 %02X +6 %u +1F0 %02X\n", live.a.bytes[4], live.a.bytes[5], live.a.bytes[6],
+                live.a.bytes[0x1F0]);
         live_fault("player stage worker or state callback fault");
         return;
     }

@@ -460,6 +460,14 @@ fields) wait for AREA19's host. What a host must do, as the binding does:
   (every hook not in the RUN list above) are not verified here, and the
   helpers run as original code need port translations paired by address.
 
+## Added by lane J1 (AREA19)
+
+00153F10, 00154040, 00154120 (the worm), 00156620 (the drum), 0013B350, 0013B420,
+0013B5B0, 0013B790, 0013B9A0 (the hit family): in `em_level9_port_exit.c`, each
+from byte-matched C with cases in test_level9_port_reference. 0013B350 and 0013B9A0
+stay hooks of 001383C0 and are entries here, so the oracle leaves an address
+unhooked when it is the entry under test.
+
 ## Known gaps
 
 - **Live evidence.** The captures are end-of-beat states. Most paths are

@@ -419,6 +419,9 @@ void em_player_slope_angle(const EmPlayerProbeHit *hit, const EmPlayerFloorWorke
     *out = ratio < 0.0f ? -angle : angle;
 }
 
+static const EmPlayerProbeHit *s_surface_hit;
+const EmPlayerProbeHit *em_player_floor_surface_hit(void) { return s_surface_hit; }
+
 int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, int index,
                           const EmPlayerFloorWorkers *w)
 {
@@ -470,6 +473,7 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
     a->contact = index == 0 ? 1 : index < 6 ? 3 : 2;
     if (a->link_owner) a->contact |= 0x80;     /* +214 != 0 (0x00175F84) */
     if (a->surface_mode == 0x39) {
+        s_surface_hit = hit;
         if (index < 6 && a->major == 1 && a->state == 1) {
             if (!w->surface39 || w->surface39(w->context, 0) < 0) return -1;
             return 0;

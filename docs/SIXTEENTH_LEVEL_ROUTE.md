@@ -16,6 +16,7 @@ player's +0xC4 (X = sin, Z = cos). Frames `f` are trace frames, `c` the main-loo
 counter 0x70003B64.
 
 **Status.** See section 3 for the table and section 8 for where the recording stops.
+`SEVENTEENTH_LEVEL_ROUTE.md` finishes AREA07 on a branch from a03c_01, in a separate set.
 
 - **AREA03 is recorded to both exits.** Door [13] to sub 1 (a03b_00); flag 0x29, items
   C64 0x2A and CC3 0x12 (a03b_03); the slider [29] and sub 2's lift to AREA08
@@ -356,6 +357,9 @@ Exploration runs from scratch snapshots (deleted); leads, not ground truth.
 4. **147390's attack** at a distance (the -5 / -10 contacts in AREA04) was not read.
 
 ## 8. Where the recording stops, and what the next run needs
+
+The levers below were taken: `SEVENTEENTH_LEVEL_ROUTE.md` records the branch and corrects the actor
+numbers (the slider to sub 3 is [25], the 0x823990 actor is [17] in sub 3's live table).
 
 a07_00 ends in AREA07's chamber C at health 17, infection 100, 51 rounds, D_00810848 bit 1 set, flag 0x25
 still clear. The way on, read from the graph: back to the lift room, the corridor north, the slider [26]

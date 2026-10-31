@@ -312,3 +312,10 @@ once the target is added):
   and reads their effects at the same points. What the callees do is their
   translations' own evidence.
 - **Not live.** Nothing binds these callbacks yet (section 4).
+
+## 002236F0 (+4 2 / +5 9, lane J1)
+
+Translated from the byte-matched C; test_player_major2_reference covers it. Its
+exits are +4 1 / +5 0x1B, the ledge, with +1F0 0x2F. Two workers came with it:
+w00188610 and w001026A0. It differs from 00222AD0 in its landing (clip 0x2B, the
+cue 1, 0xEE, 0x3C, 1) and in sub-state 0xC, which has no floor call.

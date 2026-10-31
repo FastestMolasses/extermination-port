@@ -109,6 +109,8 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size);
 int em_effects_live_room_lights(EmSceneState *scene);
 /* 001F6B30(): 001F6640(001F6760()) over the room lists (AREA02's car). */
 int em_effects_live_001F6B30(EmSceneState *scene);
+/* 001F6640 / 001F66F0 / 001F6850 over the lists window. */
+int em_effects_live_room_list(EmSceneState *scene, uint32_t function, uint32_t record);
 /* Writable exported .data (the burst emitter's mesh sets D_002542D0..D_00254F2F), or NULL. */
 uint8_t *em_effects_live_window_mutable(uint32_t address, uint32_t size);
 

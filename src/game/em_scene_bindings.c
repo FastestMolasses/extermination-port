@@ -95,6 +95,7 @@
  * room move" below).
  */
 #include "game/em_scene_bindings.h"
+#include "game/em_boot_constants.h"
 #include "game/em_area01_collision_view.h"
 #include "game/em_aim_fire_world_live.h"
 #include "game/em_area02_misc.h"
@@ -229,8 +230,9 @@ static const char *area02_file(unsigned sub, const char *name)
  * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
 static int mid_area(unsigned area, unsigned sub)
 {
-    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 7u) && sub == 0) || (area == 0x0Fu && sub <= 1) ||
-           (area == 3u && sub <= 2) || (area == 4u && sub == 1) || (area == 8u && (sub == 0 || sub == 2 || sub == 3));
+    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 7u) && sub == 0) ||
+           ((area == 0x0Fu || area == 0x13u) && sub <= 1) || (area == 3u && sub <= 2) || (area == 4u && sub == 1) ||
+           (area == 8u && (sub == 0 || sub == 2 || sub == 3));
 }
 /* AREA15 keeps one folder per sub, AREA03's subs and AREA04 sub 1 live in the
  * level pack's tree (tools/export_area03_assets.py, export_area03x_*). */
@@ -239,7 +241,11 @@ static const char *mid_file(unsigned area, const char *name)
     static char path[4][96];
     static unsigned next;
     char *out = path[next++ & 3u];
-    if (area == 3u || area == 4u)
+    /* AREA19 (area byte 0x13): sub 0 in assets/area19 (AREA19_ASSETS.md),
+     * sub 1 in assets/area19s1 (AREA19S1_ASSETS.md). */
+    if (area == 0x13u && s_state.d810701 == 1)
+        snprintf(out, sizeof path[0], "assets/area19s1/sub1%s%s", name[0] ? "/" : "", name);
+    else if (area == 3u || area == 4u)
         snprintf(out, sizeof path[0], "assets/levels/%02u/sub%u%s%s", area, s_state.d810701, name[0] ? "/" : "", name);
     else
         snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, (area == 0x0Fu || area == 8u) ? s_state.d810701 : 0u,
@@ -2667,6 +2673,13 @@ uint32_t em_scene_bindings_grid_node_address(uint32_t node)
  * loader delivered holds them: `size` bytes at `address` inside the node
  * array of the loaded grid (em_scene_bindings_grid_node_address(0) ..
  * + 64 * count), or NULL. */
+int em_scene_bindings_owner_model(uint32_t owner, uint32_t handle)
+{
+    if (!s_area01_live.bound) return -1;
+    EmArea01Call c = {.function = 0x001CA6E0u, .a = {owner, handle}, .na = 2};
+    return s_area01_live.active ? em_area01_live_call_active(&s_area01_live, &c)
+                                : em_area01_live_call(&s_area01_live, &c);
+}
 const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size)
 {
     const EmCollSegment *seg = em_collision_world_segment();
@@ -2831,7 +2844,9 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, "assets/area08/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area08/sub2") == 0 ||
            strcmp(g.scene_dir, "assets/area08/sub3") == 0 ||
-           strcmp(g.scene_dir, "assets/area07/sub0") == 0;
+           strcmp(g.scene_dir, "assets/area07/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area19/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area19s1/sub1") == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -3949,7 +3964,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         }
     }
     if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0D ||
-         s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7) &&
+         s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7 || s_state.d810700 == 0x13) &&
         fn == 0x001E4CE0u)
         goto bind;
     /* The creature's death effect (001B4CF0's 001EFD90: em_level11_port). */
@@ -4031,22 +4046,39 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
+    /* AREA19's pool owners, sub 0's and sub 1's placements' and groups'
+     * (em_area01_runtime dispatch_area19; docs/AREA19_OVERLAY.md in the
+     * decomp) and the nodes their code allocates. */
+    if (s_state.d810700 == 0x13 && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x00823580u: case 0x00823780u: case 0x00823D10u: case 0x00824690u: case 0x00824A90u:
+        case 0x00824BE0u: case 0x00824EF0u: case 0x00824F70u: case 0x00825030u: case 0x008250F0u:
+        case 0x008255D0u: case 0x008257C0u: case 0x00825C70u: case 0x00825EE0u: case 0x00826100u:
+        case 0x00826570u: case 0x00826840u: case 0x00826C10u: case 0x00827430u: case 0x00827550u:
+        case 0x00827790u: case 0x008279E0u: case 0x00827B60u: case 0x00827DD0u: case 0x008298D0u:
+        case 0x00829A70u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
     if (s_state.d810700 == 7 && fn >= 0x00823500u) {
         if (fn == 0x00823DA0u) goto bind;
         return -1;
     }
-    /* AREA15's, AREA03's, AREA08's and AREA07's boot owners (their placements',
+    /* AREA15's, AREA03's, AREA08's, AREA07's and AREA19's boot owners (their placements',
      * groups' and spawns'): the runtime's owners or its fallback
      * (em_area01_runtime_later); an untranslated one faults at its address
      * when it runs. */
-    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7) &&
+    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7 || s_state.d810700 == 0x13) &&
         fn < 0x00823500u && fn && fn != 0x001F5040u)
         goto bind;
     /* AREA06's boot owners: g[11]'s node 00219870 and the debris spawner
      * 0021AE90 (effect 0x80000044; em_area06_port through em_area01_runtime
      * dispatch_a06). The infection node 001F8350 (effect 0x80000048,
      * 0021C190's when the player turns) in any area the runtime runs. */
-    if ((s_state.d810700 == 6 || s_state.d810700 == 0x0D) && (fn == 0x00219870u || fn == 0x0021AE90u))
+    if ((s_state.d810700 == 6 || s_state.d810700 == 0x0D || s_state.d810700 == 0x13) &&
+        (fn == 0x00219870u || fn == 0x0021AE90u))
         goto bind;
     if (s_state.d810700 == 0x0D && fn == 0x001E7050u)  /* the breath, effect 0x80000018 */
         goto bind;
@@ -4057,7 +4089,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
      * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
     if ((s_state.d810700 == 1 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
-         s_state.d810700 == 7) && fn == 0x001F5040u) {
+         s_state.d810700 == 7 || s_state.d810700 == 0x13) && fn == 0x001F5040u) {
         if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;
         a->callback = fn;
@@ -4110,7 +4142,7 @@ static int area00_spawned_fallback(EmActor *a)
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
     if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0D ||
          s_state.d810700 == 0x16 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
-         s_state.d810700 == 7) && a)
+         s_state.d810700 == 7 || s_state.d810700 == 0x13) && a)
         return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
@@ -4251,6 +4283,8 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 7u, 0x00825B80u, 0x00828080u);
     if ((s_state.d810700 == 8 || s_state.d810700 == 7) && call->function == 0x001B0460u && call->na >= 1)
         return em_area11_script_host_001B0460((int)call->a[0]);
+    if (s_state.d810700 == 0x13 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 0x10u, 0x00829E00u, 0x0082F880u);
     int rc;
     if (call->function < 0x00823500u && em_area01_runtime_later(&s_area01_live.runtime, call, &rc))
         return rc;

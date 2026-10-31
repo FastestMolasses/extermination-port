@@ -7,6 +7,7 @@
  *   00222580  +4 2 / +5 5    (0015B770 case 5)
  *   00222AD0  +4 2 / +5 6    (0015B770 case 6)
  *   002230A0  +4 2 / +5 7    (0015B770 case 7)
+ *   002236F0  +4 2 / +5 9    (0015B770 case 9)
  *   00225570  +4 2 / +5 0x16 (0015B770 case 22)
  *   002255C0  +4 2 / +5 0x19 (0015B770 case 25, after its own +1 = 0)
  *   00181110  enter 2/4      00181180  enter 2/5
@@ -92,6 +93,11 @@ typedef struct EmPlayerMajor2Workers {
      * caller passes on to 001749A0. */
     int (*w00188550)(void *context, EmPlayerLiveActor *actor, int *clip);
     int (*w001885B0)(void *context, EmPlayerLiveActor *actor, int *clip);
+    /* 00188610(p), the row clip D_002754D8[+235 & 1]. */
+    int (*w00188610)(void *context, EmPlayerLiveActor *actor, int *clip);
+    /* 001026A0(p + 0xB0, p + 0xD0, 0x700038A0): the point v through the
+     * record's matrix into its position. */
+    int (*w001026A0)(void *context, EmPlayerLiveActor *actor, const uint32_t v[4]);
     /* The word at *(*D_00275B40) + offset (offset 4 or 8): a float of the
      * skeleton's first node, read at the point the original loads it. */
     int (*root_node)(void *context, unsigned offset, uint32_t *bits);
@@ -110,6 +116,7 @@ int em_player_major2_00221FC0(void *context, EmPlayerLiveActor *actor);   /* sta
 int em_player_major2_00222580(void *context, EmPlayerLiveActor *actor);   /* state2[5] */
 int em_player_major2_00222AD0(void *context, EmPlayerLiveActor *actor);   /* state2[6] */
 int em_player_major2_002230A0(void *context, EmPlayerLiveActor *actor);   /* state2[7] */
+int em_player_major2_002236F0(void *context, EmPlayerLiveActor *actor);
 int em_player_major2_00225570(void *context, EmPlayerLiveActor *actor);   /* state2[0x16] */
 int em_player_major2_002255C0(void *context, EmPlayerLiveActor *actor);   /* state2[0x19] */
 

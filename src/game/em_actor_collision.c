@@ -716,7 +716,7 @@ int em_actor_collision_player_ground(void *player, const float position[3], cons
      * node's comes from the EMCL's axis section; a cell record's
      * (D_700030B0 +0x34) is scratch no walker writes, so it faults. */
     const uint32_t *axis = NULL;
-    if (kind && (h.node & 0xFF) == 0x35) {
+    if (kind && ((h.node & 0xFF) == 0x35 || (h.node & 0xFF) == 0x39)) {
         const EmCollProbeGrid *r = p->world->ranks;
         if (h.record != EM_ACTOR_RECORD_GRID || !r || !r->axis || h.poly < (int)r->first ||
             (uint32_t)h.poly - r->first >= r->count)
@@ -726,6 +726,14 @@ int em_actor_collision_player_ground(void *player, const float position[3], cons
     p->entity = h.entity;
     memset(hit, 0, sizeof *hit);
     if (axis) memcpy(hit->axis, axis, sizeof hit->axis);
+    if (kind && (h.node & 0xFF) == 0x39) {
+        /* 0017F9E0's 0019F680: the ring's vertices, from the EMCL ring. */
+        const EmCollision *c = p->world->ranks->emcl;
+        const EmCollPoly *poly = &c->polys[h.poly];
+        hit->ring = poly->vcount < 4 ? poly->vcount : 4;
+        for (int k = 0; k < hit->ring; ++k)
+            memcpy(hit->corner[k], c->verts + 3u * c->indices[poly->first + (unsigned)k], sizeof hit->corner[k]);
+    }
     hit->kind = kind;
     hit->node = kind ? h.node : 0;
     hit->entity = h.entity != NULL;

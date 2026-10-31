@@ -33,10 +33,11 @@ static int supported(void)
      * infection cannot reach it. */
     if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 0x0Du || S.area == 1u ||
                                     S.area == 4u || S.area == 0u || S.area == 2u || S.area == 0x0Fu ||
-                                    S.area == 3u || S.area == 8u || S.area == 7u) && S.mode <= 2u && S.costume <= 2u))
+                                    S.area == 3u || S.area == 8u || S.area == 7u || S.area == 0x13u) && S.mode <= 2u &&
+                                   S.costume <= 2u))
         return 0;
     if (S.area == 8u && (S.subarea == 2u || S.subarea == 3u)) return 1;
-    return ((S.area == 0u || S.area == 2u || S.area == 0x0Fu || S.area == 4u) && S.subarea <= 1u) ||
+    return ((S.area == 0u || S.area == 2u || S.area == 0x0Fu || S.area == 4u || S.area == 0x13u) && S.subarea <= 1u) ||
            (S.area == 3u && S.subarea <= 2u) ||
            (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u ||
                                 S.area == 0x0Du || S.area == 3u || S.area == 8u || S.area == 7u));
@@ -155,6 +156,12 @@ int em_world_textures_live_ensure(EmGfx *gfx)
         S.area == 7u || (S.area == 4u && S.subarea == 1u) || ((S.mode || S.costume) && S.area != 11u)) {
         snprintf(mid, sizeof mid, "assets/levels/%02u/sub%u/world_textures_mode%u_costume%u.emot", S.area, S.subarea,
                  S.mode, S.costume);
+        paths[0] = mid;
+    }
+    /* tools/export_level_world_textures.py --profile 19 / 19s1 (AREA19) */
+    if (S.area == 0x13u) {
+        snprintf(mid, sizeof mid, "assets/levels/%s/world_textures_mode%u_costume%u.emot",
+                 S.subarea ? "19s1/sub1" : "19/sub0", S.mode, S.costume);
         paths[0] = mid;
     }
     Texture textures[EM_GFX_OBJECT_TEX_MAX];

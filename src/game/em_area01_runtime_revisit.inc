@@ -133,6 +133,7 @@ static int rv_001BAC00(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 3) { lo = 0x00826900u; hi = 0x00829100u; }      /* AREA03's */
     if (r->area == 8) { lo = 0x00825100u; hi = 0x00827F00u; }      /* AREA08's */
     if (r->area == 7) { lo = 0x00825B80u; hi = 0x00828080u; }      /* AREA07's */
+    if (r->area == 0x13) { lo = 0x00829E00u; hi = 0x0082F880u; }   /* AREA19's */
     const uint8_t *data = bytes(r, lo, hi - lo, 0);
     if (!rec || !self14 || !data) return fail(r, c->function);
     uint8_t record_bytes[0x18];

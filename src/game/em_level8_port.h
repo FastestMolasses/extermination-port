@@ -249,6 +249,7 @@ int em_level8_port_00133DB0(const EmLevel8PortHooks *h, uint32_t self, uint32_t 
 int em_level8_port_0011E0A8(const EmLevel8PortHooks *h, uint32_t ptr, float x, float *result,
                             EmLevel8PortFault *fault);
 int em_level8_port_0021BE40(const EmLevel8PortHooks *h, uint32_t self, int32_t *result, EmLevel8PortFault *fault);
+int em_level8_port_0021BED0(const EmLevel8PortHooks *h, uint32_t self, int32_t *result, EmLevel8PortFault *fault);
 int em_level8_port_001B4810(const EmLevel8PortHooks *h, uint32_t self, EmLevel8PortFault *fault);
 
 /* ---- the creature's probes ---- */

@@ -118,6 +118,10 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a15b_03` | AREA15 sub 0 | After the two conversations | The slider and the bed |
 | `a15b_04` | AREA15 sub 0 | At the bed | The slider and door [14] to the stair tower (AREA19's load) |
 | `a03_00` | AREA03 sub 0 | Entry 1, through AREA19's door [25] | The lift's outer button, the car, the ride down |
+| `area19`, `a19_01`, `a19_02` | AREA19 sub 0 | The foot of the ladder under AREA13's hatch, then the room behind door [32] | The duct, the pickup, the duct back |
+| `a19b_01`, `a19b_02` | AREA19 sub 0 | Entry 10's side | The ledge, the ladder |
+| `a19c_00` .. `a19c_07` | AREA19 sub 0, then sub 1 | Where each beat of the way to door [52] starts | The bars, the slide, the walkway, door [27], the ladder, door [52] |
+| `a19d_00` .. `a19d_20` | AREA19 sub 1 | Where each beat of the way to door [50] starts | The beasts, the ceiling, the cage, the bars, the seal, door [50] to AREA15 (`a19d_12` .. `a19d_14` start in mid-air and fall) |
 
 The route these points sit on is proven row by row from New Game, through the
 first boss fight with the pistol and the lift, through AREA13 to the ladder down

@@ -605,3 +605,8 @@ See `LEVEL_ORACLE_AUDIT.md` for the per-entry evidence, defect causes, exact
 proposal for main, and the four level-15 source blockers. The native application
 is unchanged: New Game PASS 9.599849 and both smoke tick logs byte-identical.
 This does not certify a native replay of this route.
+
+## Native port (lane J1, 2026-10-30)
+
+The AREA19 beats of this route play from start cards: docs/AREA19_PORT.md has each
+beat's status. This does not certify a row-exact replay.

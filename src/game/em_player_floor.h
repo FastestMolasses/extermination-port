@@ -113,6 +113,10 @@ typedef struct EmPlayerProbeHit {
      * player's +214 (D_008104C4) when kind & 2 (docs/ACTOR_COLLISION.md
      * section 7 item 4). `entity` is owner != NULL. */
     const void *owner;
+    /* A surface-0x39 grid node's ring (00175CF0's 0017F9E0 reads its corners
+     * with 0019F680): em_actor_collision_player_ground fills it. */
+    int ring;
+    float corner[4][3];
 } EmPlayerProbeHit;
 
 /* ---- Original SDK vector math (00102BB0 family), EE truncating floats --- */
@@ -280,6 +284,8 @@ int em_player_floor_apply(EmPlayerFloorActor *actor, const EmPlayerProbeHit *hit
  * point 0019B8C0 receives (the stack copy sp50: the probe point of the floor
  * hit); when no floor hit wrote it the original passes stale stack, and the
  * caller's `at` is used. */
+/* The hit em_player_floor_apply handles, while its surface39 worker runs. */
+const EmPlayerProbeHit *em_player_floor_surface_hit(void);
 int em_player_floor_service(EmPlayerFloorActor *actor, int search, float at[3],
                             const EmPlayerFloorWorkers *workers);
 

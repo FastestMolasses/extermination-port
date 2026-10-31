@@ -24,7 +24,7 @@ typedef struct {
     uint8_t pass;            /* transferred inside the pass CALL          */
 } Seg;
 
-#define UNIT_PRIMS 8192u     /* the units' primitives per page            */
+#define UNIT_PRIMS 32768u    /* the units' primitives per page            */
 static EmGfxGsPrim s_unit_prims[UNIT_PRIMS];
 
 /* The walk's state: the transfers in order and a cursor over their words. */

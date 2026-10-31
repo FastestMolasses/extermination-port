@@ -4,6 +4,14 @@
 #include "game/em_camera_live.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_effects_live.h"
+#include "game/em_level12_port.h"
+#include "game/em_level13_port.h"
+#include "game/em_stream_lanes_original.h"
+#include "game/em_script_host_workers.h"
+#include "game/em_level14_port.h"
+#include "game/em_area06_port.h"
+#include "game/em_module_loader.h"
+#include "game/em_aim_fire_sdk_memory.h"
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_runtime.h"
 #include "game/em_equipment_live.h"
@@ -175,7 +183,8 @@ static struct {
     Slot major4[EM_PLAYER_MAJOR4_COUNT];
     /* 00183250 (0015B610's +5 = 1) and its workers over the record. */
     EmPlayerArrivalWorkers arrival;
-    Slot major5_00183250;
+    Slot major5_00183250, major5_001833F0, major5_00183440;
+    EmPlayerMajor5ClimbWorkers major5_climb;
     /* 001837B0 (0015B530's +5 = 1) and its workers over the record. */
     EmPlayerStateOneWorkers state_one;
     /* 001838B0 (+5 = 0xC) and 00183910 (+5 = 0x17) and their workers. */
@@ -2363,6 +2372,8 @@ int em_player_closure_live_water_contact(EmPlayerLiveActor *actor)
     return L.water(L.water_context, 0x00187DE0u, actor, 0);
 }
 
+#include "game/em_player_closure_ledge.inc"
+
 /* ---- The bind ----------------------------------------------------------------- */
 
 static void bind_fall(void)
@@ -2721,6 +2732,17 @@ static int m2_0021E650(void *c, EmPlayerLiveActor *a)
     MISC_OUT(); return r;
 }
 
+/* 002236F0's 001026A0(p + 0xB0, p + 0xD0, v). */
+static int w_m2_001026A0(void *c, EmPlayerLiveActor *a, const uint32_t v[4])
+{
+    (void)c;
+    uint32_t m[16], out[4];
+    memcpy(m, a->bytes + 0xD0, sizeof m);
+    if (em_player_helper_apply(m, v, out) < 0) return -1;
+    memcpy(a->bytes + 0xB0, out, sizeof out);
+    return 0;
+}
+
 static void bind_major2(void)
 {
     EmPlayerMajor2Workers *w = &L.m2_w;
@@ -2733,6 +2755,7 @@ static void bind_major2(void)
     w->w0021C350 = w_0021C350; w->w0021C190 = w_0021C190; w->w0017FC80 = w_clip_FC80;
     w->w0017FF80 = w_clip_FF80; w->random = w_random; w->w00188550 = w_00188550;
     w->w001885B0 = x_001885B0; w->root_node = w_root_node;
+    w->w00188610 = x_00188610; w->w001026A0 = w_m2_001026A0;
     L.m2_scene.d8106F1 = em_scene_req_at(scene(), 0x008106F1u);
     L.m2_scene.d810707 = em_scene_progress_at(scene(), 0x00810707u, 1);
     L.m2 = (EmPlayerMajor2){ &L.m2_w, &L.m2_scene };
@@ -3512,6 +3535,10 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     set1(b, 0x12, em_player_closure1019_0016AE40, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016AE40");
     set1(b, 0x19, em_player_closure1019_0016DE40, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016DE40");
     set1(b, 0x1A, em_player_closure1019_0016EBA0, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016EBA0");
+    set1(b, 0x0F, bar_state, NULL, NULL, NULL, NULL, "00169250");
+    set1(b, 0x11, ceiling_state, NULL, NULL, NULL, NULL, "0016AC50");
+    set1(b, 0x15, em_player_closure1019_0016A8B0, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016A8B0");
+    set1(b, 0x1B, ledge_state, NULL, NULL, NULL, NULL, "0016EF50");
     set1(b, 0x1C, em_player_slide_live_state, &L.slide, NULL, NULL, NULL, "0016C6A0");
     set1(b, 0x1D, em_player_weapon_state1D, &L.wa, &L.wa_scene.spad3A20, wa_pre, wa_post, "0016FCF0");
     set1(b, 0x1E, em_player_weapon_state1E, &L.wa, &L.wa_scene.spad3A20, wa_pre, wa_post, "001703E0");
@@ -3551,6 +3578,7 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
         { 0x05, em_player_major2_00222580, "00222580" },
         { 0x06, em_player_major2_00222AD0, "00222AD0" },
         { 0x07, em_player_major2_002230A0, "002230A0" },
+        { 0x09, em_player_major2_002236F0, "002236F0" },
         { 0x16, em_player_major2_00225570, "00225570" },
         { 0x19, em_player_major2_002255C0, "002255C0" },
     };
@@ -3573,6 +3601,15 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     slot(&L.major5_00183250, em_player_00183250, &L.arrival, NULL, NULL, NULL, "00183250");
     major5->routine[EM_PLAYER_MAJOR5_00183250] = slot_run;
     major5->routine_context[EM_PLAYER_MAJOR5_00183250] = &L.major5_00183250;
+    /* +5 = 2 / 3 (the climb out at a load, AREA19's ladders to sub 1):
+     * em_player_floor's translations over the ladder climb state's slot. */
+    L.major5_climb = (EmPlayerMajor5ClimbWorkers){&L.state[0x0C], slot_run, &scene()->spad3B8D};
+    slot(&L.major5_001833F0, em_player_001833F0, &L.major5_climb, NULL, NULL, NULL, "001833F0");
+    major5->routine[EM_PLAYER_MAJOR5_001833F0] = slot_run;
+    major5->routine_context[EM_PLAYER_MAJOR5_001833F0] = &L.major5_001833F0;
+    slot(&L.major5_00183440, em_player_00183440, &L.major5_climb, NULL, NULL, NULL, "00183440");
+    major5->routine[EM_PLAYER_MAJOR5_00183440] = slot_run;
+    major5->routine_context[EM_PLAYER_MAJOR5_00183440] = &L.major5_00183440;
 
     /* 0015B530's 001837B0 (+5 = 1): 0017B5C0 / 0017C030 on the
      * locomotion host, 0017BC40 the record-level motor, 00178B90 / 00175900 /

@@ -14,6 +14,7 @@
 #include "game/em_area00_fx.h"
 #include "game/em_area02_misc.h"
 #include "game/em_area06_port.h"
+#include "game/em_boot_constants.h"
 #include "game/em_level8_port.h"
 #include "game/em_level14_port.h"
 #include "game/em_collision_world.h"
@@ -83,7 +84,7 @@ static struct {
     EmEffectKindsTables ktables;
     EmHeadSpriteOriginalTables htables;
     uint8_t sources[0x480];                   /* D_002565E0..D_00256A60 */
-    struct { uint32_t address, size; } window[192];  /* the exported blocks */
+    struct { uint32_t address, size; } window[192];  /* the exported blocks (the EMET limit, 192) */
     uint32_t windows;
     /* 001CFBE0 source blocks an overlay owner hands 001D04B0 (the AREA11
      * flame's D_00828340): their 0x90 bytes, readable by the page. */
@@ -1926,6 +1927,13 @@ static int w_head_001AFC10(void *ctx, u32 self)
     return -1;
 }
 
+/* 001F6BB0's room-list workers (below) */
+static int w_m_word(void *ctx, uint32_t address, uint32_t *value);
+static int w_m_001F6640(void *ctx, uint32_t record);
+static int w_m_001F66F0(void *ctx, uint32_t record);
+static int w_m_001F6760(void *ctx, uint32_t *record);
+static int w_m_001F6850(void *ctx);
+
 static void wire(EmPacketChain *pc)
 {
     EmEffectOriginalWorkers *ew = &S.eworkers;
@@ -1979,8 +1987,14 @@ static void wire(EmPacketChain *pc)
     mw->w_001D3D90 = w_m_001D3D90;
     mw->w_001CAAC0 = w_m_001CAAC0;
     mw->w_list_at = w_m_list_at;
-    /* 001F6210's list loop, the selectors' point-light paths and the sweep's
-     * live entities are not reached in AREA11: NULL. */
+    /* 001F6BB0's point-light paths over the lists window (AREA19 sub 1,
+     * key 0x1301; AREA00 key 0's): em_effect_kinds' translations. */
+    mw->w_word = w_m_word;
+    mw->w_001F6640 = w_m_001F6640;
+    mw->w_001F66F0 = w_m_001F66F0;
+    mw->w_001F6760 = w_m_001F6760;
+    mw->w_001F6850 = w_m_001F6850;
+    /* The sweep's live entities are not reached in AREA11: NULL. */
     S.mglobals.d275670 = CTX;
     S.m = (EmEffectManager){&S.mtables, &S.mglobals, &S.decals, &S.mview, S.entities, mw, {0, 0}};
 
@@ -2042,6 +2056,67 @@ static int w_room_001D80B0(void *ctx, int32_t handle)
 {
     (void)ctx;
     return em_rcl_001D80B0(handle);
+}
+
+/* 001F6BB0's workers: the lists window S.ktables, the room lists' one copy. */
+static int room_list_call(uint32_t function, uint32_t record)
+{
+    EmEffectKindsGlobals globals;
+    memset(&globals, 0, sizeof globals);
+    globals.d810700 = S.mglobals.d810700;
+    globals.d810701 = S.mglobals.d810701;
+    EmEffectKindsWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.w_001D7FA0 = w_room_001D7FA0;
+    workers.w_001D80B0 = w_room_001D80B0;
+    EmEffectKinds k = {&S.ktables, &globals, NULL, NULL, &workers, {0, 0}};
+    const int rc = function == 0x001F6640u ? em_effect_kinds_001F6640(&k, record)
+                 : function == 0x001F66F0u ? em_effect_kinds_001F66F0(&k, record)
+                                           : em_effect_kinds_001F6850(&k);
+    if (rc < 0) {
+        fprintf(stderr, "effects: %08X faulted at %08X (code %d)\n", (unsigned)function,
+                (unsigned)k.fault.address, (int)k.fault.code);
+        return -1;
+    }
+    return 0;
+}
+/* The room lists from the scripts and owners (0x82CE.. callbacks, 0x826570's
+ * 001F6BA0, 0x827... 's 001F6B90; AREA19 sub 1). The lists window as above,
+ * the point lights as the room lists'. */
+int em_effects_live_room_list(EmSceneState *scene, uint32_t function, uint32_t record)
+{
+    if (!scene || em_effects_live_load() < 0 || !em_rcl_point_lights()) return -1;
+    S.mglobals.d810700 = scene->d810700;
+    S.mglobals.d810701 = scene->d810701;
+    return room_list_call(function, record);
+}
+static int w_m_word(void *ctx, uint32_t address, uint32_t *value)
+{
+    (void)ctx;
+    if (address < EM_EFFECT_KINDS_LISTS_BASE || address >= EM_EFFECT_KINDS_LISTS_END - 3u) return -1;
+    memcpy(value, S.ktables.lists + (address - EM_EFFECT_KINDS_LISTS_BASE), 4);
+    return 0;
+}
+static int w_m_001F6640(void *ctx, uint32_t record)
+{
+    (void)ctx;
+    return room_list_call(0x001F6640u, record);
+}
+static int w_m_001F66F0(void *ctx, uint32_t record)
+{
+    (void)ctx;
+    return room_list_call(0x001F66F0u, record);
+}
+static int w_m_001F6760(void *ctx, uint32_t *record)
+{
+    (void)ctx;
+    *record = em_effect_kinds_001F6760(S.mglobals.d810700, S.mglobals.d810701);
+    return 0;
+}
+static int w_m_001F6850(void *ctx)
+{
+    (void)ctx;
+    return room_list_call(0x001F6850u, 0);
 }
 
 /* 001D7BB0's tail (src/func_001D7BB0.c): 001F68B0() then 001F6E40() (the
@@ -2648,9 +2723,17 @@ int em_effects_live_001F0360(void)
     /* 001F6BB0 reads latch bytes for keys 0 and 0x1301 only. Key 0 reads
      * D_0081075D (event 5, canonical in the progress region since A01;
      * 0 at the AREA00 arrival, 0xFF from the a00_08 switch in the fork
-     * captures). Key 0x1301's D_00810778 / 77B / 79E have no canonical
-     * copy yet. */
-    if (key == 0x1301) return fail(0x001F6BB0u, "the selector's latch bytes are not canonical");
+     * captures). Key 0x1301 (AREA19 sub 1) reads D_00810778 / 77B / 79E, the
+     * progress region's too. */
+    if (key == 0x1301) {
+        const uint8_t *p778 = em_scene_progress_at(S.scene, 0x00810778u, 1);
+        const uint8_t *p77B = em_scene_progress_at(S.scene, 0x0081077Bu, 1);
+        const uint8_t *p79E = em_scene_progress_at(S.scene, 0x0081079Eu, 1);
+        if (!p778 || !p77B || !p79E) return fail(0x00810778u, "the selector's latch bytes have no canonical owner");
+        S.mglobals.d810778 = *p778;
+        S.mglobals.d81077B = *p77B;
+        S.mglobals.d81079E = *p79E;
+    }
     if (key == 0) {
         const uint8_t *latch = em_scene_progress_at(S.scene, 0x0081075Du, 1);
         if (!latch) return fail(0x0081075Du, "the selector's latch byte has no canonical owner");
