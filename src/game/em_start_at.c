@@ -199,6 +199,10 @@ static struct {
     unsigned sync_address, sync_value;
     int sync_f, sync_done;
     unsigned sync_counter;
+    /* EM_START_AT_RAW=<a>-<b>[,...]: script frames with no steering, the
+     * recorded stick as it is (a hang's hand-over-hand turns on the stick). */
+    unsigned raw_count;
+    int raw[16][2];
     /* EM_START_AT_MARKS: the script frames to report the block at. */
     unsigned mark_count, mark_next;
     int mark[64];
@@ -569,6 +573,16 @@ int em_start_at_check(void)
         if (!ok) return refuse("EM_START_AT_PAD: not an EMA1 pad script", script);
         pad.last = (unsigned)last;
         pad.loaded = 1;
+        const char *raw = getenv("EM_START_AT_RAW");
+        for (const char *m = raw; m && *m && pad.raw_count < 16;) {
+            int a = 0, b = 0, used = 0;
+            if (sscanf(m, "%d-%d%n", &a, &b, &used) != 2) return refuse("EM_START_AT_RAW: not a-b ranges", raw);
+            pad.raw[pad.raw_count][0] = a;
+            pad.raw[pad.raw_count][1] = b;
+            pad.raw_count++;
+            m += used;
+            if (*m == ',') ++m;
+        }
         const char *marks = getenv("EM_START_AT_MARKS");
         for (const char *m = marks; m && *m;) {
             char *end;
@@ -754,7 +768,10 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
                      sscanf(next + 1, "%d:%x", &pad.restore_f, &pad.restore_clock) != 2))
             pad.restore = NULL;
     }
-    if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u) {
+    int raw_row = 0;
+    for (unsigned i = 0; i < pad.raw_count; ++i)
+        if (t >= pad.raw[i][0] && t <= pad.raw[i][1]) raw_row = 1;
+    if (pad.path_count && pos && t >= 0 && (unsigned)t < pad.path_count && pad.hold < 300u && !raw_row) {
         /* A recorded position more than 20 units away is another room's
          * (a load the host drive ends earlier than the recording's: the
          * recorded rows still hold the old area's position): no wait. */
@@ -831,7 +848,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         pad.now = (EmPadState){pad.row[i].buttons, (pad.row[i].lx - 128) / 128.0f,
                                (pad.row[i].ly - 128) / 128.0f, 0, 0};
     const float m = sqrtf(pad.now.lx * pad.now.lx + pad.now.ly * pad.now.ly);
-    if (pad.path_count && pos && fwd && m > 0.1f && t >= 0 && (unsigned)t < pad.path_count) {
+    if (pad.path_count && pos && fwd && m > 0.1f && t >= 0 && (unsigned)t < pad.path_count && !raw_row) {
         unsigned k = (unsigned)t + 8u;
         if (k >= pad.path_count) k = pad.path_count - 1u;
         /* A player ahead of that point with a recorded stop in front (up to

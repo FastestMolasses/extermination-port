@@ -72,7 +72,7 @@
  * canonical storage: D_008106C8 (the request word), D_00810701, D_0081083C
  * and D_00810C7E (progress bytes, D2), and D_00810707 / D_008106F1 by
  * pointer. D_00810770 (event 0x18) is the progress block's byte; its
- * only reader, 0021C3F0, reads it in area 8 room 2, where the load refuses. */
+ * only reader, 0021C3F0, reads it in area 8 room 2. */
 #ifndef EM_PLAYER_STAGE_LIVE_H
 #define EM_PLAYER_STAGE_LIVE_H
 

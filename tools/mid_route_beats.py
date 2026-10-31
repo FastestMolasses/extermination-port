@@ -297,6 +297,25 @@ RESTORE = {'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06', 'a07_00',
            'a07b_03', 'a07b_04', 'a07b_05', 'a07b_06', 'a07b_07'}
 
 
+def raw_rows(traces, lead):
+    """The script frames of the recorded hangs (actions 32, 34, 40): the stick
+    is the recorded one there, steering would turn the hand-over-hand."""
+    out, base = [], traces[0]['first_counter']
+    for t in traces:
+        off = t['first_counter'] - base + lead
+        at = None
+        for r in t['rows']:
+            if r['m1F0'] in (32, 34, 40):
+                at = r['f'] if at is None else at
+                end = r['f']
+            elif at is not None:
+                out.append((at + off, end + off + 2))
+                at = None
+        if at is not None:
+            out.append((at + off, end + off + 2))
+    return ','.join(f'{a}-{b}' for a, b in out[:16])
+
+
 def restore_anchor(beat):
     t = json.loads((beat_dir(beat) / 'trace.json').read_text())
     folder = Path(t['source_state']).resolve().parent
@@ -355,6 +374,9 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    raw = raw_rows(traces, LEAD.get(beats[0], 0))
+    if raw:
+        env['EM_START_AT_RAW'] = raw
     # EM_MID_ROUTE_MODE: anchor (default: the source's bugs, the rand() table, the
     # pad alone), both (the anchors and the steering), steer (the steering alone).
     mode = os.environ.get('EM_MID_ROUTE_MODE', 'anchor')
