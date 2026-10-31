@@ -3,7 +3,33 @@
 Lane N1, 2026-10-31, branch `area03x`. AREA03's two later subs and AREA04's sub 1
 run in the shared composition as AREA03 sub 0 does (AREA15_PORT.md). The route's
 ground truth is SIXTEENTH_LEVEL_ROUTE.md and SEVENTEENTH_LEVEL_ROUTE.md. This is a
-start-card binding: row-exact New Game chaining is a chain lane's. BEATS_TABLE
+start-card binding: row-exact New Game chaining is a chain lane's.
+
+## Beats
+
+`python3 tools/mid_route_beats.py --single <beat>` from each beat's own card, unless the
+row says chain. "Passes" is the tool's whole check: recorded pad and path, no fail-stop,
+end block, end position within 4 units. No row of these was compared: every walk is
+steered, and no group here ran from New Game.
+
+| Beat | Status | Stops and why |
+|---|---|---|
+| a03b_00 | no fault, door [13] reached, end position good | end block: health 12 for 65, infection 50 for 30 (steered back into the steam, below) |
+| a03b_01 | fails | the crawl overshoots the junction (557, 735.5) and ends at (582.9, 55, 735.5); health 25 for 45. a03b_02 and a03c_01 cross the same ducts |
+| a03b_02 .. a03b_05 | **pass** | [22]'s script 0x827170, flag 0x29, items, the ducts, the curtains, the slider |
+| a03b_06 | plays to the load | stops at `assets/area08`'s scene (lane P1's assets, absent here) |
+| a03c_00 | **passes** (chain and card) | |
+| a03c_01 | end position good | end block: health 70 for 90 (a leap the recording does not take) |
+| a03c_02 | not passed | the creatures kill the player: superseded by a03d_00 |
+| a03c_03 | end position good, AREA04 sub 1 loads | end block: health 58 for 56 |
+| a03d_00 | **passes** (chain and card) | the seal [23] |
+| a03d_01 | **passes** from its card; in the chain the door is not reached | door [24], AREA04 sub 1's load |
+| a04c_00 | fail-stop | see "the held face" |
+| a04c_01 | not passed | the creatures kill the player: superseded by a04d_01 |
+| a04c_02 | plays to the load | stops at `assets/area07`'s scene |
+| a04d_00 | **passes** (chain and card) | 0x825040's polygon, script 0x829020 (8,155 frames), the items |
+| a04d_01 | end position good | end block: health 42 for 62, infection 100 for 85 (the 00147390 creatures' contacts) |
+| a04d_02 | plays to the load | stops at `assets/area07`'s scene |
 
 ## How the beats are run
 
@@ -79,7 +105,11 @@ in (3, 1) and (4, 1).
   logic runs.
 - **001C81C0 has no oracle** of its own; its parts are em_pose_host's (001C8480,
   001C8F10, 001C90D0, 001C92C0, 001CA0A0, 001CA1C0, proven there), the loop is new.
-- **The infected player's held face:** OPEN_FACE
+- **The held face** (a04c_00, fail-stop): in AREA04 sub 1's event with the player at
+  infection 100 (mode 1), 001CB3C0 of the player faults at 001D3F08: the face a script
+  holds is not in the regions. It stays a fail-stop; a04d_00 (infection 85) does not
+  reach it. A run at infection 100 stops there.
+- a03b_01's crawl, the chains a03b and a04c (they stop where the single beats stop).
 - 0019DB50's no-span path (the original walks its caller's registers) returns -1, as
   0019D770 does.
 - AREA03 sub 2's registry has 49 ids `unbound bank` (group 4 bank 2's handle was freed

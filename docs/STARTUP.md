@@ -561,7 +561,12 @@ recording-derived and stay in the ignored `build/`.
   `EM_START_AT_SYNC=<address>:<value>:<f>` (comparison only) sets the script's
   clock to f when that progress byte first holds the value, and from then on
   counts the frames no hook steps (a status page's open and close), so a chain
-  keeps the recording's rows. `EM_START_AT_RANDS=<file>` (lines `f state`) puts
+  keeps the recording's rows. `EM_START_AT_LOADS=<file>` (lines `area sub room f`,
+  hex, f decimal) sets the script's clock to the recording's row f when the fade-in
+  after that room's load starts (a load the host drive ends sooner);
+  `EM_START_AT_TRACE=<file>` writes the player, vitals, rand() word and creature
+  states per script frame (both comparison only, docs/AREA03X_PORT.md).
+  `EM_START_AT_RANDS=<file>` (lines `f state`) puts
   the rand() word in place at those script frames.
   `EM_START_AT_RESTORE=<image>:<f>:<clock>[,...]` at each script frame copies from
   a recording's RAM image what a load resets: the bugs' records, the items' glow
