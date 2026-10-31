@@ -30,7 +30,7 @@
 #define SLOT_BASE 0x02000000u
 #define SLOT_SIZE 0xD0u
 #define SLOTS 256
-#define MODELS 32
+#define MODELS 48
 #define PALETTE 64
 #define DRAW_001CB580 0x001CB580u
 #define DRAW_001CB480 0x001CB480u
@@ -649,12 +649,19 @@ static int w_00122BB8(void *ctx, int32_t *value)
     return 0;
 }
 
+/* STAND-IN (docs/AREA08_PORT.md): 001F4BF0's glow sprite on the infected menu
+ * player is not drawn. Its random draw (the worker before this one) and every
+ * byte of state stay; 001F4BF0 does not read the result. Only the picture
+ * depends on it. */
 static int w_001CD520(void *ctx, int32_t a0, int32_t a1, uint32_t position, uint64_t tex0,
                       uint32_t rgb, float f12, float f13, float f14)
 {
-    (void)a0; (void)a1; (void)position; (void)tex0; (void)rgb; (void)f12; (void)f13; (void)f14;
-    return fault(ctx, 0x001CD520u, "the menu player's D_008104E4 glow sprite 001CD520 is not "
-                                   "translated");
+    static int logged;
+    (void)ctx; (void)a0; (void)a1; (void)position; (void)tex0; (void)rgb; (void)f12; (void)f13;
+    (void)f14;
+    if (!logged++)
+        fprintf(stderr, "status models: 001CD520: the infected menu player's glow sprite is not drawn\n");
+    return 0;
 }
 
 /* The node matrices +0x90 of a record's bones as the draw's palette, then
@@ -826,6 +833,18 @@ EmStatusModels *em_status_models_load(const char *directory)
         letter->token = TOKEN_GLYPH | glyphs[i];
         snprintf(path, sizeof path, "%s/letter_%02x.emdl", directory, glyphs[i]);
         if (em_model_load(&letter->model, path) != 0)
+            goto fail;
+    }
+    /* 0020E6F0's other model words (tools/export_status_models.py VARIANTS). */
+    static const struct {
+        uint32_t token;
+        const char *name;
+    } variants[] = {{0x0028A584u, "3d"}, {0x0028A58Cu, "3f"}, {0x0028A590u, "40"}};
+    for (unsigned i = 0; i < sizeof variants / sizeof variants[0]; ++i) {
+        Model *other = &m->model[m->model_count++];
+        other->token = variants[i].token;
+        snprintf(path, sizeof path, "%s/menu_player_%s.emdl", directory, variants[i].name);
+        if (em_model_load(&other->model, path) != 0 || other->model.bone_count != 22)
             goto fail;
     }
     snprintf(path, sizeof path, "%s/models.emsk", directory);

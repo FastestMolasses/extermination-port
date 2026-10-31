@@ -22,6 +22,7 @@ FUNCS = {
     0x0012DD70: ('em_area08_route_0012DD70', 0x120, [U, U], None),
     0x00130AB0: ('em_area08_route_00130AB0', 0x754, [U, U, S], None),
     0x0015A750: ('em_area08_route_0015A750', 0x3A0, [U, S], None),
+    0x001F28D0: ('em_area08_route_001F28D0', 0x2C4, [U, S], None),
     0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
     0x001BD460: ('em_area08_route_001BD460', 0x100, [U], I),
     0x00157360: ('em_area08_route_00157360', 0x248, [U, U, U], I),
@@ -266,6 +267,20 @@ def cases(oid):
         for phase in (0.5, 1.995, 2.5):
             add(f'sparks/{kind}/{phase}', 0x15A750, [(A+0x54, h(kind)), (A+0x1F0, f(phase)), (A+0x1F4, w(0x12345678 + kind)),
                                                      (A+0x20, f(30.0))])
+    # 0x1F28D0
+    def ages(*values):
+        return [(A + 0x1F0 + 0x80 + 4 * i, f(v)) for i, v in enumerate(values)]
+    table = [(A+0x24, w(V))] + [(V + 0x110 + 4 * i, w(P + 0x100 * i)) for i in range(0x20)]
+    add('ring0', 0x1F28D0, table + [(A+4, b(0))], O.Script({0x1CCF70: [3, 9, 2, 9, 1, 20, 4, 0]}))
+    for handle, latch, seed in ((5, 0, 0x12345678), (6, 1, 0x7FFF0001)):
+        add(f'ring1/{handle}', 0x1F28D0, table + [(A+4, b(1)), (A+0x1F0+0xA8, w(handle)), (A+0x1F0+0xA0, w(latch)),
+                                                  (A+0x1F0+0xA4, w(seed))]
+            + ages(0.6, 0.1, 1.69, 1.7, 1.8, -0.1, 0.0, 1.6))
+    add('ring1/young', 0x1F28D0, table + [(A+4, b(1))] + ages(0.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1))
+    add('ring1/old', 0x1F28D0, table + [(A+4, b(1))] + ages(1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8))
+    add('ring1/half', 0x1F28D0, table + [(A+4, b(1))] + ages(0.5000001, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8))
+    for state in (2, 3, 4, 0xFF):
+        add(f'ring/{state}', 0x1F28D0, table + [(A+4, b(state))])
     # 0x12DD70
     for step in (0, 1, 2):
         for anim in (0, 0x100):

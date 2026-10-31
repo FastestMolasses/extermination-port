@@ -97,6 +97,7 @@ typedef struct {
 /* boot: AREA08's and AREA07's switches */
 int em_area08_route_00130AB0(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, uint32_t sp, EmArea08RouteFault *fault);
 int em_area08_route_0015A750(const EmArea08RouteHooks *h, uint32_t a0, uint32_t sp, EmArea08RouteFault *fault);
+int em_area08_route_001F28D0(const EmArea08RouteHooks *h, uint32_t a0, uint32_t sp, EmArea08RouteFault *fault);
 int em_area08_route_00133CD0(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_0012DD70(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, EmArea08RouteFault *fault);
 int em_area08_route_001BD460(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);

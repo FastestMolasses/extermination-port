@@ -906,6 +906,69 @@ static void sparks_0015A750(A08R *o, uint32_t p, uint32_t sp)
     }
 }
 
+/* func_001F28D0.c (NEARMISS: the logic as the original's, the sum's calls in
+ * its order): a ring of eight particle sources, p[4] the state; the block at
+ * p + 0x1F0 holds their matrices, ages +0x80, the sprite handle +0xA8. */
+static void ring_001F28D0(A08R *o, uint32_t p, uint32_t sp)
+{
+    const uint32_t work = sp - 0x60u, base = p + 0x1F0, tbl = R(p + 0x24);
+    uint32_t state = a08r_u8(o, p + 4);
+    if (state > 3)
+        return;
+    if (state >= 2) {
+        C(001AFC10, p);
+        return;
+    }
+    if (state == 0) {
+        W(base + 0xA8, 0);
+        for (uint32_t i = 0; i < 8 && !a08r_failed(o); ++i) {
+            int32_t t = 0;
+            uint32_t slot;
+            W(base + 0x80 + i * 4, A08R_MUL(F(-0.02f), A08R_CVT_S_W((int32_t)i)));
+            slot = R(0x25A330u + i * 4);
+            C(00102948, base + i * 0x10, R(tbl + slot * 4 + 0x110) + 0xC0);
+            C(001CCF70, base + i * 0x10, &t);
+            {
+                const uint32_t most = R(base + 0xA8);
+                W(base + 0xA8, (int32_t)most < t ? (uint32_t)t : most);
+            }
+        }
+        W(base + 0xA8, R(base + 0xA8) + 8);
+        W(base + 0xA0, 0);
+        {
+            int32_t seed = 0;
+            C(00122BB8, &seed);
+            W(base + 0xA4, (uint32_t)seed);
+        }
+        WB(p + 4, 1);
+    }
+    {
+        uint32_t rng = R(base + 0xA4), count = 0;
+        for (uint32_t j = 0; j < 8 && !a08r_failed(o); ++j) {
+            const uint32_t age = base + 0x80 + j * 4;
+            W(0x70003A20, A08R_ADD(A08R_DIV(A08R_CVT_S_W((int32_t)(rng >> 16 & 0xFFFF)), F(65535.0f)),
+                                   F(0.0001f)));
+            rng = rng * 0x25u + 0xBu;
+            if (A08R_LT(R(age), F(1.7f))) {
+                C(001029C0, 0x700036A0);
+                C(00102918, 0x700036A0, 0x700036A0, base + j * 0x10);
+                C(001CFAE0, work, 0, 0x700036A0, R(age), R(0x70003A20), ONE, F(9.999999974752427e-07f));
+                C(001CFBE0, (int32_t)R(base + 0xA8), 1, 0x25A210, work, 0);
+                C(001CFBE0, (int32_t)R(base + 0xA8), 1, 0x25A2A0, work, 0);
+                ++count;
+                W(age, A08R_ADD(R(age), F(0.025f)));
+            }
+        }
+        if (!A08R_LE(R(base + 0x80), F(0.5f))) {
+            const uint32_t latch = R(base + 0xA0);
+            if (latch == 0)
+                W(base + 0xA0, latch + 1);
+        }
+        if (count == 0)
+            WB(p + 4, 3);
+    }
+}
+
 /* func_001BD370.c: the doors opening, the twin of 001BD270's closing: rec +0x10
  * and then +0x14 rise by 0.2, clamped at 5; the four pose floats +0x7C. */
 static int32_t open_001BD370(A08R *o, uint32_t rec)
@@ -1124,6 +1187,12 @@ int em_area08_route_0015A750(const EmArea08RouteHooks *h, uint32_t p, uint32_t s
 {
     A08R o; if (a08r_begin(&o, h, fault)) return -1;
     sparks_0015A750(&o, p, sp); return a08r_end(&o);
+}
+
+int em_area08_route_001F28D0(const EmArea08RouteHooks *h, uint32_t p, uint32_t sp, EmArea08RouteFault *fault)
+{
+    A08R o; if (a08r_begin(&o, h, fault)) return -1;
+    ring_001F28D0(&o, p, sp); return a08r_end(&o);
 }
 
 int em_area08_route_00133CD0(const EmArea08RouteHooks *h, uint32_t p, int32_t *result, EmArea08RouteFault *fault)
