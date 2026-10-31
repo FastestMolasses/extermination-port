@@ -46,6 +46,11 @@ def build():
                 'src/game/em_startup_load_gaps.c', 'src/game/em_area02_misc.c',
                 'src/game/em_area02_overlay.c', 'src/game/em_area02_math.c', 'src/game/em_area04_port.c',
                 'src/game/em_area22_port.c', 'src/game/em_area06_port.c', 'src/game/em_area06_port_node.c', 'src/game/em_area06_port_overlay.c', 'src/game/em_area06_port_strip.c', 'src/game/em_level8_port_gap.c', 'src/game/em_level8_port_creature.c', 'src/game/em_level8_port_lift.c', 'src/game/em_level8_port_overlay.c', 'src/game/em_level8_port_probe.c', 'src/game/em_level8_port_fx.c']
+    # the later levels' translations the runtime's dispatches name
+    import glob
+    for pattern in ('em_level9_port*', 'em_level1[0-5]_*', 'em_area03_route*', 'em_area03_arrival*',
+                    'em_area13_route*', 'em_area15_route*', 'em_area19_route*'):
+        sources += sorted(p for p in glob.glob('src/game/%s.c' % pattern, root_dir=ROOT) if p not in sources)
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', *sources, '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))

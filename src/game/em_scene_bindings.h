@@ -185,6 +185,8 @@ int em_scene_bindings_record_image(uint32_t address, uint8_t *out);
  * relocation slot) + the grid header's +0x20 node offset + 64 * node, from
  * the area data the loader delivered. 0 when unavailable. */
 uint32_t em_scene_bindings_grid_node_address(uint32_t node);
+/* 001CA6E0(owner, handle) from outside the composition's running owner. */
+int em_scene_bindings_owner_model(uint32_t owner, uint32_t handle);
 /* The grid node records' bytes (read only) as the loader delivered them:
  * `size` bytes at `address` inside the node array, or NULL. */
 const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size);

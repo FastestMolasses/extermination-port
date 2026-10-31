@@ -985,6 +985,7 @@ int32_t l8_00133A20(L8 *o, uint32_t self, uint32_t ent);
 void l8_00133DB0(L8 *o, uint32_t self, uint32_t ent);
 uint32_t l8_0011E0A8(L8 *o, uint32_t ptr, uint32_t x);
 int32_t l8_0021BE40(L8 *o, uint32_t self);
+int32_t l8_0021BED0(L8 *o, uint32_t self);
 void l8_001B4810(L8 *o, uint32_t self);
 /* probes (em_level8_port_probe.c) */
 int32_t l8_001A7B80(L8 *o, uint32_t self, uint32_t sp);

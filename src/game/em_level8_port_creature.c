@@ -89,6 +89,41 @@ int32_t l8_0021BE40(L8 *o, uint32_t self)
     return l8_s16(o, self + 0x20E) == 0 ? 0 : 1;
 }
 
+/* ----------------------------------------------------------------------
+ * 0021BED0 (byte-matched C): 1 when actions are blocked: the byte 0x70003B8D
+ * set, +0x220 not above 0, +0 or +4 not 1, +0x236 set, 0021BB00 nonzero,
+ * 0021BC40 (the +0x1F0 kinds that block; 0x2C only with +0xD 2) nonzero, +0xA
+ * zero, or the halfword +0x20E running.
+ * ---------------------------------------------------------------------- */
+int32_t l8_0021BED0(L8 *o, uint32_t self)
+{
+    if (l8_u8(o, S_70003B8D) != 0) return 1;
+    if (L8_LE(l8_u32(o, self + 0x220), F_ZERO)) return 1;
+    if (l8_u8(o, self) != 1) return 1;
+    if (l8_u8(o, self + 4) != 1) return 1;
+    if (l8_u8(o, self + 0x236) != 0) return 1;
+    int32_t r = 0;
+    if (l8_c_0021BB00(o, self, &r)) return 0;
+    if (r != 0) return 1;
+    const uint32_t k = l8_u8(o, self + 0x1F0);
+    if (k == 0x0B || k == 0x0C || k == 0x0D || (k == 0x2C && l8_u8(o, self + 0xD) == 2) || k == 0x10 || k == 0x17 ||
+        k == 0x1A || k == 0x1D || k == 0x2A || k == 0x21 || k == 0x22 || k == 0x2F || k == 0x30 || k == 0x39 ||
+        k == 0x2D)
+        return 1;
+    if (l8_u8(o, self + 0xA) == 0) return 1;
+    return l8_s16(o, self + 0x20E) == 0 ? 0 : 1;
+}
+
+int em_level8_port_0021BED0(const EmLevel8PortHooks *h, uint32_t self, int32_t *result, EmLevel8PortFault *fault)
+{
+    L8 o;
+    if (!result || l8_begin(&o, h, fault)) return -1;
+    int32_t r = l8_0021BED0(&o, self);
+    if (l8_failed(&o)) return -1;
+    *result = r;
+    return 0;
+}
+
 int em_level8_port_0021BE40(const EmLevel8PortHooks *h, uint32_t self, int32_t *result, EmLevel8PortFault *fault)
 {
     L8 o;

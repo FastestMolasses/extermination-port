@@ -301,3 +301,11 @@ must free its node on its Use and leave hull 49 as last transformed.
 5. **Descriptive side files** (`scene.txt`, `.gsmat.json`,
    `world_models.json`, `sfx_registry.json`, `level.json` apart from its
    capture list) are not checked.
+
+## Wired into the game (lane J1, 2026-10-30)
+
+The exports above now load: docs/AREA19_PORT.md. The other files AREA19 needs come
+from shared exporters: `export_module_loader.py` (0x13 subs 0 and 1),
+`export_streams.py`, `export_sfx_registry.py`, `export_area00_runtime_tables.py`,
+`export_later_library.py`, `export_boot_constants.py` and
+`export_player_texture_variants.py --profile 19` / `--profile 19s1`.

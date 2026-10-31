@@ -272,9 +272,10 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
 {
-    /* the areas em_area01_state binds: AREA00..02, AREA04, AREA06, AREA13, AREA22 */
+    /* the areas em_area01_state binds: AREA00..02, AREA04, AREA06, AREA13, AREA15, AREA03, AREA19, AREA22 */
     if (!r || !host || !host->bytes || !host->worker || !(area <= 2 || area == 4 || area == 6 || area == 0x0D ||
-                                                     area == 0x16 || area == 0x0F || area == 3 || area == 8 || area == 7))
+                                                     area == 0x16 || area == 0x0F || area == 3 || area == 0x13 ||
+                                                     area == 8 || area == 7))
         return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
@@ -613,6 +614,7 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 }
 
 #include "game/em_area01_runtime_boss.inc"
+#include "game/em_area01_runtime_a19.inc"
 #include "game/em_area01_runtime_area15.inc"
 #include "game/em_area01_runtime_area08.inc"
 #include "game/em_area01_runtime_later.inc"
@@ -627,7 +629,8 @@ int em_area01_runtime_later(EmArea01Runtime *r, EmArea01Call *c, int *rc)
  * host's workers (fail-stop). */
 static int mid_host(unsigned area)
 {
-    return area == 0x16 || area == 6 || area == 0x0D || area == 0x0F || area == 3 || area == 8 || area == 7;
+    return area == 0x16 || area == 6 || area == 0x0D || area == 0x0F || area == 3 || area == 0x13 || area == 8 ||
+           area == 7;
 }
 
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
@@ -648,16 +651,29 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         reported = 1;
         return 0;
     }
+    /* 001CB1F0 / 001CB130 / 001CB060: the draw methods of AREA19's tendril
+     * field and worms (0x26E310 kinds 10, 9, 8). Their VU1 programs (0x0023D4D0
+     * and 001D3F60's) have no translation yet: not drawn (an open item of
+     * docs/LEVEL3_BINDING.md, lane J1). */
+    if (r->area == 0x13 && (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
+        static int noted;
+        if (!noted++) fprintf(stderr, "em_area01: %08X: its VU1 program is not translated, the node is not drawn\n",
+                              (unsigned)c->function);
+        return 0;
+    }
     if (r->area == 0x0F && dispatch_a15(r, c, &rc))
         return rc;
     if (r->area == 3 && dispatch_a03(r, c, &rc))
         return rc;
     if ((r->area == 8 || r->area == 7) && dispatch_a08(r, c, &rc))
         return rc;
+    if (r->area == 0x13 && c->function >= 0x00823500u)
+        return dispatch_area19(r, c);
     /* The creature family's boot entries and the script actors serve AREA13,
-     * AREA15 and AREA03 too (their overlay addresses went to their own dispatch
-     * or reach the host's fail-stop below). */
-    const int later = (r->area == 0x0D || r->area == 0x0F || r->area == 3 || r->area == 8 || r->area == 7) &&
+     * AREA15, AREA03, AREA19, AREA08 and AREA07 too (their overlay addresses went
+     * to their own dispatch or reach the host's fail-stop below). */
+    const int later = (r->area == 0x0D || r->area == 0x0F || r->area == 3 || r->area == 0x13 || r->area == 8 ||
+                       r->area == 7) &&
                       c->function < 0x00823500u;
     const int creatures = r->area == 4 || later;
     if (creatures && dispatch_level8(r, c, &rc))
@@ -740,7 +756,7 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return 0;
     }
     if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x0D || r->area == 0x0F || r->area == 3 ||
-         r->area == 8 || r->area == 7) &&
+         r->area == 0x13 || r->area == 8 || r->area == 7) &&
         c->function == 0x001E4CE0u) {
         /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20,
          * by a drum's in AREA04 and by AREA06's g[11] 00219870):

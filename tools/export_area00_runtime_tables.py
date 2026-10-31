@@ -189,6 +189,16 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # 001BF5B0's second sampler table D_00250750 (0x41 seven-float
                # rows; 001BF6B0 on AREA01's way back, a01v)
                (0x00250750, 0x41 * 7 * 4))
+# AREA19 (lane J1): the area's rows of the registries D_0024D7C0, D_0024A850
+# and D_0024D820 and the per-sub words they name (D_00275A40..57: sub 1's
+# group list, the group-list pair, the placement-table pair).
+AREA19_LIGHT_TABLE, AREA19_LIGHT_RECORDS = 0x0026A640, 10
+AREA19_WINDOWS = ((0x0024D80C, 4), (0x0024A89C, 4), (0x0024D86C, 4), (0x00275A40, 0x18),
+                  # 0015A2C0's random-mode rows D_002481B0 / D_002481D0 (eight
+                  # bytes a row) and heights D_002481F0
+                  (0x002481B0, 0x40 + 0x1C),
+                  # 0022DCD0's list for key 0x1300 (its owner, placement [12])
+                  (AREA19_LIGHT_TABLE, AREA19_LIGHT_RECORDS * 0x40 + 4))
 HAZARD_EFFECT_ROWS = {0x00257530: struct.pack('<8f', 8, 24, 8, 0, 0, 0, 0, 0),
                       0x00257650: struct.pack('<8f', 24, 112, 24, 128, 24, 112, 24, 0)}
 
@@ -254,7 +264,7 @@ def blocks(elf):
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
                *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS, *MID_WINDOWS,
-               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS, *AREA08_WINDOWS)
+               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS, *AREA19_WINDOWS, *AREA08_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -265,7 +275,8 @@ def verify_light_table(data):
     """The 0022DCD0 lists (AREA00, AREA02 sub 0, AREA06): their records,
     then the word -1."""
     for base, records in ((LIGHT_TABLE, LIGHT_RECORDS), (AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS),
-                          (AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS), (AREA13_LIGHT_TABLE, AREA13_LIGHT_RECORDS)):
+                          (AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS), (AREA13_LIGHT_TABLE, AREA13_LIGHT_RECORDS),
+                          (AREA19_LIGHT_TABLE, AREA19_LIGHT_RECORDS)):
         table = data[base]
         for index in range(records):
             if struct.unpack_from('<i', table, index * 0x40)[0] == -1:
@@ -330,7 +341,7 @@ def verify_preserved(previous, data):
     if len(previous) < 16:
         raise ValueError('Truncated existing effect export')
     magic, version, count, _ = struct.unpack_from('<4s3I', previous)
-    if magic != b'EMET' or version != 1 or not 0 < count <= 128 or 16 + 16 * count > len(previous):
+    if magic != b'EMET' or version != 1 or not 0 < count <= 192 or 16 + 16 * count > len(previous):
         raise ValueError('Invalid existing effect export')
     expected, seen = dict(data), set()
     for index in range(count):
@@ -403,6 +414,28 @@ def verify_area15_windows(wanted, decomp):
     return seen
 
 
+def verify_area19_windows(wanted, decomp):
+    """AREA19's windows equal every AREA19 fork snapshot's bytes."""
+    root = decomp / 'build/fork_refs'
+    paths = []
+    for group in ('levels-recordings-20261018-10/s87/route_a19', 'levels-recordings-20261018-13/s87/route_a19b',
+                  'levels-recordings-20261018-14/s87/route_a19c', 'levels-recordings-20261018-17/s87/route_a19c',
+                  'levels-recordings-20261018-19/s87/route_a19d'):
+        paths += sorted((root / group).glob('*/eeMemory.bin'))
+    seen = 0
+    for path in paths:
+        ram = path.read_bytes()
+        if ram[0x810700] != 0x13:
+            continue
+        for address, size in AREA19_WINDOWS:
+            if ram[address:address + size] != bytes(wanted[address]):
+                raise ValueError(f'{path.parent.name}: AREA19 window {address:#x} differs from the ELF')
+        seen += 1
+    if not seen:
+        raise ValueError('no AREA19 capture')
+    return seen
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--elf', type=Path, default=E.DECOMP / 'config/SCUS_971.12')
@@ -416,6 +449,7 @@ def main():
     verify_mid_windows(dict(data), args.decomp)
     verify_area15_windows(dict(data), args.decomp)
     verify_area08_windows(dict(data), args.decomp)
+    verify_area19_windows(dict(data), args.decomp)
     output = args.out.absolute()
     if output.is_symlink() or any(parent.is_symlink() for parent in output.parents):
         raise ValueError('Output must use the worktree\'s private directories')

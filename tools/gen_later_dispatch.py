@@ -2,7 +2,8 @@
 """Generate src/game/em_area01_runtime_later.inc: the fallback dispatch of the
 later levels' boot translations.
 
-The level ports (em_level9_port .. em_level14_port, em_level15_*) translate
+The level ports (em_area04/06/22_port, em_level8_port .. em_level14_port,
+em_level15_*) translate
 boot functions from the instructions, each proven by its own original-
 instruction oracle (tools/test_level*_reference.py), most of them unbound.
 The shared composition reaches them only where a run needs them: an address
@@ -30,6 +31,8 @@ ELF = ROOT.parent / 'Extermination/config/SCUS_971.12'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 # header, hook-table prefix (em_mid_route_bridge.inc), hooks type, fault type
 SOURCES = (('em_area04_port.h', 'm04', 'EmArea04PortHooks', 'EmArea04PortFault'),
+           ('em_area22_port.h', 'm22', 'EmArea22PortHooks', 'EmArea22PortFault'),
+           ('em_area06_port.h', 'm06', 'EmArea06PortHooks', 'EmArea06PortFault'),
            ('em_level8_port.h', 'm08', 'EmLevel8PortHooks', 'EmLevel8PortFault'),
            ('em_level9_port.h', 'm09', 'EmLevel9PortHooks', 'EmLevel9PortFault'),
            ('em_level10_port.h', 'm10', 'EmLevel10PortHooks', 'EmLevel10PortFault'),
@@ -43,7 +46,7 @@ SOURCES = (('em_area04_port.h', 'm04', 'EmArea04PortHooks', 'EmArea04PortFault')
            ('em_level15_perception.h', 'm15p', 'EmLevel15PerceptionHooks', 'EmLevel15PerceptionFault'),
            ('em_level15_support.h', 'm15s', 'EmLevel15SupportHooks', 'EmLevel15SupportFault'),
            ('em_area08_route.h', 'r08', 'EmArea08RouteHooks', 'EmArea08RouteFault'))
-PROTO = re.compile(r'^int (em_(?:level|area04|area08_route)\w*?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
+PROTO = re.compile(r'^int (em_(?:level|area)\w+?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
 OVERLAY = 0x823500
 CASTS = {'uint32_t': '(uint32_t)', 'int32_t': '(int32_t)', 'uint64_t': ''}
 

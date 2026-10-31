@@ -936,6 +936,20 @@ int em_pose_host_001C6960(EmPoseHost *h, uint8_t *record, uint32_t size)
     return em_pose_host_001C9940(h, bones, bsize, record[0xC], record + 0xD0);
 }
 
+/* 001C9940(+110, +C, +D0) over a record, the matrix as it stands (the tail
+ * of 001C6910, whose 001C9570 ran on the record's bytes). */
+int em_pose_host_001C9940_record(EmPoseHost *h, uint8_t *record, uint32_t size)
+{
+    FAULT(host_ready(h));
+    FAULT(record_ready(record, size));
+    const uint8_t *bones;
+    uint32_t bsize;
+    bones_of(record, size, &bones, &bsize);
+    FAULT(nodes_ready(h, bones, bsize, record[0xC], 0));
+    FAULT(parents_ready(h, bones, bsize, 0, record[0xC]));
+    return em_pose_host_001C9940(h, bones, bsize, record[0xC], record + 0xD0);
+}
+
 /* ---- 00178910: the ledge-top column search ------------------------------------------------ */
 
 /* 00178910(p, arg). The column query point 0x700038B0 is the sweep hit

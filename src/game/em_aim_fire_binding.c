@@ -162,6 +162,9 @@ static int aim_fire_binding_call(void *context,EmAimFireTargetCall *f)
         if (!dst) return -1;
         memcpy(dst,q,16);return 0;
     }
+    case 0x001CA6E0u:
+        /* 0022BBC0's model switch of a burning creature (the owner's). */
+        return em_scene_bindings_owner_model((uint32_t)f->a[0],(uint32_t)f->a[1]);
     default:return Extension.call ? Extension.call(Extension.context,&B.live,f) : -1;
     }
 }

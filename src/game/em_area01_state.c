@@ -51,6 +51,7 @@ typedef struct {
 static const MidOverlay k_mid[] = {
     {0x16u, 0x13u, 0xC0u, EM_AREA01_STATE_A22_DATA_SIZE, EM_AREA01_STATE_A22_BSS, EM_AREA01_STATE_A22_BSS_SIZE},
     {0x06u, 0x06u, 0x2AC0u, EM_AREA01_STATE_A06_DATA_SIZE, EM_AREA01_STATE_A06_BSS, EM_AREA01_STATE_A06_BSS_SIZE},
+    {0x13u, 0x10u, 0x68C0u, EM_AREA01_STATE_A19_DATA_SIZE, EM_AREA01_STATE_A19_BSS, EM_AREA01_STATE_A19_BSS_SIZE},
     {0x0Du, 0x0Au, 0x67C0u, EM_AREA01_STATE_A13_DATA_SIZE, EM_AREA01_STATE_A13_BSS, EM_AREA01_STATE_A13_BSS_SIZE},
     {0x0Fu, 0x0Cu, 0x3440u, EM_AREA01_STATE_A15_DATA_SIZE, EM_AREA01_STATE_A15_BSS, EM_AREA01_STATE_A15_BSS_SIZE},
     {0x03u, 0x04u, 0x33C0u, EM_AREA01_STATE_A03_DATA_SIZE, EM_AREA01_STATE_A03_BSS, EM_AREA01_STATE_A03_BSS_SIZE},
@@ -212,6 +213,21 @@ int em_area01_state_00824290(EmArea01State *s)
     return 0;
 }
 
+/* AREA19's init 0x8250C0 (byte-matched C): D_00275C2C = 3, D_00275C28 =
+ * 0x20, D_00275C20 = its BSS's first record 0x82F880, D_00275C24 = 0,
+ * D_00275C1C = 0x84D9C0 (test_area19_state_reference). */
+int em_area01_state_008250C0(EmArea01State *s)
+{
+    if (!s || s->fault) return -1;
+    if (s->area != 0x13) return fail(s, 0x008250C0u);
+    STORE(0x00275C2Cu, 3);
+    STORE(0x00275C28u, 0x20);
+    STORE(0x00275C20u, EM_AREA01_STATE_A19_BSS);
+    STORE(0x00275C24u, 0);
+    STORE(0x00275C1Cu, 0x0084D9C0u);
+    return 0;
+}
+
 /* AREA13's init, runtime 0x8236E0 (key 0xD00): em_level10_port_008236E0, its
  * one translation (byte-matched C, func_overlay_AREA13_008236A0.c,
  * test_level10_port_reference; the original over the captures in
@@ -274,6 +290,8 @@ int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
         if (em_area22_port_00823580(&h, &f) < 0) return fail(s, f.address ? f.address : 0x00823580u);
     } else if (area == 6 && sub <= 1) {
         if (em_area01_state_00824290(s) < 0) return -1;
+    } else if (area == 0x13 && sub <= 1) {
+        if (em_area01_state_008250C0(s) < 0) return -1;
     } else if (area == 0x0D && sub == 0) {
         if (em_area01_state_008236E0(s) < 0) return -1;
     } else if ((area == 0x0F || area == 3) && sub <= 1) {

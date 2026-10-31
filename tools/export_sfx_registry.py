@@ -82,6 +82,13 @@ ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # after AREA04, so every earlier scope keeps its samples and indices.
 MID_SCOPES = ((0x16, 0), (6, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (3, 0), (8, 0), (8, 2), (8, 3), (7, 0))
 MID_IDS = AREA00_IDS
+# AREA19 sub 0 and sub 1 (lane J1): the capture-checked bindings
+# export_area19_sfx.py / export_area19s1_sfx.py recorded in each sub's
+# banks.json over its container (those exporters run first); resolved last,
+# so every earlier scope keeps its samples.
+AREA19_SCOPES = ((0x13, 0), (0x13, 1))
+AREA19_IDS = AREA00_IDS
+AREA19_SFX_DIRS = {0: ROOT / 'assets/area19/sub0/sfx', 1: ROOT / 'assets/area19s1/sub1/sfx'}
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -326,6 +333,37 @@ def mid_bindings():
             setattr(C, name, value)
 
 
+def area19_bindings():
+    """AREA19's sub-0 and sub-1 bindings from each sub's banks.json (its
+    captures' D_00281D50 / D_0027C6C0 slots, checked at that export) over
+    the container and the global rows."""
+    gdata = (DECOMP / GLOBAL_CONTAINER).read_bytes()
+    global_rows = A.parse_container(gdata)
+    result = {}
+    for sub, folder in AREA19_SFX_DIRS.items():
+        report = json.loads((folder / 'banks.json').read_text())
+        data = (folder / 'area19_banks.bin').read_bytes()
+        name = f'area19_sub{sub}_banks.bin'
+        area_rows = A.parse_container(data)
+        if report['target'] != 'area19' or report['sub'] != sub or \
+                hashlib.sha256(data).hexdigest() != report['container_sha256']:
+            raise ValueError(f'{folder}: banks.json does not describe this container')
+        groups = {}
+        for key, source in sorted(report['bindings'].items()):
+            g, i = map(int, key.split('.'))
+            where, row = source.split('#row')
+            bank = Bank(GLOBAL_CONTAINER, gdata, global_rows, int(row)) if where == 'global' else \
+                Bank(name, data, area_rows, int(row))
+            lst = groups.setdefault(g, [])
+            if len(lst) != i:
+                raise ValueError(f'{folder}: group {g} slot {i} bound without slot {len(lst)}')
+            lst.append(bank)
+        refused = {tuple(map(int, k.split('.'))): v for k, v in report['refused_why'].items()}
+        result[(0x13, sub)] = dict(groups=groups, refused=refused,
+                                   binding=f'AREA19 sub {sub} captures (D_00281D50/D_0027C6C0)')
+    return result
+
+
 def area_bindings(elf):
     """(area, sub) -> {group: [Bank]} plus provenance."""
     global_rows = containers_by_type(GLOBAL_CONTAINER,
@@ -371,6 +409,7 @@ def area_bindings(elf):
     bindings.update(area02_bindings())
     bindings.update(area04_bindings())
     bindings.update(mid_bindings())
+    bindings.update(area19_bindings())
     for i, scope in enumerate(ATTACHMENT_SCOPES):
         name = f'extract/chunk{50 + i}/f00_id86.bin'
         rows = containers_by_type(name, (DECOMP / name).read_bytes())
@@ -461,14 +500,21 @@ def script_events(data, position, limit=0x1000):
       B0 07 a2 a3 prog note  001181B0 volume slide set-up (the SFX track's
                          +0x34 == 1 arm: length a2, target a3), cursor +6
       B0 0A a2 a3 prog note  00118418 pan slide set-up (the same arm), cursor +6
-      B0 60 lo hi 0      00118790 the track's loop to a script offset
+      B0 60 lo hi 0      00118790 the track's loop to a script offset: the
+                         tail restarts it there on the next tick with +0x20 =
+                         -SEQ_TICK, whatever the accumulator was (AREA19's
+                         0x415..0x417, 0x44F jump with one left over). The
+                         target must be on the tick grid: then only the first
+                         wait after it is short, by one tick.
       FF 2F 00           00117C28 end of track (no delta)
     Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
     """
     events, running, acc, tick = [], None, 0, 0
     start, end = position, min(position + limit, len(data))
+    first = {}   # event offset -> the accumulator there
     while position < end:
         at = position
+        first.setdefault(at, acc)
         if data[position] & 0x80:
             running = data[position]
             position += 1
@@ -490,11 +536,11 @@ def script_events(data, position, limit=0x1000):
             _, low, high, count = data[position:position + 4]
             if count:
                 raise Unsupported('script', 'a counted B0 60 loop')
-            if acc:
-                raise Unsupported('script', 'a B0 60 loop off the tick grid')
             target = start + (high << 8 | low)
             if not any(e['at'] == target for e in events):
                 raise Unsupported('script', 'a B0 60 target that is no event')
+            if first[target]:
+                raise Unsupported('script', 'a B0 60 target off the tick grid')
             events.append(dict(kind='jump', tick=tick, at=at, target=target))
             return events
         elif running & 0xF0 == 0xB0 and data[position] == 0x41:
@@ -731,6 +777,9 @@ def scene_ids(census=True):
     for scope in MID_SCOPES:
         scenes.setdefault(scope, [])
         scenes[scope] += [i for i in MID_IDS if i not in scenes[scope]]
+    for scope in AREA19_SCOPES:
+        scenes.setdefault(scope, [])
+        scenes[scope] += [i for i in AREA19_IDS if i not in scenes[scope]]
     for scope in ATTACHMENT_SCOPES:
         scenes[scope] = list(ATTACHMENT_IDS)
     if census:
@@ -767,7 +816,7 @@ def export(out_dir: Path):
     # Registry entry rows still sort by scope/id after sample allocation.
     def scope_order(kv):
         scope = kv[0]
-        return (6 if scope in ATTACHMENT_SCOPES else 5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES
+        return (7 if scope in AREA19_SCOPES else 6 if scope in ATTACHMENT_SCOPES else 5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES
                 else 3 if scope in AREA02_SCOPES
                 else 2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0,
                 MID_SCOPES.index(scope) if scope in MID_SCOPES else scope)

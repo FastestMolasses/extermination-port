@@ -1,4 +1,5 @@
 #include "game/em_aim_fire_runtime.h"
+#include "game/em_module_loader.h"
 #include "game/em_collision_world.h"
 #include "game/em_pad_actuator.h"
 #include "game/em_aim_fire_binding.h"
@@ -259,6 +260,13 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         EmSceneState *scene=em_scene_state();
         uint8_t *b70A=scene ? em_scene_progress_at(scene,0x0081070Au,1) : NULL;
         TRY(append(out,capacity,count,0x0081070Au,1,b70A,0));
+    }
+    {
+        /* D_0028A490, the resource table, read only (0022BBC0's model switch
+         * of a burning creature, D_0028A4D0). */
+        EmModuleLoader *ml=em_module_loader_live();
+        EmStatusSceneLoader *ld=ml ? em_module_loader_state(ml) : NULL;
+        if (ld) TRY(append(out,capacity,count,0x0028A490u,(uint32_t)sizeof ld->d28A490,(void *)ld->d28A490,0));
     }
     {
         /* The render context's storage (the muzzle node's lines read the

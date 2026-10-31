@@ -16,6 +16,10 @@
 #include "game/em_area01_room.h"
 #include "game/em_area22_port.h"
 #include "game/em_area06_port.h"
+#include "game/em_effects_live.h"
+#include "game/em_level9_port.h"
+#include "game/em_level13_port.h"
+#include "game/em_scene_bindings.h"
 #include "game/em_camera_aim.h"
 #include "game/em_level9_port.h"
 #include "game/em_camera_area11_specials.h"
@@ -1150,7 +1154,9 @@ static uint8_t *a06c_bytes(void *ctx, uint32_t a, uint32_t n)
     void *p;
     if (C.tables_loaded && (p = span(a, n, TABLES_BASE, 4u * TABLES_WORDS, C.tables))) return p;
     if (s && (p = span(a, n, 0x00810701u, 1, &s->d810701))) return p;
-    return aim_map(ctx, a, n, 1);
+    p = aim_map(ctx, a, n, 1);
+    /* the regions' rows D_0024A6B0.. of 00196CE0 / 00197390: read-only */
+    return p ? p : (uint8_t *)(uintptr_t)em_effects_live_window(a, n);
 }
 static int a06c_call(EmAimFireTargetCall *f) { return aim_call(NULL, f) < 0 ? -1 : 0; }
 static int a06c_f1(uint32_t fn, float x, float *out)
@@ -1251,6 +1257,111 @@ static int sp_001944B0(void *ctx, uint8_t *cam, EmPlayerLiveActor *player, int32
     return 0;
 }
 
+/* ======================================================================
+ * Camera actions 12 (001963A0, em_area22_port), 13 (00196CE0, AREA19's
+ * ladder camera, em_level9_port) and 15 (00197390, the sub-change set-up,
+ * em_level13_port): each module's translation (test_area22_port_reference,
+ * test_level9_port_reference, test_level13_port_reference), over the map
+ * and callees 001944B0's hooks use.
+ * ====================================================================== */
+static int later_00102948(void *c, uint32_t a0, uint32_t a1) { return a06c_00102948(c, a0, a1); }
+static int later_0011E2A8(void *c, float x, float *o) { return a06c_0011E2A8(c, x, o); }
+static int later_0011DE90(void *c, float x, float *o) { return a06c_0011DE90(c, x, o); }
+static int later_0018C0C0(void *c, uint32_t a0)
+{
+    (void)c;
+    if (a0 != CAM_BASE) return -1;
+    return em_camleft_0018C0C0(&C.lworld) < 0 ? -1 : 0;
+}
+static int later_0018D7B0(void *c, uint32_t a0, int32_t style) { return a06c_0018D7B0(c, a0, style); }
+static int later_001916C0(void *c, uint32_t a0, uint32_t a1, int32_t mode)
+{
+    (void)c;
+    if (a0 != CAM_BASE || a1 != 0x008102B0u) return -1;
+    return em_camleft_001916C0(&C.lworld, &C.player, mode) < 0 ? -1 : 0;
+}
+static int later_00192010(void *c, uint32_t a0, float y, float up, float down)
+{
+    (void)c;
+    if (a0 != CAM_BASE) return -1;
+    return em_camera_follow_00192010(&C.cam.rec, em_ee_bits(y), em_ee_bits(up), em_ee_bits(down)) < 0 ? -1 : 0;
+}
+static int later_001B0C60(void *c, int32_t a, int32_t b, int32_t d)
+{
+    (void)c;
+    return em_scene_request_area_change_001B0C60(a, b, d);
+}
+static int later_handler(uint32_t fn, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    if (cam != &C.cam.rec || e != &C.player || !C.tables_loaded) return -1;
+    int rc = -1;
+    uint32_t where = fn;
+    int32_t code = 0;
+    if (fn == 0x001963A0u) {
+        EmArea22PortHooks h;
+        memset(&h, 0, sizeof h);
+        h.bytes = a06c_bytes;
+        h.w_00102948 = later_00102948;
+        h.w_0011E2A8 = later_0011E2A8;
+        h.w_0011DE90 = later_0011DE90;
+        EmArea22PortFault f = {0, 0};
+        rc = em_area22_port_001963A0(&h, CAM_BASE, 0x008102B0u, &f);
+        where = f.address;
+        code = f.code;
+    } else if (fn == 0x00196CE0u) {
+        EmLevel9PortHooks h;
+        memset(&h, 0, sizeof h);
+        h.bytes = a06c_bytes;
+        h.w_00102948 = later_00102948;
+        h.w_0011DE90 = later_0011DE90;
+        h.w_0011E2A8 = later_0011E2A8;
+        h.w_0018C0C0 = later_0018C0C0;
+        h.w_0018C4B0 = a06c_0018C4B0;
+        h.w_0018C6A0 = a06c_0018C6A0;
+        h.w_0018D7B0 = later_0018D7B0;
+        h.w_001916C0 = later_001916C0;
+        h.w_00192010 = later_00192010;
+        h.w_001B0C60 = later_001B0C60;
+        h.w_001B1240 = a06c_001B1240;
+        h.w_001B12B0 = a06c_001B12B0;
+        EmLevel9PortFault f = {0, 0};
+        rc = em_level9_port_00196CE0(&h, CAM_BASE, 0x008102B0u, &f);
+        where = f.address;
+        code = f.code;
+    } else {
+        EmLevel13PortHooks h;
+        memset(&h, 0, sizeof h);
+        h.bytes = a06c_bytes;
+        h.w_00102948 = later_00102948;
+        h.w_0018D7B0 = later_0018D7B0;
+        h.w_001916C0 = later_001916C0;
+        EmLevel13PortFault f = {0, 0};
+        rc = em_level13_port_00197390(&h, CAM_BASE, 0x008102B0u, &f);
+        where = f.address;
+        code = f.code;
+    }
+    if (rc < 0) fprintf(stderr, "em_camera_live: %08X fault code %d at %08X\n", (unsigned)fn, (int)code, (unsigned)where);
+    return rc < 0 ? -1 : 0;
+}
+static int lw_001963A0(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    return later_handler(0x001963A0u, cam, e);
+}
+static int lw_00196CE0(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    return later_handler(0x00196CE0u, cam, e);
+}
+static int lw_00197390(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    return later_handler(0x00197390u, cam, e);
+}
+static int lw_001B0C60(void *ctx, int a0, int a1, int a2)
+{
+    return later_001B0C60(ctx, a0, a1, a2);
+}
 /* 0x823FE0 (AREA13's area test, 00195130's area-0xD case while D_00810702
  * >= 8): em_level9_port's translation over the aim camera's map, its
  * 001B1EA0 the director's (the one translation of the winding test, as
@@ -1664,8 +1775,8 @@ static void bind_worlds(void)
      * section 7). Outside AREA01: actions 9 / 10 / 11 / 14 (00198CE0 /
      * 00198F10 through em_area00_low, 00198D90 through em_area01_room with
      * the 001D2830(3, 1) that follows it, 00198AF0 on the aim host; section
-     * 6). 001B0C60 (areas 0x12 / 0xE), actions 12 / 13 / 15 and mode 1's
-     * 001B0300 have no translation there: NULL, so reaching them faults.
+     * 6). Mode 1's 001B0300 has no translation there: NULL, so reaching it
+     * faults.
      * AREA11 cannot: no writer of +6 that runs in AREA11 (its room records,
      * the router's area-0xB arms, the camera routines and the actions
      * above, which go 9 -> 10 -> 11 -> 0 and 14 -> 0) stores 12, 13 or 15
@@ -1676,6 +1787,10 @@ static void bind_worlds(void)
      * on the camera's own regions there too (low_run, as in AREA11; 10
      * between them stays forwarded); action 14 remains unbound and fails
      * if reached. */
+    C.lw.w_001963A0 = lw_001963A0;
+    C.lw.w_00196CE0 = lw_00196CE0;
+    C.lw.w_00197390 = lw_00197390;
+    C.lw.w_001B0C60 = lw_001B0C60;
     C.lw.w_00197D20 = lw_00197D20;
     C.lw.w_00198650 = lw_00198650;
     C.lw.w_0018CA90 = lw_0018CA90;
