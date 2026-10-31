@@ -70,6 +70,114 @@ static uint32_t e0021C040(L16B *o, uint32_t p, uint32_t hit)
     return 0;
 }
 
+/* 001C82A0(e, out): the actor's world matrix, then per bone a fresh matrix in
+ * 0x70003440 (identity, the bone's translation +0x70, its rotation +0x7C..84,
+ * the Euler halfwords +0x88..8C at 1/4096 over the rows), multiplied with the
+ * pose matrix `out` and the parent's +0x90 (or the world). */
+static uint32_t e001C82A0(L16B *o, uint32_t e, uint32_t out)
+{
+    const uint32_t m = 0x70003440u;
+    C(001C94B0, e + 0xD0, e + 0xB0, e + 0xC0, e + 0x60);
+    for (uint32_t i = 0; i < B(e + 0xC); ++i) {
+        C(001029C0, m);
+        C(00102C58, m, m, R(e + 0x110 + i * 4) + 0x70);
+        W(0x70003470, R(R(e + 0x110 + i * 4) + 0x7C));
+        W(0x70003474, R(R(e + 0x110 + i * 4) + 0x80));
+        W(0x70003478, R(R(e + 0x110 + i * 4) + 0x84));
+        for (uint32_t k = 0; k < 3; ++k) {
+            const uint32_t turn = L16B_MUL(F(0.00024414062f), L16B_CVT_S_W((uint32_t)SH(R(e + 0x110 + i * 4) + 0x88 + k * 2)));
+            C(00103230, m + k * 0x10, m + k * 0x10, turn);
+        }
+        C(001026D0, m, out + i * 0x40, m);
+        const uint32_t p = R(e + 0x110 + i * 4);
+        const int32_t parent = SH(p + 0x64);
+        if (parent != -1) C(001026D0, p + 0x90, R(e + (uint32_t)parent * 4 + 0x110) + 0x90, m);
+        else C(001026D0, p + 0x90, e + 0xD0, m);
+    }
+    return 0;
+}
+
+/* 001B3C30(a, m, colour; reach, damage): the beam from the matrix's position
+ * along its x: 0019AA80 at the player's hull unless 0021BE40 frees it, 0019A570
+ * at the world; the hit's effects and the bolt 001E2BA0, and the flash node. */
+static uint32_t e001B3C30(L16B *o, uint32_t a, uint32_t m, uint32_t colour, uint32_t reach, uint32_t damage, uint32_t sp)
+{
+    const uint32_t from = sp - 0x40u, to = sp - 0x30u, normal = sp - 0x20u, dir = sp - 0x10u;
+    uint32_t hit = 0, e;
+    int32_t r = 0;
+    C(00102948, from, m + 0x30);
+    W(m + 0x38, 0); W(m + 0x34, 0); W(m + 0x30, 0);
+    W(to, reach); W(to + 4, 0); W(to + 8, 0); W(to + 0xC, F(1.0f));
+    C(001026A0, to, m, to);
+    C(001028B8, to, from, to);
+    C(00102948, m + 0x30, from);
+    C(001028D0, dir, to, from);
+    C(00102760, dir, dir);
+    C(0021BE40, 0x8102B0, a, &r);
+    if (r == 0) {
+        C(0019AA80, from, to, 0x20, &r);
+        if (r) {
+            hit = 1;
+            C(00102948, to, 0x700031B0);
+            e = R(0x700031D0);
+            W(normal, R(e + 0x24)); W(normal + 4, R(e + 0x28)); W(normal + 8, R(e + 0x2C));
+            W(normal + 0xC, F(1.0f));
+            W(to + 0xC, F(1.0f));
+        }
+    }
+    C(0019A570, from, to, 7, 0x20, &r);
+    if (r) {
+        C(00102948, to, 0x700031B0);
+        e = R(0x700031D0);
+        W(0x70003600, R(e + 0x24)); W(0x70003604, R(e + 0x28)); W(0x70003608, R(e + 0x2C));
+        W(0x7000360C, F(1.0f));
+        W(to + 0xC, F(1.0f));
+        if (R(0x700031D8) != 1) {
+            C(001EFD90, (int32_t)0x80000003u, to, 0x70003600);
+            if (R(0x700031D8) == 2) {
+                const uint32_t t = R(0x700031D4);
+                if (t && B(t + 2) == 4) {
+                    const uint32_t st = B(t + 3);
+                    if (st != 6 && st != 0x1C && st != 0x1E && st != 0x1F) {
+                        int32_t v = 0;
+                        C(001281C0, damage, &v);
+                        WH(t + 0x36, (uint32_t)v);
+                    }
+                }
+            }
+        }
+    } else if (hit) {
+        C(001EFD90, (int32_t)0x80000006u, to, normal);
+        W(0x8104D4, damage);
+        WB(0x8102B0, B(0x8102B0) | 2);
+        C(00102948, 0x810320, dir);
+    }
+    C(001E2BA0, from, to, colour, reach);
+    uint32_t n = 0;
+    C(001F4F40, 0, &n);
+    if (n) {
+        C(00102958, n + 0xD0, m);
+        C(00102948, n + 0xB0, m + 0x30);
+    }
+    return 0;
+}
+
+int em_level16_boot_001C82A0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault)
+{
+    L16B o;
+    if (l16b_begin(&o, h, fault)) return -1;
+    (void)e001C82A0(&o, a0, a1);
+    return l16b_end(&o);
+}
+
+int em_level16_boot_001B3C30(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, float a3, float a4, uint32_t sp, EmLevel16BootFault *fault)
+{
+    L16B o;
+    if (l16b_begin(&o, h, fault)) return -1;
+    (void)e001B3C30(&o, a0, a1, a2, l16b_bits(a3), l16b_bits(a4), sp);
+    return l16b_end(&o);
+}
+
 /* The seal (AREA03's [23]): the lock bit by the area byte, cut by any hit. */
 static uint32_t e00158430(L16B *o, uint32_t self)
 {
