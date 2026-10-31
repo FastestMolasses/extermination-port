@@ -1070,7 +1070,9 @@ def page_faults(lib, stats):
     run(build([0, 0, 0, 0x14000000]), 'PROGRAM')                          # MSCAL, no program
     run(build([0, 0, 0x4A010000, 0, 0, 0, 0, 0]), 'PROGRAM')              # an unknown MPG
     reglist = (1 | (1 << 15) | (1 << 58) | (1 << 60))
-    run(build([0, 0, 0, 0x50000002, reglist & 0xFFFFFFFF, reglist >> 32, 0x1, 0, 0, 0, 0, 0]), 'GIF')
+    # FLG 2 (IMAGE) in a packet; REGLIST (FLG 1) is taken since AREA13's fades
+    image = (reglist & ~(3 << 58)) | (2 << 58)
+    run(build([0, 0, 0, 0x50000002, image & 0xFFFFFFFF, image >> 32, 0x1, 0, 0, 0, 0, 0]), 'GIF')
     run(build([0, 0, 0, 0x50000002, 1 | (1 << 15), 0x10000000, 0xE, 0, 0, 0, 0x4C, 0]), 'GIF')  # FRAME_1
     chain = bytearray(0x400)
     chain[0:16] = tag(7, 0, 0)                                            # END

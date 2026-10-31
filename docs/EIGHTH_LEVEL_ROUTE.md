@@ -78,7 +78,7 @@ each beat's progress block equal, health and infection included
 after the area entries: the pistol recording a04b_s5 1,937 rows, a04b_s6 288,
 a04b_s7 1,764 of 2,410 (the creature and its four bugs in every row, `--until
 a04b_s7`), and the route's a04b_04 1,437 of 2,083 (`--until a04b_04`), both to
-the row before AREA13's load. The table below is the earlier start-card status.
+the row before AREA13's load (through it since lane H1, NINTH_LEVEL_ROUTE.md). The table below is the earlier start-card status.
 
 **Start cards (lane D1, 2026-10-30).** The a04b beats play from start
 cards (`python3 tools/mid_route_beats.py a04b`, card a04b_00; the fork

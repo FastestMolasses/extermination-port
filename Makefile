@@ -2247,6 +2247,10 @@ test-area01-target-hit-reference:
 	python3 tools/test_area01_target_hit_live_reference.py
 
 # Level route continuation references (LEVEL_ORACLE_AUDIT.md).
+.PHONY: test-area13-state-reference
+test-area13-state-reference:
+	python3 tools/test_area13_state_reference.py
+
 .PHONY: test-area13-route-reference test-area15-route-reference test-area19-route-reference test-area03-route-reference
 test-area13-route-reference:
 	python3 tools/test_area13_route_reference.py

@@ -11,7 +11,9 @@ and the holes [5] / [6], which need item 0x27. This document records the
 original from a04b_04's end along that order as the opt-in beat group `a13`
 of `../Extermination/tools/route_capture.py`. Hidden PCSX2, exact one-frame
 steps, pad input only, no teleports and no memory writes, one trace and one
-resumable snapshot per beat. Nothing here is port behaviour.
+resumable snapshot per beat. Nothing here is port behaviour; the port's
+status is in LEVEL3_BINDING.md, "2026-10-30, lane H1", and at this document's
+end.
 
 **Status.**
 
@@ -348,3 +350,19 @@ See `LEVEL_ORACLE_AUDIT.md` for the per-entry evidence, defect causes, exact
 proposal for main, and the four level-15 source blockers. The native application
 is unchanged: New Game PASS 9.599849 and both smoke tick logs byte-identical.
 This does not certify a native replay of this route.
+
+
+## Port status (lane H1, 2026-10-30)
+
+From New Game the route smoke compares every row of the fork recordings through
+this level: `tools/test_level_smoke_area01r.py --run --until a13_05`, phases
+a04b_04 (a return phase: AREA13 entry 0's state 0, 331 rows after it) and
+a13_00 .. a13_05 (a13_05 to the row before AREA19's load, ROW_LIMIT). The fork
+recording's numbers differ from section 4's, which come from the bed-less
+v2.6.3 route (health 60 at the arrival here, 59 after the cold's point). The
+row-by-row owners are section 1.1's `A13_OWNERS`, all at the same nodes on the
+fork branch. Card runs: `python3 tools/mid_route_beats.py a13` and the start
+points `area13`, `a13_01` .. `a13_05`. Sections 7.1's unplayed items: door [8]
+back, [15], door [17] back out and the lift's return run from cards without a
+fail-stop; door [20], hole [6] / hatch [63], [44]'s event and [7] were not
+reached.

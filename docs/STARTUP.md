@@ -417,6 +417,7 @@ start-point save through the original's own load path. Off by default
 | `a01u`, `a01u_01`, `a01u_02`, `a01u_s0` | AREA01's upper floor: the a22_02 arrival (entry 6) and where route_a01u's beats start | `build/start_saves/<name>` |
 | `area06`, `a06_01` .. `a06_05` | AREA06 sub 0: the a01u_02 arrival and where route_a06's beats start | `build/start_saves/<name>` |
 | `a06b`, `a06b_01`, `a01v`, `a01v_01`, `a01v_02`, `a22b`, `a22b_01` | the way back (route_a06b, route_a01v, route_a22b): where each beat starts | `build/start_saves/<name>` |
+| `area13`, `a13_01` .. `a13_05` | AREA13 sub 0 (the fork continuation's route_a13): the lift's arrival and where each beat starts. At `area13` a loaded game replays the lift's door script before the player moves (tools/mid_route_beats.py LEAD) | `build/start_saves/<name>` |
 
 The cards are the start-point saves `make start-saves` builds with the
 original save writer (docs/SAVE_GAME.md section 7); they are disc- and

@@ -14,6 +14,80 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-30, lane H1 (branch `area13`): New Game row-exact through the lift's
+AREA13 load, the lobby, the outside, the hatch and the shaft, to AREA19's load.**
+`--run --until a13_05` (the bed branch; drive tables `build/drive_replay_bed`,
+anchors `build/rand_replay_bed/route_a13_20261030/route.txt`): 85 live
+phases, about 20 minutes.
+
+| Beat | Rows | What it covers |
+|---|---|---|
+| a04b_04 | 2,083 | the lift past the live creature, AREA13's load (state 0 at row 1751), the car, control |
+| a13_00 | 7,063 | out of the car, the lobby, door [8] (entry 2), [3]'s scene (camera scene 7), the document page |
+| a13_01 | 572 | button [16] of door [14] (entry 8, outside): the weather and the breath start |
+| a13_02 | 1,098 | outdoors, the cold's point of health, door [17] (entry 4), [4]'s scene, item 0x1A |
+| a13_03 | 562 | pickup g[5], item 0x27; the holes [5] / [6] end |
+| a13_04 | 812 | the ledge climb, hatch [62], its script, counter 0x61 |
+| a13_05 | 176 of 925 | the ladder down to y 143.1, 00193EB0's request 13 00 09 01 (ROW_LIMIT: rows before AREA19's load) |
+
+What the lift's load and AREA13 needed, each from original code:
+
+- **Area state:** `em_area01_state` (MidOverlay: id 10, text 0x67C0, data
+  0x4580, BSS 0x82E280 + 0x140C00); key 0xD00's init 0x8236E0 through
+  em_level10_port's translation. `tools/test_area13_state_reference.py`: the
+  original 001E7780 / 0x8236E0 over the AREA13 fork captures (24 runs, the
+  globals, data and BSS equal).
+- **Runtime:** `em_area01_runtime_area13.inc`, dispatch_a13: em_area13_route's
+  four owners, em_level9_port's and em_level11_port's overlay entries and the
+  boot entries 001BA7F0, 001BDCA0 / 001BDD70, 001E7050 through the generated
+  hooks (gen_mid_route_bridge: m09, a13). em_level8_port's and the boss
+  family's boot entries, em_area06_port's (the strip owner 00219870 of g[11])
+  and em_area02_math's serve area 0x0D too; their tables' overlay addresses
+  are AREA04's and AREA06's, so only the boot ones. Added: 0x824060, 0x824160
+  and 0x8247B0 (em_level11_port, with oracle cases), 0x828F30 (empty).
+- **Scene:** collision, cells, roster (deferred groups 0x829D00 / 0x82A230 via
+  001B6660), world models, message bank, script window 0x82A360..0x82D190 and
+  the op09 callbacks 0x823A10, 0x826FB0, 0x826FC0, 0x8246D0, 0x8247B0,
+  0x8248C0, 0x8249F0; no dynamic list (id 0x45 is not relocated); the owner
+  allowlist; `background background.embg` in scene.txt (the sky: flags
+  0x20 / 0x21 of 001C1F50's key 0xD00).
+- **001E1E60's boot data D_00253560** came only with AREA11's static bank, so a
+  loaded game drew its background from zeros: em_rcl_static_world_block_load.
+- **Camera:** 00195130's area-0xD case: 0x823FE0 over the camera's map (the
+  overlay's quads through the host's memory view), 001B0C60 through the host
+  (`request_area`); scene 7's subtitle track D_0026ACB0 (0022EC30, em_area01_
+  timeline, its window in timeline.emsp).
+- **Outdoors (entries 8..10, D_008106C8 = 0x30099944):** 001C1EA0's weather
+  node runs em_snow_runtime_tick_outdoor: em_weather_tick with the flag word
+  and the area key, D_008106BF, 001E5AC0 through em_level9_port over an image of
+  the node's block, the fog calls, the close of the list. 001DE920's packets
+  (already bound) are a slot-0xFFF pass: its 001CB760 goes through f_001CB760
+  now, which records the pass. 001B07C0's flag bits 4 and 0x60: 001EFE00
+  (0x80000018) at the placed player: the breath 001E7050; +0x304 and +0x1C live
+  in the record, leaving the outdoors sets the object's +4 = 2. **The cold's
+  health loss** is the original owner's, one point every 360 frames outdoors
+  while item 0x1A is not held; a13_02's rows are equal, 45 -> 44 in the
+  recording's numbers.
+- **The coat:** a room move's 001B07C0 sets D_00810C60 before 0015C1F0, whose
+  00200890 sends the player's texture packet: the status byte is stored first
+  and the packet goes up in state 4 (at state 0 the loader's state 7 sends
+  it).
+- **Chain page:** REGLIST GIF tags (FLG 1) and two packets in one page DIRECT:
+  001E6F60's quad, 0x829AA0's 24-frame fade (001CB5F0, depth 0xFFE000).
+- **Sound:** 0x44F is absent in AREA13 (remap 0xFF, D_00282164 = -1 in the
+  captures): 001FC280 goes on, 0011A070 takes the -1. The wind 0x44E needs the
+  pan slide and the script loop; both in the registry and the driver, in
+  lockstep with the original through the first jump (test_area11_sfx_reference
+  pass V, 7,772 ticks).
+
+Free roam from the cards with scripted pads (no fail-stop): door [8] back
+(entry 1), button [15] from outside (entry 3), door [17] out from the east room
+(entry 9, with the coat), the lift back to AREA04 entry 7, a walk through the
+lobby with the bugs' bites, the crate row. Not reached: door [20], hole [6] and
+hatch [63] (the south field lies behind [44]'s event, TENTH / ELEVENTH_LEVEL_
+ROUTE.md: no fork state to build a card from). The shaft's AREA19 load stops at
+the module pack (00112440): AREA19 is not hosted.
+
 **2026-10-30, lane E1 (branch `route-chain`): New Game row-exact through
 AREA04's second visit, the pistol fight and the lift, to AREA13's load.**
 Whole-run checks, each with the rand() order and rand-replay anchors:
@@ -120,7 +194,7 @@ log key `a04b` (the bugs) stays; the route's owner observation is `a04r`.
   span ends before it).
 - `check_creature_end`: a04b_03's creature against the end RAM. A04S_OWNERS adds
   the creature and the four bugs (the pistol branch's nodes) to the rows.
-- ROW_LIMIT: a04b_04 and a04b_s7 end before AREA13's load.
+- ROW_LIMIT: a04b_04 and a04b_s7 ended before AREA13's load until lane H1.
 - The return phases a22_02, a01u_02, a06b_01, a01v_02, a22b_01; the C driver
   reads a return's tail from the version 2 pad header.
 - rand_order: AREA06's owners, 0021AE90, 001B8AB0, 001BF6B0, 0012A5D0, 0x8239A0,
@@ -131,7 +205,7 @@ The rows do not sample the keypad's page object (`kpad`) or the owners'
 rotations (`rot`), and pixels and sound are not compared. a04b_02's and
 a04b_03's Cross presses are door [45] and the reader: no pickup is taken on the
 route (the shotguns behind door [45] are lane F1's; its a04b_g beats are another
-branch and not phases here). AREA13 has no host yet.
+branch and not phases here). AREA13's host is lane H1's, above.
 
 **2026-10-30, lane D1 (branch `area04-boss`): AREA04's main line row-exact
 from New Game, through door [37] into AREA22.** The whole-run checker passes

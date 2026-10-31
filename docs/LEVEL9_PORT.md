@@ -414,7 +414,8 @@ description.
 **Bound (lane H1, 2026-10-30; LEVEL3_BINDING.md):** the AREA13 overlay's
 entries through `em_area01_runtime_area13.inc` (dispatch_a13_l9) with the
 generated hooks of `em_mid_route_bridge.inc` (m09); 001BA7F0, 001BDCA0,
-001BDD70, 001E7050 and 001838B0 the same way (dispatch_a13_boot); 0x823FE0 in
+001BDD70 and 001E7050 the same way (dispatch_a13_boot; 001838B0 is
+em_player_floor's on the live path); 0x823FE0 in
 the camera (em_camera_live sp_00823FE0); 001E5AC0 in `em_snow_runtime`
 (em_snow_runtime_tick_outdoor, over the node's block image and the boot rows);
 001DE920, the render context's 001DDAA0 worker since 2026-10-28

@@ -139,7 +139,7 @@ static int dispatch_a13_l11(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 static int dispatch_a13_boot(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
     const uint32_t fn = c->function, a0 = (uint32_t)c->a[0];
-    if (fn != 0x001BA7F0u && fn != 0x001BDCA0u && fn != 0x001BDD70u && fn != 0x001E7050u && fn != 0x001838B0u)
+    if (fn != 0x001BA7F0u && fn != 0x001BDCA0u && fn != 0x001BDD70u && fn != 0x001E7050u)
         return 0;
     if (c->na < 1 || c->nf || c->sp < 0x100u) { *rc = fail(r, fn); return 1; }
     EmLevel9PortHooks h;
@@ -151,7 +151,6 @@ static int dispatch_a13_boot(EmArea01Runtime *r, EmArea01Call *c, int *rc)
     const int x = fn == 0x001BA7F0u ? em_level9_port_001BA7F0(&h, a0, &f)
                 : fn == 0x001BDCA0u ? em_level9_port_001BDCA0(&h, a0, &out, &f)
                 : fn == 0x001BDD70u ? em_level9_port_001BDD70(&h, a0, &out, &f)
-                : fn == 0x001838B0u ? em_level9_port_001838B0(&h, a0, &f)
                                     : em_level9_port_001E7050(&h, a0, sp, &f);
     r->sp = saved;
     *rc = a13_done(r, c, x, "em_level9_port", f.address, f.code);

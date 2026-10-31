@@ -49,6 +49,10 @@ def main():
     b=A.DECOMP/'build/fork_refs/levels-recordings-20261018-10/s87/route_a04b'
     cases.append((len(caps)+2,A.Capture(b/'a04b_01_npc'),5,None,None))
     cases.append((len(caps)+3,A.Capture(b/'a04b_03_reader'),6,None,None))
+    # AREA13's scene 7 ([3]'s script 0x82A360, the a13_00 end), its subtitle
+    # track D_0026ACB0.
+    cases.append((len(caps)+4,A.Capture(A.DECOMP/'build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_00_door8'),
+                  7,None,None))
     for ci,cap,scene,row,clip in cases:
         o=FallEE(elf);o.mem[:]=cap.ram;o.spad[:]=cap.spad
         for a,size in ((0x26AAE0,32),(0x26AB00,24),(0x26AC80,32),(0x26ACA0,16),(0x26C598,52)):o.write(a,read(a,size))
@@ -123,7 +127,7 @@ def main():
         call=Call(function=fn,sp=STACK_TOP,na=1);call.a[0]=CAM;fault=C.c_uint32()
         assert n.em_area01_timeline_call(C.byref(rejected_host),C.byref(call),C.byref(fault))<0
         assert fault.value==want,(hex(fault.value),hex(want))
-    struct.pack_into('<h',ram,CAM+0x6E,7);rejected(0x22EC30,CAM+0x6E)   # a scene with an event track not bound here
+    struct.pack_into('<h',ram,CAM+0x6E,8);rejected(0x22EC30,CAM+0x6E)   # a scene with an event track not bound here
     struct.pack_into('<h',ram,CAM+0x6E,35);rejected(0x22EC30,0x21BAB0)
     struct.pack_into('<I',ram,CAM+0x74,bits(0.))
     struct.pack_into('<I',ram,CAM+0x7C,0x26AC10);rejected(0x22EEF0,CAM+0x7C)

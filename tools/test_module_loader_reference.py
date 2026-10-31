@@ -266,7 +266,7 @@ def build():
     OUT.mkdir(parents=True, exist_ok=True)
     lib_path = OUT / 'module_loader.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-Isrc', 'src/game/em_module_loader.c',
+                    '-shared', '-fPIC', '-Isrc', 'src/game/em_module_loader.c', 'tests/module_loader_sfx_stub.c',
                     'src/game/em_status_scene_original.c', 'src/game/em_task.c',
                     '-o', str(lib_path)], cwd=ROOT, check=True)
     lib = C.CDLL(str(lib_path))
@@ -1632,7 +1632,8 @@ def check_sanitized(pack, full_pack):
     src.write_text(ASAN_DRIVER)
     subprocess.run(['cc', '-std=c11', '-g', '-O1', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
                     '-fno-sanitize-recover=all', '-Isrc', str(src), 'src/game/em_module_loader.c',
-                    'src/game/em_status_scene_original.c', 'src/game/em_task.c', '-o', str(exe)],
+                    'tests/module_loader_sfx_stub.c', 'src/game/em_status_scene_original.c', 'src/game/em_task.c',
+                    '-o', str(exe)],
                    cwd=ROOT, check=True)
     out = subprocess.run([str(exe), str(pack), str(full_pack)], check=True, capture_output=True,
                          text=True).stdout.split()

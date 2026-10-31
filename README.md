@@ -113,13 +113,13 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a13_05` | AREA13 | At the open hatch [62] | The ladder down, which falls into AREA19 |
 
 The route these points sit on is proven row by row from New Game, through the
-first boss fight with the pistol and the lift, up to AREA13's load
-(docs/LEVEL_SMOKE.md). Starting from a point is a different path: a loaded game
+first boss fight with the pistol and the lift, through AREA13 to the ladder down
+into AREA19 (docs/LEVEL_SMOKE.md). Starting from a point is a different path: a loaded game
 puts creatures, timers and the random numbers where a save does, so a run from
 one plays the same code but can go differently from that route. `python3
 tools/mid_route_beats.py` reports which beats play through from their points
-(docs/LEVEL8_PORT.md "Start-card runs"). AREA13 is not ported yet, so riding the
-lift stops at its load.
+(docs/LEVEL8_PORT.md "Start-card runs"). AREA19 is not ported yet, so the ladder
+at `a13_05` stops at its load.
 
 ## Status
 
