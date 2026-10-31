@@ -641,7 +641,9 @@ SLIDE_CAPTURES={(2,0):'s87/route_a02/a02_01_switch',(0,0):'s87/route_a00/a00_05_
                 # AREA13's outdoor loop 0x44E, the same script over AREA13's banks
                 (13,0):'levels-recordings-20261018-10/s87/route_a13/a13_01_door14',
                 # AREA15 sub 1's area loop 0x44E: the pan slides and its B0 60 loop
-                (15,1):'levels-recordings-20261018-19/s87/route_a15/a15_01_door51'}
+                (15,1):'levels-recordings-20261018-19/s87/route_a15/a15_01_door51',
+                # AREA19 sub 0's area loop 0x44F: a B0 60 target off the tick grid
+                (0x13,0):'levels-recordings-20261018-10/s87/route_a19/a19_00_duct'}
 
 
 def _slide_case(job):
@@ -659,10 +661,11 @@ def _slide_case(job):
     if any(e.get('op')==_SFX['X'].OP_JUMP for e in entry['events']):scenario[last+1500]=[('stop',('start',0),0)]
     elif endless(entry):scenario[last+60]=[('stop',('start',0),0)]
     pans=any(e.get('op')==_SFX['X'].OP_PAN for e in entry['events'])
-    stats=lockstep(_SFX['lib'],registry,scenario,slides=2 if pans else 1)
-    assert stats['slide_steps'] and not stats['slide_unknown'],(hex(sid),stats)
+    slides=2 if pans else 1 if any(e.get('op')==_SFX['X'].OP_VOLUME for e in entry['events']) else 0
+    stats=lockstep(_SFX['lib'],registry,scenario,slides=slides)
+    assert not slides or (stats['slide_steps'] and not stats['slide_unknown']),(hex(sid),stats)
     return dict(id=hex(sid),scope=list(scope),request=[left,right],ticks=stats['ticks'],
-                volume=stats['volume'],slide_steps=stats['slide_steps'])
+                volume=stats['volume'],slide_steps=stats.get('slide_steps',0))
 
 
 def slide_oracle(elf,lib,report,path):
@@ -678,8 +681,9 @@ def slide_oracle(elf,lib,report,path):
     # pairs alternating; full: every entry with both pairs.
     jobs=[(sid,scope,pair) for sid,scope in entries for pair in pairs] if FULL else \
         [(0x89E,(0,0),pairs[0]),(0x8A0,(0,1),pairs[1]),(0x8B4,(2,0),pairs[0]),(0x44E,(15,1),pairs[0])]
+    jobs+=[(0x44F,(0x13,0),pairs[0])]
     _SFX.update(elf=elf,lib=lib,report=report,path=path)
-    return parallel_map(_slide_case,jobs,cost=lambda job:9000 if job[1]==(15,1) else 1200 if job[0]==0x8B4 else 400)
+    return parallel_map(_slide_case,jobs,cost=lambda job:9000 if job[1] in ((15,1),(0x13,0)) else 1200 if job[0]==0x8B4 else 400)
 
 
 def registry_oracle(elf,ram):

@@ -111,9 +111,10 @@ DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES + ATTAC
 # EIGHTH_LEVEL_ROUTE.md). AREA13 sub 0 (the lift from AREA04's door id 0x80:
 # area 13 entry 0; docs/NINTH_LEVEL_ROUTE.md). AREA15 subs 0 and 1 (AREA19's
 # doors [50] / [51], FOURTEENTH_LEVEL_ROUTE.md) and AREA03 sub 0 (door [25],
-# FIFTEENTH_LEVEL_ROUTE.md).
+# FIFTEENTH_LEVEL_ROUTE.md). AREA19 (area byte 0x13) sub 0 and sub 1 (decomp
+# docs/AREA19_OVERLAY.md).
 DEFAULT_AREAS = ((0x0B, 0), (0x01, 0), (0x00, 0), (0x00, 1), (0x02, 1), (0x02, 0), (0x04, 0), (0x16, 0),
-                 (0x06, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (0x03, 0))
+                 (0x06, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (0x03, 0), (0x13, 0), (0x13, 1))
 HEADER = 0x120
 AREA_FILES = 0x17
 D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890
@@ -300,7 +301,7 @@ def main():
                     help='comma-separated module ids (default 3 and PAGE_MODULES)')
     ap.add_argument('--areas', default=','.join(f'{a:#x}:{r}' for a, r in DEFAULT_AREAS),
                     help='comma-separated area[:room] for 001FF080(1, 0) (default 0xb:0,0x1:0,0x0:0,0x0:1,0x2:1,0x2:0,'
-                         '0x4:0,0x16:0,0x6:0,0xd:0)')
+                         '0x4:0,0x16:0,0x6:0,0xd:0,0x13:0,0x13:1)')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/module_loader/modules.emml')
     args = ap.parse_args()
     modules = [int(m, 0) for m in args.modules.split(',') if m.strip()]

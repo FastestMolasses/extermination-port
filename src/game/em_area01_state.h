@@ -24,6 +24,10 @@
 #define EM_AREA01_STATE_A06_DATA_SIZE 0x2F00u
 #define EM_AREA01_STATE_A06_BSS 0x00828F00u
 #define EM_AREA01_STATE_A06_BSS_SIZE 0x14AC80u
+/* AREA19 (AREA19.BIN, id 0x10, area byte 0x13). */
+#define EM_AREA01_STATE_A19_DATA_SIZE 0x5A80u
+#define EM_AREA01_STATE_A19_BSS 0x0082F880u
+#define EM_AREA01_STATE_A19_BSS_SIZE 0x15ED80u
 /* AREA13 (AREA13.BIN, id 10; text 0x67C0). */
 #define EM_AREA01_STATE_A13_DATA_SIZE 0x4580u
 #define EM_AREA01_STATE_A13_BSS 0x0082E280u
@@ -57,8 +61,8 @@ typedef struct {
  * Return 0, or -1 with the first fault latched. A fault stays latched until
  * the host explicitly discards this binding with detach. */
 int em_area01_state_bind(EmArea01State *s, EmArea01StateMemory memory, void *ctx);
-/* Select AREA00, AREA01, AREA02, AREA04, AREA06, AREA13 or AREA22 (area byte 0x16)
- * without introducing a second globals owner. */
+/* Select AREA00, AREA01, AREA02, AREA04, AREA06, AREA13, AREA19 (area byte 0x13)
+ * or AREA22 (area byte 0x16) without introducing a second globals owner. */
 int em_area01_state_supported(unsigned area);
 int em_area01_state_bind_area(EmArea01State *s, EmArea01StateMemory memory, void *ctx, unsigned area);
 void em_area01_state_detach(EmArea01State *s);
@@ -81,6 +85,8 @@ int em_area01_state_00823A50(EmArea01State *s);
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub);
 /* AREA06's init 0x824290 (001E7780 keys 0x600 / 0x601). */
 int em_area01_state_00824290(EmArea01State *s);
+/* AREA19's init 0x8250C0 (001E7780 keys 0x1300 / 0x1301): five stores. */
+int em_area01_state_008250C0(EmArea01State *s);
 /* AREA13's init 0x8236E0 (001E7780 key 0xD00). */
 int em_area01_state_008236E0(EmArea01State *s);
 

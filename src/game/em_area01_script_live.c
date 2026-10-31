@@ -41,7 +41,10 @@ static const AreaScripts k_areas[]={
     {0x0F,0x0C,0x00826E70u,0x008297F0u,0x00826980u,0x3580u,EM_AREA15_SCRIPT_DEST_PATH},
     /* AREA03 (export_area03_assets: the five chains' window 0x827170..
      * 0x828FD0, the overlay data 0x826900 + 0x2800). */
-    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH}
+    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH},
+    /* AREA19 (export_area13_tables' AREA19 target: the scripts window
+     * 0x82AD50..0x82F790, the overlay data 0x829E00 + 0x5A80). */
+    {0x13,0x10,0x0082AD50u,0x0082F790u,0x00829E00u,0x5A80u,EM_AREA19_SCRIPT_DEST_PATH}
 };
 static const AreaScripts *area_scripts(unsigned area)
 {
@@ -219,6 +222,11 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
         break;
     case 0x008242C0u: /* AREA06's op09 callback (em_area06_port) */
         if (s->area!=6) return -1;
+        break;
+    /* AREA19's op09 callbacks: the lift's (script 0x82D290) and [34]'s
+     * (script 0x82E090; em_area01_runtime's dispatch_area19). */
+    case 0x00826B30u: case 0x00827540u: case 0x00827B10u: case 0x00827B20u:
+        if (s->area!=0x13) return -1;
         break;
     /* AREA13's op09 callbacks: em_level9_port (script 0x82A770's item 0x1A,
      * the hatch's 0x82CA50) and em_level11_port ([44]'s). */

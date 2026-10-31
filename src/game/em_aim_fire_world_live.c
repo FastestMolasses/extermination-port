@@ -666,7 +666,8 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
     b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
     /* 0022BBC0 reads its target's bones (the word seq+0x24): the player, or a
-     * pool actor (AREA15's fire on the creature, a15b_01). */
+     * pool actor (AREA15's fire on the creature, a15b_01; a burst on an AREA19
+     * creature). */
     if(c->function==0x0022BBC0u) {
         const void *scn=em_aim_fire_live_map(h,a+0x24u,4,0);
         if(scn)memcpy(&b.target_node,scn,4);

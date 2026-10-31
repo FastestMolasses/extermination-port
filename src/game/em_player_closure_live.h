@@ -46,6 +46,8 @@ const EmPlayerUseWorkers *em_player_closure_live_use(void);
 void em_player_closure_live_set_water(int (*water)(void *context, uint32_t function,
                                       EmPlayerLiveActor *actor, uint32_t level), void *context);
 int em_player_closure_live_water_contact(EmPlayerLiveActor *actor);
+/* 00175CF0's surface-0x39 handler over the record (the ledge, AREA19). */
+int em_player_closure_live_surface39(EmPlayerLiveActor *actor, int handler, const EmPlayerProbeHit *hit);
 /* The original 00188610 row selector over the area's exported D_002754D8. */
 void em_player_closure_live_set_crawl_clip(int (*clip)(void *context, EmPlayerLiveActor *actor,
                                                        int *result), void *context);

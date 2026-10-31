@@ -165,6 +165,7 @@ int em_pose_host_001C6120(EmPoseHost *h, uint32_t bank, int clip, uint32_t *head
 int em_pose_host_001C6DA0(EmPoseHost *h, uint8_t *record, uint32_t size);   /* anim_eval_skeleton */
 int em_pose_host_001C68C0(EmPoseHost *h, uint8_t *record, uint32_t size);
 int em_pose_host_001C6960(EmPoseHost *h, uint8_t *record, uint32_t size);
+int em_pose_host_001C9940_record(EmPoseHost *h, uint8_t *record, uint32_t size);
 /* 001C9940(bones, n, root): root is the caller's +D0 matrix (64 bytes, read
  * where the original reads it). */
 int em_pose_host_001C9940(EmPoseHost *h, const uint8_t *bones, uint32_t bones_size, int nodes,

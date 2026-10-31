@@ -55,19 +55,19 @@ D_8106F1, D_810707, D_275B14, D_275B40 = 0x8106F1, 0x810707, 0x275B14, 0x275B40
 
 STATES = {'0021E830': 0x21E830, '00221FC0': 0x221FC0, '00222580': 0x222580,
           '00222AD0': 0x222AD0, '002230A0': 0x2230A0, '00225570': 0x225570,
-          '002255C0': 0x2255C0}
+          '002255C0': 0x2255C0, '002236F0': 0x2236F0}
 SLOT = {'0021E830': 3, '00221FC0': 4, '00222580': 5, '00222AD0': 6, '002230A0': 7,
-        '00225570': 0x16, '002255C0': 0x19}
+        '00225570': 0x16, '002255C0': 0x19, '002236F0': 9}
 ENTRIES = {'00181110': 0x181110, '00181180': 0x181180, '00181D70': 0x181D70,
            '001823E0': 0x1823E0}
 DISPATCH, REACTION = 0x15B770, 0x21C440
 # Sizes of the routines executed here (their code is compared to the ELF).
 SIZES = {0x21E830: 388, 0x221FC0: 1460, 0x222580: 1348, 0x222AD0: 1484, 0x2230A0: 1616,
          0x225570: 76, 0x2255C0: 280, 0x181110: 108, 0x181180: 108, 0x181D70: 168,
-         0x1823E0: 68, 0x15B770: 728}
+         0x1823E0: 68, 0x15B770: 728, 0x2236F0: 0x580}
 # 0015B770's other targets (not translated here): hooked on both sides.
 OTHER_STATE2 = {0: 0x21D800, 23: 0x21D800, 1: 0x21E240, 2: 0x21E490, 24: 0x21E490,
-                9: 0x2236F0, 10: 0x223C70, 11: 0x21F330, 12: 0x21F850, 15: 0x2202C0,
+                10: 0x223C70, 11: 0x21F330, 12: 0x21F850, 15: 0x2202C0,
                 16: 0x21DBB0, 17: 0x21E9C0, 18: 0x21EAD0, 19: 0x21EAD0, 20: 0x21EF30,
                 21: 0x224FE0}
 PHASE13 = (0x21FB40, 0x2208C0, 0x220D30, 0x221630, 0x221C70)
@@ -83,9 +83,10 @@ CALLEES = {
     0x21D490: ('0021D490', 'p'), 0x21C120: ('0021C120', 'p'), 0x21C190: ('0021C190', 'p'),
     0x21C200: ('0021C200', 'p'), 0x21C270: ('0021C270', 'p'), 0x21C350: ('0021C350', 'p'),
     0x17FC80: ('0017FC80', 'pf'), 0x17FF80: ('0017FF80', 'pf'), 0x122BB8: ('random', ''),
-    0x188550: ('00188550', 'p'), 0x1885B0: ('001885B0', 'p'),
+    0x188550: ('00188550', 'p'), 0x1885B0: ('001885B0', 'p'), 0x188610: ('00188610', 'p'),
+    0x1026A0: ('001026A0', 'qqi'),
 }
-RESULTS = ('floor', '0021C190', 'random', '00188550', '001885B0')
+RESULTS = ('floor', '0021C190', 'random', '00188550', '001885B0', '00188610')
 
 
 # --------------------------------------------------------------- oracle core
@@ -222,13 +223,16 @@ ACTF_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, P, C.c_float)
 RAND_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_uint32))
 NODE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint, C.POINTER(C.c_uint32))
 
+ACTV_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p, C.POINTER(C.c_uint32))
+
 WORKER_FIELDS = [
     ('request', REQUEST_FN), ('sound', REQUEST_FN), ('cue', CUE_FN), ('w001EFE00', IDP_FN),
     ('w0015C1F0', ACT_FN), ('w0021E650', ACT_FN), ('w0021D2E0', ACT2_FN), ('drop', ACT_FN),
     ('floor', ACTIR_FN), ('translate', ACTI_FN), ('land_sound', ACTI_FN), ('w0021D250', ACTI_FN),
     ('w0021D490', ACT_FN), ('w0021C120', ACT_FN), ('w0021C200', ACT_FN), ('w0021C270', ACT_FN),
     ('w0021C350', ACT_FN), ('w0021C190', ACTR_FN), ('w0017FC80', ACTF_FN), ('w0017FF80', ACTF_FN),
-    ('random', RAND_FN), ('w00188550', ACTR_FN), ('w001885B0', ACTR_FN), ('root_node', NODE_FN),
+    ('random', RAND_FN), ('w00188550', ACTR_FN), ('w001885B0', ACTR_FN),
+    ('w00188610', ACTR_FN), ('w001026A0', ACTV_FN), ('root_node', NODE_FN),
 ]
 
 
@@ -307,6 +311,14 @@ class Native:
         w.random = make('random', '', RAND_FN)
         w.w00188550 = make('00188550', 'p', ACTR_FN)
         w.w001885B0 = make('001885B0', 'p', ACTR_FN)
+        w.w00188610 = make('00188610', 'p', ACTR_FN)
+
+        def point(_, actor, v):
+            assert [v[i] for i in range(4)] == [0, 0xC0800000, 0x40A00000, 0x3F800000]
+            self.log.append(('001026A0', 0xB0, 0xD0, 0x700038A0))
+            return effect('001026A0')
+        w.w001026A0 = ACTV_FN(point)
+        self.keep.append(w.w001026A0)
 
         def root(_, offset, out):
             if self.fail == 'root_node': return -1
@@ -410,6 +422,7 @@ SUBSTATES = {  # the switch labels of each routine (anything else is its default
     '00222AD0': (0, 1, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF, 0x14, 0x15, 0x16),
     '002230A0': (0, 1, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF, 0x10, 0x14, 0x15, 0x16),
     '00225570': (0, 1), '002255C0': (0, 1, 2),
+    '002236F0': (0, 1, 0xA, 0xB, 0xC, 0xD, 0xE, 0x14, 0x15, 0x16),
 }
 
 
@@ -423,7 +436,7 @@ CLOBBER = ((6, 7, 0xF, 0x28, 0x29, 0x201, 0x203, 0x234, 0x23A, 0x2F1, 0x302),
 
 def random_script(rng):
     names = ('request', 'sound', 'cue', 'translate', 'floor', 'drop', 'land_sound', '0021C190',
-             '001885B0', '00188550', '0021C350', '0021D490', 'random')
+             '001885B0', '00188550', '00188610', '001026A0', '0021C350', '0021D490', 'random')
     writes, node_writes = {}, {}
     if rng.random() < 0.5:
         for name in rng.sample(names, rng.randrange(1, 4)):
@@ -434,7 +447,8 @@ def random_script(rng):
         node_writes[rng.choice(['translate', 'floor', 'drop'])] = [(rng.choice([4, 8]), random_float(rng))]
     results = {'floor': [rng.choice([0, 1, 2, -1])], '0021C190': [rng.choice([0, 1, 5])],
                'random': [rng.randrange(1 << 31)], '00188550': [rng.choice([0x10, 0x8C, 0x1C8, -1])],
-               '001885B0': [rng.choice([0xDD, 0x60, 0x7FFF])]}
+               '001885B0': [rng.choice([0xDD, 0x60, 0x7FFF])],
+               '00188610': [rng.choice([0xDD, 0x60, 0x7FFF])]}
     return Script(results, writes, node_writes)
 
 
@@ -619,7 +633,7 @@ def one_case(oracle, native, rng, seeds, spec, index):
         for offset, word in fields.items(): put(raw, offset, word)
         for offset, value in bytes_.items(): raw[offset] = value
         script = Script(dict({'floor': [1], '0021C190': [0], 'random': [rng.randrange(1 << 31)],
-                              '00188550': [0x8C], '001885B0': [0xDD]}, **results), {}, {})
+                              '00188550': [0x8C], '001885B0': [0xDD], '00188610': [0xDD]}, **results), {}, {})
         scene = dict(random_scene(rng), **scene_fields)
         if clobber:
             callee, group = clobber

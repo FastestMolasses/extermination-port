@@ -51,7 +51,10 @@ FORK_ROUTES = {'06': ('s87/route_a06', 's87/route_a06b'), '22': ('s87/route_a22'
                '13': ('levels-recordings-20261018-10/s87/route_a13',),
                '15': ('levels-recordings-20261018-19/s87/route_a15', 'levels-recordings-20261018-19/s87/route_a15b',
                       'levels-recordings-20261018-25/s87/route_a15b'),
-               '03': ('levels-recordings-20261018-26/s87/route_a03',)}
+               '03': ('levels-recordings-20261018-26/s87/route_a03',),
+               '19': ('levels-recordings-20261018-10/s87/route_a19', 'levels-recordings-20261018-13/s87/route_a19b',
+                      'levels-recordings-20261018-14/s87/route_a19c', 'levels-recordings-20261018-17/s87/route_a19c'),
+               '19s1': ('levels-recordings-20261018-17/s87/route_a19c', 'levels-recordings-20261018-19/s87/route_a19d')}
 MODEL_FILES = {0x3D: 'chunk28/f02_id3d.bin', 0x3E: 'chunk28/f03_id3e.bin', 0x3F: 'chunk28/f04_id3f.bin', 0x40: 'chunk28/f05_id40.bin'}
 
 

@@ -153,6 +153,7 @@ FUNCS = {
     0x133A20: ('em_level8_port_00133A20', 0x2A4, [U, U], I),
     0x133DB0: ('em_level8_port_00133DB0', 0x78, [U, U], None),
     0x21BE40: ('em_level8_port_0021BE40', 0x90, [U], I),
+    0x21BED0: ('em_level8_port_0021BED0', 0x90, [U], I),
     0x1B4810: ('em_level8_port_001B4810', 0x4D8, [U], None),
     # the probes
     0x1A7B80: ('em_level8_port_001A7B80', 0x14, [U, S], I),
@@ -305,7 +306,7 @@ BY_ADDRESS = {address: (name, args, result) for name, address, args, result in H
 
 # Callees that run as original code inside the oracle (writes replayed to
 # the native side). Pure helpers only: none of them reaches hardware.
-RUN = {0x1000E0, 0x1026A0, 0x1026D0, 0x102718, 0x102738, 0x102760, 0x1028B8, 0x1028D0, 0x102948, 0x102958,
+RUN = {0x21BC40, 0x1000E0, 0x1026A0, 0x1026D0, 0x102718, 0x102738, 0x102760, 0x1028B8, 0x1028D0, 0x102948, 0x102958,
        0x1029C0, 0x102B08, 0x102BB0, 0x102C58, 0x11DE90, 0x11DF78, 0x11E2A8, 0x11E620, 0x11E748, 0x1281C0,
        0x128250, 0x128350, 0x1B1240, 0x1B12B0, 0x1B13F0, 0x1B1470, 0x1B15D0, 0x1C6160}
 
@@ -653,6 +654,8 @@ class Oracle:
         self.script, self.run_set = script, run_set
         ee.save, ee.write, ee.load = self.save, self.write, self.load
         for address in BY_ADDRESS:
+            if address == entry:   # 0021BED0, a hook elsewhere: here it is the entry
+                continue
             ee.hooks[address] = self.handler(address)
         for callback in args[1]:
             assert callback not in ee.hooks, hex(callback)
@@ -2118,6 +2121,21 @@ def creature_cases(add):
                             [(PLAYER + 0x220, fw(hp)), (PLAYER, b8(st[0])), (PLAYER + 4, b8(st[1])),
                              (PLAYER + 0x20E, h16(held))], [(MODE, b8(mode))], default={0x21BB00: r},
                             full=mode == 1 or hp in (-1.0, 1e-38))
+    # 0021BED0: each test in turn, then the kinds of 0021BC40
+    base = [(PLAYER + 0x220, fw(90.0)), (PLAYER, b8(1)), (PLAYER + 4, b8(1)), (PLAYER + 0x236, b8(0)),
+            (PLAYER + 0x1F0, b8(1)), (PLAYER + 0xD, b8(0)), (PLAYER + 0xA, b8(1)), (PLAYER + 0x20E, h16(0))]
+    add('creature 21BED0 free', beat, 0x21BED0, [PLAYER], base, [(MODE, b8(0))], default={0x21BB00: 0})
+    add('creature 21BED0 mode', beat, 0x21BED0, [PLAYER], base, [(MODE, b8(1))], default={0x21BB00: 0})
+    add('creature 21BED0 21BB00', beat, 0x21BED0, [PLAYER], base, [(MODE, b8(0))], default={0x21BB00: 1})
+    for name, change in (('hp', (PLAYER + 0x220, fw(0.0))), ('s0', (PLAYER, b8(2))), ('s4', (PLAYER + 4, b8(2))),
+                         ('236', (PLAYER + 0x236, b8(1))), ('a', (PLAYER + 0xA, b8(0))),
+                         ('20e', (PLAYER + 0x20E, h16(3)))):
+        add('creature 21BED0 ' + name, beat, 0x21BED0, [PLAYER], base + [change], [(MODE, b8(0))],
+            default={0x21BB00: 0})
+    for k in (0x0B, 0x0C, 0x0D, 0x10, 0x17, 0x1A, 0x1D, 0x2A, 0x21, 0x22, 0x2F, 0x30, 0x39, 0x2D, 0x2C, 0x2B):
+        for d in (0, 2):
+            add('creature 21BED0 k%X %d' % (k, d), beat, 0x21BED0, [PLAYER],
+                base + [(PLAYER + 0x1F0, b8(k)), (PLAYER + 0xD, b8(d))], [(MODE, b8(0))], default={0x21BB00: 0})
     # 001B4810: every defined type with +0x0D bits 0 / 7
     pose = u32(CAPTURES[beat][0], 0x275B40)
     bone_of = {1: 4, 3: 2, 4: 2, 5: 0x0D, 6: 5, 7: 0x0B, 9: 0x1C, 10: 0x10, 11: 2}

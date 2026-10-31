@@ -62,10 +62,23 @@ A13B_ROUTE = 'levels-recordings-20261018-11/s87/route_a13b'
 A13BS_ROUTE = 'levels-recordings-20261018-18/s87/route_a13b'
 A13C_ROUTE = 'levels-recordings-20261018-11/s87/route_a13c'
 A13D_ROUTE = 'levels-recordings-20261018-12/s87/route_a13d'
+A19_ROUTE = 'levels-recordings-20261018-10/s87/route_a19'
+A19B_ROUTE = 'levels-recordings-20261018-13/s87/route_a19b'
+A19C0_ROUTE = 'levels-recordings-20261018-14/s87/route_a19c'
+A19C_ROUTE = 'levels-recordings-20261018-17/s87/route_a19c'
+A19D_ROUTE = 'levels-recordings-20261018-19/s87/route_a19d'
 A15_ROUTE = 'levels-recordings-20261018-19/s87/route_a15'
 A15B_ROUTE = 'levels-recordings-20261018-19/s87/route_a15b'
 A15C_ROUTE = 'levels-recordings-20261018-25/s87/route_a15b'
 A03_ROUTE = 'levels-recordings-20261018-26/s87/route_a03'
+A03B_ROUTE = 'levels-recordings-20261030-1/s87/route_a03b'
+A08_ROUTE = 'levels-recordings-20261030-1/s87/route_a08'
+A03C_ROUTE = 'levels-recordings-20261030-1/s87/route_a03c'
+A04C_ROUTE = 'levels-recordings-20261030-1/s87/route_a04c'
+A07_ROUTE = 'levels-recordings-20261030-1/s87/route_a07'
+A03D_ROUTE = 'levels-recordings-20261031-1/s87/route_a03d'
+A04D_ROUTE = 'levels-recordings-20261031-1/s87/route_a04d'
+A07B_ROUTE = 'levels-recordings-20261031-1/s87/route_a07b'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -141,6 +154,43 @@ BEATS = {
     'a13d_05': ('a13d_05', A13D_ROUTE, 'a13d_05_ladder432'),
     'a13d_06': ('a13d_06', A13D_ROUTE, 'a13d_06_door20'),
     'a13d_07': ('a13d_07', A13D_ROUTE, 'a13d_07_hatch63'),
+    # AREA19 (lane J1): the entry-9 rooms, entry 10's side and sub 1. The
+    # arrival by the hatch [63] (a19b_00) and door [50]'s AREA15 scene are
+    # the other lanes'.
+    'a19_00': ('area19', A19_ROUTE, 'a19_00_duct'),
+    'a19_01': ('a19_01', A19_ROUTE, 'a19_01_pickup_g2'),
+    'a19_02': ('a19_02', A19_ROUTE, 'a19_02_duct_back'),
+    'a19b_01': ('a19b_01', A19B_ROUTE, 'a19b_01_ledge'),
+    'a19b_02': ('a19b_02', A19B_ROUTE, 'a19b_02_ladder1023'),
+    'a19c_00': ('a19c_00', A19C0_ROUTE, 'a19c_00_bar840'),
+    'a19c_01': ('a19c_01', A19C_ROUTE, 'a19c_01_bar841'),
+    'a19c_02': ('a19c_02', A19C_ROUTE, 'a19c_02_use7'),
+    'a19c_03': ('a19c_03', A19C_ROUTE, 'a19c_03_slide'),
+    'a19c_04': ('a19c_04', A19C_ROUTE, 'a19c_04_walkway'),
+    'a19c_05': ('a19c_05', A19C_ROUTE, 'a19c_05_door27'),
+    'a19c_06': ('a19c_06', A19C_ROUTE, 'a19c_06_ladder959'),
+    'a19c_07': ('a19c_07', A19C_ROUTE, 'a19c_07_door52'),
+    'a19d_00': ('a19d_00', A19D_ROUTE, 'a19d_00_beastA'),
+    'a19d_01': ('a19d_01', A19D_ROUTE, 'a19d_01_ceiling'),
+    'a19d_02': ('a19d_02', A19D_ROUTE, 'a19d_02_lockB'),
+    'a19d_03': ('a19d_03', A19D_ROUTE, 'a19d_03_beastB'),
+    'a19d_04': ('a19d_04', A19D_ROUTE, 'a19d_04_alcove'),
+    'a19d_05': ('a19d_05', A19D_ROUTE, 'a19d_05_valve37'),
+    'a19d_06': ('a19d_06', A19D_ROUTE, 'a19d_06_g3'),
+    'a19d_07': ('a19d_07', A19D_ROUTE, 'a19d_07_cage'),
+    'a19d_08': ('a19d_08', A19D_ROUTE, 'a19d_08_west'),
+    'a19d_09': ('a19d_09', A19D_ROUTE, 'a19d_09_westdeck'),
+    'a19d_10': ('a19d_10', A19D_ROUTE, 'a19d_10_area82E050'),
+    'a19d_11': ('a19d_11', A19D_ROUTE, 'a19d_11_bar858'),
+    'a19d_12': ('a19d_12', A19D_ROUTE, 'a19d_12_post'),
+    'a19d_13': ('a19d_13', A19D_ROUTE, 'a19d_13_bar1195'),
+    'a19d_14': ('a19d_14', A19D_ROUTE, 'a19d_14_roof'),
+    'a19d_15': ('a19d_15', A19D_ROUTE, 'a19d_15_deckB'),
+    'a19d_16': ('a19d_16', A19D_ROUTE, 'a19d_16_ladder694'),
+    'a19d_17': ('a19d_17', A19D_ROUTE, 'a19d_17_seal_far'),
+    'a19d_18': ('a19d_18', A19D_ROUTE, 'a19d_18_seal'),
+    'a19d_19': ('a19d_19', A19D_ROUTE, 'a19d_19_flights'),
+    'a19d_20': ('a19d_20', A19D_ROUTE, 'a19d_20_door50'),
     # AREA15 (FOURTEENTH / FIFTEENTH_LEVEL_ROUTE.md): sub 0's way out, sub 1's
     # event, the forced return, the two scripts, the bed, door [14].
     'a15a_00': ('area15', 'area15_arrival_20261030/s87/route_a15a', 'a15a_00_arrival'),
@@ -152,11 +202,49 @@ BEATS = {
     'a15b_04': ('a15b_04', A15C_ROUTE, 'a15b_04_door14'),
     # AREA03 sub 0's lift (the last recorded beat).
     'a03_00': ('a03_00', A03_ROUTE, 'a03_00_elevator'),
+    # The sixteenth level (SIXTEENTH_LEVEL_ROUTE.md).
+    'a03b_00': ('a03b_00', A03B_ROUTE, 'a03b_00_door13'),
+    'a03b_01': ('a03b_01', A03B_ROUTE, 'a03b_01_duct_west'),
+    'a03b_02': ('a03b_02', A03B_ROUTE, 'a03b_02_duct_east'),
+    'a03b_03': ('a03b_03', A03B_ROUTE, 'a03b_03_item2a'),
+    'a03b_04': ('a03b_04', A03B_ROUTE, 'a03b_04_back'),
+    'a03b_05': ('a03b_05', A03B_ROUTE, 'a03b_05_slider'),
+    'a03b_06': ('a03b_06', A03B_ROUTE, 'a03b_06_lift'),
+    'a08_00': ('a08_00', A08_ROUTE, 'a08_00_door17'),
+    'a08_01': ('a08_01', A08_ROUTE, 'a08_01_magazine'),
+    'a08_02': ('a08_02', A08_ROUTE, 'a08_02_switch'),
+    'a08_03': ('a08_03', A08_ROUTE, 'a08_03_slider'),
+    'a08_04': ('a08_04', A08_ROUTE, 'a08_04_ceiling'),
+    'a08_05': ('a08_05', A08_ROUTE, 'a08_05_terminal'),
+    'a08_06': ('a08_06', A08_ROUTE, 'a08_06_back'),
+    'a03c_00': ('a03c_00', A03C_ROUTE, 'a03c_00_slider'),
+    'a03c_01': ('a03c_01', A03C_ROUTE, 'a03c_01_duct'),
+    'a03c_02': ('a03c_02', A03C_ROUTE, 'a03c_02_seal'),
+    'a03c_03': ('a03c_03', A03C_ROUTE, 'a03c_03_door24'),
+    'a04c_00': ('a04c_00', A04C_ROUTE, 'a04c_00_event'),
+    'a04c_01': ('a04c_01', A04C_ROUTE, 'a04c_01_door73'),
+    'a04c_02': ('a04c_02', A04C_ROUTE, 'a04c_02_lift'),
+    'a07_00': ('a07_00', A07_ROUTE, 'a07_00_switch'),
+    'a03d_00': ('a03d_00', A03D_ROUTE, 'a03d_00_seal'),
+    'a03d_01': ('a03d_01', A03D_ROUTE, 'a03d_01_door24'),
+    'a04d_00': ('a04d_00', A04D_ROUTE, 'a04d_00_event'),
+    'a04d_01': ('a04d_01', A04D_ROUTE, 'a04d_01_door73'),
+    'a04d_02': ('a04d_02', A04D_ROUTE, 'a04d_02_lift'),
+    'a07b_00': ('a07b_00', A07B_ROUTE, 'a07b_00_switch'),
+    'a07b_01': ('a07b_01', A07B_ROUTE, 'a07b_01_sub2'),
+    'a07b_02': ('a07b_02', A07B_ROUTE, 'a07b_02_duct'),
+    'a07b_03': ('a07b_03', A07B_ROUTE, 'a07b_03_sub3'),
+    'a07b_04': ('a07b_04', A07B_ROUTE, 'a07b_04_terminal'),
+    'a07b_05': ('a07b_05', A07B_ROUTE, 'a07b_05_back'),
+    'a07b_06': ('a07b_06', A07B_ROUTE, 'a07b_06_duct'),
+    'a07b_07': ('a07b_07', A07B_ROUTE, 'a07b_07_lift'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
           'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
           'a15a': ('a15a_',), 'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',),
-          'a13': ('a13_',)}
+          'a13': ('a13_',), 'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',),
+          'a03b': ('a03b_',), 'a08': ('a08_',), 'a03c': ('a03c_',), 'a04c': ('a04c_',), 'a07': ('a07_',),
+          'a03d': ('a03d_',), 'a04d': ('a04d_',), 'a07b': ('a07b_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -338,6 +426,10 @@ CHAINS = {
     'boss': ('a04b_03', ('a04b_03', 'a04b_s5', 'a04b_s6', 'a04b_s7')),
     'bossg': ('boss', ('a04b_g2', 'a04b_g3', 'a04b_g4', 'a04b_g5')),
     'bosst': ('a04b_02', ('a04b_g0', 'a04b_g1')),
+    'a19': ('area19', ('a19_00', 'a19_01', 'a19_02')),
+    'a19b': ('a19b_01', ('a19b_01', 'a19b_02')),
+    'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
+    'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
     'a13': ('area13', ('a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')),
     'a13b': ('a13b_01', ('a13b_01', 'a13b_02', 'a13b_03', 'a13b_04', 'a13b_05')),
     'a13c': ('a13c_00', ('a13c_00', 'a13c_01', 'a13c_02', 'a13c_03', 'a13c_04', 'a13c_05', 'a13c_06')),
@@ -349,6 +441,14 @@ CHAINS = {
     'a15b': ('a15b_00', ('a15b_00', 'a15b_01', 'a15b_02', 'a15b_03', 'a15b_04')),
     'a15c': ('a15b_03', ('a15b_03', 'a15b_04')),
     'a03': ('a03_00', ('a03_00',)),
+    'a03b': ('a03b_00', ('a03b_00', 'a03b_01', 'a03b_02', 'a03b_03', 'a03b_04', 'a03b_05', 'a03b_06',)),
+    'a08': ('a08_00', ('a08_00', 'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06',)),
+    'a03c': ('a03c_00', ('a03c_00', 'a03c_01', 'a03c_02', 'a03c_03',)),
+    'a04c': ('a04c_00', ('a04c_00', 'a04c_01', 'a04c_02',)),
+    'a07': ('a07_00', ('a07_00',)),
+    'a03d': ('a03d_00', ('a03d_00', 'a03d_01',)),
+    'a04d': ('a04d_00', ('a04d_00', 'a04d_01', 'a04d_02',)),
+    'a07b': ('a07b_00', ('a07b_00', 'a07b_01', 'a07b_02', 'a07b_03', 'a07b_04', 'a07b_05', 'a07b_06', 'a07b_07',)),
 }
 
 

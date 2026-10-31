@@ -271,6 +271,11 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return !write && active && contains(a,n,0x00282154u,3)
             ? (uint8_t *)(uintptr_t)active+(a-0x00282154u) : NULL;
     }
+    if(overlaps(a,n,0x008112C0u,0xA00u)) {
+        /* D_008112C0..D_00811CBF: the clipper's stage (em_shadow_live's). */
+        uint8_t *stage=em_shadow_live_stage_bytes();
+        return stage && contains(a,n,0x008112C0u,0xA00u) ? stage+(a-0x008112C0u) : NULL;
+    }
     if(overlaps(a,n,D275CA8_BASE,4))
         return contains(a,n,D275CA8_BASE,4) ? (uint8_t *)&s_d275CA8+(a-D275CA8_BASE) : NULL;
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
@@ -366,6 +371,17 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if((p=write ? em_rcl_bytes_mut(a,n) : (uint8_t *)(void *)em_rcl_bytes(a,n)))return p;
     if(l->host.bytes && (p=l->host.bytes(l->host.ctx,a,n,write)))return p;
     if((p=em_effects_live_window_mutable(a,n)))return p;
+    /* Words only AREA19's code reaches, behind every shared storage:
+     * 0x70003910..1F, 0x827DD0's hit direction (its trackers); D_00275C10 /
+     * 14, 001E7D20's once-a-frame step. */
+    if(contains(a,n,0x70003910u,16)) {
+        static uint8_t s3910[16];
+        return s3910+a-0x70003910u;
+    }
+    if(contains(a,n,0x00275C10u,8)) {
+        static uint8_t d275C10[8];
+        return d275C10+a-0x00275C10u;
+    }
     if(write)return NULL;
     const uint8_t *q=em_collision_world_contact_bytes(a,n);
     if(!q)q=em_effects_live_window(a,n);
@@ -517,6 +533,7 @@ static int model_function(uint32_t fn)
     case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:
     case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
     case 0x001C63D0u: /* 001BE6C0 (AREA01's way back, a01v) */
+    case 0x001C9940u: /* 001C6910's tail (em_level12_port) */
     case 0x001CA5F0u: /* AREA15's 0x826850 */
         return 1;
     default:return 0;
@@ -651,6 +668,8 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     /* 001B5360(node): the 0012A5D0 bugs' walk step from 0012D940's state 1
      * (AREA22's corridor bugs, +5 = 10 / 11), em_area00_low's translation. */
     case 0x001B5360u: rc=c->na<1 ? -1 : em_area00_low_001B5360(&low,a0);break;
+    /* 001FC580(node, id): the AREA19 drums' (00156620) landing sound. */
+    case 0x001FC580u: rc=c->na<2 ? -1 : em_area00_low_001FC580(&low,a0,(int32_t)a1);break;
     default: rc=-1;break;
     }
     if(rc<0)
@@ -663,7 +682,7 @@ static int low_entry_handles(uint32_t fn)
     switch(fn) {
     case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
     case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
-    case 0x0012DE90u: case 0x00102870u: case 0x00128830u: case 0x001B5360u:
+    case 0x0012DE90u: case 0x00102870u: case 0x00128830u: case 0x001B5360u: case 0x001FC580u:
         return 1;
     default:
         return 0;
@@ -1111,6 +1130,25 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_timeline_call(&host,c,&fault);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x001CD370u && c->na==1) {
+        /* 001CD370(i): D_00275670 + i * 0x40 + 0x2240, the clip matrices. */
+        const uint8_t *context=bytes(l,0x00275670u,4,0);
+        uint32_t base=0;
+        if(!context)return worker_result(l,-1,c->function);
+        memcpy(&base,context,4);
+        c->v0=(uint64_t)(int64_t)(int32_t)(base+(uint32_t)c->a[0]*0x40u+0x2240u);
+        return worker_result(l,0,0);
+    }
+    if(c->function==0x001CF470u) {
+        /* 001CF470(D_008112C0, m): the level ports' 001CDDC0 clip. */
+        const uint8_t *m=c->na==2 && (uint32_t)c->a[0]==0x008112C0u ? bytes(l,(uint32_t)c->a[1],64,0) : NULL;
+        if(!m)return worker_result(l,-1,c->function);
+        uint32_t rows[16];int32_t count=0;
+        memcpy(rows,m,sizeof rows);
+        const int rc=em_shadow_live_001CF470(rows,&count);
+        c->v0=(uint64_t)(int64_t)count;
+        return worker_result(l,rc,rc<0 ? c->function : 0);
+    }
     if(c->function==0x001FBD50u || c->function==0x001FBF50u || c->function==0x001B1380u ||
        c->function==0x001FC3C0u || c->function==0x001FC520u) {
         const EmArea01RuntimeHost host={l,bytes,nested};
@@ -1123,6 +1161,18 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,fault);
     }
     if(c->function==0x001F02C0u)return fx_001F02C0(l,c);
+    if(c->function==0x001F0460u) {
+        /* 001F0460(n, src): a ring decal slot (AREA19's 0x827B60 falling
+         * pieces), em_effects_live's translation. */
+        const uint8_t *q=c->na>=2 ? bytes(l,(uint32_t)c->a[1]&~15u,64,0) : NULL;
+        if(!q)return worker_result(l,-1,c->function);
+        float m[16];
+        memcpy(m,q,sizeof m);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_effects_live_001F0460((int32_t)c->a[0],m);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,c->function);
+    }
     if(c->function==0x001F6B30u) {
         if(em_area01_live_suspend(l)<0)return -1;
         int rc=em_effects_live_001F6B30(em_scene_state());
@@ -1203,7 +1253,10 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_collision_view_commit(&l->collision)<0 || em_area01_player_view_commit(&l->player)<0)return -1;
         em_camera_live_view_publish();
         uint32_t result;
-        int rc=em_area01_model_call(&l->model,c->function,c->a[0],c->a[1],c->a[2],c->a[3],
+        /* 001C9940 takes the record's +0x110 and +0xD0. */
+        const uint32_t node=c->function==0x001C9940u ? (uint32_t)c->a[0]-0x110u : (uint32_t)c->a[0];
+        if(c->function==0x001C9940u && (uint32_t)c->a[2]!=node+0xD0u)return -1;
+        int rc=em_area01_model_call(&l->model,c->function,node,c->a[1],c->a[2],c->a[3],
                                      em_ee_float(c->f[0]),em_ee_float(c->f[1]),&result);
         em_camera_live_adopt_view();
         if(player_begin(l)<0 || em_area01_collision_view_begin(&l->collision)<0)return -1;
@@ -1583,27 +1636,28 @@ static int worker(void *ctx,EmArea01Call *c)
         memcpy(to,out_q,16);
         return 0;
     }
-    case 0x001CD370u: { /* 001CD370(a0): D_00275670 + (a0 << 6) + 0x2240, 32-bit wrap */
-        uint32_t base;
-        const uint8_t *word=bytes(l,0x00275670u,4,0);
-        if(c->na<1 || !word)return -1;
-        memcpy(&base,word,4);
-        c->v0=(uint64_t)(int64_t)(int32_t)(base+((uint32_t)c->a[0]<<6)+0x2240u);return 0;
-    }
-    case 0x0011E080u: /* isnanf */
+    case 0x0011E080u:
         if(c->nf<1)return -1;
-        c->v0=(uint64_t)(int64_t)(int32_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));return 0;
-    case 0x0011CB90u: /* the sqrtf kernel (the 0x141D20 family's 00146740) */
+        c->v0=(uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));return 0;
+    case 0x0011DF98u:
         if(c->nf<1)return -1;
-        c->f0=em_ee_bits(em_sdk_math_original_0011CB90(em_ee_float(c->f[0])));return 0;
+        c->f0=em_ee_bits(em_sdk_math_original_0011DF98(em_ee_float(c->f[0])));return 0;
+    case 0x001F6640u: case 0x001F66F0u:
+        if(c->na<1 || em_area01_live_suspend(l)<0)return -1;
+        {
+            int rc=em_effects_live_room_list(em_scene_state(),c->function,(uint32_t)c->a[0]);
+            if(em_area01_live_resume(l)<0)return -1;
+            return rc;
+        }
     case 0x0011E2A8u: case 0x0011DE90u: case 0x0011E398u:
-    case 0x0011DBB8u: case 0x0011E620u: case 0x0011E748u:
+    case 0x0011DBB8u: case 0x0011E620u: case 0x0011E748u: case 0x0011CB90u:
         if(!sdk || c->nf<(c->function==0x0011E620u ? 2u : 1u))return -1;
         if(c->function==0x0011E2A8u)out=em_sdk_math_original_float_0011E2A8(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011DE90u)out=em_sdk_math_original_float_0011DE90(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011E398u)out=em_sdk_math_original_float_0011E398(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011DBB8u)out=em_sdk_math_original_float_0011DBB8(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011E748u)out=em_sdk_math_original_float_0011E748(sdk,em_ee_float(c->f[0]));
+        else if(c->function==0x0011CB90u)out=em_sdk_math_original_0011CB90(em_ee_float(c->f[0]));
         else out=em_sdk_math_original_float_0011E620(sdk,em_ee_float(c->f[0]),em_ee_float(c->f[1]));
         if(sdk->fault)return -1;
         c->f0=em_ee_bits(out);return 0;

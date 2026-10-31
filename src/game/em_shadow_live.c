@@ -206,6 +206,9 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     if (area == 0x16 && subarea == 0) path = EM_SHADOW_LIVE_AREA22_SUB0_RECEIVERS_PATH;
     if (area == 6 && subarea == 0) path = EM_SHADOW_LIVE_AREA06_SUB0_RECEIVERS_PATH;
     if (area == 0x0D && subarea == 0) path = EM_SHADOW_LIVE_AREA13_SUB0_RECEIVERS_PATH;
+    /* --profile 19 / 19s1 */
+    if (area == 0x13 && subarea == 0) path = "assets/levels/19/sub0/shadow_receivers.emsr";
+    if (area == 0x13 && subarea == 1) path = "assets/levels/19s1/sub1/shadow_receivers.emsr";
     if (area == 0x0F && subarea == 0) path = "assets/levels/15/sub0/shadow_receivers.emsr";
     if (area == 0x0F && subarea == 1) path = "assets/levels/15/sub1/shadow_receivers.emsr";
     if (area == 3 && subarea == 0) path = "assets/levels/03/sub0/shadow_receivers.emsr";
@@ -871,26 +874,20 @@ int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint
 
 uint32_t em_shadow_live_effect_decals(void) { return S.effect_decals; }
 
-/* The clipper buffers D_008112C0..D_00811CBF as original bytes (001CDDC0
- * stages its triangles there itself; em_level11_port). NULL outside them. */
-uint8_t *em_shadow_live_stage_bytes(uint32_t address, uint32_t size)
-{
-    const uint32_t bytes = (uint32_t)sizeof S.stage;
-    if (address < EM_SHADOW_DECAL_STAGE_ADDRESS || !size || size > bytes ||
-        address - EM_SHADOW_DECAL_STAGE_ADDRESS > bytes - size)
-        return NULL;
-    return (uint8_t *)S.stage + (address - EM_SHADOW_DECAL_STAGE_ADDRESS);
-}
+/* D_008112C0..D_00811CBF, the clipper's stage (one storage for every caller:
+ * the level ports' 001CDDC0 write its input through this view). */
+uint8_t *em_shadow_live_stage_bytes(void) { return S.bound ? (uint8_t *)S.stage : NULL; }
 
-/* 001CF470(D_008112C0, m) over the same buffers (the camera's matrix m read
- * by the caller). */
+/* 001CF470(D_008112C0, m) for those callers. */
 int em_shadow_live_001CF470(const uint32_t m[16], int32_t *count)
 {
+    if (S.fault) return -1;
+    if (!S.bound) return fail(0x001CF470u, "the shadow is not bound");
     S.effect_decal.stage = S.stage;
     S.effect_decal.workers = &S.dbase;
     if (em_shadow_decal_001CF470(&S.effect_decal, m, count) < 0)
         return fail(S.effect_decal.fault.address ? S.effect_decal.fault.address : 0x001CF470u,
-                    "001CF470 faulted");
+                    "001CF470 (a level port's quad) faulted");
     return 0;
 }
 

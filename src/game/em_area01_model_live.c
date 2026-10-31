@@ -639,6 +639,12 @@ int em_area01_model_call(EmArea01Model *m,uint32_t fn,uint32_t node,uint32_t a1,
                 rc=pose_bind(m,0);
                 if (rc>=0) rc=em_pose_host_001C6960(&m->pose,m->record,EM_ACTOR_RECORD_SIZE);
                 break;
+            case 0x001C9940u:
+                /* 001C9940(+0x110, +0xC, +0xD0): the hierarchy under the
+                 * record's matrix (001C6910's tail, em_level12_port). */
+                rc=pose_bind(m,0);
+                if (rc>=0) rc=em_pose_host_001C9940_record(&m->pose,m->record,EM_ACTOR_RECORD_SIZE);
+                break;
             case 0x001C63E0u: case 0x001C67E0u: case 0x001C68C0u: case 0x001C64F0u:
                 rc=pose_bind(m,fn!=0x001C68C0u);
                 if (rc<0) break;
