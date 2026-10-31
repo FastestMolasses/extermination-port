@@ -1863,6 +1863,28 @@ def boot_cases(add, rng):
             grab + [(c + 6, b8(4)), (e + 0x50, h16(t50)), (e + 0x52, h16(t52)), (c + 0xD, b8(d)), (0x81070A, b8(hard)),
                     (0x8104D0, f32b(hp)), (0x8106BD, b8(bd))])
     add('grab 130AB0 s5 72', B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(5)), (c + 0x3C, f32b(72.0)), (e + 0x58, h16(0))])
+    # lane P1's grid (AREA08's grab): every step by the clip flag and the three
+    # answers; the ray queue stands for 00133CD0's answer
+    for step in range(8):
+        for flag in (0, 0x1000):
+            for r1, clear, r3 in ((0, 0, 0), (0, 1, 0), (0, 1, 1), (1, 0, 0)):
+                for d in (5.0, 7.0):
+                    add('grab p1 %d %X %d%d%d %g' % (step, flag, r1, clear, r3, d), B5, 0x130AB0, [c, e, STACK_TOP],
+                        grab + [(c + 6, b8(step)), (e + 0x58, h16(flag))],
+                        queues={0x21BED0: [r1], 0x19A440: [0] * 5 if clear else [1], 0x1B1EA0: [r3], 0x11DF78: [fb(d)]})
+    for t50 in (0x10, 0x12B):
+        for t52 in (0x1C, 0x1D):
+            for bd in (0, 1, 0x80, 0x81):
+                for hard in (0, 1):
+                    for got in (0, 1):
+                        for hp in (2.0, 90.0):
+                            add('grab p1 s4 %X %X %X %d %d %g' % (t50, t52, bd, hard, got, hp), B5, 0x130AB0, [c, e, STACK_TOP],
+                                grab + [(c + 6, b8(4)), (e + 0x50, h16(t50)), (e + 0x52, h16(t52)), (c + 0xD, b8(bd)),
+                                        (0x81070A, b8(hard)), (0x8106BD, b8(got)), (0x8104D0, f32b(hp))])
+    for got in (0, 1):
+        add('grab p1 s3 %d' % got, B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(3)), (0x8106BD, b8(got))])
+    for clock in (71.0, 72.0):
+        add('grab p1 s5 %g' % clock, B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(5)), (c + 0x3C, f32b(clock))])
     for st in (0, 1):
         for e54 in (0, 1):
             for x3c in (100.0, 136.0, 137.0):

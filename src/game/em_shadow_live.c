@@ -223,6 +223,8 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     if (area == 8 && subarea == 2) path = "assets/levels/08/sub2/shadow_receivers.emsr";
     if (area == 8 && subarea == 3) path = "assets/levels/08/sub3/shadow_receivers.emsr";
     if (area == 7 && subarea == 0) path = "assets/levels/07/sub0/shadow_receivers.emsr";
+    if (area == 7 && subarea == 2) path = "assets/levels/07/sub2/shadow_receivers.emsr";
+    if (area == 7 && subarea == 3) path = "assets/levels/07/sub3/shadow_receivers.emsr";
     if (!path || S.fault) return -1;
     for (u32 k = 0; k < S.pass_count; ++k)
         if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;
@@ -952,7 +954,7 @@ static int owner_decal(int second, const uint32_t owner[4], const uint32_t point
     S.opk_count = 0;
     if ((direct ? em_shadow_actor_route_001F8D30(&S.oroute, owner, point, normal, direct->facing, direct->colour,
                                                  f12, direct->f13, direct->f14)
-                 : second ? em_shadow_actor_route_001F9180(&S.oroute, owner, point, normal, f12)
+                : second ? em_shadow_actor_route_001F9180(&S.oroute, owner, point, normal, f12)
                 : em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12)) < 0) {
         if (S.odecal.fault.code) return fail(S.odecal.fault.address, "001CE300 (an owner's decal) faulted");
         return fail(S.oroute.fault.address ? S.oroute.fault.address : 0x001F9100u, "001F9100 faulted");

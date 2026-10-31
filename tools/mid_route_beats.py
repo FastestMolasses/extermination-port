@@ -267,7 +267,7 @@ def trace(beat):
 # Neutral frames before a beat's first row in a run from a card: AREA13's
 # lift replays its door script at a loaded game's arrival (the recording's
 # row 0 is past it, the player locked), so the recorded walk waits for it.
-LEAD = {'a13_00': 210, 'a08_00': 195, 'a03c_00': 210}
+LEAD = {'a13_00': 210, 'a08_00': 195, 'a07_00': 195, 'a07b_00': 195, 'a03c_00': 210}
 
 
 # Steering only (no pad byte changes): a recorded press made at the very edge of
@@ -336,9 +336,36 @@ def source_rand(beat):
 # at a load's placements (0012A5D0 nodes chase the player): the comparison
 # anchor EM_START_AT_RESTORE gives them the source state's records and clock
 # at script frame 0 (docs/STARTUP.md; comparison only).
-RESTORE = {'a08_01', 'a08_02', 'a08_03'}
-# The same anchor for the creatures of the sixteenth and seventeenth levels'
-# single beats; the steering stays (a card's camera is not the recording's).
+RESTORE = {'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06', 'a07_00', 'a07b_00', 'a07b_01', 'a07b_02',
+           'a07b_03', 'a07b_04', 'a07b_05', 'a07b_06', 'a07b_07'}
+
+
+def raw_rows(traces, lead):
+    """The script frames of the recorded hangs (actions 32, 34, 40): the stick
+    is the recorded one there, steering would turn the hand-over-hand."""
+    out, base = [], traces[0]['first_counter']
+    for t in traces:
+        off = t['first_counter'] - base + lead
+        at = None
+        for r in t['rows']:
+            if r['m1F0'] in (32, 34, 40):
+                at = r['f'] if at is None else at
+                end = r['f']
+            elif at is not None:
+                out.append((at + off, end + off + 2))
+                at = None
+        if at is not None:
+            out.append((at + off, end + off + 2))
+    return ','.join(f'{a}-{b}' for a, b in out[:16])
+
+
+BEAT_MODE = {'a08_02': 'steer', 'a08_03': 'steer', 'a08_04': 'steer', 'a08_06': 'steer', 'a07_00': 'steer',
+             'a07b_00': 'both', 'a07b_03': 'both', 'a07b_07': 'both'}
+
+# Lane N1's beats (AREA03 subs 1 and 2, AREA04 sub 1): the per-row rand() table,
+# the load anchors, and on RESTORE_STEERED the source's creatures; the steering
+# stays (a card's camera is not the recording's).
+N1_BEATS = ('a03b_', 'a03c_', 'a03d_', 'a04c_', 'a04d_')
 RESTORE_STEERED = {'a03b_02', 'a03b_03', 'a03b_04', 'a03b_05', 'a03c_02', 'a03c_03', 'a03d_00', 'a04c_01', 'a04c_02',
                    'a04d_01', 'a04d_02'}
 
@@ -347,7 +374,7 @@ def restore_anchor(beat):
     t = json.loads((beat_dir(beat) / 'trace.json').read_text())
     folder = Path(t['source_state']).resolve().parent
     clock = int.from_bytes((folder / 'scratchpad.bin').read_bytes()[0x3B68:0x3B6C], 'little')
-    return f'{folder / "eeMemory.bin"}:0:{clock:x}'
+    return f'{folder / "eeMemory.bin"}:1:{clock:x}'
 
 
 def rand_anchors(name, beats, traces):
@@ -447,19 +474,31 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
-    rands = rand_anchors(name, beats, traces)
-    if rands:
-        env['EM_START_AT_RANDS'] = str(rands)
-    loads = load_anchors(name, beats, traces)
-    if loads:
-        env['EM_START_AT_LOADS'] = str(loads)
-    if beats[0] in RESTORE:
-        env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
-        del env['EM_START_AT_PATH']    # with the anchor the recorded pad alone keeps the route
-    elif beats[0] in RESTORE_STEERED:
-        env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
     if beats[0].startswith(('a13b_', 'a13c_', 'a13d_')) or beats[-1].startswith(('a13b_', 'a13c_', 'a13d_')):
         env['EM_START_AT_FINE'] = '2' if beats[0] in ('a13c_04', 'a13c_05') else '1'
+    raw = raw_rows(traces, LEAD.get(beats[0], 0))
+    if raw:
+        env['EM_START_AT_RAW'] = raw
+    # EM_MID_ROUTE_MODE: anchor (the source's bugs, the rand() table, the pad
+    # alone), both (the anchors and the steering), steer (the steering alone).
+    # Default: BEAT_MODE, each beat's furthest run (docs/AREA08_PORT.md).
+    mode = os.environ.get('EM_MID_ROUTE_MODE') or BEAT_MODE.get(beats[0], 'anchor')
+    rands = ROOT / 'build/beat_rands' / f'{beats[0]}.txt'
+    if beats[0] in RESTORE and mode != 'steer':
+        if len(beats) == 1 and rands.exists():
+            env['EM_START_AT_RANDS'] = str(rands)
+        env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
+        if mode == 'anchor':
+            del env['EM_START_AT_PATH']    # with the anchors the recorded pad alone keeps the route
+    if beats[0].startswith(N1_BEATS):
+        table = rand_anchors(name, beats, traces)
+        if table:
+            env['EM_START_AT_RANDS'] = str(table)
+        loads = load_anchors(name, beats, traces)
+        if loads:
+            env['EM_START_AT_LOADS'] = str(loads)
+        if beats[0] in RESTORE_STEERED:
+            env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
     start = time.time()
     ended = False
     with open(log_path, 'w') as log:

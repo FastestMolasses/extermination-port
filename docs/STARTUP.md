@@ -496,7 +496,7 @@ recording-derived and stay in the ignored `build/`.
   `EM_CONTROL_TRACE`, `EM_DIAG_DIGESTS`, `EM_FB_CAPTURE_TICKS`,
   `EM_FRAME_TIMING`, `EM_FRAME_TRACE`, `EM_GS_LIST_COUNTERS`,
   `EM_GS_SPEC_COUNTERS`, `EM_GS_TC_COUNTERS`, `EM_GS_TEX_COUNTERS`,
-  `EM_GS_Z_COUNTERS`, `EM_GLOW_TRACE`, `EM_LOG_AIM_RECORDS`, `EM_PRESENT_LOG`,
+  `EM_GS_Z_COUNTERS`, `EM_GLOW_TRACE`, `EM_LOG_AIM_RECORDS`, `EM_LOG_BUGS`, `EM_PRESENT_LOG`,
   `EM_PRESENT_PX`, `EM_PROBE_TRACE`, `EM_RAND_TRACE`,
   `EM_STARTUP_CAPTURE_DIR`, `EM_STATUS_GS_DUMP`, `EM_LAMP_PAGE_DUMP` (the gun lamp's cone
   pages, tools/test_aim_fire_lamp_cone.py), `EM_STATUS_PAGES_TRACE`, `EM_STEP_TRACE`; and
@@ -575,6 +575,10 @@ recording-derived and stay in the ignored `build/`.
   shifts the pool). Comparison only, for tools/test_boss_fight.py (written by
   tools/capture_boss_fight.py anchors); it writes game state and is never part
   of play.
+  In AREA08 and AREA07 the anchor also takes the creatures and nests (0012E3A0,
+  001383C0), whose timers spawn bugs. `EM_START_AT_RAW=<a>-<b>[,...]` runs those
+  script frames on the recorded stick with no steering: a hang's hand-over-hand
+  turns on the stick (tools/mid_route_beats.py raw_rows).
   `EM_START_AT_FINE=1` (with EM_START_AT_PATH) uses the finer press and stop
   steering AREA13's later beats need: a walking player stops first, a press
   waits for 0.3 units (0.6 after 320 frames) and 0.03 rad, a running press

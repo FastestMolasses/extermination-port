@@ -47,6 +47,15 @@ CAPTURE = DECOMP / 'build/startup-reference/status-hub'
 PLAYER_FILE = 'extract/chunk28/f00_id3b.bin'   # D_0028A57C
 BANK_FILE = 'extract/chunk28/f01_id3c.bin'     # D_0028A580
 LIBRARY_FILE = 'extract/chunk27/f01_id37.bin'  # D_0028A56C
+# 0020E6F0's other models: D_0028A584 (other variants), D_0028A58C
+# (D_00810C60 2), D_0028A590 (variant 1, the infected latch). D_0028A588, the
+# coat, is tools/export_status_coat.py's.
+# Each has its own player texture packet in GS memory: the last two numbers are
+# the (D_00810707, D_00810C60) pair 00200890 uploads it for
+# (export_disc_textures_gs.player_texture_slot).
+VARIANTS = ((0x0028A584, 'extract/chunk28/f02_id3d.bin', 'menu_player_3d', 2, 0),
+            (0x0028A58C, 'extract/chunk28/f04_id3f.bin', 'menu_player_3f', 0, 2),
+            (0x0028A590, 'extract/chunk28/f05_id40.bin', 'menu_player_40', 1, 0))
 CLIPS = (0x1C2, 0x0A)                          # 0020E6F0's two clips
 # The glyph models the status-hub capture's pool records 1..6 bind
 # (CA4..CA7 = FF 05 00 07 through 0020E250 / 0020E3A0).
@@ -78,9 +87,30 @@ def skeleton(model: bytes):
     return count, nodes
 
 
-def write(output: Path, extract: Path, texels: Path) -> tuple:
+def variant_freezes(loader, extract: Path, scratch: Path) -> dict:
+    """The GS image of each VARIANTS model, its packet uploaded by the disc
+    replay, as freeze blobs by name. Refuses a key no upload of that image
+    writes."""
+    sys.path.insert(0, str(DECOMP / 'tools'))
+    import export_disc_textures_gs as G
+    import export_native as en
+    import export_object_textures as eot
+    out = {}
+    for _token, source, name, mode, costume in VARIANTS:
+        world = loader.world(G.FIRST_LEVEL_AREA, 0, mode, costume)
+        for f in en.load_mesh_sections(extract / source.split('extract/', 1)[1])[2]:
+            key = f['key']
+            if not G.reads_only_covered(world, lambda lm, t=key: eot.decode(lm, t)):
+                raise SystemExit(f'{name} TEX0 {key:#018x}: reads GS blocks no disc upload writes')
+        out[name] = G.first_level_freeze(scratch / f'gs_{name}.bin', world)
+    return out
+
+
+def write(output: Path, extract: Path, texels: Path, variant_texels: dict | None = None) -> tuple:
     """The model files from the extract, texels decoded from the GS freeze
-    blob `texels` (gs_vram.read_localmem's layout). Returns (written, report)."""
+    blob `texels` (gs_vram.read_localmem's layout), the VARIANTS models' from
+    `variant_texels` by name (no variants without it: the status-hub capture
+    holds the first packet only). Returns (written, report)."""
     sys.path.insert(0, str(DECOMP / 'tools'))
     import export_native as en
     import export_props as ep
@@ -155,6 +185,22 @@ def write(output: Path, extract: Path, texels: Path) -> tuple:
         report['models'].append({'name': f'letter_{glyph:02x}', 'source': LIBRARY_FILE, 'offset': offset,
                                  'nodes': count, 'textures': len(tex_entries),
                                  'sha256': hashlib.sha256(out.read_bytes()).hexdigest()})
+    # ---- the menu player's other models: the same skeleton and clips
+    for token, source, name, _mode, _costume in VARIANTS if variant_texels else ():
+        sections, max_slot, tex_table = en.load_mesh_sections(rel(source))
+        count, nodes = skeleton(rel(source).read_bytes())
+        assert count == 21 and max_slot < count and [p for p, _ in nodes] == parents, name
+        tex_entries, tex_blob = en.build_texture_blob(None, tex_table, variant_texels[name])
+        out = output / f'{name}.emdl'
+        en.write_emdl(out, sections, [], parents, [[en.mat_identity()] * count], 30.0, tex_entries, tex_blob,
+                      flags=0)
+        written.append(out)
+        emsk += struct.pack('<II', token, count)
+        for parent, bind in nodes:
+            emsk += struct.pack('<i', parent) + bind
+        emsk_count += 1
+        report['models'].append({'name': name, 'source': source, 'nodes': count, 'textures': len(tex_entries),
+                                 'sha256': hashlib.sha256(out.read_bytes()).hexdigest()})
     out = output / 'models.emsk'
     out.write_bytes(struct.pack('<4sII', b'EMSK', 1, emsk_count) + emsk)
     written.append(out)
@@ -217,22 +263,24 @@ def main():
     sys.path.insert(0, str(ROOT / 'tools'))
     import export_disc_textures_gs as G
     import export_object_textures as eot
-    world = G.FirstLevel(G.Disc(args.iso, args.disc), args.extract).world()
+    loader = G.FirstLevel(G.Disc(args.iso, args.disc), args.extract)
+    world = loader.world()
     for key in texture_keys(args.extract):
         if not G.reads_only_covered(world, lambda lm, t=key: eot.decode(lm, t)):
             raise SystemExit(f'TEX0 {key:#018x}: reads GS blocks no disc upload of the route writes')
     scratch = ROOT / 'build/status_models_export'
     scratch.mkdir(parents=True, exist_ok=True)
     freeze = G.first_level_freeze(ROOT / 'build/disc_textures/first_level_gs.bin', world)
-    written, report = write(args.output, args.extract, freeze)
+    written, report = write(args.output, args.extract, freeze, variant_freezes(loader, args.extract, scratch))
     report['texels'] = 'disc (FirstLevel.world(), docs/DISC_TEXTURES.md)'
     if args.capture:
         report['capture_check'] = verify_capture(args.capture, args.extract)
         check = scratch / 'capture_check'
         again, _r = write(check, args.extract, args.capture / 'gs.bin')
-        for a, b in zip(written, again):
-            if a.read_bytes() != b.read_bytes():
-                raise SystemExit(f'{a.name}: the capture GS memory gives a different file')
+        fresh = {a.name: a for a in written}
+        for b in again:
+            if b.name != 'models.emsk' and fresh[b.name].read_bytes() != b.read_bytes():
+                raise SystemExit(f'{b.name}: the capture GS memory gives a different file')
         report['capture_check']['files_identical'] = len(written)
     (scratch / 'export.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'status models: menu player + {len(GLYPHS)} glyph models -> {args.output} (texels from the disc'

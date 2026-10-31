@@ -362,22 +362,6 @@ static int ede40_body(const H14 *h, uint32_t a0, uint32_t a1, const uint32_t slo
     return l14_end(&o);
 }
 
-/* 001ED450: the same three passes over the blast reaction's parameter rows
- * (effect 0x80000023). */
-static const uint32_t ED450_SLOTS[24][2] = {
-    {0x00257530u, 0x41800000u}, {0x00257534u, 0x40800000u}, {0x00257538u, 0x40800000u}, {0x0025753Cu, 0},
-    {0x00257540u, 0}, {0x00257544u, 0}, {0x00257548u, 0}, {0x0025754Cu, 0},
-    {0x002575C0u, 0x42C00000u}, {0x002575C4u, 0}, {0x002575C8u, 0}, {0x002575CCu, 0x42C00000u},
-    {0x002575D0u, 0x42C00000u}, {0x002575D4u, 0}, {0x002575D8u, 0}, {0x002575DCu, 0},
-    {0x00257650u, 0x42C00000u}, {0x00257654u, 0}, {0x00257658u, 0}, {0x0025765Cu, 0x42C00000u},
-    {0x00257660u, 0x42C00000u}, {0x00257664u, 0}, {0x00257668u, 0}, {0x0025766Cu, 0},
-};
-
-int em_level14_port_001ED450(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
-{
-    return ede40_body(h, a0, a1, ED450_SLOTS, fault);
-}
-
 int em_level14_port_001EDE40(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
 {
     return ede40_body(h, a0, a1, EDE40_SLOTS, fault);
@@ -397,6 +381,22 @@ static const uint32_t EF1C0_SLOTS[24][2] = {
 int em_level14_port_001EF1C0(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
 {
     return ede40_body(h, a0, a1, EF1C0_SLOTS, fault);
+}
+
+/* 001ED450, the third twin (lane P1: the flames' effect in AREA07 sub 3;
+ * byte-matched decomp C, checked against the instructions). */
+static const uint32_t ED450_SLOTS[24][2] = {
+    {0x00257530u, 0x41800000u}, {0x00257534u, 0x40800000u}, {0x00257538u, 0x40800000u}, {0x0025753Cu, 0},
+    {0x00257540u, 0}, {0x00257544u, 0}, {0x00257548u, 0}, {0x0025754Cu, 0},
+    {0x002575C0u, 0x42C00000u}, {0x002575C4u, 0}, {0x002575C8u, 0}, {0x002575CCu, 0x42C00000u},
+    {0x002575D0u, 0x42C00000u}, {0x002575D4u, 0}, {0x002575D8u, 0}, {0x002575DCu, 0},
+    {0x00257650u, 0x42C00000u}, {0x00257654u, 0}, {0x00257658u, 0}, {0x0025765Cu, 0x42C00000u},
+    {0x00257660u, 0x42C00000u}, {0x00257664u, 0}, {0x00257668u, 0}, {0x0025766Cu, 0},
+};
+
+int em_level14_port_001ED450(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault)
+{
+    return ede40_body(h, a0, a1, ED450_SLOTS, fault);
 }
 
 /* ------------------------------------------------------------------------

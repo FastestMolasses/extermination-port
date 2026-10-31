@@ -41,7 +41,6 @@ U, I, F, Q, S = O.U, O.I, O.F, O.Q, O.S
 FUNCS = {
     0x001B3670: ('em_level16_boot_001B3670', 348, [U, U, U, S], I),
     0x001B3C30: ('em_level16_boot_001B3C30', 736, [U, U, U, F, F, S], None),
-    0x001BD460: ('em_level16_boot_001BD460', 256, [U], I),
     0x001C82A0: ('em_level16_boot_001C82A0', 476, [U, U], None),
     0x00158430: ('em_level16_boot_00158430', 344, [U], None),
     0x0021C040: ('em_level16_boot_0021C040', 212, [U, U], None),
@@ -234,13 +233,6 @@ def cases():
                           (0x700031D8, w(2)), (0x700031D4, w(B + 0x400)), (B + 0x402, b(4))])]})
     add('3c30/stub', 0x1B3C30, hits, {0x19AA80: [1], 0x1F4F40: [NODE]}, ())
     add('3c30/stub/wall', 0x1B3C30, hits, {0x19A570: [1], 0x1F4F40: [NODE]}, ())
-    # ---- 001BD460: both floats around each comparison
-    for f14 in (0., .1, .2, .3, 2., 2.2, 2.19, 3., -1.):
-        for f10 in (0., .1, .2, .3, 1., -1.):
-            add(f'd460/{f14}/{f10}', 0x1BD460, [(A + 0x14, f(f14)), (A + 0x10, f(f10))])
-    for raw in (NAN, INF, NINF, TINY, 0x80000001):
-        add(f'd460/raw/{raw:x}', 0x1BD460, [(A + 0x14, w(raw)), (A + 0x10, w(raw))])
-        add(f'd460/raw10/{raw:x}', 0x1BD460, [(A + 0x14, f(1.)), (A + 0x10, w(raw))])
     # ---- 001C82A0: the bones, their parents
     def bones(n, parents):
         p = [(A + 0xC, b(n)), (A + 0x60, O.fw(1., 1., 1., 1.)), (A + 0xC0, O.fw(.1, .2, .3, 0.))]

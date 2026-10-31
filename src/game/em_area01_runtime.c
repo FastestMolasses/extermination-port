@@ -119,6 +119,8 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_level15_creatures.h"
 #include "game/em_area15_route.h"
 #include "game/em_area08_route.h"
+#include "game/em_area07_route.h"
+#include "game/em_area07_probe.h"
 #include "game/em_area03_route.h"
 #include "game/em_area03_arrival.h"
 #include "game/em_area19_route.h"
@@ -279,7 +281,8 @@ int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *h
 {
     /* the areas em_area01_state binds: AREA00..02, AREA04, AREA06, AREA13, AREA15, AREA03, AREA19, AREA22 */
     if (!r || !host || !host->bytes || !host->worker || !(area <= 2 || area == 4 || area == 6 || area == 0x0D ||
-                                                     area == 0x16 || area == 0x0F || area == 3 || area == 8 || area == 7 || area == 0x13))
+                                                     area == 0x16 || area == 0x0F || area == 3 || area == 0x13 ||
+                                                     area == 8 || area == 7))
         return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
@@ -634,7 +637,8 @@ int em_area01_runtime_later(EmArea01Runtime *r, EmArea01Call *c, int *rc)
  * host's workers (fail-stop). */
 static int mid_host(unsigned area)
 {
-    return area == 0x16 || area == 6 || area == 0x0D || area == 0x0F || area == 3 || area == 8 || area == 7 || area == 0x13;
+    return area == 0x16 || area == 6 || area == 0x0D || area == 0x0F || area == 3 || area == 0x13 || area == 8 ||
+           area == 7;
 }
 
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
@@ -658,9 +662,11 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     /* 001CB1F0 / 001CB130 / 001CB060: the draw methods of AREA19's tendril
      * field and worms (0x26E310 kinds 10, 9, 8). Their VU1 programs (0x0023D4D0
      * and 001D3F60's) have no translation yet: not drawn (an open item of
-     * docs/LEVEL3_BINDING.md, lane J1). AREA03's and AREA04 sub 1's tendrils
-     * 001546C0 the same (docs/AREA03X_PORT.md). */
-    if ((r->area == 0x13 || r->area == 3 || r->area == 4) && (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
+     * docs/LEVEL3_BINDING.md, lane J1). AREA08's and AREA07's boxes (001546C0 ->
+     * 00154F00) take the same method: docs/AREA08_PORT.md; AREA03's and AREA04
+     * sub 1's tendrils 001546C0 too (docs/AREA03X_PORT.md). */
+    if ((r->area == 0x13 || r->area == 8 || r->area == 7 || r->area == 3 || r->area == 4) &&
+        (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
         static int noted;
         if (!noted++) fprintf(stderr, "em_area01: %08X: its VU1 program is not translated, the node is not drawn\n",
                               (unsigned)c->function);
@@ -677,10 +683,10 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 0x13 && c->function >= 0x00823500u)
         return dispatch_area19(r, c);
     /* The creature family's boot entries and the script actors serve AREA13,
-     * AREA15, AREA03, AREA08, AREA07 and AREA19 too (their overlay addresses went
+     * AREA15, AREA03, AREA19, AREA08 and AREA07 too (their overlay addresses went
      * to their own dispatch or reach the host's fail-stop below). */
-    const int later = (r->area == 0x0D || r->area == 0x0F || r->area == 3 || r->area == 8 || r->area == 7 ||
-                       r->area == 0x13) &&
+    const int later = (r->area == 0x0D || r->area == 0x0F || r->area == 3 || r->area == 0x13 || r->area == 8 ||
+                       r->area == 7) &&
                       c->function < 0x00823500u;
     const int creatures = r->area == 4 || later;
     if (creatures && dispatch_level8(r, c, &rc))
@@ -765,7 +771,7 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return 0;
     }
     if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x0D || r->area == 0x0F || r->area == 3 ||
-         r->area == 8 || r->area == 7 || r->area == 0x13) &&
+         r->area == 0x13 || r->area == 8 || r->area == 7) &&
         c->function == 0x001E4CE0u) {
         /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20,
          * by a drum's in AREA04 and by AREA06's g[11] 00219870):

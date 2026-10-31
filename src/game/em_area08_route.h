@@ -34,6 +34,10 @@ typedef struct {
     int (*w_00158590)(void *ctx, uint32_t a0, int32_t a1, int32_t a2);
     int (*w_00159FC0)(void *ctx, uint32_t a0, uint32_t a1, int32_t *result);
     int (*w_00182F90)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001287F0)(void *ctx, uint32_t a0, uint32_t a1, int32_t a2, float a3);
+    int (*w_00128830)(void *ctx, uint32_t a0, float a1, float a2, float a3);
+    int (*w_001B5360)(void *ctx, uint32_t a0);
+    int (*w_001B12B0)(void *ctx, float a0, float a1, float a2, float *result);
     int (*w_00102948)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001B0460)(void *ctx, int32_t a0);
     int (*w_001AFC10)(void *ctx, uint32_t a0);
@@ -82,6 +86,9 @@ typedef struct {
     int (*w_callback)(void *ctx, uint32_t function, uint32_t self);
 } EmArea08RouteHooks;
 /* boot: AREA08's and AREA07's switches */
+int em_area08_route_0015A750(const EmArea08RouteHooks *h, uint32_t a0, uint32_t sp, EmArea08RouteFault *fault);
+int em_area08_route_0012DD70(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, EmArea08RouteFault *fault);
+int em_area08_route_001BD460(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_001BD370(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_00157360(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_00159FC0(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, int32_t *result, EmArea08RouteFault *fault);
@@ -103,6 +110,9 @@ int em_area08_route_008249F0(const EmArea08RouteHooks *h, uint32_t a0, EmArea08R
 int em_area08_route_00824BC0(const EmArea08RouteHooks *h, uint32_t a0, uint32_t sp, EmArea08RouteFault *fault);
 /* AREA07 (0x823DA0 is another function in AREA08's overlay) */
 int em_area08_route_a07_00823DA0(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
+int em_area08_route_a07_00823990(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
+int em_area08_route_a07_00823B40(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
+int em_area08_route_a07_00823C20(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
 #ifdef __cplusplus
 }
 #endif

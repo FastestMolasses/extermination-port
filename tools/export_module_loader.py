@@ -112,11 +112,12 @@ DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES + ATTAC
 # area 13 entry 0; docs/NINTH_LEVEL_ROUTE.md). AREA15 subs 0 and 1 (AREA19's
 # doors [50] / [51], FOURTEENTH_LEVEL_ROUTE.md) and AREA03 sub 0 (door [25],
 # FIFTEENTH_LEVEL_ROUTE.md). AREA19 (area byte 0x13) sub 0 and sub 1 (decomp
-# docs/AREA19_OVERLAY.md). AREA08 subs 0, 2, 3 and AREA07 sub 0 (their lifts),
-# AREA03 subs 1 and 2 and AREA04 sub 1 (SIXTEENTH_LEVEL_ROUTE.md).
+# docs/AREA19_OVERLAY.md). AREA08 subs 0, 2, 3 and AREA07 subs 0, 2, 3 (their
+# lifts and sliders, SIXTEENTH / SEVENTEENTH_LEVEL_ROUTE.md), AREA03 subs 1 and 2
+# and AREA04 sub 1 (SIXTEENTH_LEVEL_ROUTE.md).
 DEFAULT_AREAS = ((0x0B, 0), (0x01, 0), (0x00, 0), (0x00, 1), (0x02, 1), (0x02, 0), (0x04, 0), (0x16, 0),
                  (0x06, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (0x03, 0), (0x13, 0), (0x13, 1), (0x08, 0), (0x08, 2),
-                 (0x08, 3), (0x07, 0), (0x03, 1), (0x03, 2), (0x04, 1))
+                 (0x08, 3), (0x07, 0), (0x07, 2), (0x07, 3), (0x03, 1), (0x03, 2), (0x04, 1))
 HEADER = 0x120
 AREA_FILES = 0x17
 D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890

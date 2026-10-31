@@ -75,7 +75,6 @@ int em_level16_boot_a03_00825200(const EmLevel16BootHooks *h, uint32_t a0, uint3
 int em_level16_boot_a04_00824EF0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t sp, EmLevel16BootFault *fault);
 int em_level16_boot_a04_00825310(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault);
 int em_level16_boot_00158430(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault);
-int em_level16_boot_001BD460(const EmLevel16BootHooks *h, uint32_t a0, int32_t *result, EmLevel16BootFault *fault);
 int em_level16_boot_001C82A0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault);
 int em_level16_boot_001B3C30(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, float a3, float a4, uint32_t sp, EmLevel16BootFault *fault);
 int em_level16_boot_0021C040(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault);

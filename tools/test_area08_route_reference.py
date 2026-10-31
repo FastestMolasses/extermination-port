@@ -19,7 +19,10 @@ DECOMP = ROOT.parent / 'Extermination'
 SET = DECOMP / 'build/fork_refs/levels-recordings-20261030-1/s87'
 U, I, F, S = O.U, O.I, O.F, O.S
 FUNCS = {
+    0x0012DD70: ('em_area08_route_0012DD70', 0x120, [U, U], None),
+    0x0015A750: ('em_area08_route_0015A750', 0x3A0, [U, S], None),
     0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
+    0x001BD460: ('em_area08_route_001BD460', 0x100, [U], I),
     0x00157360: ('em_area08_route_00157360', 0x248, [U, U, U], I),
     0x0015A070: ('em_area08_route_0015A070', 0x170, [U], None),
     0x00823580: ('em_area08_route_00823580', 0x54, [U], I),
@@ -38,7 +41,10 @@ FUNCS = {
     0x00824BC0: ('em_area08_route_00824BC0', 0x4FC, [U, S], None),
 }
 # AREA07's address space is another overlay: its own pass of the same harness
-FUNCS07 = {0x00823DA0: ('em_area08_route_a07_00823DA0', 0x1D8, [U], None)}
+FUNCS07 = {0x00823DA0: ('em_area08_route_a07_00823DA0', 0x1D8, [U], None),
+           0x00823990: ('em_area08_route_a07_00823990', 0x1A4, [U], None),
+           0x00823B40: ('em_area08_route_a07_00823B40', 0xDC, [U], None),
+           0x00823C20: ('em_area08_route_a07_00823C20', 0x17C, [U], None)}
 # 00159FC0 is a hook of 0015A070: its own pass, the hook table's slot unused
 FUNCS159 = {0x00159FC0: ('em_area08_route_00159FC0', 0xAC, [U, U], I)}
 OVERLAY_FILES = {8: DECOMP/'extract/OVERLAY/AREA08.BIN', 7: DECOMP/'extract/OVERLAY/AREA07.BIN'}
@@ -60,6 +66,10 @@ HOOKS = [
     ('w_00158590', 0x00158590, [('u', 4), ('i', 5), ('i', 6)], None),
     ('w_00159FC0', 0x00159FC0, [('u', 4), ('u', 5)], 'i'),
     ('w_00182F90', 0x00182F90, [('u', 4), ('u', 5)], None),
+    ('w_001287F0', 0x001287F0, [('u', 4), ('u', 5), ('i', 6), ('f', 12)], None),
+    ('w_00128830', 0x00128830, [('u', 4), ('f', 12), ('f', 13), ('f', 14)], None),
+    ('w_001B5360', 0x001B5360, [('u', 4)], None),
+    ('w_001B12B0', 0x001B12B0, [('f', 12), ('f', 13), ('f', 14)], 'f'),
     ('w_00102948', 0x00102948, [('u', 4), ('u', 5)], None),
     ('w_001B0460', 0x001B0460, [('i', 4)], None),
     ('w_001AFC10', 0x001AFC10, [('u', 4)], None),
@@ -132,11 +142,12 @@ def configure(oid):
         [('ctx', C.c_void_p), ('bytes', O.BYTES_FN)] +
         [(name, O.hook_proto(args, res)) for name, _, args, res in HOOKS] +
         [('w_callback', O.CALLBACK_FN)]})
-    O.SELF_ENTRIES = {8: {0x15A070, 0x823870, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0}, 7: {0x823DA0}, 159: set()}[oid]
+    O.SELF_ENTRIES = {8: {0x15A070, 0x823870, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0}, 7: {0x823DA0, 0x823990}, 159: set()}[oid]
     O.HEAVY = set()
     O.RETURN_SITES = O.RETURN_SITES_FULL = tuple(e for e, f in funcs.items() if f[3])
-    a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380')
-    used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0')}[oid]
+    a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380',
+           'w_001B6F00', 'w_001BA1C0', 'w_001C4760', 'w_001F4BF0', 'w_001FABB0', 'w_001FB0B0')
+    used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0', 'w_001B2B10', 'w_0019A440')}[oid]
     O.CONTRACT_UNREACHABLE = {h[0]: 'not called in this pass' for h in HOOKS if h[0] not in used}
     O.LOCAL_STORES = set()
     O.DEFAULT_ARGS = {e: [O.STACK_TOP if k == S else (A, P, V)[i] for i, k in enumerate(f[2])]
@@ -144,8 +155,9 @@ def configure(oid):
     O.image_for = lambda _: O.CAPTURES[beats[0]][0]
     O.CAPTURES.clear()
     O.CAPTURES.update(O.load_captures(O.read_elf()))
-    O.JUMP_TABLES = {}
-    O.TABLE_BYTES = frozenset()
+    # 0015A750's switch: its table D_0026D390
+    O.JUMP_TABLES = {0x15A804: (0x26D390, 7)}
+    O.TABLE_BYTES = frozenset(a for table, n in O.JUMP_TABLES.values() for a in range(table, table + 4 * n))
 
 
 def cases(oid):
@@ -173,6 +185,24 @@ def cases(oid):
         return out
     if oid == 7:
         steps(0x823DA0)
+        for e in (0x823990, 0x823B40, 0x823C20):
+            steps(e)
+        add('terminal/start/set', 0x823990, [], O.Script({0x1B0FD0: [0], 0x1BA1C0: [1]}))
+        for lit in (0, 1, 0xFF):
+            for other in (0, 0xFF):
+                for sub in (0, 1, 2, 3):
+                    for use in (0, 4):
+                        for result in (0, 1):
+                            add(f'terminal/{lit}/{other}/{sub}/{use}/{result}', 0x823990,
+                                [(A+4, b(1)), (A+5, b(sub)), (A+0xB, b(use)), (0x81076D, b(lit)), (0x810770, b(other)),
+                                 (A+0xB0, f(1.0))], O.Script({0x1BA1F0: [result]}))
+        for lit in (0, 1):
+            for count in (0, 1):
+                for sub in (0, 1, 2, 3):
+                    for result in (0, 1):
+                        add(f'half/{lit}/{count}/{sub}/{result}', 0x823C20,
+                            [(A+5, b(sub)), (A+6, b(count)), (A+0xB, b(4)), (0x81077D, b(lit))],
+                            O.Script({0x1BA1F0: [result]}))
         for z in (599.0, 600.0, 601.0):
             for pz in (599.0, 600.0, 601.0):
                 for result in (0, 1):
@@ -196,6 +226,22 @@ def cases(oid):
                     add(f'beat/{area}/{step}/{timer}/{bit}', 0x157360,
                         [(P+4, b(step)), (V+0x10, f(timer)), (A+0x2E, b(bit)), (0x810700, b(area)), (0x810841+area, b(1)),
                          (V+0x20, O.fw(1.0, 2.0, 3.0, 1.0)), (V+0x30, O.fw(4.0, 5.0, 6.0, 1.0))])
+    # 0x15A750
+    for kind in range(7):
+        for phase in (0.5, 1.995, 2.5):
+            add(f'sparks/{kind}/{phase}', 0x15A750, [(A+0x54, h(kind)), (A+0x1F0, f(phase)), (A+0x1F4, w(0x12345678 + kind)),
+                                                     (A+0x20, f(30.0))])
+    # 0x12DD70
+    for step in (0, 1, 2):
+        for anim in (0, 0x100):
+            for done in (0, 0x1000):
+                add(f'fall12D/{step}/{anim}/{done}', 0x12DD70, [(A+7, b(step)), (P+0xE4, w(anim)), (P+0xF4, h(done)),
+                                                                (A+0xC0, f(0.5))], O.Script({0x1B12B0: [O.fb(0.6)]}))
+    # 0x1BD460
+    for a in (0.0, 0.1, 0.2, 1.0, 2.2, 2.3, 5.0):
+        for c in (0.0, 0.1, 0.2, 1.0, 5.0):
+            add(f'close/{a}/{c}', 0x1BD460, [(A+0x10, f(c)), (A+0x14, f(a)), (0x275B40, w(V)), (V+4, w(P)), (V+8, w(P+0x100)),
+                                             (V+0xC, w(P+0x200)), (V+0x10, w(V+0x200))])
     # 0x1BD370
     for a in (1.0, 2.8, 2.9, 3.0, 4.9, 5.0):
         for c in (0.0, 4.7, 4.8, 4.9, 5.0):

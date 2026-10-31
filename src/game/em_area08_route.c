@@ -367,8 +367,16 @@ static void owner_00824210(A08R *o, uint32_t self)
     }
 }
 
-/* func_overlay_AREA08_00824750.c: [2]'s half when D_0081076D is not 0xFF. */
-static void half_00824790(A08R *o, uint32_t self)
+/* The terminal owners' tables: AREA08's [2] (0x8245E0, flag 0x18) and AREA07's
+ * [17] (0x823990, flag 0x15), the same C with these bytes and scripts. */
+typedef struct {
+    uint32_t list, flag, lit, other, counter, first, both, item;
+} Terminal;
+static const Terminal k_a08t = {0x827160, 0x18, 0x810770, 0x81076D, 0x8107F0, 0x826420, 0x8268E0, 0x13};
+static const Terminal k_a07t = {0x827170, 0x15, 0x81076D, 0x810770, 0x8107ED, 0x8264B0, 0x826930, 0x11};
+
+/* func_overlay_AREA08_00824750.c, func_overlay_AREA07_00823B00.c. */
+static void half_first(A08R *o, uint32_t self, const Terminal *t)
 {
     int32_t r = 0;
     switch (B(self + 5)) {
@@ -376,29 +384,29 @@ static void half_00824790(A08R *o, uint32_t self)
         if (B(self + 0xB) & 4) {
             vec4(o, 0x700038A0, 0.0f, -6.0f, 0.0f, 1.0f);
             C(001B6F00, self, 0x700038A0, PI);
-            C(001BA1A0, self + 0x1F0, 0x826420);
+            C(001BA1A0, self + 0x1F0, t->first);
             WB(self + 5, 1);
         }
         break;
     case 1:
         C(001BA1F0, self, &r);
         if (r) {
-            C(001C4760, 0x13, 1);
-            WB(0x8107F0, 0xFF);
+            C(001C4760, (int32_t)t->item, 1);
+            WB(t->counter, 0xFF);
         }
         break;
     default: break;
     }
 }
 
-/* func_overlay_AREA08_00824830.c: [2]'s half once D_0081076D is 0xFF. */
-static void half_00824870(A08R *o, uint32_t self)
+/* func_overlay_AREA08_00824830.c, func_overlay_AREA07_00823BE0.c. */
+static void half_both(A08R *o, uint32_t self, const Terminal *t)
 {
     int32_t r = 0;
     switch (B(self + 5)) {
     case 0:
         if (B(self + 0xB) & 4) {
-            C(001BA1A0, self + 0x1F0, 0x8268E0);
+            C(001BA1A0, self + 0x1F0, t->both);
             vec4(o, 0x700038A0, 0.0f, -6.0f, 0.0f, 1.0f);
             C(001B6F00, self, 0x700038A0, PI);
             WB(self + 5, 1);
@@ -412,12 +420,12 @@ static void half_00824870(A08R *o, uint32_t self)
         }
         C(001BA1F0, self, &r);
         if (r) {
-            C(001C4760, 0x13, 1);
+            C(001C4760, (int32_t)t->item, 1);
             C(001C4760, 0x14, 1);
             if (a08r_c_001FABB0(o)) return;
             C(001FB0B0, 9);
-            WB(0x810770, 0xFF);
-            WB(0x8107F0, 0xFF);
+            WB(t->lit, 0xFF);
+            WB(t->counter, 0xFF);
             WB(self + 5, 2);
         }
         break;
@@ -425,8 +433,8 @@ static void half_00824870(A08R *o, uint32_t self)
     }
 }
 
-/* func_overlay_AREA08_008245A0.c: sub 3's terminal [2]. */
-static void terminal_008245E0(A08R *o, uint32_t self)
+/* func_overlay_AREA08_008245A0.c, func_overlay_AREA07_00823950.c. */
+static void terminal(A08R *o, uint32_t self, const Terminal *t)
 {
     int32_t r = 0;
     uint32_t lit;
@@ -435,13 +443,13 @@ static void terminal_008245E0(A08R *o, uint32_t self)
         C(001B0FD0, self, &r);
         if (r) break;
         C(001C6380, self);
-        W(self + 0x30, 0x827160);
+        W(self + 0x30, t->list);
         WB(self + 4, 1);
-        C(001BA1C0, self, 0x18, &r);
+        C(001BA1C0, self, (int32_t)t->flag, &r);
         WB(self, r ? 2 : 1);
         break;
     case 1:
-        lit = B(0x810770);
+        lit = B(t->lit);
         if (lit != 0xFF) {
             if (lit == 0) {
                 W(0x700038A0, A08R_ADD(R(self + 0xB0), F(0.4f)));
@@ -451,8 +459,8 @@ static void terminal_008245E0(A08R *o, uint32_t self)
                 W(0x700038B0, 0); W(0x700038B4, 0x80); W(0x700038B8, 0); W(0x700038BC, 0x80);
                 C(001F4BF0, 0x700038A0, 0x700038B0);
             }
-            if (B(0x81076D) == 0xFF) half_00824870(o, self);
-            else half_00824790(o, self);
+            if (B(t->other) == 0xFF) half_both(o, self, t);
+            else half_first(o, self, t);
             if (a08r_failed(o)) return;
         }
         C(001C6380, self);
@@ -465,6 +473,13 @@ static void terminal_008245E0(A08R *o, uint32_t self)
     default: break;
     }
 }
+
+static void half_00824790(A08R *o, uint32_t self) { half_first(o, self, &k_a08t); }
+static void half_00824870(A08R *o, uint32_t self) { half_both(o, self, &k_a08t); }
+static void terminal_008245E0(A08R *o, uint32_t self) { terminal(o, self, &k_a08t); }
+static void half_a07_00823B40(A08R *o, uint32_t self) { half_first(o, self, &k_a07t); }
+static void half_a07_00823C20(A08R *o, uint32_t self) { half_both(o, self, &k_a07t); }
+static void terminal_a07_00823990(A08R *o, uint32_t self) { terminal(o, self, &k_a07t); }
 
 /* func_overlay_AREA08_008249B0.c: sliders [27], [28], [29]. */
 static void slider_008249F0(A08R *o, uint32_t self)
@@ -636,6 +651,91 @@ static void slider_a07_00823DA0(A08R *o, uint32_t self)
     }
 }
 
+/* func_0012DD70.c (byte-matched): a bug's two-step fall from a ceiling. */
+static void fall_0012DD70(A08R *o, uint32_t self, uint32_t ctl)
+{
+    uint32_t v = 0;
+    switch (B(self + 7)) {
+    case 0:
+        C(001B5360, self);
+        C(001B12B0, F(1.5707964f), R(self + 0xC0), F(0.06981317f), &v);
+        W(self + 0xC0, v);
+        if (R(ctl + 0xE4) == 0x100) {
+            C(001287F0, self, ctl, 9, 0);
+            W(self + 0xC0, 0);
+            WB(self + 7, B(self + 7) + 1);
+            W(ctl + 0xD8, 0);
+            WH(ctl + 0xF4, 0);
+        }
+        break;
+    case 1:
+        if (S16(ctl + 0xF4) & 0x1000) {
+            C(00128830, self, 0, 0, ONE);
+            C(001287F0, self, ctl, 0, 0);
+            C(001287F0, self, ctl, 2, F(6.0f));
+            WB(self + 5, 1);
+            WB(self + 6, 0);
+            WB(self + 7, 0);
+            C(00102948, ctl + 0x50, self + 0xB0);
+        }
+        break;
+    default: break;
+    }
+}
+
+/* func_0015A750.c (NEARMISS: control flow and the calls as the original's):
+ * a flame's sparks, one call of the 0015A2C0 owner. */
+static void sparks_0015A750(A08R *o, uint32_t p, uint32_t sp)
+{
+    static const struct { uint32_t mode, count; } kinds[7] = {
+        {0x18, 2}, {0x20, 3}, {0x20, 5}, {0x18, 3}, {0x20, 5}, {0x18, 3}, {0x20, 4}};
+    const uint32_t work = sp - 0x60u;
+    int32_t handle = 0, count, kind;
+    uint32_t rng, dt;
+    C(001029C0, 0x700036A0);
+    C(00102918, 0x700036A0, 0x700036A0, p + 0xB0);
+    W(0x700036D4, A08R_ADD(R(0x700036D4), F(2.0f)));
+    C(001CCF70, p + 0xB0, &handle);
+    dt = R(p + 0x20);
+    rng = R(p + 0x1F4);
+    dt = A08R_DIV(dt, F(60.0f));
+    kind = S16(p + 0x54);
+    if (kind < 0 || kind > 6) {
+        /* the original reads an uninitialised count: not reachable here */
+        a08r_latch(o, 0x0015A750u, EM_AREA08_ROUTE_FAULT_BAD_ADDRESS);
+        return;
+    }
+    W(0x248280, kinds[kind].mode);
+    count = (int32_t)kinds[kind].count;
+    for (int32_t i = 1; i < count; ++i) {
+        uint32_t a, b, ratio, x, z;
+        a = A08R_ADD(A08R_DIV(A08R_CVT_S_W(rng >> 16 & 0xFFFF), F(65535.0f)), F(0.0001f));
+        a = A08R_ADD(R(p + 0x1F0), A08R_MUL(F(0.5f), a));
+        rng = rng * 37u + 11u;
+        if (!A08R_LE(a, F(2.0f))) a = A08R_SUB(a, ONE);
+        ratio = A08R_DIV(A08R_CVT_S_W(i + 1), A08R_CVT_S_W(count));
+        kind = S16(p + 0x54);
+        x = A08R_MUL(R(0x248120u + 20u * (uint32_t)kind), ratio);
+        W(0x248210, x);
+        b = A08R_ADD(A08R_DIV(A08R_CVT_S_W(rng >> 16 & 0xFFFF), F(65535.0f)), F(0.0001f));
+        rng = rng * 37u + 11u;
+        kind = S16(p + 0x54);
+        z = A08R_MUL(R(0x248128u + 20u * (uint32_t)kind), ratio);
+        W(0x248218, z);
+        W(0x248210, A08R_SUB(R(0x248210), F(5.0f)));
+        W(0x248218, A08R_SUB(R(0x248218), F(5.0f)));
+        W(0x24822C, A08R_MUL(F(64.0f), dt));
+        W(0x24823C, 0);
+        C(001CFAE0, work, 0, 0x700036A0, a, b, dt, F(0.1f));
+        C(001CFBE0, handle, 1, 0x248200, work, 1);
+    }
+    {
+        const uint32_t phase = A08R_ADD(R(p + 0x1F0), F(0.01f));
+        W(p + 0x1F0, phase);
+        if (!A08R_LE(phase, F(2.0f))) W(p + 0x1F0, A08R_SUB(R(p + 0x1F0), ONE));
+    }
+}
+
 /* func_001BD370.c: the doors opening, the twin of 001BD270's closing: rec +0x10
  * and then +0x14 rise by 0.2, clamped at 5; the four pose floats +0x7C. */
 static int32_t open_001BD370(A08R *o, uint32_t rec)
@@ -666,6 +766,34 @@ static int32_t open_001BD370(A08R *o, uint32_t rec)
     f14 = R(rec + 0x14);
     W(R(table + 0x10) + 0x7C, f14);
     return 0;
+}
+
+/* func_001BD460.c: the doors closing. */
+static int32_t close_001BD460(A08R *o, uint32_t rec)
+{
+    uint32_t a = A08R_SUB(R(rec + 0x14), F(0.2f)), b, table, f10, f14;
+    W(rec + 0x14, a);
+    if (A08R_LE(a, F(2.0f))) {
+        if (A08R_LE(a, 0)) W(rec + 0x14, 0);
+        b = A08R_SUB(R(rec + 0x10), F(0.2f));
+        W(rec + 0x10, b);
+        if (A08R_LE(b, 0)) W(rec + 0x10, 0);
+    }
+    table = R(0x275B40);
+    f14 = R(rec + 0x14);
+    W(R(table + 4) + 0x7C, A08R_NEG(f14));
+    table = R(0x275B40);
+    f10 = R(rec + 0x10);
+    f14 = R(rec + 0x14);
+    W(R(table + 8) + 0x7C, A08R_SUB(A08R_NEG(f10), f14));
+    table = R(0x275B40);
+    f10 = R(rec + 0x10);
+    f14 = R(rec + 0x14);
+    W(R(table + 0xC) + 0x7C, A08R_ADD(f10, f14));
+    table = R(0x275B40);
+    f14 = R(rec + 0x14);
+    W(R(table + 0x10) + 0x7C, f14);
+    return A08R_EQ(R(rec + 0x10), 0) ? 1 : 0;
 }
 
 /* func_00157360.c: the switch's camera beat (script D_00246A20's op09). */
@@ -788,6 +916,9 @@ ENTRY(00824870, half_00824870)
 ENTRY(008245E0, terminal_008245E0)
 ENTRY(008249F0, slider_008249F0)
 ENTRY(a07_00823DA0, slider_a07_00823DA0)
+ENTRY(a07_00823990, terminal_a07_00823990)
+ENTRY(a07_00823B40, half_a07_00823B40)
+ENTRY(a07_00823C20, half_a07_00823C20)
 
 int em_area08_route_00824BC0(const EmArea08RouteHooks *h, uint32_t self, uint32_t sp, EmArea08RouteFault *fault)
 {
@@ -809,6 +940,27 @@ int em_area08_route_008235E0(const EmArea08RouteHooks *h, uint32_t self, int32_t
     A08R o; int32_t r;
     if (!result || a08r_begin(&o, h, fault)) return -1;
     r = rise_008235E0(&o, self);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
+}
+
+int em_area08_route_0015A750(const EmArea08RouteHooks *h, uint32_t p, uint32_t sp, EmArea08RouteFault *fault)
+{
+    A08R o; if (a08r_begin(&o, h, fault)) return -1;
+    sparks_0015A750(&o, p, sp); return a08r_end(&o);
+}
+
+int em_area08_route_0012DD70(const EmArea08RouteHooks *h, uint32_t self, uint32_t ctl, EmArea08RouteFault *fault)
+{
+    A08R o; if (a08r_begin(&o, h, fault)) return -1;
+    fall_0012DD70(&o, self, ctl); return a08r_end(&o);
+}
+
+int em_area08_route_001BD460(const EmArea08RouteHooks *h, uint32_t rec, int32_t *result, EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = close_001BD460(&o, rec);
     if (a08r_failed(&o)) return -1;
     *result = r; return 0;
 }

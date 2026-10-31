@@ -2200,6 +2200,18 @@ def exit_cases(add, rng):
                     (g + 0x1F0 + 0xA8, struct.pack('<I', 5)), (g + 0x1F0 + 0x80, fw(*([age0] * 8)))])
     for st in (2, 3, 4):
         add('ring 1F28D0 s%d' % st, B, 0x1F28D0, [g, STACK_TOP], ring + [(g + 4, b8(st))])
+    # lane P1's cases: ages either side of 1.7 and of 0.5, the max of unequal
+    # durations, a state past the switch
+    ages = ((0.6, 0.1, 1.69, 1.7, 1.8, -0.1, 0.0, 1.6), (0.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1),
+            (1.8,) * 8, (0.5000001,) + (1.8,) * 7)
+    for n, row in enumerate(ages):
+        for a0, seed in ((0, 0x12345678), (1, 0x7FFF0001)):
+            add('ring p1 %d %d' % (n, a0), B, 0x1F28D0, [g, STACK_TOP],
+                ring + [(g + 4, b8(1)), (g + 0x1F0 + 0xA0, struct.pack('<I', a0)), (g + 0x1F0 + 0xA4, struct.pack('<I', seed)),
+                        (g + 0x1F0 + 0xA8, struct.pack('<I', 6)), (g + 0x1F0 + 0x80, fw(*row))])
+    add('ring p1 s0', B, 0x1F28D0, [g, STACK_TOP], ring + [(g + 4, b8(0))],
+        queues={0x122BB8: [0x7FFF0001], 0x1CCF70: [3, 9, 2, 9, 1, 20, 4, 0]})
+    add('ring p1 sFF', B, 0x1F28D0, [g, STACK_TOP], ring + [(g + 4, b8(0xFF))])
     # 00153F10, the worm: spawn, its four run steps, the three death steps.
     add('exit 154040 spawn', B, 0x154040, [f, f + 0x1F0], [(f + 4, b8(0))], queues={0x1B10B0: [0]})
     add('exit 154040 no bones', B, 0x154040, [f, f + 0x1F0], [(f + 4, b8(0))], queues={0x1B10B0: [1]})

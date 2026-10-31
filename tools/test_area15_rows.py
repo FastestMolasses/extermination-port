@@ -52,11 +52,20 @@ def run(chain):
     env.update(EM_START_AT=card, EM_START_AT_PAD=str(pad), EM_START_AT_PATH=str(path), EM_HEADLESS='1',
                EM_UNCAPPED='1', EM_MUTE='1', EM_START_AT_RAND=f'{m.source_rand(beats[0]):08x}',
                EM_START_AT_FADE=str(m.row0_fade(beats[0])), EM_AREA_CHANGE_LOG=str(ticks))
+    # the beat's run mode, as tools/mid_route_beats.py chooses it
+    mode = os.environ.get('EM_MID_ROUTE_MODE') or m.BEAT_MODE.get(beats[0], 'anchor')
+    rands = ROOT / 'build/beat_rands' / f'{beats[0]}.txt'
+    if beats[0] in m.RESTORE and mode != 'steer':
+        if len(beats) == 1 and rands.exists():
+            env['EM_START_AT_RANDS'] = str(rands)
+        env['EM_START_AT_RESTORE'] = m.restore_anchor(beats[0])
+        if mode == 'anchor':
+            del env['EM_START_AT_PATH']
     with open(log, 'w') as f:
         p = subprocess.Popen([str(BIN)], cwd=ROOT, env=env, stdout=f, stderr=subprocess.STDOUT)
         start = time.time()
         try:
-            while p.poll() is None and time.time() - start < 1500:
+            while p.poll() is None and time.time() - start < float(os.environ.get('EM_MID_ROUTE_TIMEOUT', '1500')):
                 time.sleep(0.5)
                 if END.search(log.read_text(errors='replace')):
                     break
@@ -114,6 +123,15 @@ def compare(chain, traces, ticks):
     print(chain, 'trace rows', len(rows), 'anchor row', start, 'native rows', len(native), 'anchor', nstart)
     if nstart is None:
         return False
+    # a card's first frames sit at the load pose: the script's row 0 is the
+    # offset with the longest identical opening (at most 400 rows on)
+    def opening(at):
+        k = 0
+        while start + k < len(rows) and at + k < len(native) and not row_problems(rows[start + k], native[at + k]):
+            k += 1
+        return k
+    nstart = max(range(nstart, min(nstart + 400, len(native))), key=opening)
+    print('  row 0 at native row', nstart)
     good = bad = run = 0
     first = None
     spans = []

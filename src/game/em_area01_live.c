@@ -377,6 +377,7 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if((p=write ? em_rcl_bytes_mut(a,n) : (uint8_t *)(void *)em_rcl_bytes(a,n)))return p;
     if(l->host.bytes && (p=l->host.bytes(l->host.ctx,a,n,write)))return p;
     if((p=em_effects_live_window_mutable(a,n)))return p;
+    if((p=em_sfx_track_words(a,n)))return p;
     /* D_00275B08: the crawl's and the bars' word, the player closure's. */
     if(contains(a,n,0x00275B08u,4))return (uint8_t *)em_player_closure_live_d275B08()+(a-0x00275B08u);
     /* Words only AREA19's code reaches, behind every shared storage:
@@ -1171,7 +1172,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,rc<0 ? c->function : 0);
     }
     if(c->function==0x001FBD50u || c->function==0x001FBF50u || c->function==0x001B1380u ||
-       c->function==0x001FC3C0u || c->function==0x001FC520u) {
+       c->function==0x001FC3C0u || c->function==0x001FC520u || c->function==0x001FBE80u) {
         const EmArea01RuntimeHost host={l,bytes,nested};
         return em_area01_audio_services_call(&host,em_collision_world_sdk(),
                                               em_stream_live_output_mode(),c);

@@ -5,16 +5,6 @@ static int dispatch_n1(EmArea01Runtime *r, EmArea01Call *c, int *out)
 {
     (void)r;
     switch (c->function) {
-    case 0x0011CB90u: /* the SDK's sqrtf kernel, 0011BCF8's and 0011BDD8's */
-        if (c->nf < 1) { *out = fail(r, c->function); return 1; }
-        c->f0 = em_ee_bits(em_sdk_math_original_0011CB90(em_ee_float(c->f[0])));
-        *out = 0;
-        return 1;
-    case 0x0011E080u: /* the SDK's isnanf, 0011E420's */
-        if (c->nf < 1) { *out = fail(r, c->function); return 1; }
-        c->v0 = (uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));
-        *out = 0;
-        return 1;
     case 0x001C94B0u: { /* build_trs_matrix (em_owner_services_original) */
         if (c->na < 4) { *out = fail(r, c->function); return 1; }
         uint8_t *m = bytes(r, (uint32_t)c->a[0], 64, 1);

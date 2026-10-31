@@ -149,6 +149,9 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a03d_00`, `a03d_01` | AREA03 sub 1 | The mouth | The seal, door [24]: the line that goes on to AREA07 |
 | `a04c_00` .. `a04c_02` | AREA04 sub 1 | Entry 2, on the balcony | The event, item 0x1E, the north room, the lift (first line) |
 | `a04d_00` .. `a04d_02` | AREA04 sub 1 | Entry 2, on the balcony | The same, with item 0x1E kept: the lift to AREA07 |
+| `a08_00` .. `a08_06` | AREA08 subs 0, 2, 3 | Where each beat starts, from the lift's arrival | Door [17], the magazine room, the switch, slider [19], the ceilings over the live floor, the terminal, the lift back (AREA03's load) |
+| `a07_00` | AREA07 sub 0 | The lift's arrival, first recording | Door [35], slider [33], switch [28] |
+| `a07b_00` .. `a07b_07` | AREA07 subs 0, 2, 3 | Where each beat starts, second recording | The switch, the way to sub 2, the crawl, the north arm, the terminal (flag 0x25), the way back, the lift to AREA04 |
 | `area19`, `a19_01`, `a19_02` | AREA19 sub 0 | The foot of the ladder under AREA13's hatch, then the room behind door [32] | The duct, the pickup, the duct back |
 | `a19b_01`, `a19b_02` | AREA19 sub 0 | Entry 10's side | The ledge, the ladder |
 | `a19c_00` .. `a19c_07` | AREA19 sub 0, then sub 1 | Where each beat of the way to door [52] starts | The bars, the slide, the walkway, door [27], the ladder, door [52] |

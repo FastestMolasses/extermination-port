@@ -82,7 +82,7 @@ def collect(C, caps, replay=True):
         E.O.block_tex0(image.read(address, 0x40+0x820*blocks), 0, blocks, f'static object {ident}', keys)
     # func_001D5370.c's area/sub arms. Elsewhere this global is stale.
     dynamic = []
-    if (C.AREA, C.SUB) in ((1, 0), (3, 1), (4, 0), (4, 1), (6, 0), (15, 0), (7, 0), (8, 0), (8, 3)):
+    if (C.AREA, C.SUB) in ((1, 0), (3, 1), (4, 0), (4, 1), (6, 0), (15, 0), (7, 0), (7, 3), (8, 0), (8, 3)):
         dynamic = E.L.dynamic_entries(image.read, C.u32(cap.ram, 0x28A5A4))
         for ident, address in dynamic:
             data = image.read(address, 0x860)

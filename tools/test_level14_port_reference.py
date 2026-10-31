@@ -171,6 +171,7 @@ FUNCS = {
     0x1B4CF0: ('em_level14_port_001B4CF0', 0x668, [U], None),
     0x1EDE40: ('em_level14_port_001EDE40', 0x34C, [U, U], None),
     0x1EF1C0: ('em_level14_port_001EF1C0', 0x350, [U, U], None),
+    0x1ED450: ('em_level14_port_001ED450', 0x348, [U, U], None),
     0x1F6BA0: ('em_level14_port_001F6BA0', 0xC, [], None),
     0x1F7CF0: ('em_level14_port_001F7CF0', 0x148, [U, U, U], None),
     0x1F7E40: ('em_level14_port_001F7E40', 0x508, [U], None),
@@ -1604,7 +1605,7 @@ SELF_ENTRIES = {0x8235A0, 0x8236B0, 0x823780, 0x823850, 0x8239F0, 0x824070, 0x82
                 0x824E00, 0x824E50, 0x825030, 0x825320, 0x825430, 0x825D10, 0x826600, 0x826850, 0x131650,
                 0x153950, 0x153A90}
 SCRIBBLED_CALLBACKS = set()
-HEAVY = {0x825430, 0x825D10, 0x1EDE40, 0x1EF1C0, 0x1B4CF0}
+HEAVY = {0x825430, 0x825D10, 0x1EDE40, 0x1EF1C0, 0x1ED450, 0x1B4CF0}
 
 
 def callbacks_of(entry, native_args, ram):
@@ -2186,6 +2187,11 @@ def boot_cases(add, rng):
     # 001EF1C0: its twin (the critical hit's effect), every branch
     for r, f8 in ((0, 0.5), (0x12345678, 0.021), (-1, 0.02), (0x7FFF0000, 0.01), (0xFFFF0000, -1.0)):
         add('cr 1EF1C0 %X %g' % (r & MASK, f8), B, 0x1EF1C0, [FREE + 0x100, FREE + 0x200],
+            [(0x275C34, w32(FREE + 0x400)), (FREE + 0x404, w32(r)), (FREE + 0x408, f32b(f8)),
+             (FREE + 0x454, f32b(2.5))])
+    # 001ED450: the third twin (AREA07 sub 3's flames), every branch
+    for r, f8 in ((0, 0.5), (0x12345678, 0.021), (-1, 0.02), (0x7FFF0000, 0.01), (0xFFFF0000, -1.0)):
+        add('cr 1ED450 %X %g' % (r & MASK, f8), B, 0x1ED450, [FREE + 0x100, FREE + 0x200],
             [(0x275C34, w32(FREE + 0x400)), (FREE + 0x404, w32(r)), (FREE + 0x408, f32b(f8)),
              (FREE + 0x454, f32b(2.5))])
     # 001AA410 / 001AA2A0 (the running jump's target helpers) on a19d_08's
@@ -3003,7 +3009,7 @@ SURVIVORS = ('survivor ', 'bound ')
 
 
 # Lane F1's entries: their designed cases all run by default.
-BOSS_CASES = ('cr 12F980', 'cr 12FA50', 'cr 131210', 'cr 131510', 'cr 131940', 'cr 1EF1C0', 'cr 1F7CF0', 'cr 1F7E40', 'cr 1F87E0', 'cr 1F8880', 'cr 1F88C0')
+BOSS_CASES = ('cr 12F980', 'cr 12FA50', 'cr 131210', 'cr 131510', 'cr 131940', 'cr 1EF1C0', 'cr 1ED450', 'cr 1F7CF0', 'cr 1F7E40', 'cr 1F87E0', 'cr 1F8880', 'cr 1F88C0')
 
 
 def select_cases(elf):

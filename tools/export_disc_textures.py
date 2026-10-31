@@ -172,12 +172,13 @@ def part_font(disc: G.Disc, fl: G.FirstLevel, assets: Path) -> list:
     return [out]
 
 
-def part_status_models(world_freeze: Path, extract: Path, assets: Path) -> list:
+def part_status_models(world_freeze: Path, extract: Path, assets: Path, fl: G.FirstLevel, scratch: Path) -> list:
     """export_status_models.py (the one owner) with texels from the rebuilt
     memory (the status-hub capture's GS equals it over every uploaded
     block)."""
     import export_status_models as esm
-    return esm.write(assets / 'status_models', extract, world_freeze)[0]
+    return esm.write(assets / 'status_models', extract, world_freeze,
+                     esm.variant_freezes(fl, extract, scratch))[0]
 
 
 def status_model_tex0(extract: Path) -> list:
@@ -322,7 +323,7 @@ def build(disc: G.Disc, extract: Path, assets: Path, scratch: Path, parts=PARTS,
         for key in status_model_tex0(extract):
             import export_object_textures as eot
             resident(world, key, lambda lm, t=key: eot.decode(lm, t))
-        written += part_status_models(freeze, extract, assets)
+        written += part_status_models(freeze, extract, assets, fl, scratch)
     hub_states = []
     if 'status_hub' in parts:
         written += part_status_hub(world, elf, assets, hub_token_list, hub_states)

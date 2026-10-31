@@ -630,6 +630,18 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
         w->move_last=1;
         c->v0=(uint32_t)mode;return 0;
     }
+    if(c->function==0x0019A440u) {
+        /* 00133CD0's five rays (the creature's grab, 00130AB0). */
+        w->move_last=0;
+        const EmCollSegment *s=segment(w);
+        if(!s||!s->state||!s->world||!s->face)return fault(h,c->function,0);
+        float from[3],to[3];
+        const void *p=em_aim_fire_live_map(h,a,12,0);if(!p)return -1;memcpy(from,p,12);
+        p=em_aim_fire_live_map(h,d,12,0);if(!p)return -1;memcpy(to,p,12);
+        const int result=em_coll_segment_0019A440(s,from,to,(unsigned)c->a[2]);
+        if(result<0)return fault(h,c->function,0);
+        c->v0=(uint32_t)result;return 0;
+    }
     if(c->function==0x0019A570u || c->function==0x0019B6C0u) {
         w->move_last=0;
         const EmCollSegment *s=segment(w);

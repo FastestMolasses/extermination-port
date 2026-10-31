@@ -10,8 +10,8 @@
  * the captured globals, until the menu player's breathe/yaw pair equals
  * the captured one, then compares every modelled record byte and every
  * node world matrix with the capture, and checks the queued 001CB580
- * draws. It also pins the fail-stop contract (missing glyph model, the
- * D_008104E4 == 1 glow sprite 001CD520).
+ * draws. It also pins the fail-stop contract (missing glyph model) and the
+ * D_008104E4 == 1 walk (its model, its glow not drawn).
  *
  * Usage: status_models_test <assets/status_models> <status-hub eeMemory.bin>
  * Exit 0 with "status models: PASS", or 77 when the inputs are missing. */
@@ -244,15 +244,14 @@ int main(int argc, char **argv)
     CHECK(em_status_models_fault(m)->address == 0x001C6120u);
     em_status_models_free(m, NULL);
 
-    /* D_008104E4 == 1: 0020EC80 reaches 001F4BF0 (rand, then the glow
-     * sprite 001CD520, which is not translated): fault. The model word of
-     * variant 1 (D_0028A590) is not exported either, so the fault comes
-     * at the first walk's 0020E6F0. */
+    /* D_008104E4 == 1: variant 1's model D_0028A590 binds, and 0020EC80
+     * reaches 001F4BF0 (rand, then the glow sprite 001CD520, a stated
+     * stand-in: not drawn). */
     m = em_status_models_load(argv[1]);
     other = in;
     other.d8104E4 = 1;
     CHECK(m && open_hub(m, &other));
-    CHECK(em_status_models_event(m, EM_STATUS_HUB_ACTORS_TICK, 0, &other) == -1);
+    CHECK(em_status_models_event(m, EM_STATUS_HUB_ACTORS_TICK, 0, &other) >= 0);
     em_status_models_free(m, NULL);
 
     free(ram);

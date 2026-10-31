@@ -310,6 +310,40 @@ static inline int a08r_c_00182F90(A08R *o, uint32_t a0, uint32_t a1)
     return 0;
 }
 
+static inline int a08r_c_001287F0(A08R *o, uint32_t a0, uint32_t a1, int32_t a2, uint32_t a3)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_001287F0) return a08r_latch(o, 0x001287F0u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    if (o->h->w_001287F0(o->h->ctx, a0, a1, a2, a08r_float(a3)) < 0) return a08r_latch(o, 0x001287F0u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int a08r_c_00128830(A08R *o, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_00128830) return a08r_latch(o, 0x00128830u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    if (o->h->w_00128830(o->h->ctx, a0, a08r_float(a1), a08r_float(a2), a08r_float(a3)) < 0) return a08r_latch(o, 0x00128830u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int a08r_c_001B5360(A08R *o, uint32_t a0)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_001B5360) return a08r_latch(o, 0x001B5360u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    if (o->h->w_001B5360(o->h->ctx, a0) < 0) return a08r_latch(o, 0x001B5360u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int a08r_c_001B12B0(A08R *o, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t *result)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_001B12B0) return a08r_latch(o, 0x001B12B0u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    float out = 0;
+    if (o->h->w_001B12B0(o->h->ctx, a08r_float(a0), a08r_float(a1), a08r_float(a2), &out) < 0) return a08r_latch(o, 0x001B12B0u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    *result = a08r_bits(out);
+    return 0;
+}
+
 static inline int a08r_c_00102948(A08R *o, uint32_t a0, uint32_t a1)
 {
     if (a08r_failed(o)) return -1;

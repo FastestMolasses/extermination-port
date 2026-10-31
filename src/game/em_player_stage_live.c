@@ -408,12 +408,10 @@ static int w_load(void *c)
     uint8_t *d81083C = em_scene_progress_at(s, 0x0081083Cu, 1);
     uint8_t *d810C7E = em_scene_progress_at(s, 0x00810C7Eu, 1);
     if (!d810707 || !d81083C || !d810C7E) return -1;
-    /* 0021C3F0 reads D_00810770 only in area 8 room 2; that byte is not
-     * canonical yet (event 0x18, census L19). */
-    if (s->d810700 == 8 && s->d810701 == 2) {
-        fprintf(stderr, "player stage: area 8 room 2 needs D_00810770 (not canonical yet)\n");
-        return -1;
-    }
+    /* 0021C3F0 reads D_00810770 only in area 8 room 2 (event 0x18). */
+    uint8_t *d810770 = em_scene_progress_at(s, 0x00810770u, 1);
+    if (!d810770) return -1;
+    live.globals.d810770 = *d810770;
     live.globals.d8106C8 = (int32_t)em_scene_req_u32(s, EM_SCENE_REQ_C8);
     live.globals.d810701 = s->d810701;
     live.globals.d81083C = *d81083C;

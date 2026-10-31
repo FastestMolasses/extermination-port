@@ -648,6 +648,9 @@ class Pair:
         return self.both(where, case, SEG, (ARGS, ARGS + 0x10, mask, id), a, c, mask=mask, id=id,
                          stage=self.args(a, c))
 
+    def sight(self, case, where, a, c, mask):
+        return self.both(where, case, SIGHT, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
+
     def camera(self, case, where, a, c, mask):
         self.both(where, case, SIGHT, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
         return self.both(where, case, CAM, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
@@ -1107,15 +1110,16 @@ def run_synthetic(item):
             out['self_skip'] += 1
         case = Case(world, rng, words)
         a32, e32 = tuple(f32(x) for x in a), tuple(f32(x) for x in e)
-        for entry in (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM, CELLS_PLAIN, GRID_PLAIN):
+        for entry in (CELLS_SEG, CELLS_CAM, CELLS_SIGHT, GRID_SEG, GRID_CAM, GRID_SIGHT):
             r, st = pair.both(f'synthetic {k} {entry:#x}', case, entry, ())
-            if r and entry in (CELLS_SEG, CELLS_CAM, CELLS_PLAIN) and st['entity'] == 0:
+            if r and entry in (CELLS_SEG, CELLS_CAM, CELLS_SIGHT) and st['entity'] == 0:
                 out['static_hit'] += 1
             key = (hex(entry), r)
             out['walkers'][key] = out['walkers'].get(key, 0) + 1
         r, _ = pair.segment(case, f'synthetic {k} segment', a32, e32, rng.choice((6, 6, 2, 4, 3)))
         out['seg'][slot[r]] += 1
         r, _ = pair.camera(case, f'synthetic {k} camera', a32, e32, rng.choice((6, 6, 2, 4)))
+        r, _ = pair.sight(case, f'synthetic {k} sight', a32, e32, (6, 6, 2, 4)[k % 4])
         out['cam'][slot[r]] += 1
         r, _ = pair.plain(case, f'synthetic {k} plain', a32, e32, rng.choice((6, 6, 2, 4, 7)))
         out['plain'][slot[r]] += 1
@@ -1716,8 +1720,7 @@ def main():
     round_classes = {k[2] for k in units['round'] if k[1] == 1}
     assert round_classes == {0x2000, 0x4000, 0x8000}, units['round']
     walker_hits = {k[0] for k, v in list(units['walkers'].items()) + list(synth['walkers'].items()) if k[1] == 1}
-    assert walker_hits == {hex(e) for e in (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM, CELLS_PLAIN, GRID_PLAIN)}, \
-        (units, synth)
+    assert walker_hits >= {hex(CELLS_SEG), hex(CELLS_CAM), hex(GRID_SEG), hex(GRID_CAM), hex(CELLS_SIGHT), hex(GRID_SIGHT)}, (units, synth)
     assert synth['prims'] and synth['self_skip'] and synth['head'][1] and synth['static_hit'], synth
     assert synth['face_calls'] and synth['round_calls'], ('the probe module never reached the bound workers', synth)
     assert bounds['faults'] == 7 and bounds['repeat'] == 6 and bounds['hits'] and bounds['no_span'] == 2, bounds

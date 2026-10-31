@@ -10,7 +10,9 @@ static int dispatch_a08(EmArea01Runtime *r, EmArea01Call *c, int *out)
         {0x00823580u, 0u, 1}, {0x008235E0u, 0u, 1}, {0x00823870u, 0x30u, 1}, {0x00823AC0u, 0x40u, 1},
         {0x00824210u, 0x20u, 1}, {0x00824460u, 0x10u, 0}, {0x008245E0u, 0x20u, 1}, {0x008249F0u, 0x30u, 1},
         {0x00824BC0u, 0xC0u, 1}};
-    static const struct { uint32_t fn, frame; uint8_t na; } owners07[] = {{0x00823DA0u, 0x30u, 1}};
+    static const struct { uint32_t fn, frame; uint8_t na; } owners07[] = {
+        {0x00823990u, 0x20u, 1}, {0x00823DA0u, 0x30u, 1}, {0x00823F80u, 0x60u, 1}, {0x00825470u, 0x80u, 2},
+        {0x00825940u, 0x40u, 1}, {0x008259D0u, 0x20u, 1}};
     const uint32_t fn = c->function;
     const int a07 = r->area == 7;
     uint32_t frame = 0;
@@ -31,7 +33,36 @@ static int dispatch_a08(EmArea01Runtime *r, EmArea01Call *c, int *out)
     int32_t result = 0;
     int x;
     if (a07) {
-        x = em_area08_route_a07_00823DA0(&h, a0, &f);
+        EmArea07RouteHooks h7;
+        EmArea07RouteFault f7 = {0, 0};
+        EmArea07ProbeHooks p7;
+        EmArea07ProbeFault fp = {0, 0};
+        switch (fn) {
+        case 0x00823990u: x = em_area08_route_a07_00823990(&h, a0, &f); break;
+        case 0x00823DA0u: x = em_area08_route_a07_00823DA0(&h, a0, &f); break;
+        case 0x00823F80u:
+            r07_hooks(r, &h7);
+            x = em_area07_route_00823F80(&h7, a0, &f7);
+            break;
+        case 0x00825940u:
+            r07_hooks(r, &h7);
+            x = em_area07_route_00825940(&h7, a0, c->sp, &f7);
+            break;
+        case 0x008259D0u:
+            r07_hooks(r, &h7);
+            x = em_area07_route_008259D0(&h7, a0, &f7);
+            break;
+        default:
+            p07_hooks(r, &p7);
+            x = em_area07_probe_00825470(&p7, a0, (uint32_t)c->a[1], c->sp, &result, &fp);
+            f.address = fp.address;
+            f.code = fp.code;
+            break;
+        }
+        if (f7.code) {
+            f.address = f7.address;
+            f.code = f7.code;
+        }
     } else {
         switch (fn) {
         case 0x00823580u: x = em_area08_route_00823580(&h, a0, &result, &f); break;
