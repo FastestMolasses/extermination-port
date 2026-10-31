@@ -417,6 +417,8 @@ start-point save through the original's own load path. Off by default
 | `a01u`, `a01u_01`, `a01u_02`, `a01u_s0` | AREA01's upper floor: the a22_02 arrival (entry 6) and where route_a01u's beats start | `build/start_saves/<name>` |
 | `area06`, `a06_01` .. `a06_05` | AREA06 sub 0: the a01u_02 arrival and where route_a06's beats start | `build/start_saves/<name>` |
 | `a06b`, `a06b_01`, `a01v`, `a01v_01`, `a01v_02`, `a22b`, `a22b_01` | the way back (route_a06b, route_a01v, route_a22b): where each beat starts | `build/start_saves/<name>` |
+| `area15`, `a15_00`, `a15b_00` .. `a15b_04` | AREA15: the sub 0 arrival (the fork's snapshot inside a19d_20, tools/capture_area15_arrival.py) and where route_a15 / route_a15b's beats start (docs/AREA15_PORT.md) | `build/start_saves/<name>` |
+| `a03_00` | AREA03 sub 0: a19e_07's end, where route_a03's beat starts | `build/start_saves/<name>` |
 
 The cards are the start-point saves `make start-saves` builds with the
 original save writer (docs/SAVE_GAME.md section 7); they are disc- and

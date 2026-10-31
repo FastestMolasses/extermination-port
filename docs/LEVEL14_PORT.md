@@ -416,7 +416,8 @@ their oracles already sweep.
 
 ## Binding
 
-Nothing calls these entries. To run them live a host must:
+The AREA15 entries are bound (lane K1, docs/AREA15_PORT.md), the boot entries
+through the fallback dispatch. For the record, what a host must do:
 
 - supply `bytes` over the scene's original-byte storage (the actor pool,
   the player block, the story bytes D_008106C0 / D_00810702.. /

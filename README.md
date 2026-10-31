@@ -105,6 +105,13 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a04b_03` | AREA04 (the way back) | In the hall, outside door [45] | Up the conveyor to the card reader at the lift; the first boss arrives |
 | `a04b_04` | AREA04 (the way back) | At the card reader, the creature and bugs at the lift | Past the creature into the lift, down to AREA13 |
 | `boss` | AREA04 (the way back) | In the hall, outside door [45], with the SHOTGUN UNIT fitted and six shells (the room's pickup, taken in the fork recording) | Up the conveyor to the card reader, which wakes the first boss at the lift |
+| `area15` | AREA15 sub 0 | Entry 0, the arrival through door [50] | The long conversation in the medical room |
+| `a15_00` | AREA15 sub 0 | After that conversation | The slider and door [14] to the stair tower (AREA19's load) |
+| `a15b_00` | AREA15 sub 1 | Entry 0, through door [51] | Up the stairs to the mezzanine: the event, then the forced return |
+| `a15b_01`, `a15b_02` | AREA15 | Inside the event's scenes (their source states) | Discovery points: the scenes restart from the save |
+| `a15b_03` | AREA15 sub 0 | After the two conversations | The slider and the bed |
+| `a15b_04` | AREA15 sub 0 | At the bed | The slider and door [14] to the stair tower (AREA19's load) |
+| `a03_00` | AREA03 sub 0 | Entry 1, through AREA19's door [25] | The lift's outer button, the car, the ride down |
 
 The route these points sit on is proven row by row from New Game, through the
 first boss fight with the pistol and the lift, up to AREA13's load
