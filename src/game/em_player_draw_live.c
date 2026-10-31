@@ -2,6 +2,7 @@
  * section 10. Nothing here computes: 001CAA00 is em_owner_draw_live's (with
  * 001CB3C0's face unit while +0x90 holds a face slot, FACE_ATTACH.md). */
 #include "game/em_player_draw_live.h"
+#include "game/em_module_loader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,6 +156,19 @@ int em_player_draw_live_001CAA00(void)
         n = em_area11_roger_attachment_regions(EM_PLAYER_DRAW_LIVE_RECORD, r, EM_PLAYER_ACTOR_SIZE, regions,
                                                EM_OWNER_DRAW_LIVE_REGIONS);
         if (n < 0) return report(EM_PLAYER_DRAW_LIVE_RECORD + 0x90, "the attachment's regions");
+        /* The face the slot holds when it is not Dennis's export (the infected
+         * player's in AREA04 sub 1's scene): the resource the load delivered. */
+        const uint8_t *slot = player_pose_record_bytes(v->attachment, NODE_BYTES);
+        EmModuleLoader *ml = em_module_loader_live();
+        if (slot && ml && n < EM_OWNER_DRAW_LIVE_REGIONS) {
+            const uint32_t face = rd32(slot + 0x60);
+            const uint8_t *head = em_module_loader_memory(ml, face, 0x40);
+            if (head) {
+                const uint32_t size = 0x40u + (rd32(head + 4) & 0xFFFFu) * 16u;
+                const uint8_t *bytes = em_module_loader_memory(ml, face, size);
+                if (bytes) regions[n++] = (EmOwnerDrawLiveRegion){face, size, bytes};
+            }
+        }
     }
     return em_owner_draw_live_001CAA00_attached(bank, v, rgb, EM_PLAYER_DRAW_LIVE_RECORD, regions, (unsigned)n);
 }

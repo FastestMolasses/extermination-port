@@ -16,7 +16,7 @@ HOOKS = {
     0x001028B8: ('uuu', None), 0x001028D0: ('uuu', None), 0x00102948: ('uu', None), 0x001029C0: ('u', None),
     0x00102C58: ('uuu', None), 0x00103230: ('uuf', None), 0x0011E420: ('f', 'f'), 0x001B1380: ('uuf', 'i'),
     0x001B15D0: ('uu', 'f'), 0x001B2B10: ('uuu', None), 0x001B39F0: ('uuu', 'i'), 0x0021BB00: ('u', 'i'),
-    0x0021BC40: ('u', 'i'), 0x0017C370: ('u', None), 0x0021BE40: ('uu', 'i'), 0x0019AA80: ('uui', 'i'),
+    0x0021BC40: ('u', 'i'), 0x0017B490: ('uiii', 'i'), 0x001749A0: ('uiif', None), 0x001B1470: ('f', 'f'), 0x0021BE40: ('uu', 'i'), 0x0019AA80: ('uui', 'i'),
     0x0019A570: ('uuii', 'i'), 0x001EFD90: ('iuu', None), 0x001E2BA0: ('uuuf', None), 0x001F4F40: ('i', 'u'),
     0x001AFA90: ('i', 'u'), 0x00102958: ('uu', None), 0x001B0FD0: ('u', 'i'), 0x001C6380: ('u', None),
     0x001BA1A0: ('uu', None), 0x001BA1F0: ('u', 'i'), 0x001C47A0: ('ii', None), 0x001C4760: ('ii', None),

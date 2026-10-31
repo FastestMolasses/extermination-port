@@ -13624,12 +13624,28 @@ static int m16x_w_001281C0(void *ctx, float a0, int32_t *result)
     return rc;
 }
 
-static int m16x_w_0017C370(void *ctx, uint32_t a0)
+static int m16x_w_001749A0(void *ctx, uint32_t a0, int32_t a1, int32_t a2, float a3)
 {
     EmArea01Runtime *r = ctx;
-    EmArea01Call c = {.function = 0x0017C370u, .sp = r->sp, .na = 1, .nf = 0};
+    EmArea01Call c = {.function = 0x001749A0u, .sp = r->sp, .na = 3, .nf = 1};
     c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)a1;
+    c.a[2] = (uint64_t)(int64_t)a2;
+    c.f[0] = em_ee_bits(a3);
     int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m16x_w_0017B490(void *ctx, uint32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x0017B490u, .sp = r->sp, .na = 4, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)a1;
+    c.a[2] = (uint64_t)(int64_t)a2;
+    c.a[3] = (uint64_t)(int64_t)a3;
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = (int32_t)c.v0;
     return rc;
 }
 
@@ -13730,6 +13746,16 @@ static int m16x_w_001B1380(void *ctx, uint32_t a0, uint32_t a1, float a2, int32_
     c.f[0] = em_ee_bits(a2);
     int rc = em_area01_runtime_call(r, &c);
     if (rc == 0 && result) *result = (int32_t)c.v0;
+    return rc;
+}
+
+static int m16x_w_001B1470(void *ctx, float a0, float *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001B1470u, .sp = r->sp, .na = 0, .nf = 1};
+    c.f[0] = em_ee_bits(a0);
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = em_ee_float(c.f0);
     return rc;
 }
 
@@ -14080,7 +14106,8 @@ static inline void m16x_hooks(EmArea01Runtime *r, EmLevel16BootHooks *h)
     h->w_00103230 = m16x_w_00103230;
     h->w_0011E420 = m16x_w_0011E420;
     h->w_001281C0 = m16x_w_001281C0;
-    h->w_0017C370 = m16x_w_0017C370;
+    h->w_001749A0 = m16x_w_001749A0;
+    h->w_0017B490 = m16x_w_0017B490;
     h->w_0019A570 = m16x_w_0019A570;
     h->w_0019AA80 = m16x_w_0019AA80;
     h->w_001AFA90 = m16x_w_001AFA90;
@@ -14090,6 +14117,7 @@ static inline void m16x_hooks(EmArea01Runtime *r, EmLevel16BootHooks *h)
     h->w_001B10B0 = m16x_w_001B10B0;
     h->w_001B1190 = m16x_w_001B1190;
     h->w_001B1380 = m16x_w_001B1380;
+    h->w_001B1470 = m16x_w_001B1470;
     h->w_001B15D0 = m16x_w_001B15D0;
     h->w_001B17A0 = m16x_w_001B17A0;
     h->w_001B1EA0 = m16x_w_001B1EA0;

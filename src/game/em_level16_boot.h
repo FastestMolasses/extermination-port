@@ -28,7 +28,8 @@ typedef struct {
     int (*w_00103230)(void *ctx, uint32_t a0, uint32_t a1, float a2);
     int (*w_0011E420)(void *ctx, float a0, float *result);
     int (*w_001281C0)(void *ctx, float a0, int32_t *result);
-    int (*w_0017C370)(void *ctx, uint32_t a0);
+    int (*w_001749A0)(void *ctx, uint32_t a0, int32_t a1, int32_t a2, float a3);
+    int (*w_0017B490)(void *ctx, uint32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t *result);
     int (*w_0019A570)(void *ctx, uint32_t a0, uint32_t a1, int32_t a2, int32_t a3, int32_t *result);
     int (*w_0019AA80)(void *ctx, uint32_t a0, uint32_t a1, int32_t a2, int32_t *result);
     int (*w_001AFA90)(void *ctx, int32_t a0, uint32_t *result);
@@ -38,6 +39,7 @@ typedef struct {
     int (*w_001B10B0)(void *ctx, uint32_t a0, int32_t a1, int32_t a2, int32_t *result);
     int (*w_001B1190)(void *ctx, int32_t a0);
     int (*w_001B1380)(void *ctx, uint32_t a0, uint32_t a1, float a2, int32_t *result);
+    int (*w_001B1470)(void *ctx, float a0, float *result);
     int (*w_001B15D0)(void *ctx, uint32_t a0, uint32_t a1, float *result);
     int (*w_001B17A0)(void *ctx, uint32_t a0, int32_t *result);
     int (*w_001B1EA0)(void *ctx, int32_t a0, uint32_t a1, uint32_t a2, int32_t a3, int32_t *result);
@@ -83,6 +85,7 @@ int em_level16_boot_00158430(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16
 int em_level16_boot_001BD460(const EmLevel16BootHooks *h, uint32_t a0, int32_t *result, EmLevel16BootFault *fault);
 int em_level16_boot_001C82A0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault);
 int em_level16_boot_001B3C30(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, float a3, float a4, uint32_t sp, EmLevel16BootFault *fault);
+int em_level16_boot_0017C370(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault);
 int em_level16_boot_0021C040(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault);
 #ifdef __cplusplus
 }
