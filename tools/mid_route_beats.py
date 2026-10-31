@@ -234,7 +234,7 @@ def source_rand(beat):
 # at a load's placements (0012A5D0 nodes chase the player): the comparison
 # anchor EM_START_AT_RESTORE gives them the source state's records and clock
 # at script frame 0 (docs/STARTUP.md; comparison only).
-RESTORE = {'a08_01', 'a08_02', 'a08_03'}
+RESTORE = {'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06', 'a07_00'}
 
 
 def restore_anchor(beat):
@@ -295,6 +295,9 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    rands = ROOT / 'build/beat_rands' / f'{beats[0]}.txt'
+    if beats[0] in RESTORE and len(beats) == 1 and rands.exists():
+        env['EM_START_AT_RANDS'] = str(rands)
     if beats[0] in RESTORE:
         env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
         del env['EM_START_AT_PATH']    # with the anchor the recorded pad alone keeps the route
