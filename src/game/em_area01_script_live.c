@@ -41,7 +41,11 @@ static const AreaScripts k_areas[]={
     {0x0F,0x0C,0x00826E70u,0x008297F0u,0x00826980u,0x3580u,EM_AREA15_SCRIPT_DEST_PATH},
     /* AREA03 (export_area03_assets: the five chains' window 0x827170..
      * 0x828FD0, the overlay data 0x826900 + 0x2800). */
-    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH}
+    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH},
+    /* AREA08 and AREA07 (export_area08_assets: the chains' windows
+     * 0x825880..0x8274F0 and 0x8264B0..0x827520, the overlay data). */
+    {0x08,0x08,0x00825880u,0x008274F0u,0x00825100u,0x2E00u,EM_AREA08_SCRIPT_DEST_PATH},
+    {0x07,0x07,0x008264B0u,0x00827520u,0x00825B80u,0x2500u,EM_AREA07_SCRIPT_DEST_PATH}
 };
 static const AreaScripts *area_scripts(unsigned area)
 {
@@ -225,6 +229,9 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x00823A10u: case 0x00826FB0u: case 0x00826FC0u: case 0x008246D0u: case 0x008247B0u:
     case 0x008248C0u: case 0x008249F0u:
         if (s->area!=0x0D) return -1;
+        break;
+    case 0x00823580u: case 0x008235E0u: case 0x00824460u: /* AREA08's (em_area08_route) */
+        if (s->area!=8) return -1;
         break;
     case 0x00823F60u: /* AREA15's (em_area15_route) */
         if (s->area!=0x0F) return -1;

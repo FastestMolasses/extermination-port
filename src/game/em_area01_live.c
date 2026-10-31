@@ -706,7 +706,8 @@ static int owner_001F9100(EmArea01Live *l,EmArea01Call *c)
         memcpy(q[i],p,16);
     }
     if(em_area01_live_suspend(l)<0)return -1;
-    int rc=em_shadow_live_owner_001F9100(q[0],q[1],q[2],c->f[0]);
+    int rc=c->function==0x001F9180u ? em_shadow_live_owner_001F9180(q[0],q[1],q[2],c->f[0])
+                                    : em_shadow_live_owner_001F9100(q[0],q[1],q[2],c->f[0]);
     if(em_area01_live_resume(l)<0)return -1;
     return worker_result(l,rc,rc<0 ? em_shadow_live_fault() : 0);
 }
@@ -1110,7 +1111,7 @@ static int worker(void *ctx,EmArea01Call *c)
     if(c->function==0x001288D0u)return low_001288D0(l,c);
     if(low_entry_handles(c->function))return low_entry(l,c);
     if(c->function==0x001027E0u)return sdk_001027E0(l,c);
-    if(c->function==0x001F9100u)return owner_001F9100(l,c);
+    if(c->function==0x001F9100u || c->function==0x001F9180u)return owner_001F9100(l,c);
     if(c->function==0x001C9D50u)return rest_001C9D50(l,c);
     if(c->function==0x001C9E40u)return rest_001C9E40(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);

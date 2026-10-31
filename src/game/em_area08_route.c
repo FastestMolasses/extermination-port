@@ -19,6 +19,15 @@ static void vec4(A08R *o, uint32_t at, float x, float y, float z, float w)
     W(at, F(x)); W(at + 4, F(y)); W(at + 8, F(z)); W(at + 0xC, F(w));
 }
 
+/* overlay_AREA08_func_00823540.c: script 0x825880's other op09 callback. */
+static int32_t fall_00823580(A08R *o, uint32_t self)
+{
+    uint32_t rec = R(self + 0x110);
+    W(rec + 0x7C, A08R_SUB(R(rec + 0x7C), F(0.2f)));
+    rec = R(self + 0x110);
+    return A08R_LT(R(rec + 0x7C), F(-9.0f)) ? 1 : 0;
+}
+
 /* func_overlay_AREA08_008235A0.c: script 0x825880's op09 callback. */
 static int32_t rise_008235E0(A08R *o, uint32_t self)
 {
@@ -627,9 +636,102 @@ static void slider_a07_00823DA0(A08R *o, uint32_t self)
     }
 }
 
+/* func_001BD370.c: the doors opening, the twin of 001BD270's closing: rec +0x10
+ * and then +0x14 rise by 0.2, clamped at 5; the four pose floats +0x7C. */
+static int32_t open_001BD370(A08R *o, uint32_t rec)
+{
+    uint32_t a = A08R_ADD(R(rec + 0x10), F(0.2f)), b, table, f10, f14;
+    W(rec + 0x10, a);
+    if (!A08R_LT(a, F(3.0f))) {
+        if (!A08R_LT(a, F(5.0f))) W(rec + 0x10, F(5.0f));
+        b = A08R_ADD(R(rec + 0x14), F(0.2f));
+        W(rec + 0x14, b);
+        if (!A08R_LE(b, F(5.0f))) {
+            W(rec + 0x14, F(5.0f));
+            return 1;
+        }
+    }
+    table = R(0x275B40);
+    f14 = R(rec + 0x14);
+    W(R(table + 4) + 0x7C, A08R_NEG(f14));
+    table = R(0x275B40);
+    f10 = R(rec + 0x10);
+    f14 = R(rec + 0x14);
+    W(R(table + 8) + 0x7C, A08R_SUB(A08R_NEG(f10), f14));
+    table = R(0x275B40);
+    f10 = R(rec + 0x10);
+    f14 = R(rec + 0x14);
+    W(R(table + 0xC) + 0x7C, A08R_ADD(f10, f14));
+    table = R(0x275B40);
+    f14 = R(rec + 0x14);
+    W(R(table + 0x10) + 0x7C, f14);
+    return 0;
+}
+
+/* func_00159FC0.c: the switch's Use. */
+static int32_t use_00159FC0(A08R *o, uint32_t self, uint32_t who)
+{
+    int32_t r = 0;
+    if (!(B(self + 0xB) & 4)) return 0;
+    vec4(o, 0x700038A0, 0.3f, 0.0f, 5.0f, 1.0f);
+    CV(001B6F00, self, 0x700038A0, 0x40490FDBu);
+    CV(001BA1A0, who, 0x246A20);
+    CV(001BA1F0, self, &r);
+    WB(self, 2);
+    return 1;
+}
+
+/* func_0015A070.c (byte-matched): the switch owner ([21], [28]). */
+static void switch_0015A070(A08R *o, uint32_t self)
+{
+    int32_t r = 0;
+    uint32_t area, bit;
+    switch (B(self + 4)) {
+    case 0:
+        C(001B0FD0, self, &r);
+        if (r) return;
+        C(001C6380, self);
+        area = B(0x810700);
+        bit = a08r_u16(o, self + 0x2E);
+        if (B(0x810841u + area) & (1u << (bit & 31u))) {
+            WB(self + 5, 2);
+        } else {
+            W(self + 0x30, 0x275468);
+            WB(self, 1);
+        }
+        break;
+    case 1:
+        switch (B(self + 5)) {
+        case 0:
+            C(00158590, self, 1, 1);
+            C(00159FC0, self, self + 0x1F0, &r);
+            if (r) WB(self + 5, B(self + 5) + 1);
+            break;
+        case 1:
+            C(00158590, self, 1, 1);
+            C(001BA1F0, self, &r);
+            if (r) WB(self + 5, 2);
+            break;
+        case 2:
+            C(00158590, self, 0, 1);
+            WB(self, 2);
+            break;
+        default: break;
+        }
+        C(001B17A0, self);
+        if (B(self + 3) == 6) a08r_method(o, self);
+        break;
+    case 2: case 3:
+        C(001AFC10, self);
+        break;
+    default: break;
+    }
+}
+
 #define ENTRY(name, call) \
     int em_area08_route_##name(const EmArea08RouteHooks *h, uint32_t self, EmArea08RouteFault *fault) \
     { A08R o; if (a08r_begin(&o, h, fault)) return -1; call(&o, self); return a08r_end(&o); }
+ENTRY(0015A070, switch_0015A070)
 ENTRY(008237B0, noise_008237B0)
 ENTRY(00823870, door_00823870)
 ENTRY(00823AC0, emitter_00823AC0)
@@ -647,11 +749,39 @@ int em_area08_route_00824BC0(const EmArea08RouteHooks *h, uint32_t self, uint32_
     flames_00824BC0(&o, self, sp); return a08r_end(&o);
 }
 
+int em_area08_route_00823580(const EmArea08RouteHooks *h, uint32_t self, int32_t *result, EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = fall_00823580(&o, self);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
+}
+
 int em_area08_route_008235E0(const EmArea08RouteHooks *h, uint32_t self, int32_t *result, EmArea08RouteFault *fault)
 {
     A08R o; int32_t r;
     if (!result || a08r_begin(&o, h, fault)) return -1;
     r = rise_008235E0(&o, self);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
+}
+
+int em_area08_route_001BD370(const EmArea08RouteHooks *h, uint32_t rec, int32_t *result, EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = open_001BD370(&o, rec);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
+}
+
+int em_area08_route_00159FC0(const EmArea08RouteHooks *h, uint32_t self, uint32_t who, int32_t *result,
+                             EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = use_00159FC0(&o, self, who);
     if (a08r_failed(&o)) return -1;
     *result = r; return 0;
 }

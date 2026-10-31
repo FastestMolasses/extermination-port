@@ -78,6 +78,7 @@ extern "C" {
 typedef struct EmShadowActorRouteTables {
     uint32_t colour[4];   /* D_0025DAE0: r, g, b, a (floats) */
     uint32_t facing[4];   /* D_0025DAF0: the decal's in-plane direction */
+    uint32_t facing2[4];  /* D_0025DB10: 001F9180's */
 } EmShadowActorRouteTables;
 
 /* 0, or -1 when `elf` is not the 1532624-byte boot ELF. */
@@ -156,6 +157,10 @@ int em_shadow_actor_route_0015BF90(EmShadowActorRoute *route, const EmPlayerLive
 int em_shadow_actor_route_001F9100(EmShadowActorRoute *route, const uint32_t owner[4],
                                    const uint32_t point[4], const uint32_t normal[4],
                                    uint32_t f12);
+
+/* 001F9180(owner, point, normal, f12): 001F8D30 with D_0025DB10, range 0. */
+int em_shadow_actor_route_001F9180(EmShadowActorRoute *route, const uint32_t owner[4],
+                                   const uint32_t point[4], const uint32_t normal[4], uint32_t f12);
 
 /* 001F8D30(owner, point, normal, facing, colour, f12, f13, f14): half_w,
  * half_h and the fade range as raw bits. Returns 0, or -1. */

@@ -242,6 +242,9 @@ AREA13_DATA_WINDOWS = ((0x00254F30, 0x290), (0x00255320, 0x90))
 # (the list pointers D_002759E8..F7, the pairs D_002759F8 / D_00275A00).
 AREA15_WINDOWS = ((0x0024A86E, 2), (0x0024D7FC, 4), (0x0024D85C, 4), (0x002759E8, 0x20),
                   (0x0024A856, 2), (0x0024D7CC, 4), (0x0024D82C, 4))
+# AREA08 / AREA07 (lane P1): their rows, the list pointers D_00275950..7F (AREA07
+# subs 0..3, its slider lists), D_00275980..9F (AREA08's subs, its slider lists).
+AREA08_WINDOWS = ((0x0024A85E, 4), (0x0024D7DC, 8), (0x0024D83C, 8), (0x00275950, 0x50))
 
 
 def blocks(elf):
@@ -251,7 +254,7 @@ def blocks(elf):
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
                *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS, *MID_WINDOWS,
-               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS)
+               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS, *AREA08_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -367,6 +370,20 @@ def verify_mid_windows(wanted, decomp):
     return seen
 
 
+def verify_area08_windows(wanted, decomp):
+    """The AREA08 / AREA07 windows equal the bytes of their fork snapshots."""
+    root = decomp / 'build/fork_refs/levels-recordings-20261030-1/s87'
+    paths = sorted((root / 'route_a08').glob('*/eeMemory.bin')) + sorted((root / 'route_a07').glob('*/eeMemory.bin'))
+    for path in paths:
+        ram = path.read_bytes()
+        for address, size in AREA08_WINDOWS:
+            if ram[address:address + size] != bytes(wanted[address]):
+                raise ValueError(f'{path.parent.name}: AREA08 window {address:#x} differs from the ELF')
+    if not paths:
+        raise ValueError('no AREA08 capture')
+    return len(paths)
+
+
 def verify_area15_windows(wanted, decomp):
     """The AREA15 / AREA03 windows equal the bytes of their areas' fork snapshots."""
     root = decomp / 'build/fork_refs'
@@ -398,6 +415,7 @@ def main():
     verify_area02_windows(dict(data), args.decomp)
     verify_mid_windows(dict(data), args.decomp)
     verify_area15_windows(dict(data), args.decomp)
+    verify_area08_windows(dict(data), args.decomp)
     output = args.out.absolute()
     if output.is_symlink() or any(parent.is_symlink() for parent in output.parents):
         raise ValueError('Output must use the worktree\'s private directories')

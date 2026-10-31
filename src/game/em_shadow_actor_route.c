@@ -65,6 +65,7 @@ int em_shadow_actor_route_load_tables(const uint8_t *elf, size_t size,
     for (unsigned i = 0; i < 4; ++i) {
         out->colour[i] = elf_word(elf, 0x0025DAE0u + 4u * i);
         out->facing[i] = elf_word(elf, 0x0025DAF0u + 4u * i);
+        out->facing2[i] = elf_word(elf, 0x0025DB10u + 4u * i);
     }
     return 0;
 }
@@ -220,6 +221,18 @@ int em_shadow_actor_route_001F9100(EmShadowActorRoute *r, const uint32_t owner[4
     if (!owner || !point || !normal || !r->tables || !reach_001F8D30(r))
         return fail(r, 0x001F9100u, EM_SHADOW_ACTOR_ROUTE_FAULT_UNBOUND);
     return call_001F9100(r, owner, point, normal, f12);
+}
+
+int em_shadow_actor_route_001F9180(EmShadowActorRoute *r, const uint32_t owner[4],
+                                   const uint32_t point[4], const uint32_t normal[4], uint32_t f12)
+{
+    if (!r || r->fault.code != EM_SHADOW_ACTOR_ROUTE_FAULT_NONE) return -1;
+    if (!owner || !point || !normal || !r->tables || !reach_001F8D30(r))
+        return fail(r, 0x001F9180u, EM_SHADOW_ACTOR_ROUTE_FAULT_UNBOUND);
+    /* The stack copy of D_0025DB10, the colour D_0025DAE0, f13 = f12, f14 = 0. */
+    uint32_t facing[4];
+    memcpy(facing, r->tables->facing2, sizeof facing);
+    return decal_001F8D30(r, owner, point, normal, facing, r->tables->colour, f12, f12, 0);
 }
 
 /* ---- 0015BF90 ------------------------------------------------------------------ */

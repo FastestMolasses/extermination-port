@@ -33,11 +33,12 @@ static int supported(void)
      * infection cannot reach it. */
     if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 0x0Du || S.area == 1u ||
                                     S.area == 4u || S.area == 0u || S.area == 2u || S.area == 0x0Fu ||
-                                    S.area == 3u) && S.mode <= 2u && S.costume <= 2u))
+                                    S.area == 3u || S.area == 8u || S.area == 7u) && S.mode <= 2u && S.costume <= 2u))
         return 0;
+    if (S.area == 8u && (S.subarea == 2u || S.subarea == 3u)) return 1;
     return ((S.area == 0u || S.area == 2u || S.area == 0x0Fu) && S.subarea <= 1u) ||
            (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u ||
-                                S.area == 0x0Du || S.area == 3u));
+                                S.area == 0x0Du || S.area == 3u || S.area == 8u || S.area == 7u));
 }
 
 static int fail(const char *what, const char *path)
@@ -149,7 +150,8 @@ int em_world_textures_live_ensure(EmGfx *gfx)
     /* tools/export_level_world_textures.py --profile 22 / 06 / 13 (mode 0,
      * costume 0: the recorded deliveries) */
     char mid[96];
-    if (S.area == 0x16u || S.area == 6u || S.area == 0x0Du || ((S.mode || S.costume) && S.area != 11u)) {
+    if (S.area == 0x16u || S.area == 6u || S.area == 0x0Du || S.area == 8u || S.area == 7u ||
+        ((S.mode || S.costume) && S.area != 11u)) {
         snprintf(mid, sizeof mid, "assets/levels/%02u/sub%u/world_textures_mode%u_costume%u.emot", S.area, S.subarea,
                  S.mode, S.costume);
         paths[0] = mid;

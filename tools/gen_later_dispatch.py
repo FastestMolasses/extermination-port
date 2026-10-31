@@ -41,8 +41,9 @@ SOURCES = (('em_area04_port.h', 'm04', 'EmArea04PortHooks', 'EmArea04PortFault')
            ('em_level15_fountain.h', 'm15f', 'EmLevel15FountainHooks', 'EmLevel15FountainFault'),
            ('em_level15_motion.h', 'm15m', 'EmLevel15MotionHooks', 'EmLevel15MotionFault'),
            ('em_level15_perception.h', 'm15p', 'EmLevel15PerceptionHooks', 'EmLevel15PerceptionFault'),
-           ('em_level15_support.h', 'm15s', 'EmLevel15SupportHooks', 'EmLevel15SupportFault'))
-PROTO = re.compile(r'^int (em_(?:level|area04)\w+?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
+           ('em_level15_support.h', 'm15s', 'EmLevel15SupportHooks', 'EmLevel15SupportFault'),
+           ('em_area08_route.h', 'r08', 'EmArea08RouteHooks', 'EmArea08RouteFault'))
+PROTO = re.compile(r'^int (em_(?:level|area04|area08_route)\w*?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
 OVERLAY = 0x823500
 CASTS = {'uint32_t': '(uint32_t)', 'int32_t': '(int32_t)', 'uint64_t': ''}
 

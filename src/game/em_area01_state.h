@@ -35,6 +35,13 @@
 #define EM_AREA01_STATE_A03_DATA_SIZE 0x2800u
 #define EM_AREA01_STATE_A03_BSS 0x00829100u
 #define EM_AREA01_STATE_A03_BSS_SIZE 0x140C00u
+/* AREA08 (AREA08.BIN, id 8) and AREA07 (AREA07.BIN, id 7). */
+#define EM_AREA01_STATE_A08_DATA_SIZE 0x2E00u
+#define EM_AREA01_STATE_A08_BSS 0x00827F00u
+#define EM_AREA01_STATE_A08_BSS_SIZE 0x140C00u
+#define EM_AREA01_STATE_A07_DATA_SIZE 0x2500u
+#define EM_AREA01_STATE_A07_BSS 0x00828080u
+#define EM_AREA01_STATE_A07_BSS_SIZE 0x140C00u
 
 /* Return an existing mutable span, never allocate or seed it. The live
  * binding uses em_module_loader_memory_mutable. Resolve on every request:

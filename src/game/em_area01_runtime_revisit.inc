@@ -131,6 +131,8 @@ static int rv_001BAC00(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 0x0D) { lo = 0x00829D00u; hi = 0x0082E280u; }
     if (r->area == 0x0F) { lo = 0x00826980u; hi = 0x00829F00u; }   /* AREA15's data */
     if (r->area == 3) { lo = 0x00826900u; hi = 0x00829100u; }      /* AREA03's */
+    if (r->area == 8) { lo = 0x00825100u; hi = 0x00827F00u; }      /* AREA08's */
+    if (r->area == 7) { lo = 0x00825B80u; hi = 0x00828080u; }      /* AREA07's */
     const uint8_t *data = bytes(r, lo, hi - lo, 0);
     if (!rec || !self14 || !data) return fail(r, c->function);
     uint8_t record_bytes[0x18];
@@ -548,7 +550,8 @@ static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
     /* The boot workers below serve the later areas too (AREA15's sub 1 event
      * and creature); the overlay entries are AREA01's alone. */
-    if (r->area != 1 && !((r->area == 0x0F || r->area == 3) && c->function < 0x00823500u)) return 0;
+    if (r->area != 1 && !((r->area == 0x0F || r->area == 3 || r->area == 8 || r->area == 7) &&
+                          c->function < 0x00823500u)) return 0;
     const uint32_t a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1];
     int32_t result = 0;
     switch (c->function) {

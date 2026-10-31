@@ -284,6 +284,24 @@ static inline int a08r_c_00122BB8(A08R *o, int32_t *result)
     return 0;
 }
 
+static inline int a08r_c_00158590(A08R *o, uint32_t a0, int32_t a1, int32_t a2)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_00158590) return a08r_latch(o, 0x00158590u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    if (o->h->w_00158590(o->h->ctx, a0, a1, a2) < 0) return a08r_latch(o, 0x00158590u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int a08r_c_00159FC0(A08R *o, uint32_t a0, uint32_t a1, int32_t *result)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_00159FC0) return a08r_latch(o, 0x00159FC0u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    int32_t out = 0;
+    if (o->h->w_00159FC0(o->h->ctx, a0, a1, &out) < 0) return a08r_latch(o, 0x00159FC0u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    *result = out;
+    return 0;
+}
+
 static inline int a08r_c_00182F90(A08R *o, uint32_t a0, uint32_t a1)
 {
     if (a08r_failed(o)) return -1;

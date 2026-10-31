@@ -19,6 +19,9 @@ DECOMP = ROOT.parent / 'Extermination'
 SET = DECOMP / 'build/fork_refs/levels-recordings-20261030-1/s87'
 U, I, F, S = O.U, O.I, O.F, O.S
 FUNCS = {
+    0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
+    0x0015A070: ('em_area08_route_0015A070', 0x170, [U], None),
+    0x00823580: ('em_area08_route_00823580', 0x54, [U], I),
     0x008235E0: ('em_area08_route_008235E0', 0x4C, [U], I),
     0x00823630: ('em_area08_route_00823630', 0x178, [U, U], I),
     0x008237B0: ('em_area08_route_008237B0', 0xBC, [U], None),
@@ -35,6 +38,8 @@ FUNCS = {
 }
 # AREA07's address space is another overlay: its own pass of the same harness
 FUNCS07 = {0x00823DA0: ('em_area08_route_a07_00823DA0', 0x1D8, [U], None)}
+# 00159FC0 is a hook of 0015A070: its own pass, the hook table's slot unused
+FUNCS159 = {0x00159FC0: ('em_area08_route_00159FC0', 0xAC, [U, U], I)}
 OVERLAY_FILES = {8: DECOMP/'extract/OVERLAY/AREA08.BIN', 7: DECOMP/'extract/OVERLAY/AREA07.BIN'}
 HOOKS = [
     ('w_00102760', 0x00102760, [('u', 4), ('u', 5)], None),
@@ -51,6 +56,8 @@ HOOKS = [
     ('w_0011E2A8', 0x0011E2A8, [('f', 12)], 'f'),
     ('w_0011E748', 0x0011E748, [('f', 12)], 'f'),
     ('w_00122BB8', 0x00122BB8, [], 'i'),
+    ('w_00158590', 0x00158590, [('u', 4), ('i', 5), ('i', 6)], None),
+    ('w_00159FC0', 0x00159FC0, [('u', 4), ('u', 5)], 'i'),
     ('w_00182F90', 0x00182F90, [('u', 4), ('u', 5)], None),
     ('w_001AFC10', 0x001AFC10, [('u', 4)], None),
     ('w_001B0FD0', 0x001B0FD0, [('u', 4)], 'i'),
@@ -105,27 +112,29 @@ DEAD_WORDS = {0x824E64}
 
 
 def configure(oid):
-    funcs = FUNCS if oid == 8 else FUNCS07
-    beats = (B0, B2, B3) if oid == 8 else (A7,)
+    funcs = {8: FUNCS, 7: FUNCS07, 159: FUNCS159}[oid]
+    beats = (B0, B2, B3) if oid == 8 else (A7,) if oid == 7 else (B0,)
+    resident = 7 if oid == 7 else 8
     O.FUNCS, O.HOOKS = funcs, HOOKS
-    O.OVERLAY_OF, O.OVERLAY_FILES = {entry: oid for entry in funcs}, OVERLAY_FILES
+    O.OVERLAY_OF, O.OVERLAY_FILES = {entry: resident for entry in funcs}, OVERLAY_FILES
     O.OUT = ROOT/'build/levels/area08_route'
     O.SOURCES = ('em_area08_route.c',)
     O.BEATS = beats
     O.BEAT_DIRS = {b: SET/FOLDERS[b]/b for b in beats}
-    O.RESIDENT = {b: oid for b in beats}
-    O.BY_ADDRESS = {a: (n, args, res) for n, a, args, res in HOOKS}
+    O.RESIDENT = {b: resident for b in beats}
+    O.BY_ADDRESS = {a: (n, args, res) for n, a, args, res in HOOKS if not (oid == 159 and a == 0x159FC0)}
     O.BY_NAME = {n: a for n, a, _, _ in HOOKS}
     O.HOOK_NAMES = [h[0] for h in HOOKS]+['w_callback']
     O.Hooks = type('Hooks', (C.Structure,), {'_fields_':
         [('ctx', C.c_void_p), ('bytes', O.BYTES_FN)] +
         [(name, O.hook_proto(args, res)) for name, _, args, res in HOOKS] +
         [('w_callback', O.CALLBACK_FN)]})
-    O.SELF_ENTRIES = {0x823870, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0} if oid == 8 else {0x823DA0}
+    O.SELF_ENTRIES = {8: {0x15A070, 0x823870, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0}, 7: {0x823DA0}, 159: set()}[oid]
     O.HEAVY = set()
     O.RETURN_SITES = O.RETURN_SITES_FULL = tuple(e for e, f in funcs.items() if f[3])
     a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380')
-    O.CONTRACT_UNREACHABLE = {} if oid == 8 else {h[0]: 'not called by this overlay' for h in HOOKS if h[0] not in a07}
+    used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0')}[oid]
+    O.CONTRACT_UNREACHABLE = {h[0]: 'not called in this pass' for h in HOOKS if h[0] not in used}
     O.LOCAL_STORES = set()
     O.DEFAULT_ARGS = {e: [O.STACK_TOP if k == S else ((P if i else A)) for i, k in enumerate(f[2])]
                       for e, f in funcs.items()}
@@ -141,7 +150,7 @@ def cases(oid):
     b, h, w, f = O.b8, O.h16, O.w32, O.f32b
     common = [(A, bytes(0x300)), (P, bytes(0x300)), (V, bytes(0x300)),
               (A+0x4C, w(0x1C6960)), (A+0x110, w(P)), (A+0xD, b(0x54))]
-    beat = B0 if oid == 8 else A7
+    beat = A7 if oid == 7 else B0
 
     def add(label, entry, patches=(), script=None, on=beat):
         ram = [p for p in patches if p[0] < 0x70000000]
@@ -155,6 +164,10 @@ def cases(oid):
                     add(f'state/{entry:x}/{step}/{sub}/{result}', entry,
                         [(A+4, b(step)), (A+5, b(sub)), (A+0xB, b(4))],
                         O.Script({addr: [result] for _, addr, _, res in HOOKS if res in ('i', 'u')}))
+    if oid == 159:
+        for use in (0, 4):
+            add(f'use159/{use}', 0x159FC0, [(A+0xB, b(use))])
+        return out
     if oid == 7:
         steps(0x823DA0)
         for z in (599.0, 600.0, 601.0):
@@ -170,12 +183,32 @@ def cases(oid):
             for node in O.owners(ram, 0x823DA0):
                 out.append((f'capture/{beat7}/{node:x}', beat7, 0x823DA0, (node,), [], [], O.Script(), set()))
         return out
-    for e in (0x823870, 0x823AC0, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0, 0x824790, 0x824870):
+    for e in (0x15A070, 0x823870, 0x823AC0, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0, 0x824790, 0x824870):
         steps(e)
+    # 0x1BD370
+    for a in (1.0, 2.8, 2.9, 3.0, 4.9, 5.0):
+        for c in (0.0, 4.7, 4.8, 4.9, 5.0):
+            add(f'open/{a}/{c}', 0x1BD370, [(A+0x10, f(a)), (A+0x14, f(c)), (0x275B40, w(V)), (V+4, w(P)), (V+8, w(P+0x100)),
+                                            (V+0xC, w(P+0x200)), (V+0x10, w(V+0x200))])
+    # 0x15A070
+    for area in (7, 8):
+        for bit in (0, 1, 7, 15):
+            for mask in (0, 2, 0xFF):
+                for kind in (0, 6):
+                    for sub in (0, 1, 2):
+                        for result in (0, 1):
+                            add(f'switch/{area}/{bit}/{mask}/{kind}/{sub}/{result}', 0x15A070,
+                                [(A+4, b(1)), (A+5, b(sub)), (A+3, b(kind)), (A+0x2E, h(bit)), (0x810700, b(area)),
+                                 (0x810841+area, b(mask))], O.Script({0x159FC0: [result], 0x1BA1F0: [result]}))
+                    add(f'switch0/{area}/{bit}/{mask}/{kind}', 0x15A070,
+                        [(A+0x2E, h(bit)), (0x810700, b(area)), (0x810841+area, b(mask)), (A+3, b(kind))])
     # 0x8235E0
     for raw in (-0.3, -0.2, -0.1, 0.0, 0.2):
         add(f'rise/{raw}', 0x8235E0, [(P+0x7C, f(raw))])
     add('rise/nan', 0x8235E0, [(P+0x7C, w(0x7FC00000))])
+    for raw in (-9.1, -8.9, -8.8, 0.0):
+        add(f'fall/{raw}', 0x823580, [(P+0x7C, f(raw))])
+    add('fall/nan', 0x823580, [(P+0x7C, w(0x7FC00000))])
     # 0x823630
     for flag in (0, 4):
         for turn in (1.0, 1.5707964, 1.6):
@@ -269,7 +302,7 @@ def cases(oid):
                         O.Script({0x1FBE80: [got], 0x1FBD50: [got], 0x1B1470: [O.fb(0.25)], 0x1CCF70: [1, 2, 3, 4, 5]}))
     # the captured owners
     for beat8, (ram, _) in O.CAPTURES.items():
-        for owner, entries in ((0x823870, (0x823870,)), (0x823AC0, (0x823AC0,)), (0x824210, (0x824210,)),
+        for owner, entries in ((0x15A070, (0x15A070,)), (0x823870, (0x823870,)), (0x823AC0, (0x823AC0,)), (0x824210, (0x824210,)),
                                (0x8245E0, (0x8245E0, 0x824790, 0x824870)), (0x8249F0, (0x8249F0,)), (0x824BC0, (0x824BC0,))):
             for node in O.owners(ram, owner):
                 for entry in entries:
@@ -315,6 +348,7 @@ def run(oid):
         failures += [('callee inventory', p) for p in O.callee_checks()]
         if not failures:
             sites, missing = O.hook_sites(results)
+            missing = [m for m in missing if not (oid == 159 and m == 'w_callback')]
             if missing:
                 failures.append(('unreached hooks', missing))
             for problems, runs in O.reference_mode.parallel_map(O.hook_contract_site, sites):
@@ -328,7 +362,7 @@ def run(oid):
 
 def main():
     header_checks()
-    for oid in (8, 7):
+    for oid in (8, 7, 159):
         run(oid)
 
 

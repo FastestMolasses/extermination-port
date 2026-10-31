@@ -31,6 +31,8 @@ typedef struct {
     int (*w_0011E2A8)(void *ctx, float a0, float *result);
     int (*w_0011E748)(void *ctx, float a0, float *result);
     int (*w_00122BB8)(void *ctx, int32_t *result);
+    int (*w_00158590)(void *ctx, uint32_t a0, int32_t a1, int32_t a2);
+    int (*w_00159FC0)(void *ctx, uint32_t a0, uint32_t a1, int32_t *result);
     int (*w_00182F90)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001AFC10)(void *ctx, uint32_t a0);
     int (*w_001B0FD0)(void *ctx, uint32_t a0, int32_t *result);
@@ -77,7 +79,12 @@ typedef struct {
 /* END GENERATED HOOKS */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t self);
 } EmArea08RouteHooks;
+/* boot: AREA08's and AREA07's switches */
+int em_area08_route_001BD370(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);
+int em_area08_route_00159FC0(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, int32_t *result, EmArea08RouteFault *fault);
+int em_area08_route_0015A070(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
 /* AREA08 */
+int em_area08_route_00823580(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_008235E0(const EmArea08RouteHooks *h, uint32_t a0, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_00823630(const EmArea08RouteHooks *h, uint32_t a0, uint32_t a1, int32_t *result, EmArea08RouteFault *fault);
 int em_area08_route_008237B0(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
