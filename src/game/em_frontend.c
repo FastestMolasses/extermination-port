@@ -209,6 +209,11 @@ static const struct {
     {"assets/movies/e007.mov", "E007.PSS", {691, 2, 1510}},      /* 3: \MOVIE\E007.PSS */
     {"assets/movies/e008s4.mov", "E008S4.PSS", {315, 2, 755}},   /* 4: \MOVIE\E008S4.PSS */
     {"assets/movies/e010.mov", "E010.PSS", {826, 2, 1778}},      /* 5: \MOVIE\E010.PSS */
+    {NULL, NULL, {0, 0, 0}},                                     /* 6: \MOVIE\E39S2.PSS, not on a played route */
+    /* 7: \MOVIE\E46S4.PSS (AREA15 sub 1's event, script 0x8277C0, a15b_01):
+     * feed_end from the recording's one main-loop step of 747 vblanks, less
+     * the 22 the fork's probes measured around E006S1's and E007's feed loop. */
+    {"assets/movies/e46s4.mov", "E46S4.PSS", {300, 2, 725}},
 };
 
 static void begin_movie(uint32_t serial, int new_game, unsigned selector)

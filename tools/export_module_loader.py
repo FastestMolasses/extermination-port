@@ -109,9 +109,11 @@ DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES + SUBAREA_MODULES + ATTAC
 # and AREA01's door [18]) and AREA06 sub 0 (AREA01 entry 6's door, a01u_02):
 # the middle of the route to the first boss (docs/SIXTH_LEVEL_ROUTE.md ..
 # EIGHTH_LEVEL_ROUTE.md). AREA13 sub 0 (the lift from AREA04's door id 0x80:
-# area 13 entry 0; docs/NINTH_LEVEL_ROUTE.md).
+# area 13 entry 0; docs/NINTH_LEVEL_ROUTE.md). AREA15 subs 0 and 1 (AREA19's
+# doors [50] / [51], FOURTEENTH_LEVEL_ROUTE.md) and AREA03 sub 0 (door [25],
+# FIFTEENTH_LEVEL_ROUTE.md).
 DEFAULT_AREAS = ((0x0B, 0), (0x01, 0), (0x00, 0), (0x00, 1), (0x02, 1), (0x02, 0), (0x04, 0), (0x16, 0),
-                 (0x06, 0), (0x0D, 0))
+                 (0x06, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (0x03, 0))
 HEADER = 0x120
 AREA_FILES = 0x17
 D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890

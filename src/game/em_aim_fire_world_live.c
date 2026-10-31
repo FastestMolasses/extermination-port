@@ -639,7 +639,8 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
        c->function!=0x001AA840u && c->function!=0x00189EC0u && c->function!=0x001F18C0u &&
        c->function!=0x00189FE0u && c->function!=0x0018A180u && c->function!=0x001EFF10u &&
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
-       c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u &&
+       c->function!=0x001CD070u && c->function!=0x001CD2B0u && c->function!=0x001F2BA0u &&
+       c->function!=0x001C6200u &&
        c->function!=0x001E2E80u && c->function!=0x001F02C0u && c->function!=0x001F6FB0u &&
        c->function!=0x001DEE80u && c->function!=0x001DEEC0u && c->function!=0x001DF5A0u &&
        c->function!=0x001DF9D0u)return -1;
@@ -648,6 +649,12 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
     v->bridge=&b;
     b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
+    /* 0022BBC0 reads its target's bones (the word seq+0x24): the player, or a
+     * pool actor (AREA15's fire on the creature, a15b_01). */
+    if(c->function==0x0022BBC0u) {
+        const void *scn=em_aim_fire_live_map(h,a+0x24u,4,0);
+        if(scn)memcpy(&b.target_node,scn,4);
+    }
     /* 001DF5A0's 001DF180 keeps a 0x10F0-byte frame (its 16 x 16 grid):
      * the runtime's private stack view below 0x7E001400 (em_aim_fire_runtime
      * add_windows), which its SDK callees reach through the same map. */
@@ -769,6 +776,20 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
             return fault(h,s.core.fault.address?s.core.fault.address:c->function,s.core.fault.detail);
         }
         c->v0=v0;
+    } else if(c->function==0x001CD2B0u) {
+        /* The bone burst's kind-0 fade (0022BBC0's ring, AREA15's fire on
+         * the creature): em_area01_render_gs, its one translation. */
+        EmArea01RenderGs s;memset(&s,0,sizeof s);
+        s.core.world.views=b.fx;s.core.world.view_count=b.count;
+        s.workers.ctx=&b;s.workers.w_001281C0=gs_001281C0;
+        uint32_t f0=0;
+        status=em_area01_render_001CD2B0(&s,c->f[0],c->f[1],c->f[2],c->f[3],&f0);
+        if(status<0||s.core.fault.code) {
+            fprintf(stderr,"aim/fire world: 001CD2B0 fault code %d at %08X detail %08X\n",
+                (int)s.core.fault.code,(unsigned)s.core.fault.address,(unsigned)s.core.fault.detail);
+            return fault(h,s.core.fault.address?s.core.fault.address:c->function,s.core.fault.detail);
+        }
+        c->f0=f0;
     } else if(c->function==0x001F0190u || c->function==0x001F0290u) {
         /* The bone burst's fog bracket (0022BBC0 subtype 9 around each
          * burst): em_area01_side, their one translation (AREA01_SIDE.md);

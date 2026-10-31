@@ -335,6 +335,28 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
             mover_x=v->host.bytes(v->host.ctx,at+0xB0,4,1);mover_z=v->host.bytes(v->host.ctx,at+0xB8,4,1);
             if(!mover_x||!mover_z)return fail(v,at+0xB0,1);
         }break;}
+    case 0x19B2C0:
+        /* 0019B2C0(a0, a1, flags): the move probe with no actor (the
+         * creature family's 001B3390): a0's x and z take the hit delta under
+         * bit 31. */
+        if(c->na<3||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
+        if(c->a[2]&0x80000000u){
+            mover_x=v->host.bytes(v->host.ctx,(uint32_t)c->a[0],4,1);mover_z=v->host.bytes(v->host.ctx,(uint32_t)c->a[0]+8,4,1);
+            if(!mover_x||!mover_z)return fail(v,(uint32_t)c->a[0],1);
+        }break;
+    case 0x19AFE0:{
+        /* 0019AFE0(actor, from, to, flags): as 0019AD00, the eye from `from`
+         * (the creature families' sweep, AREA19). */
+        uint32_t self,at=(uint32_t)c->a[0];
+        if(c->na<4||get(v,at,&mover.status,1)<0||get(v,at+2,&mover.cls,1)<0||get(v,at+0x52,&mover.h52,2)<0||
+           get(v,at+0x14,&self,4)<0||get(v,at+0xB0,mover.position,12)<0||get(v,(uint32_t)c->a[1],a,12)<0||
+           get(v,(uint32_t)c->a[2],b,12)<0)return -1;
+        mover.self=decode(v,self);
+        if(self&&(!mover.self||encode(v,mover.self)!=self))return fail(v,self,3);
+        if(c->a[3]&0x80000000u){
+            mover_x=v->host.bytes(v->host.ctx,at+0xB0,4,1);mover_z=v->host.bytes(v->host.ctx,at+0xB8,4,1);
+            if(!mover_x||!mover_z)return fail(v,at+0xB0,1);
+        }break;}
     case 0x19AA80:
         /* Sources inside the destination words would make the original's
          * interleaved copy order matter: refused (as em_aim_fire_world_live). */
@@ -394,6 +416,32 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
         if(player&&v->host.move->entity==(void *)&ph.actor)v->host.move->entity=(void *)player;
         /* The move scratch is now the last writer (the next begin imports
          * it); bit 31 added the hit delta to the actor's x and z. */
+        v->host.shared->move_last=1;
+        if(mover_x){memcpy(mover_x,&mover.position[0],4);memcpy(mover_z,&mover.position[2],4);}
+        break;}
+    case 0x19B2C0:{
+        const EmCollMoveWorld mw={seg->world->cells,seg->world->grid,seg->hulls,seg->math};
+        if(export_move(v,&mw)<0)return -1;
+        r=em_coll_move_probe_0019B2C0(&mw,v->host.move,a,b,(uint32_t)c->a[2]);
+        if(r<0)break;
+        v->host.shared->move_last=1;
+        if(mover_x){memcpy(mover_x,&a[0],4);memcpy(mover_z,&a[2],4);}
+        break;}
+    case 0x19AFE0:{
+        PlayerHull ph;memset(&ph,0,sizeof ph);ph.v=v;
+        const EmCollHullWorld hw={&ph,player_hull_chain,&ph.actor};
+        const EmCollHullWorld *hulls=seg->hulls;const void *player=NULL;
+        if((c->a[3]&1u)&&(mover.status&1)&&(mover.cls&0x1F)) {
+            player=decode(v,0x008102B0u);
+            if(!player||!v->host.player_chain||v->host.player_chain(v->host.ctx,&ph.actor,NULL)<0)
+                return fail(v,0x1A7280,4);
+            hulls=&hw;
+        }
+        const EmCollMoveWorld mw={seg->world->cells,seg->world->grid,hulls,seg->math};
+        if(export_move(v,&mw)<0)return -1;
+        r=em_coll_move_sweep_0019AFE0(&mw,v->host.move,&mover,a,b,(uint32_t)c->a[3]);
+        if(r<0)break;
+        if(player&&v->host.move->entity==(void *)&ph.actor)v->host.move->entity=(void *)player;
         v->host.shared->move_last=1;
         if(mover_x){memcpy(mover_x,&mover.position[0],4);memcpy(mover_z,&mover.position[2],4);}
         break;}

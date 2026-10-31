@@ -113,6 +113,12 @@ uint8_t *em_area01_actor_view_bytes(EmArea01ActorView *v, uint32_t address, uint
     if (size > EM_ACTOR_RECORD_SIZE - offset) { fail(v, address, 1); return NULL; }
     EmActor *a = &v->pool->records[index];
     EmArea01ActorRecordView *r = &v->record[index];
+    /* A read of a record freed in this window, inside the header words
+     * 001AFC10 cleared (AREA15's 0x824510 reads its +0xD after 0x824560 may
+     * have freed it): what the free left. Nothing else of it is reachable. */
+    static const uint8_t cleared[0x10];
+    if (!write && !a->allocated && offset + size <= sizeof cleared)
+        return (uint8_t *)(uintptr_t)cleared + offset;
     if (em_area01_actor_view_touch(v, address - offset) < 0) return NULL;
     if (!a->allocated || a->self != a || a->generation != r->generation) {
         fail(v, address, 2); return NULL;

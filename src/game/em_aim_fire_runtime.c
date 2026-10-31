@@ -96,7 +96,7 @@ static struct {
     EmArea00HudVu vu;
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
-    EmPoseRegion bss[24];
+    EmPoseRegion bss[26];
     uint32_t piece_start;                /* 001F3E30 mode 2: its unit's start */
     int piece_model;
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
@@ -340,7 +340,9 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         /* Only original fields with actual native owners are enumerated.
          * The effect owner separately omits +24 until its observed write. */
         static const uint32_t spans[][2]={{0,0x14},{0x14,4},{0x2E,2},{0x34,2},{0x36,2},
-            {0xB0,16},{0xC0,16},{0xD0,64},{0x28,2},{0xA0,16}};
+            {0xB0,16},{0xC0,16},{0xD0,64},{0x28,2},{0xA0,16},
+            /* the tint words the bone-burst node ramps (0022BBC0, scn+0x60 / +0x80) */
+            {0x60,32},{0x80,16}};
         for (unsigned j=0;j<sizeof spans/sizeof spans[0];++j) {
             uint32_t at=address+spans[j][0],n=spans[j][1];
             p=pool_field(at,n,0);
@@ -1005,6 +1007,9 @@ static int add_windows(void)
     int32_t *d275C04=em_effects_live_d275C04();
     if (!d275C04) return -1;
     R.bss[n++]=(EmPoseRegion){0x275C04,4,(uint8_t *)d275C04,1};
+    /* D_00275C00: 001CD2B0's store, read back at once (0022BBC0's kind-0 fade). */
+    static int32_t d275C00;
+    R.bss[n++]=(EmPoseRegion){0x275C00,4,(uint8_t *)&d275C00,1};
     if (em_area11_roger_table_word(0x28A56Cu,&R.d28A56C)<0) return -1;
     R.bss[n++]=(EmPoseRegion){0x28A56C,4,(uint8_t *)&R.d28A56C,0};
     R.bss[n++]=(EmPoseRegion){0x28A59C,4,(uint8_t *)&R.d28A59C,0};

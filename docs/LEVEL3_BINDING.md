@@ -77,8 +77,16 @@ What the lift's load and AREA13 needed, each from original code:
 - **Sound:** 0x44F is absent in AREA13 (remap 0xFF, D_00282164 = -1 in the
   captures): 001FC280 goes on, 0011A070 takes the -1. The wind 0x44E needs the
   pan slide and the script loop; both in the registry and the driver, in
-  lockstep with the original through the first jump (test_area11_sfx_reference
-  pass V, 7,772 ticks).
+  lockstep with the original past its first jump (test_area11_sfx_reference
+  pass V; the shared driver of lanes H1 and K1, EM_SFX_OP_PAN / EM_SFX_OP_JUMP).
+
+Main's AREA15 / AREA03 (lane K1, 35aeab4) merged into `area13`: AREA13 joined
+`mid_host` and `later` (`creatures`) beside them; both lanes' pan slide and
+script loop are one driver, K1's. AREA15 sub 1's weather (no state on main, the
+AREA11 snow only) now runs its state through em_snow_runtime_tick_outdoor;
+its 001E67C0 branch has no snow config outside AREA11's scene, so that picture
+is reported, not drawn (open item). a15a_00, a15b_00..03 and a03_00 pass from
+their cards on the merged tree; a15_00, a15b_04 end at AREA19's load, as on main.
 
 Free roam from the cards with scripted pads (no fail-stop): door [8] back
 (entry 1), button [15] from outside (entry 3), door [17] out from the east room
@@ -100,11 +108,12 @@ Whole-run checks, each with the rand() order and rand-replay anchors:
   end RAM.
 - `--until a04b_s7`, the pistol recording from a04b_03's end, with no anchor
   after the area entries: a04b_s5 1,937 rows (the fight, the creature dead at
-  f1166), a04b_s6 288 (the drop), a04b_s7 1,764 of its 2,410 (to the row before
-  AREA13's load, which has no host). Every row holds the creature and event
-  [3]'s four bugs: the New Game route's creature is the recording's, position,
-  state, block and timer words, callback. `--until a04b_04`: the route's own
-  lift ride past the live creature, 1,437 of its 2,083 rows (to the same load).
+  f1166), a04b_s6 288 (the drop), a04b_s7 2,410 (through AREA13's load, since
+  lane H1, on `route_a13s_20261030/route.txt`). Every row to the load holds the
+  creature and event [3]'s four bugs: the New Game route's creature is the
+  recording's, position, state, block and timer words, callback.
+  `--until a04b_04`: the route's own lift ride past the live creature, 2,083
+  rows through the same load (lane H1).
 
 | Beat | Canonical rows | Bed branch rows | What it covers |
 |---|---|---|---|
@@ -313,6 +322,13 @@ from New Game:
 - a01_s8 runs with `--rand-replay` (the recording's rand() state at its
   row 0): the native stream leaves a01_s5 at another state, and the burn's
   reaction draws rand() & 1 for its clip.
+
+**2026-10-30, lane K1 (branch `area15`): AREA15 and AREA03 from start cards.**
+AREA15 subs 0 / 1 and AREA03 sub 0 run in the shared composition: state, owners,
+scripts, assets, start points `area15`, `a15_00`, `a15b_00` .. `a15b_04`,
+`a03_00`. a15a_00, a15b_00..03 and a03_00 end on their recordings' blocks; a15_00
+and a15b_04 stop at AREA19's load. Evidence, shared changes and open items:
+docs/AREA15_PORT.md.
 
 **2026-10-30, lane B1 (branch `a02-exit`): a02_05 row-exact, door [25]
 into AREA04 to control.** From New Game the whole-run checker passes 50

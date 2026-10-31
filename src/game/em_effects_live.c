@@ -17,6 +17,7 @@
 #include "game/em_level8_port.h"
 #include "game/em_level14_port.h"
 #include "game/em_collision_world.h"
+#include "game/em_boot_constants.h"
 #include "game/em_diag.h"
 #include "game/em_effect_kinds.h"
 #include "game/em_effect_manager.h"
@@ -296,6 +297,85 @@ const uint8_t *em_effects_live_elf(uint32_t address, uint32_t size)
     return S.elf + ELF_AT(address);
 }
 
+/* The boot constants (em_boot_constants.h; tools/export_boot_constants.py). */
+
+typedef struct { uint32_t address, size; } Run;
+
+static struct {
+    int active;
+    uint8_t *blob;
+    const Run *runs;
+    const uint8_t **bytes;
+    uint32_t count;
+} BC;
+
+static int load(void)
+{
+    if (BC.blob) return 0;
+    FILE *f = fopen(EM_BOOT_CONSTANTS_PATH, "rb");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    const long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *blob = size >= 16 ? malloc((size_t)size) : NULL;
+    if (!blob || fread(blob, 1, (size_t)size, f) != (size_t)size) {
+        free(blob);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    uint32_t count = 0, version = 0;
+    memcpy(&version, blob + 4, 4);
+    memcpy(&count, blob + 8, 4);
+    if (memcmp(blob, "EMBC", 4) || version != 1 || !count || (uint64_t)count * 8u + 16u > (uint64_t)size) {
+        free(blob);
+        return -1;
+    }
+    const uint8_t **bytes = calloc(count, sizeof *bytes);
+    if (!bytes) {
+        free(blob);
+        return -1;
+    }
+    Run *runs = (Run *)(void *)(blob + 16);
+    const uint8_t *at = blob + 16 + count * 8u;
+    for (uint32_t i = 0; i < count; ++i) {
+        if ((i && runs[i].address < runs[i - 1].address + runs[i - 1].size) ||
+            runs[i].size > (uint64_t)size - (uint64_t)(at - blob)) {
+            free(bytes);
+            free(blob);
+            return -1;
+        }
+        bytes[i] = at;
+        at += runs[i].size;
+    }
+    BC.blob = blob;
+    BC.runs = runs;
+    BC.bytes = bytes;
+    BC.count = count;
+    return 0;
+}
+
+int em_boot_constants_select(unsigned area)
+{
+    BC.active = area == 0x13 || area == 0x0F || area == 3;
+    return BC.active ? load() : 0;
+}
+
+const uint8_t *em_boot_constants(uint32_t address, uint32_t size)
+{
+    if (!BC.active || !size) return NULL;
+    uint32_t lo = 0, hi = BC.count;
+    while (lo < hi) {
+        const uint32_t mid = lo + (hi - lo) / 2;
+        if (BC.runs[mid].address + BC.runs[mid].size <= address) lo = mid + 1;
+        else hi = mid;
+    }
+    if (lo == BC.count || address < BC.runs[lo].address || size > BC.runs[lo].size ||
+        address - BC.runs[lo].address > BC.runs[lo].size - size)
+        return NULL;
+    return BC.bytes[lo] + (address - BC.runs[lo].address);
+}
+
 const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
 {
     if (!S.loaded) return NULL;
@@ -307,7 +387,8 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
         if (address >= S.overlay_source[i].address && size <= 0x90u &&
             address - S.overlay_source[i].address <= 0x90u - size)
             return S.overlay_source[i].bytes + (address - S.overlay_source[i].address);
-    return em_aim_fire_tables_bytes(address, size);
+    const uint8_t *table = em_aim_fire_tables_bytes(address, size);
+    return table ? table : em_boot_constants(address, size);
 }
 
 /* The exported .data the original writes at run time, writable in place

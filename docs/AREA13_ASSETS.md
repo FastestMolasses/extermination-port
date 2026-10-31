@@ -594,6 +594,7 @@ to the exports (every one disc-derived and ignored), in the order to run them:
 # port root, native arm64 macOS; a worktree unlinks its symlinks first
 python3 tools/export_module_loader.py                     # AREA13 sub 0 in the pack (DEFAULT_AREAS)
 python3 tools/export_mid_library.py                       # library model 0x5F ([4]): span 0x53..0x5F
+python3 tools/export_later_library.py                     # the whole library (main's; covers the spans above)
 python3 tools/export_area00_runtime_tables.py             # the ELF windows (below)
 python3 tools/export_area01_boot_scripts.py --out assets/area01_boot_scripts   # scene 7's subtitle track
 python3 tools/export_streams.py                           # AREA13's music cues and message voices
@@ -611,7 +612,7 @@ python3 tools/export_area13_level.py --target area13      # scene.txt's backgrou
 - **Sound.** 0x44F, the indoor rooms' area loop, is absent in AREA13 (remap
   0xFF): 001FB9F0 returns -1 and D_00282164 holds -1 in every capture; 0x44E
   outdoors is the wind (D_00282164 = 1 at entry 8). Its script needs the pan
-  slide B0 0A and the script loop B0 60 (`EM_SFX_OP_PAN`, `EM_SFX_OP_LOOP`).
+  slide B0 0A and the script loop B0 60 (`EM_SFX_OP_PAN`, `EM_SFX_OP_JUMP`).
 
 When AREA13 is bound:
 - The scene selects `sub0/` for the level, background, collision, cells,

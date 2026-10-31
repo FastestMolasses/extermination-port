@@ -111,6 +111,13 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a13_03` | AREA13 | The east room (entry 4), after the scene | The pickup g[5] |
 | `a13_04` | AREA13 | The east room, with the pickup's item | Over the grating step to hatch [62] |
 | `a13_05` | AREA13 | At the open hatch [62] | The ladder down, which falls into AREA19 |
+| `area15` | AREA15 sub 0 | Entry 0, the arrival through door [50] | The long conversation in the medical room |
+| `a15_00` | AREA15 sub 0 | After that conversation | The slider and door [14] to the stair tower (AREA19's load) |
+| `a15b_00` | AREA15 sub 1 | Entry 0, through door [51] | Up the stairs to the mezzanine: the event, then the forced return |
+| `a15b_01`, `a15b_02` | AREA15 | Inside the event's scenes (their source states) | Discovery points: the scenes restart from the save |
+| `a15b_03` | AREA15 sub 0 | After the two conversations | The slider and the bed |
+| `a15b_04` | AREA15 sub 0 | At the bed | The slider and door [14] to the stair tower (AREA19's load) |
+| `a03_00` | AREA03 sub 0 | Entry 1, through AREA19's door [25] | The lift's outer button, the car, the ride down |
 
 The route these points sit on is proven row by row from New Game, through the
 first boss fight with the pistol and the lift, through AREA13 to the ladder down

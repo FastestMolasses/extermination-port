@@ -618,6 +618,7 @@ int em_area01_model_call(EmArea01Model *m,uint32_t fn,uint32_t node,uint32_t a1,
                 rc=service_call(m,fn,a1,(int32_t)a2,(int32_t)a3); break;
             case 0x001B10B0u: rc=em_roger_actor_001B10B0(&m->actor,t,a1,(int32_t)a2); store=1; break;
             case 0x001CA5E0u: rc=em_owner_services_model_001CA5E0(&t->model,&t->draw,a1,a2); store=1; break;
+            case 0x001CA5F0u: t->draw=em_owner_services_method_001CA5F0(a1); store=1; break;
             case 0x001CA6E0u: rc=em_roger_actor_001CA6E0(&m->actor,t,a1); store=1; break;
             case 0x001CA6F0u: rc=em_roger_actor_001CA6F0(&m->actor,t,a1); store=1; break;
             case 0x001AF800u: rc=em_roger_actor_001AF800(&m->actor,t); store=1; break;

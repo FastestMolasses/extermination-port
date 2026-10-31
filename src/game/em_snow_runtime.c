@@ -306,7 +306,17 @@ int em_snow_runtime_tick_outdoor(EmWeather *weather, uint32_t self, uint32_t fla
     if (!(flags & 0x0e000070U)) return 0;
     *d8106BF = frame.intensity;
     if (frame.draw == 0) return 0;
-    if (frame.draw != 2) return refuse("001E67C0 outside AREA11 (no exported snow config)", 0x001E67C0u);
+    if (frame.draw != 2) {
+        /* 001E67C0's branch (AREA15 sub 1's weather): the state above runs,
+         * the picture does not (no snow config outside AREA11's scene; only
+         * the picture depends on it). Open item, docs/AREA15_PORT.md.
+         * AREA13 never takes it: a fail-stop there. */
+        static int reported;
+        if (area == 0x0D) return refuse("001E67C0 in AREA13 (no exported snow config)", 0x001E67C0u);
+        if (!reported) fprintf(stderr, "snow: 001E67C0: area %02X's snow is not drawn\n", area);
+        reported = 1;
+        return 0;
+    }
     if (!s_wx_data_ready) {
         const uint8_t *elf = em_effects_live_window(WX_DATA, WX_DATA_SIZE);
         if (!elf) return refuse("the boot rows D_00254F30.. are not exported", WX_DATA);

@@ -67,6 +67,10 @@ snapshot per beat. Nothing here is port behaviour.
 In-game text (messages, captions, prompts) is described, never quoted.
 Positions are world units; yaw is the player's +0xC4 (X = sin, Z = cos).
 
+**Native status (lane K1, 2026-10-30).** AREA15 sub 0's arrival and [0]'s scene
+(a19d_20 from f526) play from the card `area15` and end on this recording's
+block; a15_00 plays to door [14]. docs/AREA15_PORT.md.
+
 ## 1. Tool, outputs and conventions
 
 ```sh

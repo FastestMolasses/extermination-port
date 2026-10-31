@@ -6,6 +6,10 @@ All data comes from the local disc/extract; the two retained snapshots,
 `a19e_07_door25` and `a03_00_elevator`, independently check delivery.
 This does not bind gameplay or certify the unrecorded subs 1/2.
 
+Live since lane K1 (2026-10-30): the shared composition reads this tree for
+AREA03 sub 0 (docs/AREA15_PORT.md); the module pack, stream cues, SFX scope and
+player texture variants are exported with the other areas'.
+
 ## Outputs
 
 | Output under `assets/levels/03/` | Source and verification |

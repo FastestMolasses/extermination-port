@@ -145,6 +145,7 @@ typedef struct EmAreaScriptWorkers {
 
     /* 001B8020 (op0B). */
     int (*w_001C67E0)(void *ctx, uint32_t actor, int16_t clip, float a, float b);
+    int (*w_001C63E0)(void *ctx, uint32_t actor, int16_t clip);   /* op0B sub 5 */
 
     /* 001B7B30 (op0D). */
     int (*w_001B0250)(void *ctx);

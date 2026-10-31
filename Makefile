@@ -26,7 +26,10 @@ BIN     := build/extermination
 # The reference tests build their libraries with -O2: change them with it.
 CFLAGS  := -O2 -ffp-contract=off -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
-           src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_level14_port_creature.c src/game/em_level10_port_boot.c src/game/em_level11_port_boot.c src/game/em_level12_port_boot.c src/game/em_level13_port_boot.c src/game/em_level15_creatures.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
+           src/game/em_area15_route.c \
+           src/game/em_area03_route_misc.c src/game/em_area03_route_turret.c \
+           src/game/em_area03_arrival_actors.c src/game/em_area03_arrival_probe.c \
+           src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_level14_port_creature.c src/game/em_level10_port_boot.c src/game/em_level11_port_boot.c src/game/em_level12_port_boot.c src/game/em_level13_port_boot.c src/game/em_level15_creatures.c src/game/em_level15_fountain.c src/game/em_level15_motion.c src/game/em_level15_perception.c src/game/em_level15_particles.c src/game/em_level15_support.c src/game/em_level9_port_anim.c src/game/em_level9_port_area13.c src/game/em_level9_port_exit.c src/game/em_level9_port_turret.c src/game/em_level11_port_area13.c src/game/em_level11_port_creature.c src/game/em_level12_port_creature.c src/game/em_level13_port_creature.c src/game/em_level14_port_area15.c src/game/em_level10_port_area19.c src/game/em_level12_port_area19.c src/game/em_level13_port_area19.c src/game/em_level14_port_area19.c src/game/em_area19_route_flame.c src/game/em_area19_route_turret.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_movie_field.c src/game/em_movie_sound.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
@@ -114,9 +117,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
            src/game/em_truck_original.c src/game/em_pad_actuator.c \
            src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c src/game/em_area01_render_vif.c \
-           src/game/em_level9_port_fx.c src/game/em_level9_port_area13.c src/game/em_level9_port_turret.c \
-           src/game/em_level9_port_anim.c src/game/em_level9_port_exit.c src/game/em_area13_route.c \
-           src/game/em_level11_port_area13.c \
+           src/game/em_level9_port_fx.c src/game/em_area13_route.c \
            src/game/em_replay.c \
            src/game/em_static_world.c src/game/em_static_world_compose.c src/game/em_static_world_draw.c \
            src/game/em_static_world_live.c \
@@ -2281,6 +2282,10 @@ test-player-spawn-rotation-reference:
 	python3 tools/test_player_spawn_rotation_reference.py
 test-player-stage-position-reference:
 	python3 tools/test_player_stage_position_reference.py
+
+.PHONY: test-area15-area03-state-reference
+test-area15-area03-state-reference:
+	python3 tools/test_area15_area03_state_reference.py
 
 .PHONY: test-area03-arrival-reference
 test-area03-arrival-reference:

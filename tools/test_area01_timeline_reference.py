@@ -120,6 +120,16 @@ def main():
             total+=1;boundaries+=position
         print(cap.name,'scene',scene,len(sequence),'exact ticks',flush=True)
     assert visited==set(SERVICES),(visited,set(SERVICES)-visited)
+    # 0022EC30's whole jump table: every scene's three track words.
+    for scene in range(0x26):
+        o.save(CAM+0x6E,scene,2);struct.pack_into('<h',ram,CAM+0x6E,scene)
+        expected.clear();position=0;errors.clear()
+        o.call(0x22EC30,(CAM,))
+        call=Call(function=0x22EC30,sp=STACK_TOP,na=1);call.a[0]=CAM;fault=C.c_uint32()
+        rc=n.em_area01_timeline_call(C.byref(host),C.byref(call),C.byref(fault))
+        if errors:raise errors[0]
+        assert rc==0 and o.read(CAM+0x7C,12)==bytes(ram[CAM+0x7C:CAM+0x88]),(scene,rc,hex(fault.value))
+        total+=1
     @Worker
     def reject(_,ptr):return -1
     rejected_host=Host(None,view,reject)
@@ -127,12 +137,12 @@ def main():
         call=Call(function=fn,sp=STACK_TOP,na=1);call.a[0]=CAM;fault=C.c_uint32()
         assert n.em_area01_timeline_call(C.byref(rejected_host),C.byref(call),C.byref(fault))<0
         assert fault.value==want,(hex(fault.value),hex(want))
-    struct.pack_into('<h',ram,CAM+0x6E,8);rejected(0x22EC30,CAM+0x6E)   # a scene with an event track not bound here
+    struct.pack_into('<h',ram,CAM+0x6E,0x26);rejected(0x22EC30,CAM+0x6E)   # outside the table
     struct.pack_into('<h',ram,CAM+0x6E,35);rejected(0x22EC30,0x21BAB0)
     struct.pack_into('<I',ram,CAM+0x74,bits(0.))
-    struct.pack_into('<I',ram,CAM+0x7C,0x26AC10);rejected(0x22EEF0,CAM+0x7C)
+    struct.pack_into('<I',ram,CAM+0x7C,0x26AAC0);rejected(0x22EEF0,0x26AAC0)
     struct.pack_into('<I',ram,CAM+0x7C,0)
-    struct.pack_into('<I',ram,CAM+0x80,0x26AC70);rejected(0x22EEF0,0x26AC70)
+    struct.pack_into('<I',ram,CAM+0x80,0x26AE10);rejected(0x22EEF0,0x26AE10)
     struct.pack_into('<I',ram,CAM+0x80,0)
     struct.pack_into('<I',ram,CAM+0x84,0x26AAC0);rejected(0x22EEF0,0x26AAC0)
     struct.pack_into('<I',ram,CAM+0x84,0)

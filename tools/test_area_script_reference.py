@@ -285,7 +285,7 @@ WORKERS = [
     ('w_00182F90', 0x182F90, 'av', ''), ('w_001B1240', 0x1B1240, 'vff', 'fo'),
     ('w_001B12B0', 0x1B12B0, 'fff', 'fo'),
     ('c_record', None, 'special', ''), ('w_001B7D60', 0x1B7D60, 'special', ''),
-    ('w_001C67E0', 0x1C67E0, 'ahff', ''),
+    ('w_001C67E0', 0x1C67E0, 'ahff', ''), ('w_001C63E0', 0x1C63E0, 'ah', ''),
     ('w_001B0250', 0x1B0250, '', ''), ('w_0021B9A0', 0x21B9A0, 'iff', ''),
     ('w_001D2830', 0x1D2830, 'ii', ''), ('w_0018CBD0', 0x18CBD0, 'aaf', ''),
     ('w_0018D7B0', 0x18D7B0, 'ai', ''), ('w_001B0460', 0x1B0460, 'i', ''),
@@ -762,6 +762,9 @@ def synthetic_arena():
                                   rec(0x0B, 2, f0c=0.5, w14=0x1000), rec(0x0B, 3, f0c=2., w14=1),
                                   rec(0x0B, 9), rec(0x0B, 0xFFFFFFFF),
                                   rec(0x0B, 2, f0c=1., w14=0x8000), rec(7, 4, END)])
+    # op0B sub 5 (AREA15's script 0x827D70): +0x40 = D_0028A490[rec +0x1C],
+    # 001C63E0 of rec +0x14, st +0x0E = 0.
+    script('owner bone', [rec(7, 0, w14=1), rec(0x0B, 5, w14=2, w1c=0x3C), rec(7, 4, END)])
     script('unported opcode', [rec(7, 0, w14=1), rec(0x13), rec(7, 4, END)])
     script('unadmitted kind', [rec(7, 0, w14=1), rec(0, 8, f0c=3.), rec(7, 4, END)])
     return scripts, bytes(data)

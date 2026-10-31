@@ -40,7 +40,7 @@
  * pointer and (entries with a result) a NULL result pointer return -1 at
  * once.
  *
- * Unbound: nothing in the port calls these entries (level side track;
+ * AREA15's and the boot entries are bound (docs/AREA15_PORT.md; level side track;
  * docs/LEVEL14_PORT.md "Binding"). stdint only; EE float model.
  */
 #ifndef EM_LEVEL14_PORT_H

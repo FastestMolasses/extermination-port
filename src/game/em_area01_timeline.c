@@ -51,25 +51,92 @@ static int emit(void *ctx,EmCinematicPlaybackEvent event,const EmCinematicPlayba
     }
     return f->fault ? 0 : 1;
 }
-static int cursor(Frame *f,uint32_t a,uint32_t lo,uint32_t size)
+/* The event tracks D_0026AAE0..D_0026AE10 (rodata floats, word aligned). */
+static int cursor(Frame *f,uint32_t a)
 {
-    if(a && (a<lo || a-lo>=size || (a&3))) { f->fault=a;return 0; }
+    if(a && (a<0x0026AAE0u || a>=0x0026AE10u || (a&3))) { f->fault=a;return 0; }
     return 1;
+}
+static void at_time(Frame *f,float t,float when,uint32_t a,uint32_t b)
+{ if(t==when)call(f,0x001B1E20u,2,a,b,0,0,0); }
+/* D_008106C8's letterbox bits (0022EEF0's scenes 24, 29, 33). */
+static void bars(Frame *f,int wide,uint32_t extra)
+{
+    uint32_t w=read32(f,0x008106C8u)&0xF1FFFF8Fu;
+    write32(f,0x008106C8u,wide ? w|0x02000000u : w|extra);
+}
+/* 0022EEF0's leading switch (decomp func_0022EEF0.c). */
+static void scene_steps(Frame *f,int scene)
+{
+    const float t=em_ee_float(read32(f,f->cam+0x74));
+    switch(scene) {
+    case 15:at_time(f,t,1330.0f,6,0);break;
+    case 22:at_time(f,t,573.0f,7,0x32);at_time(f,t,648.0f,3,0xA);break;
+    case 24:
+        at_time(f,t,105.0f,6,0);
+        bars(f,(t>=0.0f && t<=263.0f) || (t>=384.0f && t<=655.0f) || (t>=910.0f && t<=1159.0f),0x10);
+        break;
+    case 25:at_time(f,t,230.0f,2,0x32);at_time(f,t,316.0f,3,0xA0);break;
+    case 26:
+        if(t==2670.0f) {
+            write32(f,0x008106C8u,read32(f,0x008106C8u)|0x40u);
+            call(f,0x001D2830u,2,8,0,0,0,0);call(f,0x001C1DC0u,0,0,0,0,0,0);
+        }
+        break;
+    case 27:
+        at_time(f,t,2431.0f,1,0x28);at_time(f,t,3491.0f,5,0xA0);at_time(f,t,3580.0f,8,0x46);
+        /* its 3852..3960 ramp (0011E0A8 over 0x70003A24) is not translated */
+        if(t>=3852.0f && t<3960.0f)f->fault=f->cam+0x74;
+        at_time(f,t,4260.0f,4,0x32);at_time(f,t,4508.0f,2,0xF);at_time(f,t,4609.0f,2,0xF);
+        break;
+    case 29:
+        at_time(f,t,777.0f,2,0x32);
+        if(t==0.0f)bars(f,1,0);
+        break;
+    case 30:at_time(f,t,31.0f,2,0x50);at_time(f,t,75.0f,1,0x334);break;
+    case 31:at_time(f,t,1.0f,4,0x30C);break;
+    case 33:
+        if((t>=200.0f && t<=300.0f) || (t>=360.0f && t<=560.0f))bars(f,1,0);
+        else if(t>=635.0f && t<=700.0f)bars(f,0,0);
+        else bars(f,1,0);
+        break;
+    case 34:at_time(f,t,1.0f,6,0);break;
+    case 35:at_time(f,t,50.0f,6,0);break;
+    default:break;
+    }
 }
 static void events(Frame *f,int scene)
 {
     uint32_t d=f->cam;
-    if(scene==35 && em_ee_c_eq_bits(read32(f,d+0x74),0x42480000u))
-        call(f,0x001B1E20u,2,6,0,0,0,0);
-    /* No bound scene has an audio track. A foreign cursor is an
-     * unsupported timeline, never an apparently successful empty event. */
-    if(read32(f,d+0x7C)) { f->fault=d+0x7C;return; }
-    uint32_t p=read32(f,d+0x80);
-    /* the subtitle tracks the bound scenes use: D_0026AC80 (2, 6),
-     * D_0026ACA0 (5, AREA04's NPC script 0x827D90) and D_0026ACB0 (7, AREA13's
-     * script 0x82A360) */
-    if(p>=0x0026ACA0u && p<0x0026ACC0u) { if(!cursor(f,p,0x0026ACA0u,0x20))return; }
-    else if(!cursor(f,p,0x0026AC80u,0x20))return;
+    scene_steps(f,scene);
+    /* the audio ducking track (+0x7C, state +0x88) */
+    uint32_t p=read32(f,d+0x7C);
+    if(!cursor(f,p))return;
+    if(p && !em_ee_c_lt_bits(read32(f,d+0x74),read32(f,p))) {
+        p+=4;
+        if(read8(f,d+0x88)==0) {
+            const uint32_t v=read32(f,p);p+=4;
+            if(em_ee_c_eq_bits(v,0xBF800000u)) {
+                EmArea01Call c={.function=0x0021BA80u,.sp=f->sp,.na=3,.a={0x80,0x80,0x80}};
+                if(!f->fault && f->h->worker(f->h->ctx,&c)<0)f->fault=c.function;
+                write8(f,d+0x88,2);
+            } else {
+                call(f,0x0021B9A0u,1,5,0,2,0,v);write8(f,d+0x88,1);
+            }
+        } else {
+            if(read8(f,d+0x88)==1)call(f,0x0021B9A0u,1,0,0,2,0,0);
+            else {
+                uint64_t start=0;const uint8_t *w=bytes(f,0x00275C98u,8,0);
+                if(w)memcpy(&start,w,8);
+                EmArea01Call c={.function=0x0021BA70u,.sp=f->sp,.na=1,.a={start}};
+                if(!f->fault && f->h->worker(f->h->ctx,&c)<0)f->fault=c.function;
+            }
+            write8(f,d+0x88,0);
+        }
+        write32(f,d+0x7C,em_ee_c_eq_bits(read32(f,p),0) ? 0 : p);
+    }
+    p=read32(f,d+0x80);
+    if(!cursor(f,p))return;
     if(p) {
         uint32_t t=read32(f,p);
         if(em_ee_c_lt_bits(t,0)) {
@@ -87,10 +154,7 @@ static void events(Frame *f,int scene)
         }
     }
     p=read32(f,d+0x84);
-    /* the letterbox tracks: D_0026AAE0 (2) and D_0026AB00 (6, AREA04's
-     * event [3] script 0x828450) */
-    if(p>=0x0026AB00u && p<0x0026AB18u) { if(!cursor(f,p,0x0026AB00u,0x18))return; }
-    else if(!cursor(f,p,0x0026AAE0u,0x20))return;
+    if(!cursor(f,p))return;
     if(p && !em_ee_c_lt_bits(read32(f,d+0x74),read32(f,p))) {
         call(f,0x001D2830u,2,2,read8(f,d+0x8A)==0 ? 1u : 0u,0,0,0);
         write8(f,d+0x8A,(uint8_t)(1-read8(f,d+0x8A)));
@@ -144,28 +208,28 @@ int em_area01_timeline_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_
     Frame f={h,c->sp-(c->function==0x0022EC30u ? 0x20u : 0x30u),0,(uint32_t)c->a[0]};
     const uint8_t *p=bytes(&f,f.cam+0x6E,2,0);int16_t scene=0;
     if(p)memcpy(&scene,p,2);
-    /* Scenes 2 and 35 (AREA01), and the scenes for which 0022EC30 binds no
-     * track and 0022EEF0's leading switch has no case (decomp
-     * func_0022EC30.c / func_0022EEF0.c: 0, 1, 3, 4, 9, 11, 14, 18 and 36),
-     * whose tick is the common one: 3 is AREA04's arrival script 0x8275A0,
-     * 4 the director's event script 0x8278D0 (a04_00). */
-    if(scene!=2 && scene!=5 && scene!=6 && scene!=7 && scene!=35 &&
-       !(scene>=0 && scene<=36 && ((1ull<<scene)&0x1000044a1bull)))
-        f.fault=f.cam+0x6E;
+    if(scene<0 || scene>0x25)f.fault=f.cam+0x6E;
     if(!f.fault && c->function==0x0022EC30u) {
         uint64_t start=call(&f,0x0021BAB0u,0,0,0,0,0,0);
         store(&f,0x00275C98u,&start,sizeof start);
         write32(&f,f.cam+0x7C,0);write32(&f,f.cam+0x80,0);write32(&f,f.cam+0x84,0);
         write8(&f,f.cam+0x88,0);write8(&f,f.cam+0x8A,0);write8(&f,f.cam+0x89,0);
-        /* 0022EC30's bindings (decomp func_0022EC30.c): scene 2 the
-         * letterbox D_0026AAE0 and subtitles D_0026AC80; 5 the subtitles
-         * D_0026ACA0; 6 the letterbox D_0026AB00 and subtitles D_0026AC80;
-         * 7 the subtitles D_0026ACB0. None of the four has a case in
-         * 0022EEF0's leading switch. */
-        if(scene==2) { write32(&f,f.cam+0x84,0x0026AAE0u);write32(&f,f.cam+0x80,0x0026AC80u); }
-        else if(scene==5) write32(&f,f.cam+0x80,0x0026ACA0u);
-        else if(scene==7) write32(&f,f.cam+0x80,0x0026ACB0u);
-        else if(scene==6) { write32(&f,f.cam+0x84,0x0026AB00u);write32(&f,f.cam+0x80,0x0026AC80u); }
+        /* 0022EC30's jump table (decomp func_0022EC30.c): the audio track
+         * +0x7C, the subtitles +0x80, the letterbox +0x84 of a scene; a
+         * scene that binds nothing keeps the three zeros. */
+        static const uint32_t tracks[0x26][3]={
+            [2]={0,0x0026AC80u,0x0026AAE0u},[5]={0,0x0026ACA0u,0},[6]={0,0x0026AC80u,0x0026AB00u},
+            [7]={0,0x0026ACB0u,0},[8]={0,0x0026ACC0u,0},[10]={0,0x0026ACD0u,0},
+            [12]={0,0x0026ACF0u,0x0026AB18u},[13]={0,0x0026AD10u,0},[15]={0,0x0026AD20u,0},
+            [16]={0,0,0x0026AB28u},[17]={0,0,0x0026AB38u},[19]={0x0026AC10u,0x0026AD30u,0},
+            [20]={0x0026AC30u,0x0026AD40u,0x0026AB48u},[21]={0,0,0x0026AB60u},[23]={0,0x0026AD70u,0},
+            [24]={0,0x0026AD80u,0x0026AB78u},[25]={0,0x0026AD90u,0x0026AB88u},
+            [26]={0,0x0026ADA0u,0x0026AB98u},[27]={0,0,0x0026ABA8u},
+            [28]={0x0026AC40u,0x0026ADB0u,0x0026ABB8u},[30]={0x0026AC50u,0,0x0026ABC8u},
+            [31]={0,0x0026ADD0u,0x0026ABE0u},[32]={0x0026AC70u,0x0026ADF0u,0},
+            [33]={0x0026AC60u,0,0x0026AC00u},[34]={0,0x0026AE00u,0},[37]={0,0x0026AD60u,0}};
+        for(unsigned k=0;k<3 && !f.fault;++k)
+            if(tracks[scene][k])write32(&f,f.cam+0x7Cu+4u*k,tracks[scene][k]);
     } else if(!f.fault)tick(&f,scene);
     if(f.fault) { if(fault)*fault=f.fault;return -1; }
     return 0;
