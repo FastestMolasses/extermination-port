@@ -920,7 +920,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
     }
     fputc(']', f);
     const int later = !strcmp(key, "a22") || !strcmp(key, "a01u") || !strcmp(key, "a06") || !strcmp(key, "a01v") ||
-                      !strcmp(key, "a22b") || !strcmp(key, "a04b");
+                      !strcmp(key, "a22b") || !strcmp(key, "a04r");
     if (!strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04") || later) {
         /* D_00810760..63 (the bridge's event 8 and its neighbours), the
          * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
@@ -972,7 +972,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         const uint8_t *cca = em_scene_progress_at(&s_state, 0x00810CCAu, 1);
         fprintf(f, ", \"cca\": %u", cca ? *cca : 0u);
     }
-    if (!strcmp(key, "a04b")) {
+    if (!strcmp(key, "a04r")) {
         /* The a04b rows (EIGHTH_LEVEL_ROUTE.md section 1): s76c
          * (D_0081076C..6F, flag 0x14). */
         uint8_t bytes[4];
@@ -1237,14 +1237,17 @@ static void log_area22b(FILE *f)
     log_area_owners(f, "a22b", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
-/* A04B_OWNERS: AREA04 after the keypad. */
+/* A04B_OWNERS: AREA04 after the keypad ("a04r": the route's; "a04b" is the
+ * fight's bugs). */
 static void log_area04b(FILE *f)
 {
     if (!route_way_back() || s_state.d810700 != 4)
         return;
     static const uint32_t nodes[] = {0x7AA2A0, 0x7AA590, 0x7AA880, 0x7B0970, 0x7B20F0, 0x7B26D0, 0x7B2FA0,
-                                     0x7B3290, 0x7B3870, 0x7B3B60, 0x7B4140, 0x7B3E50, 0x7B4720, 0x7B6A60};
-    log_area_owners(f, "a04b", nodes, sizeof nodes / sizeof nodes[0]);
+                                     0x7B3290, 0x7B3870, 0x7B3B60, 0x7B4140, 0x7B3E50, 0x7B4720, 0x7B6A60,
+                                     /* the pistol recording's: the creature and event [3]'s four bugs */
+                                     0x7C2660, 0x7C2080, 0x7C2370, 0x7C3800, 0x7C3AF0};
+    log_area_owners(f, "a04r", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
 /* From AREA22 on the whole progress block D_00810700..D_00810D3F, one

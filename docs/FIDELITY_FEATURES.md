@@ -2826,8 +2826,9 @@ shooting and knifing anywhere also run without a fault.
   on the side line the beam's collapse, the player turning at infection 100 and
   the locked door [3]), the way back (door [1], AREA01's catwalk with the creature
   AREA06's event wakes, door [18], AREA22, door [6]), and AREA04's second visit:
-  door [45], the NPC's long script with item 0x23, the reader [50], event [3] and
-  the creature it brings down at the lift.
+  door [45], the NPC's long script with item 0x23, the reader [50], event [3], the
+  creature it brings down at the lift, the pistol fight, the drop and the lift
+  ride up to AREA13's load.
 - How: AREA22 and AREA06 in the shared area composition; their area inits, overlay
   owners and the boot routines they reach are the level ports' translations
   checked against the original instructions (test_area22_port_reference.py,
@@ -2838,14 +2839,17 @@ shooting and knifing anywhere also run without a fault.
   order: `python3 tools/test_level_smoke_area01r.py --run --until a22b_01`
   (73 live phases), `--until a06_05` (the side line) and `--until a04b_03` (78
   live phases, the fork continuation from the bed: the only recording of the
-  second visit). Each beat's whole progress block equals its end RAM but for the
-  frame count (health and infection included), and at a04b_03's last row the
-  creature's record equals the end RAM. LEVEL3_BINDING.md "2026-10-30, lane E1"
-  has the row counts.
+  second visit), then `--until a04b_s7` (the pistol recording: the creature and
+  its four bugs in every row) and `--until a04b_04` (the route's own lift ride).
+  Each whole beat's progress block equals its end RAM but for the frame count
+  (health and infection included), and at a04b_03's last row the creature's
+  record equals the end RAM. LEVEL3_BINDING.md "2026-10-30, lane E1" has the row
+  counts.
 - Status: **VERIFIED** for these beats on the recorded paths. Not compared:
   pixels, sound, the keypad page's picture. The comparison runs with the recorded
-  rand() anchors at area entries and the recorded drive timing. The fight itself
-  and a04b_04 (the lift to AREA13) are not covered.
+  rand() anchors at area entries and the recorded drive timing. The shotgun fight
+  is covered by `make test-boss-fight`, from its card, not from New Game. AREA13
+  is not reached.
 
 **The first boss at AREA04's lift, the shotgun and the dog tag**
 

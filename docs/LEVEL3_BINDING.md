@@ -15,8 +15,8 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 ## Current state
 
 **2026-10-30, lane E1 (branch `route-chain`): New Game row-exact through
-AREA04's second visit, to the creature at the lift.** Two whole-run checks,
-each with the rand() order and rand-replay anchors:
+AREA04's second visit, the pistol fight and the lift, to AREA13's load.**
+Whole-run checks, each with the rand() order and rand-replay anchors:
 
 - `--run --until a22b_01` (canonical recordings): 73 live phases, about 14.5
   minutes; `--until a06_05` adds the beam's collapse (sides a06_04, a06_05).
@@ -24,6 +24,13 @@ each with the rand() order and rand-replay anchors:
   minutes. Every row equal, every beat's end progress block equal, and at
   a04b_03's last row the creature's record (0012E3A0 at 0x7C2660) equal to the
   end RAM.
+- `--until a04b_s7`, the pistol recording from a04b_03's end, with no anchor
+  after the area entries: a04b_s5 1,937 rows (the fight, the creature dead at
+  f1166), a04b_s6 288 (the drop), a04b_s7 1,764 of its 2,410 (to the row before
+  AREA13's load, which has no host). Every row holds the creature and event
+  [3]'s four bugs: the New Game route's creature is the recording's, position,
+  state, block and timer words, callback. `--until a04b_04`: the route's own
+  lift ride past the live creature, 1,437 of its 2,083 rows (to the same load).
 
 | Beat | Canonical rows | Bed branch rows | What it covers |
 |---|---|---|---|
@@ -88,6 +95,19 @@ turn): 0021C190 stores the infection node (0x80000048) in the player's +0x1C;
 00182D70 sets its +4 to 2 and 00183090 to 1. It was a fail-stop;
 em_scene_bindings_pool_set_u4 writes the pool record's byte.
 
+**The lift's camera step** (a04b_04 row 558, a04b_s7 row 885): 001BC560 turns
+from 0x70003B50, which 0015BCF0's tail publishes every stage (the player's
++0xC0, here yaw -pi/2); the runtime's view of it was the scene's spad3B40[4..7],
+written only by 001B07C0, so the eye came out at the wrong angle and the solve
+slid it off the lift's wall (cam +7 = 3, the original's 0). em_player_0015BCF0
+publishes it now. test_boss_fight compares no camera, so it could not show this.
+
+**Lane F1's overlap:** its `player_states_pending_infection_collect` copied the
+record's +0x22C to g.pd_pend_inf after each hazard tick. With the views the store
+is already at its storage and the record's word is stale, so that copy would zero
+it, and any pending infection another node left in the walk. Removed. F1's tick
+log key `a04b` (the bugs) stays; the route's owner observation is `a04r`.
+
 **Harness:**
 
 - A22 / A01U / A06 / A01V / A22B / A04B owner tables; tick log observations
@@ -98,17 +118,20 @@ em_scene_bindings_pool_set_u4 writes the pool record's byte.
   navigated). This covers health and the infection word, the start cards'
   differences, and D_0081084C (the a04b rows' `l84c` is empty, the recorder's
   span ends before it).
-- `check_creature_end`: a04b_03's creature against the end RAM.
+- `check_creature_end`: a04b_03's creature against the end RAM. A04S_OWNERS adds
+  the creature and the four bugs (the pistol branch's nodes) to the rows.
+- ROW_LIMIT: a04b_04 and a04b_s7 end before AREA13's load.
 - The return phases a22_02, a01u_02, a06b_01, a01v_02, a22b_01; the C driver
   reads a return's tail from the version 2 pad header.
-- rand_order: AREA06's owners, 0021AE90, 001B8AB0, 001BF6B0, 0012A5D0,
-  0x8239A0, 00133640.
+- rand_order: AREA06's owners, 0021AE90, 001B8AB0, 001BF6B0, 0012A5D0, 0x8239A0,
+  00133640, the creature family, 0012D940, 001B41F0's hit (renamed statics),
+  001F4840, 001F7E40, 001F88C0.
 
 The rows do not sample the keypad's page object (`kpad`) or the owners'
 rotations (`rot`), and pixels and sound are not compared. a04b_02's and
 a04b_03's Cross presses are door [45] and the reader: no pickup is taken on the
-route (the shotguns behind door [45] are lane F1's). a04b_04 (the lift, the
-fight) is not a phase: AREA13 has no host yet.
+route (the shotguns behind door [45] are lane F1's; its a04b_g beats are another
+branch and not phases here). AREA13 has no host yet.
 
 **2026-10-30, lane D1 (branch `area04-boss`): AREA04's main line row-exact
 from New Game, through door [37] into AREA22.** The whole-run checker passes

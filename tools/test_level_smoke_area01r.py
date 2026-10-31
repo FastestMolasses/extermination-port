@@ -196,7 +196,7 @@ def verify_checker():
                          **(dict(s768=row['s768'], l857=row['l857'], c87=row['c87'], c88=row['c88'])
                             if key in a01r.LATER_KEYS else {}),
                          **(dict(cca=row['cca']) if key == 'a06' else {}),
-                         **(dict(s76c=row['s76c']) if key == 'a04b' else {}))})
+                         **(dict(s76c=row['s76c']) if key == 'a04r' else {}))})
 
     count = rejected = 0
     for branch, phase in [(False, p) for p in a01r.checked_phases()] + [(True, p) for p in a01r.BED_PHASES]:
@@ -213,8 +213,9 @@ def verify_checker():
             ticks[k + 1].update(msg_pre=struct.unpack('<3I', bytes.fromhex(row['msg'])[:12]), fade8=row['fade'][:16],
                                 loader_pre=loader.hex())
         ram = a01r.capture_path(phase).with_name('eeMemory.bin').read_bytes()
-        ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in a01.CAMERA_BLOCKS]
-        later = okey in a01r.LATER_KEYS
+        if phase not in a01r.ROW_LIMIT:
+            ticks[-2]['camblk'] = [ram[a:a + n].hex() for a, n in a01.CAMERA_BLOCKS]
+        later = okey in a01r.LATER_KEYS and phase not in a01r.ROW_LIMIT
         if phase == 'a04b_03':
             node = next(n for n in range(0x7A5640, 0x7A5640 + 0x2F0 * 0x100, 0x2F0)
                         if struct.unpack_from('<I', ram, n + 0x10)[0] == 0x0012E3A0)
@@ -295,6 +296,8 @@ def verify_checker():
                 rejected += 1
             else:
                 raise AssertionError((phase, 'checker accepted corrupt ' + field))
+        if phase in a01r.ROW_LIMIT:      # the end RAM is past the compared rows
+            continue
         block = bytearray.fromhex(ticks[-2]['camblk'][0]); block[0x40] ^= 1
         ticks[-2]['camblk'][0] = block.hex()
         try:

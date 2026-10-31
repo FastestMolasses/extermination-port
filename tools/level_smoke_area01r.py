@@ -42,6 +42,8 @@ A22B_ROUTE_DIR = refs.capture('s87/route_a22b')
 # a22b_01 from there. A run --until a04b_* plays the bed, then those beats
 # against this set; any other run plays the canonical recordings.
 BED_ROOT = refs.capture('levels-recordings-20261018-10/s87')
+# The pistol fight continues a04b_03's end (EIGHTH_LEVEL_ROUTE.md section 8).
+BOSS_ROUTE_DIR = refs.capture('boss_fight_20261030/s87/route_a04b')
 BED = os.environ.get('EM_LEVEL_SMOKE_UNTIL', '').startswith('a04b_')
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
@@ -60,17 +62,25 @@ SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', '
               # HEALING's item 0x20 from the menu (tools/capture_heal_beats.py)
               'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure',
               # the beam's collapse, away from the story (SEVENTH_LEVEL_ROUTE.md)
-              'a06_04': 'a06_04_beam_collapse', 'a06_05': 'a06_05_door3_locked'}
+              'a06_04': 'a06_04_beam_collapse', 'a06_05': 'a06_05_door3_locked',
+              # from a04b_03's end: the route's own lift ride past the live
+              # creature, and the pistol recording: the fight, the drop, the lift
+              'a04b_04': 'a04b_04_lift', 'a04b_s5': 'a04b_s5_fight', 'a04b_s6': 'a04b_s6_drop',
+              'a04b_s7': 'a04b_s7_lift'}
 # A side that starts from another side's end (Phase.from_side).
-FROM_SIDE = {'a06_05': 'a06_04'}
+FROM_SIDE = {'a06_05': 'a06_04', 'a04b_s6': 'a04b_s5', 'a04b_s7': 'a04b_s6'}
+# AREA13 is not hosted yet: these beats' rows end before the load starts.
+ROW_LIMIT = {'a04b_04': 1436, 'a04b_s7': 1763}
 # em_level_smoke_test.c's phase order: each side right after its source.
 ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_s2', 'a01r_03', 'a02_s0', 'a02_s1',
                 'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05', 'a04_00', 'a04_01', 'a04_02', 'a04_03',
                 'a04_04', 'a04_05', 'a22_00', 'a22_01', 'a22_02', 'a01u_00', 'a01u_01', 'a01u_02', 'a06_00',
                 'a06_01', 'a06_02', 'a06_03', 'a06_04', 'a06_05', 'a06b_00', 'a06b_01', 'a01v_00', 'a01v_01',
-                'a01v_02', 'a22b_00', 'a22b_01', 'a04b_00', 'a04b_01', 'a04b_02', 'a04b_03')
-# The main-line phases the bed branch's recordings replace.
-BED_PHASES = tuple(p for p in ROUTE_PHASES if p not in SIDE_BEATS and not p.startswith('a01r_'))
+                'a01v_02', 'a22b_00', 'a22b_01', 'a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_04',
+                'a04b_s5', 'a04b_s6', 'a04b_s7')
+# The phases the bed branch's recordings replace, and its own sides.
+BED_PHASES = tuple(p for p in ROUTE_PHASES if (p not in SIDE_BEATS and not p.startswith('a01r_')) or
+                   p.startswith('a04b_'))
 SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01r_03': 'a01r_02',
            'a01r_s0': 'a01r_01', 'a01r_s1': 'a01r_02', 'a01r_s2': 'a01r_02', 'a02_00': 'a01r_03',
            'a02_s0': 'a01r_03', 'a02_s1': 'a01r_03',
@@ -81,7 +91,8 @@ SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01
            'a06_01': 'a06_00', 'a06_02': 'a06_01', 'a06_03': 'a06_02', 'a06_04': 'a06_03', 'a06_05': 'a06_04',
            'a06b_00': 'a06_03', 'a06b_01': 'a06b_00', 'a01v_00': 'a06b_01', 'a01v_01': 'a01v_00',
            'a01v_02': 'a01v_01', 'a22b_00': 'a01v_02', 'a22b_01': 'a22b_00', 'a04b_00': 'a22b_01',
-           'a04b_01': 'a04b_00', 'a04b_02': 'a04b_01', 'a04b_03': 'a04b_02'}
+           'a04b_01': 'a04b_00', 'a04b_02': 'a04b_01', 'a04b_03': 'a04b_02', 'a04b_04': 'a04b_03',
+           'a04b_s5': 'a04b_03', 'a04b_s6': 'a04b_s5', 'a04b_s7': 'a04b_s6'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -127,7 +138,7 @@ A06_OWNERS = dict(door1_r1=0x7AB730, door2_r2=0x7ABA20, door3_r3=0x7ABD10, lamp_
 # EIGHTH_LEVEL_ROUTE.md section 1.1 (a06b uses A06_OWNERS): A01V_OWNERS, the
 # AREA01 load of a06b_01's arrival; A22B_OWNERS, the AREA22 load of a01v_02's;
 # A04B_OWNERS, the AREA04 load of a22b_01's. The tick log's "a01v", "a22b" and
-# "a04b" observations.
+# "a04r" observations.
 A01V_OWNERS = dict(door18_r18=0x7AEC10, door19_r19=0x7AEF00, r45_8267C0=0x7B3B60, pick_g11=0x7A7690,
                    gap_g36_1BF6B0=0x7AAB70, n_1BFFD0=0x7A6200, n_1BE6C0=0x7A6AD0, bug_a=0x7B7EF0,
                    bug_b=0x7B81E0, bug_c=0x7B84D0, bug_g30=0x7AA880)
@@ -137,15 +148,20 @@ A04B_OWNERS = dict(npc_r2=0x7AA2A0, r3_8246B0=0x7AA590, r4_824DC0=0x7AA880, door
                    door45_r45=0x7B20F0, r47_823EE0=0x7B26D0, reader_r50=0x7B2FA0, lift_r51=0x7B3290,
                    button_r53=0x7B3870, button_r54=0x7B3B60, lift_r56=0x7B4140, socket_r55=0x7B3E50,
                    button_r58=0x7B4720, reel_r70=0x7B6A60)
+# The pistol recording's rows add the creature and the four bugs event [3]
+# spawns (tools/capture_boss_fight.py: this branch's nodes).
+A04S_OWNERS = dict(A04B_OWNERS, creature=0x7C2660, bug_a=0x7C2080, bug_b=0x7C2370, bug_c=0x7C3800, bug_d=0x7C3AF0)
 # The tick log's keys that carry AREA04's extra bytes (compare_route_row);
 # AREA22 on adds D_00810768..6B, D_00810857 and the counts of items 0x23 / 0x24.
-LATER_KEYS = ('a22', 'a01u', 'a06', 'a01v', 'a22b', 'a04b')
+LATER_KEYS = ('a22', 'a01u', 'a06', 'a01v', 'a22b', 'a04r')
 
 
 def owners_of(phase):
     """The recorded owner table and the tick log's observation key."""
+    if phase.startswith('a04b_s'):
+        return A04S_OWNERS, 'a04r'
     if phase.startswith('a04b_'):
-        return A04B_OWNERS, 'a04b'
+        return A04B_OWNERS, 'a04r'
     if phase.startswith('a22b_'):
         return A22B_OWNERS, 'a22b'
     if phase.startswith('a01v_'):
@@ -172,7 +188,9 @@ def capture_path(phase):
     folder = {'a02': A02_ROUTE_DIR, 'a04': A04_ROUTE_DIR, 'a22': A22_ROUTE_DIR, 'a01u': A01U_ROUTE_DIR,
               'a06': A06_ROUTE_DIR, 'a06b': A06B_ROUTE_DIR, 'a01v': A01V_ROUTE_DIR,
               'a22b': A22B_ROUTE_DIR}.get(prefix, ROUTE_DIR)
-    if phase.startswith('a04b_') or (BED and phase in BED_PHASES):
+    if phase.startswith('a04b_s'):
+        folder = BOSS_ROUTE_DIR
+    elif phase.startswith('a04b_') or (BED and phase in BED_PHASES):
         folder = BED_ROOT / f'route_{prefix}'
     return folder / (MAIN_BEATS | SIDE_BEATS)[phase] / 'trace.json'
 
@@ -207,6 +225,10 @@ def source_capture(phase):
 def route_capture(phase):
     path = capture_path(phase)
     capture = json.loads(path.read_text())
+    if phase in ROW_LIMIT:
+        limit = ROW_LIMIT[phase]
+        capture.update(rows=capture['rows'][:limit + 1], frames=limit, last_counter=capture['rows'][limit]['counter'],
+                       inputs=[x for x in capture['inputs'] if x['f'] <= limit])
     rows = capture['rows']
     assert not capture.get('teleports'), (phase, 'reference contains teleports')
     assert len(rows) == capture['frames'] + 1, (phase, 'truncated reference')
@@ -225,6 +247,8 @@ def route_capture(phase):
 def check_owner_nodes(phase, capture=None):
     """Each OWNERS node holds the recorded owner in the beat's saved RAM:
     callback +0x10 and position +0xB0 equal the last row's."""
+    if phase in ROW_LIMIT:              # the saved RAM is past the compared rows
+        return
     capture = capture or route_capture(phase)
     ram = capture_path(phase).with_name('eeMemory.bin').read_bytes()
     row = capture['rows'][-1]
@@ -294,8 +318,8 @@ def checked_phases():
     """The phases with a recording in the selected branch: a04b_* only on
     the bed branch, whose a02_00 follows a02_s0 and which has no beam
     collapse."""
-    return tuple(p for p in ROUTE_PHASES if (BED or not p.startswith('a04b_')) and not (BED and p in FROM_SIDE)
-                 and not (BED and p == 'a06_04'))
+    return tuple(p for p in ROUTE_PHASES if (BED or not p.startswith('a04b_')) and
+                 not (BED and p in ('a06_04', 'a06_05')))
 
 
 def prepare_pads(out):
@@ -419,7 +443,7 @@ def compare_route_row(smoke, ticks, i, row, phase):
         # AREA06's rows: D_00810CCA (cca, 001C4760(7, 1)).
         got.update(cca=observed.get('cca'))
         want.update(cca=row['cca'])
-    if key == 'a04b':
+    if key == 'a04r':
         # the a04b rows: D_0081076C..6F (s76c, flag 0x14). Their l84c is empty
         # (the recorder's lock span ends before it); check_block_end has it.
         got.update(s76c=observed.get('s76c'))
@@ -469,9 +493,10 @@ def check_route(smoke, ticks, run, state, phase):
             (phase, 'skipped native main-loop tick')
     for i, row in pairs:
         compare_route_row(smoke, ticks, i, row, phase)
-    check_camera_end(ticks[end], phase)
-    if owners_of(phase)[1] in LATER_KEYS:
-        check_block_end(ticks[end], phase)
+    if phase not in ROW_LIMIT:
+        check_camera_end(ticks[end], phase)
+        if owners_of(phase)[1] in LATER_KEYS:
+            check_block_end(ticks[end], phase)
     if phase == 'a04b_03':
         print(f'a04b_03: the creature at {check_creature_end(ticks[end], phase):#x} equals its end RAM record')
     state['cursor'] = end + 1

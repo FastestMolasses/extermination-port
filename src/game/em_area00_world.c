@@ -331,7 +331,7 @@ static uint32_t jitter(Run *r, uint32_t sp, unsigned shift)
     return em_ee_div_bits(em_ee_cvt_s_w_bits(b), F_255);
 }
 
-static void spray(Run *r, uint32_t sp, uint32_t victim, uint32_t hit, uint32_t dir)
+static void hit_spray(Run *r, uint32_t sp, uint32_t victim, uint32_t hit, uint32_t dir)
 {
     uint32_t t, c, fa, fb, fc, h;
     st32(r, SPR(0x3600), 0);
@@ -359,7 +359,7 @@ static void spray(Run *r, uint32_t sp, uint32_t victim, uint32_t hit, uint32_t d
 }
 
 /* The ricochet sound: bit 13 of an LCG draw picks 0x15A, else 0x15B. */
-static void ricochet(Run *r, uint32_t sp, uint32_t victim)
+static void hit_ricochet(Run *r, uint32_t sp, uint32_t victim)
 {
     uint32_t v = (uint32_t)call0(r, sp, FN_RAND);
     call2(r, sp, FN_1FC580, victim, ((uint32_t)((int32_t)v >> 13) & 1u) ? 0x15Au : 0x15Bu);
@@ -417,7 +417,7 @@ static int32_t f_1B41F0(Run *r, uint32_t sp, uint32_t victim, uint32_t hit, uint
     case 16:
     case 17:
     case 18:
-        spray(r, sp, victim, hit, dir);
+        hit_spray(r, sp, victim, hit, dir);
         if (flags) {
             st16(r, victim + 0x36, p5 | (p6 * 5u) | 0x8000u);
             call3(r, sp, FN_1EFD90, 0x80000076u, SPR(0x3610), SPR(0x3600));
@@ -425,14 +425,14 @@ static int32_t f_1B41F0(Run *r, uint32_t sp, uint32_t victim, uint32_t hit, uint
         } else {
             call3(r, sp, FN_1EFD90, 0x80000007u, SPR(0x3610), SPR(0x3600));
             st16(r, victim + 0x36, p6 | p5);
-            ricochet(r, sp, victim);
+            hit_ricochet(r, sp, victim);
         }
         return 1;
     default:
         fx = 0x80000007u;
         break;
     }
-    spray(r, sp, victim, hit, dir);
+    hit_spray(r, sp, victim, hit, dir);
     if (flags) {
         st16(r, victim + 0x36, p6 | p5 | 0x8000u);
         call3(r, sp, FN_1EFD90, 0x80000076u, SPR(0x3610), SPR(0x3600));
@@ -443,7 +443,7 @@ static int32_t f_1B41F0(Run *r, uint32_t sp, uint32_t victim, uint32_t hit, uint
         if (p5 & 0x1000u)
             call3f(r, sp, FN_1FBD50, victim, 0x1B1, 0, F_300);
         else
-            ricochet(r, sp, victim);
+            hit_ricochet(r, sp, victim);
     }
     return 1;
 }

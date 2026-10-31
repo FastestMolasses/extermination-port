@@ -515,6 +515,16 @@ int em_player_0015BCF0(void)
     player_pose_finish_palette(); /* original hip/Euler scratch publication */
     player_struggle_tick();  /* legacy bug-latch struggle (mash CROSS) */
     EmSceneState *scene = em_scene_state();
+    /* 0015BCF0's tail: 0x70003B50 = the player's +0xC0, which the area
+     * runtime reads through the scene's storage (the lift's camera step
+     * 001BC560 turns from it). */
+    {
+        float euler[3], w;
+        if (player_pose_script_euler(euler) && player_pose_script_euler_w(&w)) {
+            memcpy(&scene->spad3B40[4], euler, sizeof euler);
+            scene->spad3B40[7] = w;
+        }
+    }
     /* The translated tail's result (0015BA50: D_008106F1, +0x276, +0x1F0
      * 0x33, D_00810CB6, or +4 = 2 with +5 0xB..0xF and +0x1F1 = 1, the
      * player held by a bug in AREA00, a00_09 row 462) joins the legacy

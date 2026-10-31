@@ -597,6 +597,18 @@ static const Phase k_phases[] = {
     {"a04b_03", "a04b_03_reader", 0,
      "reader [50], event [3], the creature at the lift, bed branch", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a04b_04", "a04b_04_lift (side, from a04b_03_reader)", 0,
+     "the route's own lift ride past the live creature, to the AREA13 request", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a04b_s5", "a04b_s5_fight (side, from a04b_03_reader)", 0,
+     "the pistol fight: the creature dies", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a04b_s6", "a04b_s6_drop (side, from a04b_s5_fight)", 0,
+     "the drop: the dog tag", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 1, 1},
+    {"a04b_s7", "a04b_s7_lift (side, from a04b_s6_drop)", 0,
+     "the ride, to the AREA13 request", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 1, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 

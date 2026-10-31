@@ -74,8 +74,11 @@ live phases), and on the bed branch through a04b_00 1,242, a04b_01 8,690,
 a04b_02 714 and a04b_03 2,414 (`--until a04b_03`, 78 live phases): the reader,
 event [3], and the creature's record equal to the end RAM at the last row, with
 each beat's progress block equal, health and infection included
-(LEVEL3_BINDING.md "2026-10-30, lane E1"). a04b_04 is not a phase. The table
-below is the earlier start-card status.
+(LEVEL3_BINDING.md "2026-10-30, lane E1"). On from a04b_03's end, with no anchor
+after the area entries: the pistol recording a04b_s5 1,937 rows, a04b_s6 288,
+a04b_s7 1,764 of 2,410 (the creature and its four bugs in every row, `--until
+a04b_s7`), and the route's a04b_04 1,437 of 2,083 (`--until a04b_04`), both to
+the row before AREA13's load. The table below is the earlier start-card status.
 
 **Start cards (lane D1, 2026-10-30).** The a04b beats play from start
 cards (`python3 tools/mid_route_beats.py a04b`, card a04b_00; the fork

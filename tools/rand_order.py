@@ -158,6 +158,12 @@ PORT_FN = {
     'em_area06_port_001F8350': 0x1F8350,         # the infection node (a06_05's turn)
     # AREA04's second visit: pool owner 0x8239A0, the creature's 00133640
     'em_level8_port_008239A0': 0x8239A0, 'l8_00133640': 0x133640,
+    # The fight and the lift (a04b_04, a04b_s5..s7): the creature's family,
+    # the bugs' 0012D940, 001B41F0's hit, the pieces 001F4840, the spores
+    'l8_0012F100': 0x12F100, 'l8_00131F90': 0x131F90, 'l8_001B55E0': 0x1B55E0, 'l14_00131740': 0x131740,
+    'l14_00131B10': 0x131B10, 'em_level14_port_001F7E40': 0x1F7E40, 'em_level14_port_001F88C0': 0x1F88C0,
+    'em_level11_port_001F4840': 0x1F4840, 'em_area22_port_0012D940': 0x12D940, 'hit_spray': 0x1B41F0,
+    'hit_ricochet': 0x1B41F0,
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -189,7 +195,7 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             # frame above)
             'beam_call', 'math_call', 'em_a01m_call_i', 'hud_call', 'debris_worker', 'rt_00122BB8',
             'low_call', 'callv', 'jitter',
-            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'm08_w_00122BB8', 'a6_rand', 'l8_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
+            'rv_misc_call', 'fx_nested', 'callg', 'a02_w_00122BB8', 'a04_w_00122BB8', 'a04_c_00122BB8', 'm04_w_00122BB8', 'm06_w_00122BB8', 'm08_w_00122BB8', 'm11_w_00122BB8', 'm14_w_00122BB8', 'm22_w_00122BB8', 'a22_c_00122BB8', 'l14_c_00122BB8', 'l8_c_00122BB8', 'a6_rand', 'l8_rand',               # the area runtime's em_area02_misc / em_area00_fx adapters, the generic callg
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

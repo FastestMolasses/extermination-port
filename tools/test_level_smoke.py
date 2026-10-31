@@ -4001,7 +4001,7 @@ SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'a
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door',
              'aud_walk_room': 'fence_door',
-             **level_smoke_area01.FROM_SIDE}
+             **level_smoke_area01.FROM_SIDE, **level_smoke_area01r.FROM_SIDE}
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
          ('designed', ('status_pages',)),
