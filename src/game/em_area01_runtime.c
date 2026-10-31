@@ -118,6 +118,7 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_level14_port.h"
 #include "game/em_level15_creatures.h"
 #include "game/em_area15_route.h"
+#include "game/em_area08_route.h"
 #include "game/em_area03_route.h"
 #include "game/em_area03_arrival.h"
 #include "game/em_area19_route.h"
@@ -277,7 +278,7 @@ int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *h
 {
     /* the areas em_area01_state binds: AREA00..02, AREA04, AREA06, AREA13, AREA22 */
     if (!r || !host || !host->bytes || !host->worker || !(area <= 2 || area == 4 || area == 6 || area == 0x0D ||
-                                                     area == 0x16 || area == 0x0F || area == 3))
+                                                     area == 0x16 || area == 0x0F || area == 3 || area == 8 || area == 7))
         return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
@@ -617,6 +618,7 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 
 #include "game/em_area01_runtime_boss.inc"
 #include "game/em_area01_runtime_area15.inc"
+#include "game/em_area01_runtime_area08.inc"
 #include "game/em_area01_runtime_later.inc"
 #include "game/em_area01_runtime_area03x.inc"
 
@@ -630,7 +632,7 @@ int em_area01_runtime_later(EmArea01Runtime *r, EmArea01Call *c, int *rc)
  * host's workers (fail-stop). */
 static int mid_host(unsigned area)
 {
-    return area == 0x16 || area == 6 || area == 0x0D || area == 0x0F || area == 3;
+    return area == 0x16 || area == 6 || area == 0x0D || area == 0x0F || area == 3 || area == 8 || area == 7;
 }
 
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
@@ -657,10 +659,13 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return rc;
     if (r->area == 3 && dispatch_a03x(r, c, &rc))
         return rc;
+    if ((r->area == 8 || r->area == 7) && dispatch_a08(r, c, &rc))
+        return rc;
     /* The creature family's boot entries and the script actors serve AREA13,
      * AREA15 and AREA03 too (their overlay addresses went to their own dispatch
      * or reach the host's fail-stop below). */
-    const int later = (r->area == 0x0D || r->area == 0x0F || r->area == 3) && c->function < 0x00823500u;
+    const int later = (r->area == 0x0D || r->area == 0x0F || r->area == 3 || r->area == 8 || r->area == 7) &&
+                      c->function < 0x00823500u;
     const int creatures = r->area == 4 || later;
     if (creatures && dispatch_level8(r, c, &rc))
         return rc;
@@ -741,7 +746,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
-    if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x0D || r->area == 0x0F || r->area == 3) &&
+    if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x0D || r->area == 0x0F || r->area == 3 ||
+         r->area == 8 || r->area == 7) &&
         c->function == 0x001E4CE0u) {
         /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20,
          * by a drum's in AREA04 and by AREA06's g[11] 00219870):

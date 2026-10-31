@@ -117,6 +117,8 @@ int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16]);
  * translation over this module's scratchpad block and stage buffers and
  * the render context's packet chain; the quad's fans (the decal TEX0) are
  * counted for this frame's page. 0, or -1 (latched). */
+int em_shadow_live_owner_001F9180(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  uint32_t f12);
 int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
                                   uint32_t f12);
 /* The chain page drew `decal_triangles` fan triangles with the decal's

@@ -31,6 +31,12 @@ AREAS = {
     0x03: ('AREA03', 0x04, 0x33C0, 0x826900, 0x2800, 0x829100, 0x140C00,
            ('levels-recordings-20261018-26/s87/route_a19e/a19e_07_door25',
             'levels-recordings-20261018-26/s87/route_a03/a03_00_elevator')),
+    0x08: ('AREA08', 0x08, 0x1BC0, 0x825100, 0x2E00, 0x827F00, 0x140C00,
+           ('levels-recordings-20261030-1/s87/route_a08/a08_01_magazine',
+            'levels-recordings-20261030-1/s87/route_a08/a08_03_slider',
+            'levels-recordings-20261030-1/s87/route_a08/a08_05_terminal')),
+    0x07: ('AREA07', 0x07, 0x2640, 0x825B80, 0x2500, 0x828080, 0x140C00,
+           ('levels-recordings-20261030-1/s87/route_a07/a07_00_switch',)),
 }
 
 
@@ -74,7 +80,7 @@ def main():
         selected = captures if mode.FULL else captures[:1]
         mode.banner(mode.part(len(selected), len(captures), f'{name} captures'))
         for cap, ram, spad in selected:
-            for sub, poison in [(s, p) for s in (0, 1, 2, 3, 255) for p in (False, True)]:
+            for sub, poison in [(s, p) for s in (0, 1, 2, 3, 4, 5, 6, 7, 255) for p in (False, True)]:
                 o = Oracle(elf, ram, spad)
                 o.write(BASE, overlay)
                 bss, globals_ = ram[bss_at:bss_at + bss_size], ram[GLOBALS:GLOBALS + 24]

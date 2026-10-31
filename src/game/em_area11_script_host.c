@@ -638,6 +638,12 @@ static int w_001B0460(void *ctx, int a0)
     return rc < 0 ? report("001B0460 faulted") : 0;
 }
 
+/* The same from an op09 callback (00157360, the switch's camera beat). */
+int em_area11_script_host_001B0460(int a0)
+{
+    return w_001B0460(NULL, a0);
+}
+
 /* 0021B9A0(mode, scale, bias): the fog / depth-range programmer on the
  * render context (em_packet_chain_0021B9A0 through em_render_context_live;
  * the floats are passed as their bits). */

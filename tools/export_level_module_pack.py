@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # A reload of the same area/sub uses the same complete disc delivery.
 AREAS = ((0, 0), (0, 1), (1, 0), (2, 0), (2, 1), (3, 0), (4, 0),
          (6, 0), (11, 0), (13, 0), (15, 0), (15, 1), (19, 0),
-         (19, 1), (22, 0))
+         (19, 1), (22, 0), (8, 0), (8, 2), (8, 3), (7, 0))
 DEFAULT = ROOT / 'assets/levels/modules.emml'
 
 

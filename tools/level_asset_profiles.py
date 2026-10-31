@@ -7,7 +7,7 @@ import importlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SUBS = {'00': (0, 1), '01': (0,), '02': (0, 1), '03': (0,),
+SUBS = {'00': (0, 1), '01': (0,), '02': (0, 1), '03': (0,), '07': (0,), '08': (0, 2, 3),
         '04': (0,), '06': (0,), '13': (0,), '13x': (0,),
         '15': (0, 1), '19': (0,), '19x': (0,), '19s1': (1,), '22': (0,),
         '03x': (1, 2), '04x': (1,)}
@@ -25,6 +25,9 @@ def configure(profile, sub):
         return area03(sub)
     if profile in ('03x', '04x'):
         return importlib.import_module('export_area03x_common').install(f'{profile[:2]}_{sub}')
+    if profile in ('07', '08'):
+        import export_area08_common as A
+        return A.install('area'+profile, sub)
     module = importlib.import_module('export_area'+profile+'_common')
     if profile == '01':
         return module

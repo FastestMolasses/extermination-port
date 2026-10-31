@@ -16,8 +16,9 @@ from export_area01_tables import walk_chain
 # (00157B30 / 00159620: D_00247E20, D_00247EE0, D_00247FA0, D_00247FE0,
 # the last chain's stop record at 0x2480E0), up to the 0015A2C0 tables at
 # D_00248120.
-WINDOWS=(('panels',0x246C20,0x248120,0x246C20,
-          (0x246C20,0x246F20,0x2470E0,0x2471E0,0x2476A0,0x247E20,0x247EE0,0x247FA0,0x247FE0)),
+# It starts at 0015A070's switch script D_00246A20 (00159FC0; AREA08, AREA07).
+WINDOWS=(('panels',0x246A20,0x248120,0x246C20,
+          (0x246A20,0x246C20,0x246F20,0x2470E0,0x2471E0,0x2476A0,0x247E20,0x247EE0,0x247FA0,0x247FE0)),
          ('doors',0x24D8F0,0x24DF80,0x24D900,
           (0x24D900,0x24DA40,0x24DE40,0x24DEC0)),
          # The lift scripts of 001BC960 / 001BD560 (AREA04's lift [51]; the

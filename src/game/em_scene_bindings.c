@@ -229,8 +229,8 @@ static const char *area02_file(unsigned sub, const char *name)
  * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
 static int mid_area(unsigned area, unsigned sub)
 {
-    return ((area == 0x16u || area == 6u || area == 0x0Du) && sub == 0) || (area == 0x0Fu && sub <= 1) ||
-           (area == 3u && sub <= 2) || (area == 4u && sub == 1);
+    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 7u) && sub == 0) || (area == 0x0Fu && sub <= 1) ||
+           (area == 3u && sub <= 2) || (area == 4u && sub == 1) || (area == 8u && (sub == 0 || sub == 2 || sub == 3));
 }
 /* AREA15 keeps one folder per sub, AREA03's subs and AREA04 sub 1 live in the
  * level pack's tree (tools/export_area03_assets.py, export_area03x_*). */
@@ -242,7 +242,7 @@ static const char *mid_file(unsigned area, const char *name)
     if (area == 3u || area == 4u)
         snprintf(out, sizeof path[0], "assets/levels/%02u/sub%u%s%s", area, s_state.d810701, name[0] ? "/" : "", name);
     else
-        snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, area == 0x0Fu ? s_state.d810701 : 0u,
+        snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, (area == 0x0Fu || area == 8u) ? s_state.d810701 : 0u,
                  name[0] ? "/" : "", name);
     return out;
 }
@@ -2827,7 +2827,11 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, "assets/levels/03/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/levels/03/sub1") == 0 ||
            strcmp(g.scene_dir, "assets/levels/03/sub2") == 0 ||
-           strcmp(g.scene_dir, "assets/levels/04/sub1") == 0;
+           strcmp(g.scene_dir, "assets/levels/04/sub1") == 0 ||
+           strcmp(g.scene_dir, "assets/area08/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area08/sub2") == 0 ||
+           strcmp(g.scene_dir, "assets/area08/sub3") == 0 ||
+           strcmp(g.scene_dir, "assets/area07/sub0") == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -3945,7 +3949,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         }
     }
     if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0D ||
-         s_state.d810700 == 0x0F || s_state.d810700 == 3) && fn == 0x001E4CE0u)
+         s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7) &&
+        fn == 0x001E4CE0u)
         goto bind;
     /* The creature's death effect (001B4CF0's 001EFD90: em_level11_port). */
     if (s_state.d810700 == 4 && (fn == 0x001F4840u || fn == 0x001F88C0u || fn == 0x001F7E40u))
@@ -4017,11 +4022,25 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
-    /* AREA15's and AREA03's boot owners (their placements', groups' and
-     * spawns'): the runtime's owners or its fallback
+    /* AREA08's and AREA07 sub 0's (em_area01_runtime dispatch_a08). */
+    if (s_state.d810700 == 8 && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x00823870u: case 0x00823AC0u: case 0x00824210u: case 0x008245E0u: case 0x008249F0u: case 0x00824BC0u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
+    if (s_state.d810700 == 7 && fn >= 0x00823500u) {
+        if (fn == 0x00823DA0u) goto bind;
+        return -1;
+    }
+    /* AREA15's, AREA03's, AREA08's and AREA07's boot owners (their placements',
+     * groups' and spawns'): the runtime's owners or its fallback
      * (em_area01_runtime_later); an untranslated one faults at its address
      * when it runs. */
-    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3) && fn < 0x00823500u && fn && fn != 0x001F5040u)
+    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7) &&
+        fn < 0x00823500u && fn && fn != 0x001F5040u)
         goto bind;
     /* AREA06's boot owners: g[11]'s node 00219870 and the debris spawner
      * 0021AE90 (effect 0x80000044; em_area06_port through em_area01_runtime
@@ -4037,7 +4056,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
      * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
-    if ((s_state.d810700 == 1 || s_state.d810700 == 0x0F || s_state.d810700 == 3) && fn == 0x001F5040u) {
+    if ((s_state.d810700 == 1 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
+         s_state.d810700 == 7) && fn == 0x001F5040u) {
         if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;
         a->callback = fn;
@@ -4089,7 +4109,8 @@ static int area00_spawned_fallback(EmActor *a)
      * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
     if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0D ||
-         s_state.d810700 == 0x16 || s_state.d810700 == 0x0F || s_state.d810700 == 3) && a)
+         s_state.d810700 == 0x16 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
+         s_state.d810700 == 7) && a)
         return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
@@ -4224,6 +4245,12 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 0x0Cu, 0x00826980u, 0x00829F00u);
     if (s_state.d810700 == 3 && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 4u, 0x00826900u, 0x00829100u);
+    if (s_state.d810700 == 8 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 8u, 0x00825100u, 0x00827F00u);
+    if (s_state.d810700 == 7 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 7u, 0x00825B80u, 0x00828080u);
+    if ((s_state.d810700 == 8 || s_state.d810700 == 7) && call->function == 0x001B0460u && call->na >= 1)
+        return em_area11_script_host_001B0460((int)call->a[0]);
     int rc;
     if (call->function < 0x00823500u && em_area01_runtime_later(&s_area01_live.runtime, call, &rc))
         return rc;

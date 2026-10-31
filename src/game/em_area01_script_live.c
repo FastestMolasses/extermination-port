@@ -41,7 +41,11 @@ static const AreaScripts k_areas[]={
     {0x0F,0x0C,0x00826E70u,0x008297F0u,0x00826980u,0x3580u,EM_AREA15_SCRIPT_DEST_PATH},
     /* AREA03 (export_area03_assets: the five chains' window 0x827170..
      * 0x828FD0, the overlay data 0x826900 + 0x2800). */
-    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH}
+    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH},
+    /* AREA08 and AREA07 (export_area08_assets: the chains' windows
+     * 0x825880..0x8274F0 and 0x8264B0..0x827520, the overlay data). */
+    {0x08,0x08,0x00825880u,0x008274F0u,0x00825100u,0x2E00u,EM_AREA08_SCRIPT_DEST_PATH},
+    {0x07,0x07,0x008264B0u,0x00827520u,0x00825B80u,0x2500u,EM_AREA07_SCRIPT_DEST_PATH}
 };
 static const AreaScripts *area_scripts(unsigned area)
 {
@@ -68,7 +72,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
         if (!p) continue;
         /* The walk table and door sound descriptors are read-only. The
          * script windows contain mutable op00 targets and kickoff patches. */
-        if (write && !(contains(a,n,0x00246C20u,0x00248120u) ||
+        if (write && !(contains(a,n,0x00246A20u,0x00248120u) ||
                        contains(a,n,0x0024D900u,0x0024DB80u) ||
                        contains(a,n,0x0024DBC0u,0x0024DF80u) ||
                        contains(a,n,0x0024E1A0u,0x0024E960u) ||
@@ -209,6 +213,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x00157F30u: case 0x001575E0u: /* the medical station's (D_00247F60, D_00247FE0) */
     case 0x001BB400u: case 0x001BB310u: case 0x001BBAE0u: case 0x001BBBF0u:
     case 0x001BC560u: case 0x001BC6D0u: /* the lift scripts' (D_0024E560, D_0024E7E0) */
+    case 0x00157360u: /* the switch's (D_00246A20; em_area08_route) */
         break;
     case 0x00825130u: case 0x00825240u: case 0x00825910u: case 0x00826950u:
         if (s->area!=1) return -1;
@@ -225,6 +230,9 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x00823A10u: case 0x00826FB0u: case 0x00826FC0u: case 0x008246D0u: case 0x008247B0u:
     case 0x008248C0u: case 0x008249F0u:
         if (s->area!=0x0D) return -1;
+        break;
+    case 0x00823580u: case 0x008235E0u: case 0x00824460u: /* AREA08's (em_area08_route) */
+        if (s->area!=8) return -1;
         break;
     case 0x00823F60u: /* AREA15's (em_area15_route) */
         if (s->area!=0x0F) return -1;
@@ -262,7 +270,7 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
                               unsigned area_id)
 {
     if (!s || !host || !host->worker || !loader || s->bound || !area_scripts(area_id)) return -1;
-    const uint32_t lo[5]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u,0x0024E1A0u};
+    const uint32_t lo[5]={0x00246A20u,0x0024D8F0u,0x002482C0u,0x00266620u,0x0024E1A0u};
     /* panels: through the medical station's scripts; lift: 001BC960 /
      * 001BD560's scripts (export_area01_boot_scripts.py). */
     const uint32_t hi[5]={0x00248120u,0x0024DF80u,0x00248540u,0x002668A0u,0x0024E960u};

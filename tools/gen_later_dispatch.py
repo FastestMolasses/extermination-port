@@ -44,8 +44,9 @@ SOURCES = (('em_area04_port.h', 'm04', 'EmArea04PortHooks', 'EmArea04PortFault')
            ('em_level15_support.h', 'm15s', 'EmLevel15SupportHooks', 'EmLevel15SupportFault'),
            ('em_level16_creature.h', 'm16c', 'EmLevel16CreatureHooks', 'EmLevel16CreatureFault'),
            ('em_level16_beast.h', 'm16b', 'EmLevel16BeastHooks', 'EmLevel16BeastFault'),
-           ('em_level16_boot.h', 'm16x', 'EmLevel16BootHooks', 'EmLevel16BootFault'))
-PROTO = re.compile(r'^int (em_(?:level|area04)\w+?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
+           ('em_level16_boot.h', 'm16x', 'EmLevel16BootHooks', 'EmLevel16BootFault'),
+           ('em_area08_route.h', 'r08', 'EmArea08RouteHooks', 'EmArea08RouteFault'))
+PROTO = re.compile(r'^int (em_(?:level|area04|area08_route)\w*?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
 OVERLAY = 0x823500
 CASTS = {'uint32_t': '(uint32_t)', 'int32_t': '(int32_t)', 'uint64_t': ''}
 

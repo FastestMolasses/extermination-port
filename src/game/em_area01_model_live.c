@@ -633,6 +633,10 @@ int em_area01_model_call(EmArea01Model *m,uint32_t fn,uint32_t node,uint32_t a1,
             case 0x001D8BF0u: rc=em_roger_actor_001D8BF0(&m->actor,t,(int32_t)a1); store=1; break;
             case 0x001C62C0u: rc=default_bones(m); break;
             case 0x001C69A0u: rc=animated_pose(m); break;
+            case 0x001C6910u:
+                rc=pose_bind(m,0);
+                if (rc>=0) rc=em_pose_host_001C6910(&m->pose,m->record,EM_ACTOR_RECORD_SIZE);
+                break;
             case 0x001C6960u:
                 /* 001C6960 (decomp C): identity at +0xD0, then 001C9940 over
                  * the +0x110 slots (em_pose_host's translation). */

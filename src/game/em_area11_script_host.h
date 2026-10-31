@@ -138,6 +138,9 @@ int em_area11_script_host_camera_0022EEF0(void);
  * area resource resets. AREA01 borrows these bytes, with no second copy. */
 uint8_t *em_area11_script_host_timeline_bytes(uint32_t address, uint32_t size);
 
+/* 001B0460(a0) from an op09 callback. */
+int em_area11_script_host_001B0460(int a0);
+
 #ifdef __cplusplus
 }
 #endif

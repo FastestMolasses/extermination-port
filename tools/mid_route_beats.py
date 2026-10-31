@@ -178,7 +178,7 @@ def trace(beat):
 # Neutral frames before a beat's first row in a run from a card: AREA13's
 # lift replays its door script at a loaded game's arrival (the recording's
 # row 0 is past it, the player locked), so the recorded walk waits for it.
-LEAD = {'a13_00': 210}
+LEAD = {'a13_00': 210, 'a08_00': 195}
 
 
 def prepare(name, beats):
@@ -229,6 +229,20 @@ def source_rand(beat):
     ram = (Path(t['source_state']).resolve().parent / 'eeMemory.bin').read_bytes()
     block = int.from_bytes(ram[0x24295C:0x242960], 'little')
     return int.from_bytes(ram[block + 0x58:block + 0x5C], 'little')
+
+
+# The beats whose source state holds the bugs where the route left them, not
+# at a load's placements (0012A5D0 nodes chase the player): the comparison
+# anchor EM_START_AT_RESTORE gives them the source state's records and clock
+# at script frame 0 (docs/STARTUP.md; comparison only).
+RESTORE = {'a08_01', 'a08_02', 'a08_03'}
+
+
+def restore_anchor(beat):
+    t = json.loads((beat_dir(beat) / 'trace.json').read_text())
+    folder = Path(t['source_state']).resolve().parent
+    clock = int.from_bytes((folder / 'scratchpad.bin').read_bytes()[0x3B68:0x3B6C], 'little')
+    return f'{folder / "eeMemory.bin"}:0:{clock:x}'
 
 
 def row0_fade(beat):
@@ -282,6 +296,9 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    if beats[0] in RESTORE:
+        env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
+        del env['EM_START_AT_PATH']    # with the anchor the recorded pad alone keeps the route
     start = time.time()
     ended = False
     with open(log_path, 'w') as log:

@@ -62,6 +62,7 @@ REFERENCE = DECOMP / 'build/startup-reference'
 OUT = ROOT / 'build' / os.environ.get('EM_LANE', 'shadow_actor_route_reference')
 
 BF90, F9100, F8D30 = 0x15BF90, 0x1F9100, 0x1F8D30
+F9180 = 0x1F9180
 SIZES = {BF90: 0x1C8, F9100: 0x40, F8D30: 0x3D0}
 SEG, ATAN2, LOOK, SUBMIT = 0x19A570, 0x11E620, 0x1CD390, 0x1CE300
 WORKERS = {SEG: 'segment', ATAN2: 'atan2', LOOK: 'look_at', SUBMIT: 'submit'}
@@ -348,7 +349,7 @@ class LiveActor(C.Structure):
 
 
 class Tables(C.Structure):
-    _fields_ = [('colour', U32 * 4), ('facing', U32 * 4)]
+    _fields_ = [('colour', U32 * 4), ('facing', U32 * 4), ('facing2', U32 * 4)]
 
 
 class Scratch(C.Structure):
@@ -409,6 +410,7 @@ def build_native():
     R = P(Route)
     native.em_shadow_actor_route_0015BF90.argtypes = [R, P(LiveActor)]
     native.em_shadow_actor_route_001F9100.argtypes = [R, P(U32), P(U32), P(U32), U32]
+    native.em_shadow_actor_route_001F9180.argtypes = [R, P(U32), P(U32), P(U32), U32]
     native.em_shadow_actor_route_001F8D30.argtypes = [R, P(U32), P(U32), P(U32), P(U32), P(U32),
                                                       U32, U32, U32]
     native.em_shadow_actor_route_load_tables.argtypes = [C.c_char_p, C.c_size_t, P(Tables)]
@@ -703,14 +705,15 @@ def unit_direct(item):
         ee.f[12] = f12
         ee.r[31] = shared.RETURN
         for i, v in enumerate((base, base + 0x10, base + 0x20)): ee.r[4 + i] = v
-        ee.run(F9100)
+        ee.run(F9180 if seed & 1 else F9100)
     native = Native(lambda a: 0, TABLES, spad0, oracle.calls)
     A = lambda v: arr(U32, v)  # noqa: E731
     if direct:
         rc = NATIVE.em_shadow_actor_route_001F8D30(C.byref(native.route), A(owner), A(point), A(normal),
                                                    A(facing), A(colour), f12, f13, f14)
     else:
-        rc = NATIVE.em_shadow_actor_route_001F9100(C.byref(native.route), A(owner), A(point), A(normal), f12)
+        call = NATIVE.em_shadow_actor_route_001F9180 if seed & 1 else NATIVE.em_shadow_actor_route_001F9100
+        rc = call(C.byref(native.route), A(owner), A(point), A(normal), f12)
     compare(('direct' if direct else '9100', seed), oracle, ee, native, rc)
     return ee.outcomes, oracle.binding
 

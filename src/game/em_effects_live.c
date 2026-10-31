@@ -83,7 +83,7 @@ static struct {
     EmEffectKindsTables ktables;
     EmHeadSpriteOriginalTables htables;
     uint8_t sources[0x480];                   /* D_002565E0..D_00256A60 */
-    struct { uint32_t address, size; } window[128];  /* the exported blocks (the EMET limit, 128) */
+    struct { uint32_t address, size; } window[192];  /* the exported blocks */
     uint32_t windows;
     /* 001CFBE0 source blocks an overlay owner hands 001D04B0 (the AREA11
      * flame's D_00828340): their 0x90 bytes, readable by the page. */
@@ -357,7 +357,7 @@ static int load(void)
 
 int em_boot_constants_select(unsigned area)
 {
-    BC.active = area == 0x13 || area == 0x0F || area == 3;
+    BC.active = area == 0x13 || area == 0x0F || area == 3 || area == 8 || area == 7;
     return BC.active ? load() : 0;
 }
 

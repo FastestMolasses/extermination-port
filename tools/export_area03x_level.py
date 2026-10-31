@@ -31,7 +31,7 @@ def main(argv=None):
         X.A13.read_overlay(X.A13.current())          # pins the overlay
         X.A13.OUT.mkdir(parents=True, exist_ok=True)
         if v['dynamic']:
-            X.A15L.export_dynamic(el, elf, X.A13.OUT, iso, args.skip_collision, name=v['name'])
+            X.A15L.export_dynamic(el, elf, X.A13.OUT, iso, args.skip_collision, target=v['name'])
         else:
             X.LV.export_target(v['name'], el, elf, X.A13.OUT, iso, args.skip_collision)
     return 0

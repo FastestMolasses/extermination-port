@@ -54,6 +54,8 @@ static const MidOverlay k_mid[] = {
     {0x0Du, 0x0Au, 0x67C0u, EM_AREA01_STATE_A13_DATA_SIZE, EM_AREA01_STATE_A13_BSS, EM_AREA01_STATE_A13_BSS_SIZE},
     {0x0Fu, 0x0Cu, 0x3440u, EM_AREA01_STATE_A15_DATA_SIZE, EM_AREA01_STATE_A15_BSS, EM_AREA01_STATE_A15_BSS_SIZE},
     {0x03u, 0x04u, 0x33C0u, EM_AREA01_STATE_A03_DATA_SIZE, EM_AREA01_STATE_A03_BSS, EM_AREA01_STATE_A03_BSS_SIZE},
+    {0x08u, 0x08u, 0x1BC0u, EM_AREA01_STATE_A08_DATA_SIZE, EM_AREA01_STATE_A08_BSS, EM_AREA01_STATE_A08_BSS_SIZE},
+    {0x07u, 0x07u, 0x2640u, EM_AREA01_STATE_A07_DATA_SIZE, EM_AREA01_STATE_A07_BSS, EM_AREA01_STATE_A07_BSS_SIZE},
 };
 
 static const MidOverlay *mid_overlay(unsigned area)
@@ -275,6 +277,11 @@ int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
     } else if (area == 0x0D && sub == 0) {
         if (em_area01_state_008236E0(s) < 0) return -1;
     } else if ((area == 0x0F || area == 3) && sub <= 1) {
+        if (mid_init(s, mid_overlay(area)) < 0) return -1;
+    } else if ((area == 8 && sub <= 6) || (area == 7 && sub <= 4)) {
+        /* AREA08's init 0x8241F0 (keys 0x800..0x806), AREA07's 0x823970 (keys
+         * 0x700..0x704): the same four stores (func_overlay_AREA08_008241B0.c,
+         * func_overlay_AREA07_00823930.c). */
         if (mid_init(s, mid_overlay(area)) < 0) return -1;
     }
     /* Original 001E7780 walks the initializer's canonical pointer/count,

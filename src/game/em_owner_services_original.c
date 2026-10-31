@@ -301,6 +301,23 @@ int em_owner_services_build_trs_matrix(float m[16], const float pos[3], const fl
     return em_owner_services_translate_00102918(m, m, pos);
 }
 
+/* 001C9570: as build_trs_matrix, the rotation through 00102C58 (z, y, x). */
+int em_owner_services_001C9570(float m[16], const float pos[3], const float rot[3], const float scale[3])
+{
+    int st = em_owner_services_identity_001029C0(m);
+    if (st == EM_EE_FLOAT_OK) st = em_owner_services_euler_00102C58(m, m, rot);
+    if (st != EM_EE_FLOAT_OK) return st;
+    u32 b[16], s[4] = {0, 0, 0, 0};
+    load16(b, m);
+    memcpy(s, scale, 3 * sizeof(u32));
+    vu(&st, EM_VU_MULBC, DXYZ, 0, b + 0, s, 0, NULL, b + 0);
+    vu(&st, EM_VU_MULBC, DXYZ, 1, b + 4, s, 0, NULL, b + 4);
+    vu(&st, EM_VU_MULBC, DXYZ, 2, b + 8, s, 0, NULL, b + 8);
+    if (st != EM_EE_FLOAT_OK) return st;
+    store16(m, b);
+    return em_owner_services_translate_00102918(m, m, pos);
+}
+
 void em_owner_services_copy_qw4_00102958(float dst[16], const float src[16])
 {
     memmove(dst, src, 16 * sizeof *dst);

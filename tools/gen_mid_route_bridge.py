@@ -46,7 +46,8 @@ SOURCES = (('src/game/em_area22_port.h', 'EmArea22PortHooks', 'm22'),
            ('src/game/em_level16_boot.h', 'EmLevel16BootHooks', 'm16x'),
            ('src/game/em_area15_route.h', 'EmArea15RouteHooks', 'r15'),
            ('src/game/em_area03_route.h', 'EmArea03RouteHooks', 'r03'),
-           ('src/game/em_area03_arrival.h', 'EmArea03ArrivalHooks', 'a03'))
+           ('src/game/em_area03_arrival.h', 'EmArea03ArrivalHooks', 'a03'),
+           ('src/game/em_area08_route.h', 'EmArea08RouteHooks', 'r08'))
 HOOK = re.compile(r'int \(\*w_([0-9A-F]{8}|callback)\)\(void \*ctx(?:, )?([^)]*)\);')
 
 

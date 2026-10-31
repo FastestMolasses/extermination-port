@@ -158,6 +158,10 @@ static int load_route_tables(void)
     if (!S.elf) return -1;
     memcpy(S.elf, "\x7F" "ELF", 4);
     memcpy(S.elf + ELF_AT(0x0025DAE0u), w, 0x20);
+    /* 001F9180's facing (AREA08's and AREA07's windows); the other areas
+     * never reach it and keep zeros here. */
+    w = em_effects_live_elf(0x0025DB10u, 0x10);
+    if (w) memcpy(S.elf + ELF_AT(0x0025DB10u), w, 0x10);
     return em_shadow_actor_route_load_tables(S.elf, ELF_SIZE, &S.route_tables);
 }
 
@@ -212,6 +216,10 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     if (area == 3 && subarea == 1) path = "assets/levels/03/sub1/shadow_receivers.emsr";
     if (area == 3 && subarea == 2) path = "assets/levels/03/sub2/shadow_receivers.emsr";
     if (area == 4 && subarea == 1) path = "assets/levels/04/sub1/shadow_receivers.emsr";
+    if (area == 8 && subarea == 0) path = "assets/levels/08/sub0/shadow_receivers.emsr";
+    if (area == 8 && subarea == 2) path = "assets/levels/08/sub2/shadow_receivers.emsr";
+    if (area == 8 && subarea == 3) path = "assets/levels/08/sub3/shadow_receivers.emsr";
+    if (area == 7 && subarea == 0) path = "assets/levels/07/sub0/shadow_receivers.emsr";
     if (!path || S.fault) return -1;
     for (u32 k = 0; k < S.pass_count; ++k)
         if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;
@@ -893,8 +901,8 @@ static int ow_submit(void *ctx, int32_t tag, const uint32_t corners[16], uint64_
     return em_shadow_decal_w_001CE300(ctx, tag, corners, tex0, rgba);
 }
 
-int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
-                                  uint32_t f12)
+static int owner_decal(int second, const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                       uint32_t f12)
 {
     if (S.fault) return -1;
     if (!S.bound) return fail(0x001F9100u, "the shadow is not bound");
@@ -915,7 +923,8 @@ int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[
     S.oroute.scratch = (EmShadowActorRouteScratch){ S.os38A0, NULL, NULL, S.eglobals.spad3600, NULL,
                                                     (const uint32_t *)camera };
     S.opk_count = 0;
-    if (em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12) < 0) {
+    if ((second ? em_shadow_actor_route_001F9180(&S.oroute, owner, point, normal, f12)
+                : em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12)) < 0) {
         if (S.odecal.fault.code) return fail(S.odecal.fault.address, "001CE300 (an owner's decal) faulted");
         return fail(S.oroute.fault.address ? S.oroute.fault.address : 0x001F9100u, "001F9100 faulted");
     }
@@ -931,6 +940,18 @@ int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[
         S.owner_triangles += n - 2u;
     }
     return 0;
+}
+
+int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  uint32_t f12)
+{
+    return owner_decal(0, owner, point, normal, f12);
+}
+
+int em_shadow_live_owner_001F9180(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  uint32_t f12)
+{
+    return owner_decal(1, owner, point, normal, f12);
 }
 
 /* ------------------------------------------------------------ the logs */

@@ -1467,6 +1467,41 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         code = f.code;
         break;
     }
+    case 0x00157360u: {
+        EmArea08RouteHooks h;
+        EmArea08RouteFault f = {0, 0};
+        if (c->na < 3u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        r08_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_area08_route_00157360(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], &out_i, &f);
+        where = f.address;
+        code = f.code;
+        has = 1;
+        break;
+    }
+    case 0x00159FC0u: {
+        EmArea08RouteHooks h;
+        EmArea08RouteFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        r08_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_area08_route_00159FC0(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &out_i, &f);
+        where = f.address;
+        code = f.code;
+        has = 1;
+        break;
+    }
+    case 0x0015A070u: {
+        EmArea08RouteHooks h;
+        EmArea08RouteFault f = {0, 0};
+        if (c->na < 1u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        r08_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_area08_route_0015A070(&h, (uint32_t)c->a[0], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
     case 0x0015A200u: {
         EmLevel9PortHooks h;
         EmLevel9PortFault f = {0, 0};
@@ -2104,6 +2139,18 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         m08_hooks(r, &h);
         r->sp = c->sp - 0x0u - EIGHTH_NEST;
         rc = em_level8_port_001BD270(&h, (uint32_t)c->a[0], &out_i, &f);
+        where = f.address;
+        code = f.code;
+        has = 1;
+        break;
+    }
+    case 0x001BD370u: {
+        EmArea08RouteHooks h;
+        EmArea08RouteFault f = {0, 0};
+        if (c->na < 1u || c->nf < 0u || c->sp < 0x0u + EIGHTH_NEST) goto refused;
+        r08_hooks(r, &h);
+        r->sp = c->sp - 0x0u - EIGHTH_NEST;
+        rc = em_area08_route_001BD370(&h, (uint32_t)c->a[0], &out_i, &f);
         where = f.address;
         code = f.code;
         has = 1;
