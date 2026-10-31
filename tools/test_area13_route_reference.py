@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AREA13 route gaps: original code identity, ordered memory and worker replay.
 
-Standalone and UNWIRED. Uses the existing level-14 comparator unchanged.
+Standalone. Uses the existing level-14 comparator unchanged.
 EM_TEST_FULL=1 sweeps every failure site; the default still covers every
 reachable word. EM_AREA13_ROUTE_ONLY is diagnostic, never certification.
 """

@@ -89,7 +89,11 @@ def area_container(cap):
     return f'{chunk} +0x0', data[:parsed['total']], parsed, names, first
 
 
-def export_target(name, out_root):
+def scope_binding(name='area13'):
+    """({(area, sub): binding}, caps, label, data, parsed, names, first, bound,
+    refused, report, why, t): the target's capture-checked bank binding
+    (export_target's first half; export_sfx_registry.py adds AREA13's scope
+    to the port's registry)."""
     A13.configure(name)
     t = A13.current()
     A13.read_overlay(t)
@@ -115,6 +119,11 @@ def export_target(name, out_root):
     why = {k: f'{v} in {t.label} sub {t.sub}' for k, v in E04.refusal_reasons(caps, refused).items()}
     binding = {(C.AREA, t.sub): dict(groups=groups, refused=why,
                                      binding=f'{t.label} sub {t.sub} captures (D_00281D50/D_0027C6C0)')}
+    return binding, caps, label, data, parsed, names, first, bound, refused, report, why, t
+
+
+def export_target(name, out_root):
+    binding, caps, label, data, parsed, names, first, bound, refused, report, why, t = scope_binding(name)
     ids = list(range(0x3E8, 0x5DC)) + list(range(0x7D0, 0x9C4))
     saved = X.area_bindings, X.scene_ids, X.census_report
     X.area_bindings = lambda _elf: binding

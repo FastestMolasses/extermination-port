@@ -1,9 +1,9 @@
 # AREA13 assets (and the AREA19 arrival): local export and capture checks
 
-Lane "A13ASSETS", level side track (ninth level), 2026-10-01. This lane adds
-new files only: four exporters, one checker and this document. It changes no
-port source, no tracked port file and no decomp file, and nothing it adds is
-wired into the game. Every exported byte comes from the user's own disc
+Lane "A13ASSETS", level side track (ninth level), 2026-10-01; bound by lane
+H1 on 2026-10-30 ("Binding" below). That first lane added
+new files only: four exporters, one checker and this document. It changed no
+port source, no tracked port file and no decomp file. Every exported byte comes from the user's own disc
 files and ELF and is written into the ignored `assets/area13/` tree. Every
 export is checked against the recorded original captures of the ninth level
 (NINTH_LEVEL_ROUTE.md). Nothing was run in PCSX2.
@@ -586,9 +586,34 @@ both modelled here (a hull owner and a data writer).
 
 ## Binding
 
-Nothing is wired. Every file is exported, checked and loadable (AREA19's
-cells file too, since chain C11's mirror read). When AREA13 is
-bound:
+AREA13 sub 0 is wired since lane H1 (2026-10-30, LEVEL3_BINDING.md); AREA19's
+files are not. The notes below are what that binding follows. What it added
+to the exports (every one disc-derived and ignored), in the order to run them:
+
+```sh
+# port root, native arm64 macOS; a worktree unlinks its symlinks first
+python3 tools/export_module_loader.py                     # AREA13 sub 0 in the pack (DEFAULT_AREAS)
+python3 tools/export_mid_library.py                       # library model 0x5F ([4]): span 0x53..0x5F
+python3 tools/export_area00_runtime_tables.py             # the ELF windows (below)
+python3 tools/export_area01_boot_scripts.py --out assets/area01_boot_scripts   # scene 7's subtitle track
+python3 tools/export_streams.py                           # AREA13's music cues and message voices
+python3 tools/export_sfx_registry.py                      # scope (13, 0); pan slide, script loop, D_00242630
+python3 tools/export_player_texture_variants.py --profile 13   # the coat and the turned player's catalogs
+python3 tools/export_area13_level.py --target area13      # scene.txt's background line
+```
+
+- **ELF windows** (`export_area00_runtime_tables.py`): D_0024D7C0[0x0D]
+  (0x8293A0's record); D_002759B8..D_002759D3 (the Use descriptors of [44] and
+  [58], the sub table D_002759D0); AREA13's 0022DCD0 list D_0026A540 (one
+  record and its -1); the outdoor strips' descriptors and rows
+  D_00254F30..D_002551BF (`AREA13_DATA_WINDOWS`: their +0x20..+0x4F edited at
+  run time, so checked against the ELF only); the breath's source D_00255320.
+- **Sound.** 0x44F, the indoor rooms' area loop, is absent in AREA13 (remap
+  0xFF): 001FB9F0 returns -1 and D_00282164 holds -1 in every capture; 0x44E
+  outdoors is the wind (D_00282164 = 1 at entry 8). Its script needs the pan
+  slide B0 0A and the script loop B0 60 (`EM_SFX_OP_PAN`, `EM_SFX_OP_LOOP`).
+
+When AREA13 is bound:
 - The scene selects `sub0/` for the level, background, collision, cells,
   roster, world models, message file and sound files; the spawn table,
   doors, scripts and overlay data are the files next to it.

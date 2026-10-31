@@ -15,7 +15,7 @@ enum {
     EM_SFX_STATE_AUDIBLE = 1,     /* every operation runs natively         */
     EM_SFX_STATE_ABSENT = 2,      /* original 001FB9F0/00119EA0 return -1  */
     EM_SFX_STATE_UNSUPPORTED = 3, /* needs driver features not reproduced  */
-    EM_SFX_OP_MAX = 32,
+    EM_SFX_OP_MAX = 64,
     EM_SFX_LADDER_MAX = 0x240
 };
 
@@ -25,8 +25,13 @@ enum {
     EM_SFX_OP_KEY_OFF = 2,    /* A0 note 0 prog: 001176E0                  */
     EM_SFX_OP_PORTAMENTO = 3, /* B0 41 len depth prog note: 00118078       */
     EM_SFX_OP_END = 4,        /* FF 2F 00: 00117C28                        */
-    EM_SFX_OP_VOLUME = 5      /* B0 07 len target prog note: 001181B0's
+    EM_SFX_OP_VOLUME = 5,     /* B0 07 len target prog note: 001181B0's
                                * SFX-track arm (a volume slide)            */
+    EM_SFX_OP_PAN = 6,        /* B0 0A len target prog note: 00118418's
+                               * SFX-track arm (a pan slide)               */
+    EM_SFX_OP_LOOP = 7        /* B0 60 lo hi count: 00118790 (depth = count,
+                               * 0 = endless; length = the target's operation
+                               * index in this script)                     */
 };
 
 typedef struct {
@@ -36,6 +41,7 @@ typedef struct {
     uint16_t sample;      /* registry sample index                        */
     uint16_t pitch;       /* key-on SPU2 pitch word, 4096 = 48000 Hz      */
     uint16_t pan;         /* D_00242630 word: left byte << 8 | right byte */
+    uint8_t pan_byte;     /* tone +0xC (voice +0x4C, the pan slide's start) */
     uint32_t scalar;      /* 001179E0 six-way product >> 27               */
     uint16_t adsr1, adsr2;/* SPU2 envelope registers (command 3)          */
     uint8_t center;       /* tone +2  (voice +0x40)                       */
@@ -76,6 +82,9 @@ typedef struct {
     EmSfxEntry *entries;
     EmSfxSample *samples;
     uint16_t *ladder;     /* D_00241D70 (00117918's pitch ladder)          */
+    /* D_00242630, the pan slide's table (the file's tail; 001179E0's pan word). */
+    uint16_t pan_table[64];
+    int has_pan_table;
 } EmSfxRegistry;
 
 /* Transactional: on any validation failure the old registry is kept and
@@ -160,6 +169,8 @@ typedef struct {
     uint16_t handle;      /* +0x24: 00119EA0's bank handle (D_0027C6C0 slot),
                            * which 00115850 copies into a voice's +0x22   */
     int32_t left, right;  /* +0x48 / +0x4C request words                   */
+    uint16_t loops;       /* +0x36: 00118790's count                       */
+    uint8_t rejoined;     /* the tick after a loop's jump (see the driver)  */
 } EmSfxTrack;
 
 typedef struct {
@@ -174,6 +185,10 @@ typedef struct {
      * its length; product: the key-on's other five 001179E0 factors (0 =
      * not carried by the key-on's operation). */
     uint16_t level, vslide, vtarget, vstart, vremaining, vtotal;
+    /* 00118418 / 00116598's pan slide: +0x4C the pan byte, +0x48 the flag,
+     * +0x58 its target, +0x5A its start, +0x5C the ticks left, +0x5E its
+     * length (+0x32 = D_00242630[+0x4C >> 2] is `pan`). */
+    uint16_t pan_byte, pslide, ptarget, pstart, premaining, ptotal;
     uint64_t product;
     /* SPU2 voice model */
     uint16_t pitch, volume[2], adsr1, adsr2;

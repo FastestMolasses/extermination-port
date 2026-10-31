@@ -110,7 +110,10 @@ U, I, F, Q, S = 'u', 'i', 'f', 'q', 's'
 # entry stack pointer (native only; the oracle's sp is STACK_TOP).
 FUNCS = {
     # AREA13 overlay (runtime addresses)
+    0x824060: ('em_level11_port_00824060', 0x7C, [], I),
     0x8240E0: ('em_level11_port_008240E0', 0x7C, [], I),
+    0x824160: ('em_level11_port_00824160', 0x18, [], None),
+    0x8247B0: ('em_level11_port_008247B0', 0x10C, [U, U, U], I),
     0x824390: ('em_level11_port_00824390', 0x18C, [U], None),
     0x824520: ('em_level11_port_00824520', 0x1AC, [U], None),
     0x8246D0: ('em_level11_port_008246D0', 0xE0, [U, U, U], I),
@@ -157,7 +160,7 @@ FUNCS = {
 OVERLAY_OF = {entry: 10 for entry in FUNCS if entry >= ARENA}
 # The entries whose passing cases are all contract sites (they return from
 # their own body): the default run and EM_TEST_FULL=1.
-RETURN_SITES = (0x8240E0, 0x8246D0, 0x8248C0, 0x8249F0, 0x100130, 0x118418, 0x19A6F0, 0x1B2E50, 0x1B3F10)
+RETURN_SITES = (0x824060, 0x8240E0, 0x8246D0, 0x8247B0, 0x8248C0, 0x8249F0, 0x100130, 0x118418, 0x19A6F0, 0x1B2E50, 0x1B3F10)
 RETURN_SITES_FULL = RETURN_SITES
 
 
@@ -272,7 +275,6 @@ HOOKS = [
     ('w_001FAE70', 0x1FAE70, [(I, 4)], None),
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], I),
     ('w_0021C040', 0x21C040, [(U, 4), (U, 5)], None),
-    ('w_00824060', 0x824060, [], I),
 # END GENERATED HOOKS
 ]
 BY_ADDRESS = {address: (name, args, result) for name, address, args, result in HOOKS}
@@ -1641,6 +1643,8 @@ def capture_cases(add):
     for beat in BEATS:
         ram, _ = CAPTURES[beat]
         add('capture %s 8240E0' % beat, beat, 0x8240E0, [])
+        add('capture %s 824060' % beat, beat, 0x824060, [])
+        add('capture %s 824160' % beat, beat, 0x824160, [])
         if ram[R44] and u32(ram, R44 + 0x10) == 0x823E90:
             for entry in (0x824390, 0x824520, 0x824960, 0x8249F0):
                 add('capture %s %06X @%X' % (beat, entry, R44), beat, entry, [R44], bones(R44))
@@ -1682,6 +1686,8 @@ def machine_cases(add, rng):
             for y in (bits32(0x43520000), bits32(0x43520001), bits32(0x4351FFFF), f32b(300.0), f32b(-210.0)):
                 if flag == 0xFF and (r or y != f32b(300.0)):
                     continue
+                add('a13 824060 f%X r%d y%s' % (flag, r, y.hex()), B, 0x824060, [],
+                    [(0x810774, b8(flag)), (0x810354, y)], queues={0x1B1EA0: [r]})
                 add('a13 8240E0 f%X r%d y%s' % (flag, r, y.hex()), B, 0x8240E0, [],
                     [(0x810774, b8(flag)), (0x810354, y)], queues={0x1B1EA0: [r]})
     # 0x8249F0 on designed chains
@@ -1700,13 +1706,13 @@ def machine_cases(add, rng):
     for t in (2, 1, 0, -5, -0x8000, 0x7FFF):
         add('a13 824390 sub1 t%d' % t, B, 0x824390, [n], bones(n) + base + [(n + 5, b8(1)), (n + 0x2A, h16(t)),
                                                                           (0x810774, b8(0xFF))],
-            queues={0x824060: [0]})
+            queues={0x1B1EA0: [0]})
     for flag, r1, y, r2 in ((0, 1, 300.0, 0), (0, 1, 100.0, 1), (0, 1, 100.0, 0), (0, 0, 300.0, 1),
                             (0xFF, 1, 300.0, 1), (0xFF, 1, 300.0, 0), (1, 1, 300.0, 0)):
         add('a13 824390 sub1 go f%X r%d y%g r%d' % (flag, r1, y, r2), B, 0x824390, [n],
             bones(n) + base + [(n + 5, b8(1)), (n + 0x2A, h16(1)), (0x810774, b8(flag)), (0x810354, f32b(y)),
                                (0x8107F4, b8(0x42)), (parent + 0x2A, h16(0x7FFF))],
-            queues={0x1B1EA0: [r1], 0x824060: [r2], 0x1B17A0: [1]})
+            queues={0x1B1EA0: [r1, r2], 0x1B17A0: [1]})
     for r in (0, 1, 2):
         add('a13 824390 sub2 r%d' % r, B, 0x824390, [n],
             bones(n) + base + [(n + 5, b8(2)), (0x8107F4, b8(0xFF)), (parent + 0x2A, h16(-1))],
@@ -1728,7 +1734,7 @@ def machine_cases(add, rng):
                     [(n + 5, b8(sub)), (0x810833, b8(f833)), (n + 4, b8(1))], queues={0x1BA1F0: [r]})
     # the script callbacks 0x8246D0 / 0x8248C0 on a designed self / block
     s, blk = NODE_A, NODE_A + 0x1F0
-    for entry in (0x8246D0, 0x8248C0):
+    for entry in (0x8246D0, 0x8247B0, 0x8248C0):
         for st in (0, 1, 2):
             for t in ((0.0, 44.0, 45.0, 44.5, 49.0, 49.5, 50.0, -3.0) if st == 1 else (7.0,)):
                 add('a13 %06X s%d t%g' % (entry, st, t), B, entry, [0x1234, s, blk],
@@ -2856,6 +2862,14 @@ def hook_contract_site(site):
 # with the capture cases the default run reaches every word the whole set
 # reaches (greedy, cheapest first); SURVIVORS are the mutation sweep's cases.
 DEFAULT_KEEP = frozenset([
+    'a13 824060 f1 r2 y01005243',
+    'a13 824060 f0 r1 y00009643',
+    'a13 824390 sub1 go f0 r0 y300 r1',
+    'a13 8247B0 s0 t7',
+    'a13 8247B0 s1 t0',
+    'a13 8247B0 s1 t49.5',
+    'a13 8247B0 s1 t50',
+    'a13 8247B0 s2 t7',
     'a13 8240E0 f1 r2 y01005243',
     'a13 824390 sub1 go f1 r1 y300 r0',
     'a13 824390 sub1 go fFF r1 y300 r1',

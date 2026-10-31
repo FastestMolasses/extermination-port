@@ -32,7 +32,10 @@ static const AreaScripts k_areas[]={
     {6,6,0x00826D40u,0x00827AC0u,0x00826000u,0x2F00u,EM_AREA06_SCRIPT_DEST_PATH},
     /* AREA22: no script chains (SIXTH_LEVEL_ROUTE.md section 2.1); the
      * overlay data 0x823600 + 0x800 holds only its placement tables. */
-    {0x16,0x13,0,0,0x00823600u,0x800u,EM_AREA22_SCRIPT_DEST_PATH}
+    {0x16,0x13,0,0,0x00823600u,0x800u,EM_AREA22_SCRIPT_DEST_PATH},
+    /* AREA13 (export_area13_tables: the scripts window 0x82A360..0x82D190,
+     * the overlay data 0x829D00 + 0x4580). */
+    {0x0D,0x0A,0x0082A360u,0x0082D190u,0x00829D00u,0x4580u,EM_AREA13_SCRIPT_DEST_PATH}
 };
 static const AreaScripts *area_scripts(unsigned area)
 {
@@ -62,6 +65,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
         if (write && !(contains(a,n,0x00246C20u,0x00248120u) ||
                        contains(a,n,0x0024D900u,0x0024DB80u) ||
                        contains(a,n,0x0024DBC0u,0x0024DF80u) ||
+                       contains(a,n,0x0024E1A0u,0x0024E960u) ||
                        contains(a,n,0x002482C0u,0x00248540u) ||
                        contains(a,n,0x00266620u,0x002668A0u))) return NULL;
         return p;
@@ -199,6 +203,12 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
         break;
     case 0x008242C0u: /* AREA06's op09 callback (em_area06_port) */
         if (s->area!=6) return -1;
+        break;
+    /* AREA13's op09 callbacks: em_level9_port (script 0x82A770's item 0x1A,
+     * the hatch's 0x82CA50) and em_level11_port ([44]'s). */
+    case 0x00823A10u: case 0x00826FB0u: case 0x00826FC0u: case 0x008246D0u: case 0x008247B0u:
+    case 0x008248C0u: case 0x008249F0u:
+        if (s->area!=0x0D) return -1;
         break;
     case 0x00824E40u: /* AREA00 arrival script 00828D60 */
     case 0x008253E0u: /* AREA00 terminal script 008299E0 */

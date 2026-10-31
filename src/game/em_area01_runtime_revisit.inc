@@ -126,8 +126,9 @@ static int rv_001BAC00(EmArea01Runtime *r, EmArea01Call *c)
     const uint8_t *self14 = bytes(r, owner + 0x14u, 4, 0);
     /* The placement lists and their records lie in the overlay's data
      * (AREA01's 0x828A00..0x82CD00; AREA04's 0x826600..0x82C900, its
-     * arrival script 0x8275A0's op14). */
-    const uint32_t lo = r->area == 4 ? 0x00826600u : 0x00828A00u, hi = r->area == 4 ? 0x0082C900u : 0x0082CD00u;
+     * arrival script 0x8275A0's op14; AREA13's 0x829D00..0x82E280). */
+    const uint32_t lo = r->area == 4 ? 0x00826600u : r->area == 0x0D ? 0x00829D00u : 0x00828A00u,
+                   hi = r->area == 4 ? 0x0082C900u : r->area == 0x0D ? 0x0082E280u : 0x0082CD00u;
     const uint8_t *data = bytes(r, lo, hi - lo, 0);
     if (!rec || !self14 || !data) return fail(r, c->function);
     uint8_t record_bytes[0x18];

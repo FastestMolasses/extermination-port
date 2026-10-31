@@ -54,7 +54,8 @@ STATE_BLOCK = 0x24295C       # D_0024295C; the state word is at +0x58
 # enters AREA22 (entry22, a04_05); door [8] enters AREA01 a third time
 # (entry01.3, a22_02) and door [19] AREA06 (entry06, a01u_02). The way back:
 # door [1] enters AREA01 (entry01.4, a06b_01), door [18] AREA22 (entry22.2,
-# a01v_02), door [6] AREA04 (entry04.2, a22b_01).
+# a01v_02), door [6] AREA04 (entry04.2, a22b_01), the lift AREA13 (entry13,
+# a04b_04, or the pistol recording's a04b_s7: --branch boss_fight_20261030).
 BEATS = {'15_level_exit': ('route/15_level_exit', 1, 'entry01'),
          'a00_10_progression_exit': ('route_a00/a00_10_progression_exit', 1, 'entry01.2'),
          'a01r_03_door16': ('route_a01r/a01r_03_door16', 2, 'entry02'),
@@ -65,7 +66,9 @@ BEATS = {'15_level_exit': ('route/15_level_exit', 1, 'entry01'),
          'a01u_02_progression_exit': ('route_a01u/a01u_02_progression_exit', 6, 'entry06'),
          'a06b_01_door1': ('route_a06b/a06b_01_door1', 1, 'entry01.4'),
          'a01v_02_door18': ('route_a01v/a01v_02_door18', 0x16, 'entry22.2'),
-         'a22b_01_door6': ('route_a22b/a22b_01_door6', 4, 'entry04.2')}
+         'a22b_01_door6': ('route_a22b/a22b_01_door6', 4, 'entry04.2'),
+         'a04b_04_lift': ('route_a04b/a04b_04_lift', 0x0D, 'entry13'),
+         'a04b_s7_lift': ('route_a04b/a04b_s7_lift', 0x0D, 'entry13')}
 # The bed branch (a run --until a04b_*) replays the anchors from a02_00 on:
 # the same keys on fork_refs/<branch>/s87.
 BED_KEYS = ('a02_00_duct', 'a02_05_progression_exit', 'a04_05_progression_exit', 'a22_02_progression_exit',

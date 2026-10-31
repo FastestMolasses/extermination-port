@@ -1,4 +1,4 @@
-/* AREA13 route owners, translated from the matching decomp C. UNWIRED. */
+/* AREA13 route owners, translated from the matching decomp C. */
 #include "em_area13_route_internal.h"
 #define B(a) a13r_u8(o, (a))
 #define R(a) a13r_u32(o, (a))

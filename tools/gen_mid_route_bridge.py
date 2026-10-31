@@ -3,8 +3,9 @@
 shared area runtime (em_area01_runtime_call) for the standalone level
 ports the middle of the route binds (em_area04_port.h's EmArea04PortHooks,
 em_area06_port.h's EmArea06PortHooks, em_area22_port.h's EmArea22PortHooks,
-em_level8_port.h's EmLevel8PortHooks) and the later levels' translations of
-the first boss's family (levels 10..15: docs/LEVEL3_BINDING.md, lane F1).
+em_level8_port.h's EmLevel8PortHooks), AREA13's (em_level9_port.h,
+em_area13_route.h) and the later levels' translations of the first boss's
+family and AREA13's later owners (levels 10..15: docs/LEVEL3_BINDING.md).
 
 Each hook re-enters em_area01_runtime_call by its original address with
 the argument registers in the hook's parameter order: integer parameters
@@ -26,6 +27,8 @@ SOURCES = (('src/game/em_area22_port.h', 'EmArea22PortHooks', 'm22'),
            ('src/game/em_area04_port.h', 'EmArea04PortHooks', 'm04'),
            ('src/game/em_area06_port.h', 'EmArea06PortHooks', 'm06'),
            ('src/game/em_level8_port.h', 'EmLevel8PortHooks', 'm08'),
+           ('src/game/em_level9_port.h', 'EmLevel9PortHooks', 'm09'),
+           ('src/game/em_area13_route.h', 'EmArea13RouteHooks', 'a13'),
            ('src/game/em_level10_port.h', 'EmLevel10PortHooks', 'm10'),
            ('src/game/em_level11_port.h', 'EmLevel11PortHooks', 'm11'),
            ('src/game/em_level12_port.h', 'EmLevel12PortHooks', 'm12'),

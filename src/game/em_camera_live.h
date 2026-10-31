@@ -83,6 +83,9 @@ typedef struct EmCameraLiveHost {
      * boundary and reloads it afterward. Host uses the existing canonical
      * runtime/owners and returns 0 or -1; no fallback on refusal. */
     int (*area_worker)(void *context, uint32_t function, uint32_t a0, uint32_t a1);
+    /* 001B0C60(area, sub, entry), the request 00193EB0's region events store
+     * (the scene's one translation); NULL: unbound. */
+    int (*request_area)(void *context, int32_t a, int32_t b, int32_t c);
 } EmCameraLiveHost;
 
 /* Build the camera worlds for the area just loaded (after the collision

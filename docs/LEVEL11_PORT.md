@@ -14,7 +14,7 @@ captures (section 3.4).
 Every translation is compared with the original instructions by
 `tools/test_level11_port_reference.py`. What that comparison covers is
 exactly what section 3 states: the comparisons the test makes, on the cases
-it runs. Nothing is bound: no port code calls these entries yet.
+it runs. AREA13's entries run live since lane H1 (2026-10-30; "Binding" below), which also added 0x824060, 0x824160 and 0x8247B0.
 
 | File | What |
 |---|---|
@@ -449,7 +449,11 @@ survivor cases existed.
 
 ## Binding
 
-Nothing calls these entries. To run them live a host must:
+Lane H1 (2026-10-30): AREA13's entries through `em_area01_runtime_area13.inc`
+(dispatch_a13_l11, the generated m11 hooks). It added 0x824060 (a direct call
+from 0x824390 now, no hook), 0x824160 and 0x8247B0 with their oracle cases; the
+empty 0x828F30 answers in dispatch_a13. The bugs' and turret's boot entries
+keep their earlier bindings. What a host must do, as that binding does:
 
 - supply `bytes` over the scene's original-byte storage (the actor pool,
   the player block, the AREA13 overlay's data (the scripts, the areas

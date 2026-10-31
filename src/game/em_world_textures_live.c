@@ -28,14 +28,16 @@ static uint32_t rd32(const uint8_t *p)
 static int supported(void)
 {
     /* The player's other texture packets (00200890 slots 9..0xC) have
-     * catalogs for AREA00 / 01 / 02 / 04 / 06 / 22 (every recorded sub, tools/
+     * catalogs for AREA00 / 01 / 02 / 04 / 06 / 13 / 22 (every recorded sub, tools/
      * export_player_texture_variants.py); AREA11 has none: the player's
      * infection cannot reach it. */
-    if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 1u || S.area == 4u ||
-                                    S.area == 0u || S.area == 2u) && S.mode <= 2u && S.costume <= 2u))
+    if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 0x0Du || S.area == 1u ||
+                                    S.area == 4u || S.area == 0u || S.area == 2u) && S.mode <= 2u &&
+                                   S.costume <= 2u))
         return 0;
     return ((S.area == 0u || S.area == 2u) && S.subarea <= 1u) ||
-           (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u));
+           (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u ||
+                                S.area == 0x0Du));
 }
 
 static int fail(const char *what, const char *path)
@@ -144,10 +146,10 @@ int em_world_textures_live_ensure(EmGfx *gfx)
                                    : "assets/area02_sub1_world_textures.emot";
     if (S.area == 4u)   /* tools/export_area04_world_textures.py (sub 0 only) */
         paths[0] = "assets/area04_sub0_world_textures.emot";
-    /* tools/export_level_world_textures.py --profile 22 / 06 (mode 0,
+    /* tools/export_level_world_textures.py --profile 22 / 06 / 13 (mode 0,
      * costume 0: the recorded deliveries) */
     char mid[96];
-    if (S.area == 0x16u || S.area == 6u || ((S.mode || S.costume) && S.area != 11u)) {
+    if (S.area == 0x16u || S.area == 6u || S.area == 0x0Du || ((S.mode || S.costume) && S.area != 11u)) {
         snprintf(mid, sizeof mid, "assets/levels/%02u/sub%u/world_textures_mode%u_costume%u.emot", S.area, S.subarea,
                  S.mode, S.costume);
         paths[0] = mid;

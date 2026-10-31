@@ -13,6 +13,7 @@
 #define EM_AREA04_SCRIPT_DEST_PATH "assets/area04/door_destinations.emsp"
 #define EM_AREA06_SCRIPT_DEST_PATH "assets/area06/door_destinations.emsp"
 #define EM_AREA22_SCRIPT_DEST_PATH "assets/area22/door_destinations.emsp"
+#define EM_AREA13_SCRIPT_DEST_PATH "assets/area13/door_destinations.emsp"
 typedef struct {
     EmArea01RuntimeHost host;
     EmModuleLoader *loader;

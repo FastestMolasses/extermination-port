@@ -65,9 +65,10 @@ static void events(Frame *f,int scene)
      * unsupported timeline, never an apparently successful empty event. */
     if(read32(f,d+0x7C)) { f->fault=d+0x7C;return; }
     uint32_t p=read32(f,d+0x80);
-    /* the subtitle tracks the bound scenes use: D_0026AC80 (2, 6) and
-     * D_0026ACA0 (5, AREA04's NPC script 0x827D90) */
-    if(p>=0x0026ACA0u && p<0x0026ACB0u) { if(!cursor(f,p,0x0026ACA0u,0x10))return; }
+    /* the subtitle tracks the bound scenes use: D_0026AC80 (2, 6),
+     * D_0026ACA0 (5, AREA04's NPC script 0x827D90) and D_0026ACB0 (7, AREA13's
+     * script 0x82A360) */
+    if(p>=0x0026ACA0u && p<0x0026ACC0u) { if(!cursor(f,p,0x0026ACA0u,0x20))return; }
     else if(!cursor(f,p,0x0026AC80u,0x20))return;
     if(p) {
         uint32_t t=read32(f,p);
@@ -148,7 +149,7 @@ int em_area01_timeline_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_
      * func_0022EC30.c / func_0022EEF0.c: 0, 1, 3, 4, 9, 11, 14, 18 and 36),
      * whose tick is the common one: 3 is AREA04's arrival script 0x8275A0,
      * 4 the director's event script 0x8278D0 (a04_00). */
-    if(scene!=2 && scene!=5 && scene!=6 && scene!=35 &&
+    if(scene!=2 && scene!=5 && scene!=6 && scene!=7 && scene!=35 &&
        !(scene>=0 && scene<=36 && ((1ull<<scene)&0x1000044a1bull)))
         f.fault=f.cam+0x6E;
     if(!f.fault && c->function==0x0022EC30u) {
@@ -158,10 +159,12 @@ int em_area01_timeline_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_
         write8(&f,f.cam+0x88,0);write8(&f,f.cam+0x8A,0);write8(&f,f.cam+0x89,0);
         /* 0022EC30's bindings (decomp func_0022EC30.c): scene 2 the
          * letterbox D_0026AAE0 and subtitles D_0026AC80; 5 the subtitles
-         * D_0026ACA0; 6 the letterbox D_0026AB00 and subtitles D_0026AC80.
-         * None of the three has a case in 0022EEF0's leading switch. */
+         * D_0026ACA0; 6 the letterbox D_0026AB00 and subtitles D_0026AC80;
+         * 7 the subtitles D_0026ACB0. None of the four has a case in
+         * 0022EEF0's leading switch. */
         if(scene==2) { write32(&f,f.cam+0x84,0x0026AAE0u);write32(&f,f.cam+0x80,0x0026AC80u); }
         else if(scene==5) write32(&f,f.cam+0x80,0x0026ACA0u);
+        else if(scene==7) write32(&f,f.cam+0x80,0x0026ACB0u);
         else if(scene==6) { write32(&f,f.cam+0x84,0x0026AB00u);write32(&f,f.cam+0x80,0x0026AC80u); }
     } else if(!f.fault)tick(&f,scene);
     if(f.fault) { if(fault)*fault=f.fault;return -1; }

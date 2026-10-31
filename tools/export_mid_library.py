@@ -52,6 +52,13 @@ BREAK_FIRST, BREAK_TAIL = 0x1F, 0x29
 # lies right before 0x05 / 0x06, the start of the shot span 0x06..0x11
 # (export_roger_banks SHOT_SPANS): that span is extended down to 0x04.
 SHOT_FIRST, COMPANION = 0x06, 0x04
+# AREA13's [4] (0x823A40, NINTH_LEVEL_ROUTE.md) binds the library model 0x5F:
+# 001B1020(self, +0xD = 0x5F, -1, 0). 0x5E / 0x5F follow 0x5D, the end of the
+# pickup span from 0x53 (export_area02_library), in file order.
+A13_FIRST, A13_LAST = 0x53, 0x5F
+# The hatch's script 0x82CA50 (a13_04) places a script actor with the library
+# model 0x51: right after 0x4F, the end of the pickup span from 0x4D.
+A13_HATCH_FIRST, A13_HATCH_LAST = 0x4D, 0x51
 OUT = ROOT / 'build/levels/mid-library-export'
 
 
@@ -115,6 +122,34 @@ def extend(previous, library):
         if writable or old != library[shot:shot + len(old)]:
             raise ValueError('the 0x06 span differs from disc or is writable')
         regions[i] = (base + lo, writable, retained, library[lo:shot + len(old)])
+    first = B.u32(library, 4 + 4 * A13_FIRST) & ~3
+    order = [B.u32(library, 4 + 4 * k) & ~3 for k in range(A13_FIRST, A13_LAST + 1)]
+    if order != sorted(order):
+        raise ValueError('models 0x53..0x5F are not in file order')
+    tail = order[-1] + B.block_model_size(library, order[-1])
+    matches = [i for i, r in enumerate(regions) if r[0] == base + first]
+    if len(matches) != 1:
+        raise ValueError('the span starting at model 0x53 is missing (run export_area02_library.py)')
+    i = matches[0]
+    address, writable, retained, old = regions[i]
+    if writable or old != library[first:first + len(old)]:
+        raise ValueError('the 0x53 span differs from disc or is writable')
+    if first + len(old) < tail:
+        regions[i] = (address, writable, retained, library[first:tail])
+    first = B.u32(library, 4 + 4 * A13_HATCH_FIRST) & ~3
+    order = [B.u32(library, 4 + 4 * k) & ~3 for k in range(A13_HATCH_FIRST, A13_HATCH_LAST + 1)]
+    if order != sorted(order):
+        raise ValueError('models 0x4D..0x51 are not in file order')
+    tail = order[-1] + B.block_model_size(library, order[-1])
+    matches = [i for i, r in enumerate(regions) if r[0] == base + first]
+    if len(matches) != 1:
+        raise ValueError('the span starting at model 0x4D is missing (run export_area02_library.py)')
+    i = matches[0]
+    address, writable, retained, old = regions[i]
+    if writable or old != library[first:first + len(old)]:
+        raise ValueError('the 0x4D span differs from disc or is writable')
+    if first + len(old) < tail:
+        regions[i] = (address, writable, retained, library[first:tail])
     return L2.rebuild(header, regions)
 
 
@@ -183,6 +218,16 @@ def verify(data, library):
             live += 1
     if not count or not live or not husks:
         raise ValueError('no AREA22 snapshot with a live library pickup, or no AREA06 crate husk')
+    npc = base + (B.u32(library, 4 + 4 * A13_LAST) & ~3)
+    a13 = 0
+    for path in sorted(refs.capture('levels-recordings-20261018-10/s87/route_a13').glob('a13_0[0-2]*/eeMemory.bin')):
+        ram = path.read_bytes()
+        if B.u32(ram, 0x7AAE60 + 0x10) == 0x823A40:
+            if B.u32(ram, 0x7AAE60 + 0x44) != npc:
+                raise ValueError(f'{path.parent.name}: [4]\'s +0x44 is not the library model 0x5F')
+            a13 += 1
+    if not a13 or not any(a <= npc < a + len(raw) for a, _, _, raw in regions):
+        raise ValueError('AREA13\'s model 0x5F is not delivered')
     return dict(models=len(spans), snapshots=count, live_handles=live, crate_husks=husks, regions=len(regions),
                 extended_span_bytes=sum(len(raw) for _, raw in extended))
 

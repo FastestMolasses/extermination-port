@@ -76,10 +76,11 @@ AREA04_IDS = AREA00_IDS
 ATTACHMENT_SCOPES = tuple((32 + i, 0) for i in range(4))
 ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # The middle of the route to the first boss (lane C1): AREA22 sub 0
-# (export_area22_sfx.scope_binding) and AREA06 sub 0
-# (export_area06_sfx.sub_binding), each its captures' binding; resolved
+# (export_area22_sfx.scope_binding), AREA06 sub 0
+# (export_area06_sfx.sub_binding) and AREA13 sub 0
+# (export_area13_sfx.scope_binding), each its captures' binding; resolved
 # after AREA04, so every earlier scope keeps its samples and indices.
-MID_SCOPES = ((0x16, 0), (6, 0))
+MID_SCOPES = ((0x16, 0), (6, 0), (0x0D, 0))
 MID_IDS = AREA00_IDS
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
@@ -279,8 +280,8 @@ def area04_bindings():
 
 
 def mid_bindings():
-    """AREA22's and AREA06's sub-0 bindings; restores the shared AREA01
-    exporter configuration afterwards, as area02_bindings does."""
+    """AREA22's, AREA06's and AREA13's sub-0 bindings; restores the shared
+    AREA01 exporter configuration afterwards, as area02_bindings does."""
     import export_area01_common as C
     names = ('OVERLAY_PATH', 'OVERLAY_SIZE', 'OVERLAY_ID', 'AREA', 'SUB',
              'OUT', 'SCRATCH', 'ROUTE_A01', 'ARRIVAL', 'captures', 'build_load_map')
@@ -289,10 +290,13 @@ def mid_bindings():
         # AREA06's helper first: it needs AREA01's nested load-map builder,
         # which AREA22's configure replaces (export_area06_common's guard)
         import export_area06_common  # noqa: F401
+        import export_area13_common  # noqa: F401
         import export_area22_sfx as S22
         result = dict(S22.scope_binding()[0])
         import export_area06_sfx as S6
         result.update(S6.sub_binding(0)[0])
+        import export_area13_sfx as S13
+        result.update(S13.scope_binding()[0])
         assert sorted(result) == sorted(MID_SCOPES), sorted(result)
         return result
     finally:
@@ -434,12 +438,19 @@ def script_events(data, position, limit=0x1000):
       B0 41 a2 a3 prog note  00118078 portamento set-up, cursor +6
       B0 07 a2 a3 prog note  001181B0 volume slide set-up (the SFX track's
                          +0x34 == 1 arm: length a2, target a3), cursor +6
+      B0 0A a2 a3 prog note  00118418 pan slide set-up (the same arm, with
+                         D_0027F740 +0x38 == 0 as in every capture), cursor +6
+      B0 60 lo hi count  00118790 the script's loop: +0x14 = the offset,
+                         +0x36 counts passes (count 0: endless), the jump at
+                         the tail; the target is an event of this script
       FF 2F 00           00117C28 end of track (no delta)
     Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
     """
     events, running, acc, tick = [], None, 0, 0
     end = min(position + limit, len(data))
+    base = position                     # the track's +0x0C: its cursor +8 counts from here
     while position < end:
+        at = position
         if data[position] & 0x80:
             running = data[position]
             position += 1
@@ -448,7 +459,7 @@ def script_events(data, position, limit=0x1000):
         if running == 0xFF:
             if data[position:position + 2] != b'\x2f\x00':
                 raise Unsupported('script', f'unsupported meta 0x{data[position]:02X}')
-            events.append(dict(kind='end', tick=tick))
+            events.append(dict(kind='end', tick=tick, at=at))
             return events
         if running & 0xF0 == 0xA0:
             note, vel, prog = data[position:position + 3]
@@ -464,10 +475,20 @@ def script_events(data, position, limit=0x1000):
             position += 5
             events.append(dict(kind='volume', tick=tick, note=note, prog=prog,
                                length=length, depth=target))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x0A:
+            _, length, target, prog, note = data[position:position + 5]
+            position += 5
+            events.append(dict(kind='pan', tick=tick, note=note, prog=prog,
+                               length=length, depth=target))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x60:
+            _, lo, hi, count = data[position:position + 4]
+            position += 4
+            events.append(dict(kind='loop', tick=tick, target=base + (hi << 8 | lo), count=count))
         elif running & 0xF0 == 0xB0:
             raise Unsupported('script', f'unsupported controller 0x{data[position]:02X}')
         else:
             raise Unsupported('script', f'unsupported status 0x{running:02X}')
+        events[-1]['at'] = at
         delta = 0
         while True:
             byte = data[position]
@@ -482,8 +503,8 @@ def script_events(data, position, limit=0x1000):
     raise Unsupported('script', 'truncated')
 
 
-OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME = 1, 2, 3, 4, 5
-OP_MAX = 32
+OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME, OP_PAN, OP_LOOP = 1, 2, 3, 4, 5, 6, 7
+OP_MAX = 64
 # D_00241D70 entries exported for 00117918: the A0 bend is always 0x40, so
 # indices stay within (11|12)*16 + fine(-128..127) + 0xD0 +- 15 (portamento).
 LADDER_COUNT = 0x240
@@ -538,6 +559,12 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
             if event['kind'] == 'volume':
                 out.append(dict(event, op=OP_VOLUME))
                 continue
+            if event['kind'] == 'pan':
+                out.append(dict(event, op=OP_PAN))
+                continue
+            if event['kind'] == 'loop':
+                out.append(dict(event, op=OP_LOOP))
+                continue
             if event['vel'] == 0:
                 # 001176E0: keys off this track's sustained (voice +0x0C)
                 # voices with the same note and program byte, at run time.
@@ -590,7 +617,7 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                             prog=event['prog'], program_offset=program,
                             tone_offset=tone_at, center=tone[2], fine=fine,
                             range=tone[13], alloc=tone[0], priority=tone[1],
-                            pitch=pitch, scalar=scalar, pan=pan,
+                            pitch=pitch, scalar=scalar, pan=pan, pan_byte=tone[12],
                             level=velocity, product=product,
                             adsr1=struct.unpack_from('<H', tone, 6)[0],
                             adsr2=struct.unpack_from('<H', tone, 8)[0],
@@ -601,6 +628,16 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                             unit_words=[left, right]))
         if not [e for e in out if e.get('op') == OP_KEY_ON]:
             raise Unsupported('no voice')
+        # 00118790's target: a status byte of this script; the operation's
+        # index in the registry (its target and count where the volume keeps
+        # its length and target).
+        ops = [(e, ev) for e, ev in zip(out, events) if 'op' in e]
+        for e, ev in ops:
+            if e.get('op') == OP_LOOP:
+                index = [i for i, (_, other) in enumerate(ops) if other['at'] == ev['target']]
+                if len(index) != 1 or index[0] >= ops.index((e, ev)):
+                    raise Unsupported('script', 'a loop target that is not an earlier operation')
+                e.update(length=index[0], depth=ev['count'])
         # A script with a volume slide: its key-ons carry the level and the
         # product the driver recomputes 001179E0's scalar from.
         slide = any(e.get('op') == OP_VOLUME for e in out)
@@ -750,7 +787,7 @@ def export(out_dir: Path):
                 op.get('adsr1', 0), op.get('adsr2', 0), op.get('center', 0),
                 op.get('fine', 0), op.get('range', 0), op.get('alloc', 0),
                 op.get('priority', 0), op.get('length', 0), op.get('depth', 0),
-                0, tail)
+                op.get('pan_byte', 0) if op['op'] == OP_KEY_ON else 0, tail)
     for sample in ordered:
         loop = sample['loop_start']
         blob += struct.pack('<II', len(sample['pcm']),
@@ -759,6 +796,8 @@ def export(out_dir: Path):
         if loop is not None:
             assert len(sample['body']) == len(sample['pcm']) - loop
             blob += struct.pack(f"<{len(sample['body'])}h", *sample['body'])
+    # The file's tail: D_00242630, the pan slide's word table (00116598).
+    blob += b''.join(struct.pack('<H', elf.u16(A.PAN_TABLE + 2 * i)) for i in range(64))
     out_dir.mkdir(parents=True, exist_ok=True)
     registry = out_dir / 'sfx_registry.emsr'
     registry.write_bytes(bytes(blob))

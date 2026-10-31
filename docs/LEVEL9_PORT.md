@@ -13,7 +13,8 @@ original over the ninth-level captures (section 3.4).
 Every translation is compared with the original instructions by
 `tools/test_level9_port_reference.py`. What that comparison covers is exactly
 what section 3 states: the comparisons the test makes, on the cases it runs.
-Nothing is bound: no port code calls these entries yet.
+Since lane H1 (2026-10-30) AREA13's entries run live ("Binding" below); the
+AREA19 ones (`a13_exit`) do not.
 
 | File | What |
 |---|---|
@@ -410,11 +411,17 @@ description.
 
 ## Binding
 
-One entry is bound: 001DE920, the render context's 001DDAA0 worker since
-2026-10-28 (`em_render_context_live.c` rcl_001DE920 supplies `bytes` over
-that module's storage with a private stack window, and binds its callees;
-RENDER_CONTEXT.md section 8.6). Nothing calls the others. To run them live
-a host must:
+**Bound (lane H1, 2026-10-30; LEVEL3_BINDING.md):** the AREA13 overlay's
+entries through `em_area01_runtime_area13.inc` (dispatch_a13_l9) with the
+generated hooks of `em_mid_route_bridge.inc` (m09); 001BA7F0, 001BDCA0,
+001BDD70, 001E7050 and 001838B0 the same way (dispatch_a13_boot); 0x823FE0 in
+the camera (em_camera_live sp_00823FE0); 001E5AC0 in `em_snow_runtime`
+(em_snow_runtime_tick_outdoor, over the node's block image and the boot rows);
+001DE920, the render context's 001DDAA0 worker since 2026-10-28
+(`em_render_context_live.c` rcl_001DE920 supplies `bytes` over that module's
+storage with a private stack window, and binds its callees; RENDER_CONTEXT.md
+section 8.6). The AREA19 entries (00196970, 00196CE0, the creature, the
+fields) wait for AREA19's host. What a host must do, as the binding does:
 
 - supply `bytes` over the scene's original-byte storage (the actor pool,
   the player and camera blocks, the AREA13 overlay's data (the scripts, the

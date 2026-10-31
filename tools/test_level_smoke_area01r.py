@@ -37,7 +37,7 @@ def verify_harness(out):
     """Execute the actual C selector/reader/driver over the recorded inputs.
     Only the driver's game-facing services are mocked."""
     source = (ROOT / 'src/game/em_level_smoke_test.c').read_text()
-    phases = re.findall(r'\{"((?:a01r|a02|a04|a22|a01u|a06|a06b|a01v|a22b|a04b)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
+    phases = re.findall(r'\{"((?:a01r|a02|a04|a22|a01u|a06|a06b|a01v|a22b|a04b|a13)_[^"]+)".*?a01_route_begin,\s*a01_route_frame,\s*0,\s*(\d+),\s*(\d+),\s*1\}',
                         source, re.S)
     assert [p[0] for p in phases] == list(a01r.ROUTE_PHASES), ('C/Python phase order', phases)
     selector = source[source.index('static int side_played('):source.index('static void report_not_live(')]
@@ -196,7 +196,9 @@ def verify_checker():
                          **(dict(s768=row['s768'], l857=row['l857'], c87=row['c87'], c88=row['c88'])
                             if key in a01r.LATER_KEYS else {}),
                          **(dict(cca=row['cca']) if key == 'a06' else {}),
-                         **(dict(s76c=row['s76c']) if key == 'a04r' else {}))})
+                         **(dict(s76c=row['s76c']) if key == 'a04r' else {}),
+                         **({n: row[n] for n in ('s76c', 's770', 's7f0', 's798', 's818', 'l84e', 'c8b', 'c82', 'c7e',
+                                                 'c86', 'cc0', 'c61', 'event230')} if key == 'a13' else {}))})
 
     count = rejected = 0
     for branch, phase in [(False, p) for p in a01r.checked_phases()] + [(True, p) for p in a01r.BED_PHASES]:
@@ -374,7 +376,7 @@ def main():
     if args.verify_harness or not (args.run or args.prepare):
         verify_harness(out / 'harness')
         return 0
-    a01r.BED = until.startswith('a04b_')
+    a01r.BED = until.startswith(('a04b_', 'a13_'))
     a01.prepare_pads(out / 'pads/area01')
     a00.prepare_pads(out / 'pads/area00')
     count = a01r.prepare_pads(out / 'pads/area01r')

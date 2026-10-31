@@ -1,4 +1,4 @@
-/* AREA13 route owners omitted by the earlier delta inventory. UNWIRED.
+/* AREA13 route owners omitted by the earlier delta inventory (em_area01_runtime_area13.inc).
  * Original pointers are 32-bit; bytes returns a borrowed view consumed before
  * the next access or call. Workers succeed at >=0 and fail at <0. A latched
  * fault prevents all later observable accesses/calls. No owned game data.

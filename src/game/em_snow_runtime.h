@@ -28,6 +28,14 @@ int em_snow_runtime_load(const char *scene_dir, const char *config, unsigned fla
  * 0 after a call that drew or did not draw; -1 on a fault (the render
  * context refused a fog programmer call or a packet write, or the SDK
  * VU0 scale 00102900 refused a form): the caller fail-stops. */
+/* The same call outside AREA11 (no snow config; D_008106C8's flags and the
+ * area key of the running area): em_weather_tick, D_008106BF, and with the
+ * flags' 0x0C000060 bits 001E5AC0 (em_level9_port's, over this module's view
+ * of the node's block), the fog programmer calls and the close of the list.
+ * The AREA11 snow branch 001E67C0 outside AREA11 faults (no config). `self`
+ * is the node's address. Returns as tick_actor. */
+int em_snow_runtime_tick_outdoor(EmWeather *weather, uint32_t self, uint32_t flags, unsigned area, unsigned sub,
+                                 unsigned selector, unsigned transition, unsigned fade_state, uint8_t *d8106BF);
 int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned selector,
                                unsigned transition, unsigned fade_state);
 

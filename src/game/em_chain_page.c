@@ -490,8 +490,33 @@ static int gif(Walk *w, Fetch fetch, void *ctx, uint32_t limit, uint32_t at, uin
         const uint32_t pre = (uint32_t)(lo >> 46) & 1u, flg = (uint32_t)(lo >> 58) & 3u;
         uint32_t nreg = (uint32_t)(lo >> 60);
         if (!nreg) nreg = 16;
-        if (flg != 0) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, (uint32_t)lo);   /* PACKED only */
         if (pre) prim_write(w, (uint32_t)(lo >> 47) & 0x7FFu);
+        if (flg == 1u) {
+            /* REGLIST (001E6F60's quad, 0x829AA0's fade): two 64-bit register
+             * writes a qword, in the tag's register order; a tag with an odd
+             * count leaves the last half unused. */
+            const uint32_t total = nloop * nreg;
+            for (uint32_t k = 0; k < total; k += 2u) {
+                if (i >= limit) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, i);
+                const uint8_t *q = fetch(w, i++, ctx);
+                for (uint32_t half = 0; half < 2u && k + half < total; ++half) {
+                    const uint32_t reg = (uint32_t)(hi >> (4u * ((k + half) % nreg))) & 15u;
+                    const uint64_t data = rd64(q + 8u * half);
+                    if (reg == 0u) {
+                        prim_write(w, (uint32_t)data & 0x7FFu);
+                        continue;
+                    }
+                    if (reg != 1u && reg != 4u && reg != 5u) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, reg);
+                    if (address_data_list(w, reg, data, at) < 0) return -1;
+                }
+            }
+            if (eop) {
+                *used = i;
+                return 0;
+            }
+            continue;
+        }
+        if (flg != 0) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, (uint32_t)lo);   /* PACKED or REGLIST only */
         for (uint32_t l = 0; l < nloop; ++l)
             for (uint32_t r = 0; r < nreg; ++r) {
                 if (i >= limit) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, i);
@@ -892,10 +917,10 @@ static int vif(Walk *w)
             p->counts.direct++;
             if (w->pass_regs) p->counts.pass_direct++;
             if (gif(w, fetch_buffer, direct, cnt, at, &used) < 0) return -1;
-            /* List mode and the pass: PATH2 goes on with the next GIF tag
-             * after an EOP until the DIRECT data is used up (001D6930 sends
-             * two packets in one DIRECT). The page's DIRECTs each hold one. */
-            while ((w->list || w->pass_regs) && used < cnt) {
+            /* PATH2 goes on with the next GIF tag after an EOP until the
+             * DIRECT data is used up (001D6930 and 001E6F60 send two packets
+             * in one DIRECT). */
+            while (used < cnt) {
                 uint32_t more;
                 if (gif(w, fetch_buffer, direct + 16u * used, cnt - used, at, &more) < 0) return -1;
                 used += more;

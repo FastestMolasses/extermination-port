@@ -189,7 +189,7 @@ OP_FIELDS=('tick','kind','note','prog','flags','sample','pitch','pan','scalar','
 # D_0027CCC0 fields the native driver keeps, in shim_voice order.
 VOICE_FIELDS=(0,2,6,8,0xA,0xC,0x1A,0x1C,0x1E,0x20,0x44,0x4E,0x60,0x62,0x64,0x3E)
 # The volume slide's fields (shim_voice_slide order), compared in pass V.
-SLIDE_FIELDS=(0x2C,0x46,0x50,0x52,0x54,0x56)
+SLIDE_FIELDS=(0x2C,0x46,0x50,0x52,0x54,0x56,0x4C,0x48,0x58,0x5A,0x5C,0x5E)
 COMMANDS={1,3,5,6,0xA,0xB,0xC,0xD}
 
 
@@ -206,8 +206,8 @@ def parse_emsr(blob):
         ops=[]
         for _ in range(count):
             values=struct.unpack_from('<HBBBBHHHIHHBbBBBBBBI',blob,at);at+=32
-            assert values[18]==0
             op=dict(zip(OP_FIELDS,values[:18]))
+            assert op['kind']==1 or values[18]==0      # a key-on's pan byte (tone +0xC)
             if op['kind']==1:
                 # A slide script's key-on: level (voice +0x2C) and the
                 # 40-bit product of 001179E0's other five factors.
@@ -224,7 +224,7 @@ def parse_emsr(blob):
         total=frames+(0 if loop==0xFFFFFFFF else frames-loop)
         samples.append(dict(frames=frames,loop_start=None if loop==0xFFFFFFFF else loop,
                             pcm=blob[at:at+2*total]));at+=2*total
-    assert at==len(blob)
+    assert at+128==len(blob)     # the tail: D_00242630, the pan slide's table
     return entries,samples,ladder
 
 
@@ -299,7 +299,8 @@ void shim_voice(Shim *s, int i, int *o)
 void shim_voice_slide(Shim *s, int i, int *o)
 {
     const EmSfxVoice *v = &s->drv.voices[i];
-    const int f[] = {v->level, v->vslide, v->vtarget, v->vstart, v->vremaining, v->vtotal};
+    const int f[] = {v->level, v->vslide, v->vtarget, v->vstart, v->vremaining, v->vtotal,
+                     v->pan_byte, v->pslide, v->ptarget, v->pstart, v->premaining, v->ptotal};
     memcpy(o, f, sizeof f);
 }
 unsigned shim_slide_unknown(Shim *s) { return s->drv.slide_unknown; }
@@ -501,7 +502,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None,mon
             if slides:
                 lib.shim_voice_slide(s,v,buffer)
                 expected=tuple(o.load(VOICE_TABLE+v*0x6A+off,2) for off in SLIDE_FIELDS)
-                assert tuple(x&0xFFFF for x in buffer[:6])==expected,(tick,'slide',v,tuple(buffer[:6]),expected)
+                assert tuple(x&0xFFFF for x in buffer[:12])==expected,(tick,'slide',v,tuple(buffer[:12]),expected)
                 stats['slide_steps']=stats.get('slide_steps',0)+(expected[1]==1)
         assert lib.shim_cursor(s)==o.load(0x27F740+0x30) and lib.shim_serial(s)==o.load(0x27F740+0x34)
         lib.shim_render(s,None,tick_frames(tick),48000)
@@ -628,9 +629,12 @@ def _sfx_cost(tagged):
 # Pass V: every exported script with a volume slide (B0 07, 001181B0's SFX
 # arm; 00116598's step through 00119080), in lockstep with the original over
 # a capture of its own scope (the bank headers and handles as loaded there):
-# the car's 0x8B4 in AREA02 sub 0, 0x89E / 0x8A0 in AREA00 subs 0 and 1.
+# the car's 0x8B4 in AREA02 sub 0, 0x89E / 0x8A0 in AREA00 subs 0 and 1, and
+# AREA13's outdoor loop 0x44E (its pan slides B0 0A, 00118418 + 00116598, and
+# its script loop B0 60, 00118790, through the first jump).
 SLIDE_CAPTURES={(2,0):'s87/route_a02/a02_01_switch',(0,0):'s87/route_a00/a00_05_ferry_deck',
-                (0,1):'s87/route_a00/a00_08_switch'}
+                (0,1):'s87/route_a00/a00_08_switch',
+                (13,0):'levels-recordings-20261018-10/s87/route_a13/a13_01_door14'}
 
 
 def _slide_case(job):
@@ -643,7 +647,9 @@ def _slide_case(job):
     assert struct.unpack_from('<H',ram,0x27F740+0x3A)[0]==60      # the tick divisor
     registry=Registry(_SFX['elf'],ram,report,path,area=scope)
     scenario={0:[('start',sid,left,right)]}
-    if endless(entry):scenario[max(e['tick'] for e in entry['events'] if 'op' in e)+60]=[('stop',('start',0),0)]
+    looped=any(e.get('kind')=='loop' for e in entry['events'])
+    if endless(entry) or looped:   # a looped script: on through its first jump's next operations
+        scenario[max(e['tick'] for e in entry['events'] if 'op' in e)+(600 if looped else 60)]=[('stop',('start',0),0)]
     stats=lockstep(_SFX['lib'],registry,scenario,slides=True)
     assert stats['slide_steps'] and not stats['slide_unknown'],(hex(sid),stats)
     return dict(id=hex(sid),scope=list(scope),request=[left,right],ticks=stats['ticks'],
@@ -654,12 +660,15 @@ def slide_oracle(elf,lib,report,path):
     import export_sfx_registry as X
     entries=[(e['id'],tuple(e['scope'])) for e in report['entries'] if e['state']==X.STATE_AUDIBLE and
              any(ev.get('op')==X.OP_VOLUME for ev in e['events'])]
-    assert entries==[(0x89E,(0,0)),(0x8A0,(0,0)),(0x89E,(0,1)),(0x8A0,(0,1)),(0x8B4,(2,0))],entries
+    # the scopes this oracle's bank images cover (the later areas' own slides
+    # are other banks)
+    entries=[e for e in entries if e[1][0] in (0,2) or e==(0x44E,(13,0))]
+    assert entries==[(0x89E,(0,0)),(0x8A0,(0,0)),(0x89E,(0,1)),(0x8A0,(0,1)),(0x8B4,(2,0)),(0x44E,(13,0))],entries
     pairs=((0x1000,0x1000),(0x800,-0x400))
     # Quick: each script once (0x89E / 0x8A0 in one sub each), the request
     # pairs alternating; full: every entry with both pairs.
     jobs=[(sid,scope,pair) for sid,scope in entries for pair in pairs] if FULL else \
-        [(0x89E,(0,0),pairs[0]),(0x8A0,(0,1),pairs[1]),(0x8B4,(2,0),pairs[0])]
+        [(0x89E,(0,0),pairs[0]),(0x8A0,(0,1),pairs[1]),(0x8B4,(2,0),pairs[0]),(0x44E,(13,0),pairs[0])]
     _SFX.update(elf=elf,lib=lib,report=report,path=path)
     return parallel_map(_slide_case,jobs,cost=lambda job:1200 if job[0]==0x8B4 else 400)
 

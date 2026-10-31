@@ -105,6 +105,12 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a04b_03` | AREA04 (the way back) | In the hall, outside door [45] | Up the conveyor to the card reader at the lift; the first boss arrives |
 | `a04b_04` | AREA04 (the way back) | At the card reader, the creature and bugs at the lift | Past the creature into the lift, down to AREA13 |
 | `boss` | AREA04 (the way back) | In the hall, outside door [45], with the SHOTGUN UNIT fitted and six shells (the room's pickup, taken in the fork recording) | Up the conveyor to the card reader, which wakes the first boss at the lift |
+| `area13` | AREA13 | The lift's arrival (entry 0), in the car | Out of the car, the lobby, door [8] and the scene behind it |
+| `a13_01` | AREA13 | Behind door [8] (entry 2), after the scene | The button [16] of door [14], the way outside |
+| `a13_02` | AREA13 | Outside (entry 8), in the cold | Round the building to door [17], the scene and the coat |
+| `a13_03` | AREA13 | The east room (entry 4), after the scene | The pickup g[5] |
+| `a13_04` | AREA13 | The east room, with the pickup's item | Over the grating step to hatch [62] |
+| `a13_05` | AREA13 | At the open hatch [62] | The ladder down, which falls into AREA19 |
 
 The route these points sit on is proven row by row from New Game, through the
 first boss fight with the pistol and the lift, up to AREA13's load
