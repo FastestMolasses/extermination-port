@@ -357,7 +357,7 @@ static int load(void)
 
 int em_boot_constants_select(unsigned area)
 {
-    BC.active = area == 0x13 || area == 0x0F || area == 3;
+    BC.active = area == 0x13 || area == 0x0F || area == 3 || area == 0x0D;
     return BC.active ? load() : 0;
 }
 

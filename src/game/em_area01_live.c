@@ -1546,6 +1546,12 @@ static int worker(void *ctx,EmArea01Call *c)
     case 0x0011DF78u:
         if(c->nf<1)return -1;
         c->f0=em_ee_bits(em_sdk_math_original_0011DF78(em_ee_float(c->f[0])));return 0;
+    case 0x0011E080u: /* isnanf */
+        if(c->nf<1)return -1;
+        c->v0=(uint64_t)(int64_t)(int32_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));return 0;
+    case 0x0011CB90u: /* the sqrtf kernel (the 0x141D20 family's 00146740) */
+        if(c->nf<1)return -1;
+        c->f0=em_ee_bits(em_sdk_math_original_0011CB90(em_ee_float(c->f[0])));return 0;
     case 0x0011E2A8u: case 0x0011DE90u: case 0x0011E398u:
     case 0x0011DBB8u: case 0x0011E620u: case 0x0011E748u:
         if(!sdk || c->nf<(c->function==0x0011E620u ? 2u : 1u))return -1;

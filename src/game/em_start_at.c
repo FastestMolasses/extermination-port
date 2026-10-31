@@ -81,6 +81,27 @@ static const struct {
     {"a13_03", 0x0D},
     {"a13_04", 0x0D},
     {"a13_05", 0x0D},
+    /* AREA13's second load (lane M1) */
+    {"a13b_01", 0x0D},
+    {"a13b_02", 0x0D},
+    {"a13b_03", 0x0D},
+    {"a13b_04", 0x0D},
+    {"a13b_05", 0x0D},
+    {"a13c_00", 0x0D},
+    {"a13c_01", 0x0D},
+    {"a13c_02", 0x0D},
+    {"a13c_03", 0x0D},
+    {"a13c_04", 0x0D},
+    {"a13c_05", 0x0D},
+    {"a13c_06", 0x0D},
+    {"a13d_00", 0x0D},
+    {"a13d_01", 0x0D},
+    {"a13d_02", 0x0D},
+    {"a13d_03", 0x0D},
+    {"a13d_04", 0x0D},
+    {"a13d_05", 0x0D},
+    {"a13d_06", 0x0D},
+    {"a13d_07", 0x0D},
     /* AREA15 and AREA03 (lane K1) */
     {"area15", 0x0F},
     {"a15_00", 0x0F},
@@ -480,7 +501,8 @@ int em_start_at_check(void)
                              "a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01, area22, a22_01, "
                              "a22_02, a01u, a01u_01, a01u_02, a01u_s0, area06, a06_01 .. a06_05, a06b, "
                              "a06b_01, a01v, a01v_01, a01v_02, a22b, a22b_01, a04_00 .. a04_05, a04b_00 .. "
-                             "a04b_04, boss, area13, a13_01 .. a13_05)", NULL);
+                             "a04b_04, boss, area13, a13_01 .. a13_05, a13b_01 .. a13b_05, "
+                             "a13c_00 .. a13c_06, a13d_00 .. a13d_07)", NULL);
     }
     const char *ng = getenv("EM_NEW_GAME");
     if (ng && ng[0] && strcmp(ng, "0") != 0)
@@ -723,7 +745,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         const float tx = pad.path[ahead_at][0] - pad.path[t][0], tz = pad.path[ahead_at][1] - pad.path[t][1];
         const int behind = tx * tx + tz * tz < 1e-4f || hx * tx + hz * tz > 0.0f;
         /* The rows' fourth column, the recorded heading: a press the next
-         * step gives waits (up to 90 frames at a press) while the player
+         * step gives waits (up to 240 frames at a press) while the player
          * stands more than 0.6 from the recorded place (a walk there) or
          * faces more than 0.08 from the recorded heading (a light stick
          * toward it, a turn in place): a Use's cone, a strike's reach. */
@@ -735,22 +757,27 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         const unsigned before = t >= 4 ? (unsigned)t - 4u : 0u;
         const float bx = pad.path[t][0] - pad.path[before][0], bz = pad.path[t][1] - pad.path[before][1];
         if (press && bx * bx + bz * bz < 0.04f && pad.path_has_yaw && heading && fwd && d2 < 20.0f * 20.0f &&
-            pad.turn < 90u) {
+            pad.turn < 240u) {
             float off = pad.path_yaw[t] - *heading;
             while (off > 3.14159265f) off -= 6.2831853f;
             while (off < -3.14159265f) off += 6.2831853f;
             const float n = sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2]);
             if (d2 > 0.6f * 0.6f && n > 0.0f) {
                 const float fx = fwd[0] / n, fz = fwd[2] / n, d = sqrtf(d2);
+                /* Near the place a lighter stick: a walk at 0.5 passes it. */
+                const float mag = d >= 2.0f ? 0.5f : d <= 1.2f ? 0.3f : 0.3f + 0.25f * (d - 1.2f);
                 pad.turn++;
-                pad.now = (EmPadState){0, 0.5f * (-hx * fz + hz * fx) / d, -0.5f * (hx * fx + hz * fz) / d, 0, 0};
+                pad.now = (EmPadState){0, mag * (-hx * fz + hz * fx) / d, -mag * (hx * fx + hz * fz) / d, 0, 0};
                 return 0;
             }
             if (fabsf(off) > 0.08f && n > 0.0f) {
                 const float fx = fwd[0] / n, fz = fwd[2] / n;
                 const float wx = sinf(pad.path_yaw[t]), wz = cosf(pad.path_yaw[t]);
                 pad.turn++;
-                pad.now = (EmPadState){0, 0.5f * (-wx * fz + wz * fx), -0.5f * (wx * fx + wz * fz), 0, 0};
+                /* A walking player stops first: a stick held while walking
+                 * is an arc that leaves the place and orbits it. */
+                pad.now = moving ? (EmPadState){0}
+                                 : (EmPadState){0, 0.5f * (-wx * fz + wz * fx), -0.5f * (wx * fx + wz * fz), 0, 0};
                 return 0;
             }
         }

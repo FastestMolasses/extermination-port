@@ -15,13 +15,18 @@ Every translation is compared with the original instructions by
 `tools/test_level11_port_reference.py`. What that comparison covers is
 exactly what section 3 states: the comparisons the test makes, on the cases
 it runs. AREA13's entries run live since lane H1 (2026-10-30; "Binding" below), which also added 0x824060, 0x824160 and 0x8247B0.
+Lane M1 (2026-10-31) added the family's ten remaining behaviours (behaviours
+3, 4, 6, 7, 8, the stage frame and the last frame: the last row of section 0),
+so AREA13's two 0x141D20 actors can run through every behaviour but what the
+callees of "Binding" still stop.
 
 | File | What |
 |---|---|
-| `src/game/em_level11_port.h` | public API: 42 entries, the hook table (103 hooks and the indirect-call callback), fault codes |
+| `src/game/em_level11_port.h` | public API: 55 entries, the hook table (114 hooks and the indirect-call callback), fault codes |
 | `src/game/em_level11_port_internal.h` | memory view, fault latch, EE float helpers, one typed wrapper per hook (written from the test's HOOKS table; see section 1, Hooks), the internal entry points |
 | `src/game/em_level11_port_area13.c` | AREA13 0x8240E0, 0x824390, 0x824520, 0x8246D0, 0x8248C0, 0x824960, 0x8249F0, 0x826610, 0x827C30, 0x827DD0, 0x827E00, 0x827F20, 0x827F90, 0x8284E0, 0x828500, 0x828C60, 0x828E10, 0x828F40 |
 | `src/game/em_level11_port_creature.c` | the 0x141D20 actor family: 00141D20, 00141F00, 00142070, 00142330, 001424C0, 001429D0, 00145880, 001459A0, 00146110, 001464B0, 001469B0, 00146CE0, 001471E0 |
+| `src/game/em_level11_port_creature_b.c` | the family's second part: 001434C0, 00143610, 00143AF0, 00144040, 00144C20, 001450B0, 00145210, 001453C0, 001455A0, 00145850 |
 | `src/game/em_level11_port_boot.c` | 00100130, 00118418, 0019A6F0, 001B2E50, 001B3F10, 001CDDC0, 001CE660, 001E4610, 001F4190, 001F4840, 001F9140 |
 | `tools/test_level11_port_reference.py` | original-instruction oracle and comparison; the reuse check |
 
@@ -68,6 +73,7 @@ areas' overlays (the same runtime addresses hold other code there).
 | 001B2E50 | 288 | NM | a13c_06 f6 | hook only (`em_level8_port_probe.c` w_001B2E50) | translated (instructions) |
 | 001B3F10 | 732 | NM | a13c_06 f152 | hook only (`em_level8_port_creature.c` w_001B3F10) | translated (instructions) |
 | 0019A6F0 | 532 | NM | a13c_06 f332 | none | translated (instructions) |
+| 001434C0, 00143610, 00143AF0, 00144040, 00144C20, 001450B0, 00145210, 001453C0, 001455A0, 00145850 | 332, 460, 1,348, 3,028, 1,160, 348, 420, 476, 680, 48 | BM, BM, BM, NM, NM, BM, BM, BM, BM, BM | no census (lane M1, for AREA13's two beasts) | hook only (w_001434C0 .. in `em_level11_port_creature.c`) | translated (`em_level11_port_creature_b.c`; 00144040 and 00144C20 from the instructions); 001437E0 is `em_level12_port_001437E0` |
 
 Status abbreviations as in SECOND_LEVEL_ROUTE.md section 6 (BM byte-matched
 C, NM NEARMISS, AW word assembly, C byte-identical overlay C).
@@ -139,12 +145,26 @@ text and the original disagree the original wins; the differences found:
   block pointer D_00275CA8 is read once for the phase and the count.
 - **00142330** (word assembly): translated from the decoded words of its
   decomp file (the only source); section 2 gives the behaviour.
+- **00144040 / 00144C20** (NEARMISS 99.38% / 98.62%): no difference in
+  behaviour; every residual the decomp lists is a register or argument set-up
+  order that touches no memory. The access order is the instructions': in
+  00144040's latch the player's first byte is read between the second and
+  third vector stores and written back before +0xF, and its drop reads
+  D_0081070A before it stores that byte.
+- **Comments of the decomp that are labels, not behaviour** (the code wins;
+  the C is right): 00143AF0's "damage-multiplier" at d +0x4C is the run speed
+  00145880 reads, and its "random look-offset" d +0x71 is the countdown
+  001424C0 tests; 00143610's prototype shows `flags` as an argument of
+  001C67E0, a leftover register; 00144040's "throws the player off" is
+  0021BF90 starting reaction 0x3C, after which the carry holds the player
+  (d +0x7B) until 0021C040; 00145850's "notify subsystem" is 001B1190, which
+  sets a bit of the current area's bitset D_00810860.
 
 ## 1. Interface (the LEVEL10_PORT / LEVEL9_PORT design)
 
 The design is `em_level10_port.h`'s (docs/LEVEL10_PORT.md section 1) with:
 
-- **Entries.** 42, named `em_level11_port_<address>`, with the original's
+- **Entries.** 55, named `em_level11_port_<address>`, with the original's
   argument registers in order; entries with a result write the original's
   v0 to `*result` (0x8240E0, 0x8246D0, 0x8248C0, 0x8249F0, 00100130,
   00118418, 0019A6F0, 001B2E50, 001B3F10, 00146110, 001464B0, 00146CE0).
@@ -164,8 +184,8 @@ The design is `em_level10_port.h`'s (docs/LEVEL10_PORT.md section 1) with:
   0x30), 001CDDC0 (sp - 0x10 / - 0x20), 001CE660 (001CDDC0 at sp - 0x90),
   001E4610 (001CE660 at sp - 0x40). The offsets are the ones the oracle's
   stack window shows (section 3.1).
-- **Hooks.** 103 callee hooks named by original address (boot functions
-  and the AREA13 overlay's own 0x824060). The header's struct (between its
+- **Hooks.** 114 callee hooks named by original address (boot functions).
+  The header's struct (between its
   GENERATED HOOKS markers) and the wrappers in the internal header
   (GENERATED WRAPPERS) were written from the test's HOOKS list by a lane
   script that is not committed; the test's `header_checks` compares them
@@ -180,7 +200,14 @@ The design is `em_level10_port.h`'s (docs/LEVEL10_PORT.md section 1) with:
   001CE660 -> 001CDDC0; 001F4840 -> 001F4190; 00141D20 -> 00141F00 /
   00142070; 00142070 -> 001471E0, 00142330, 001424C0, 001429D0, 00146CE0,
   00145880, 001459A0; 00142330 / 001424C0 -> 001469B0 -> 001B3F10;
-  001424C0 -> 00146110; 001429D0 -> 001464B0.
+  001424C0 -> 00146110; 001429D0 -> 001464B0; 001450B0 -> 00145210, 001453C0,
+  001455A0, 00146CE0, 00145880, 001459A0. The behaviours of the second part
+  stay hooks of their callers (00142070 -> 001434C0, 00143610, 00143AF0,
+  00144040, 00144C20; 00141D20 -> 001450B0, 00145850): the original's calls
+  are direct, but the hooks are named in the generated tables other callers
+  use and the oracle compares each call at that level; a hook re-enters the
+  runtime by address and the fallback dispatch reaches the new entry
+  ("Binding").
 - **Floats.** EE arithmetic on bit patterns through `em_ee_float.h` (add,
   sub, mul, div, cvt.s.w and the compare keys); VU0 lanes through
   `em_vu_vec_bits` / `em_vu_div_bits` / `em_vu_min_bits` / `em_vu_max_bits` /
@@ -246,6 +273,12 @@ each function in the sources gives the field-level behaviour; in short:
 | 00141F00 | the spawn step: health 500 / 300 or 350 / 200 by e +0xD bit 7 and D_0081070A, the scale, the pose 0x7E / 0x7D |
 | 00142070 | the live frame: the flat distance to the player, the zone 001471E0, the behaviour e +5 (0 00142330, 1 001424C0, 2 001429D0, 3..8 hooks), the class byte, the voice cues of clips 9 / 8, 00146CE0, 00145880, 001459A0, the clip time 001C64F0 and the services |
 | 00142330 / 001424C0 / 001429D0 | behaviours 0 (idle), 1 (wander) and 2 (chase): section header of each in the source |
+| 001434C0 / 00143610 | behaviours 3 and 4: clip 7, at e +0x3C <= 25 the speeds d +0x4C / +0x48 from D_002753E0 / E4 and the sound 0x831, clip 8 until d +0x48 <= 0, then behaviour 4 with clip 9 until d +0x74 bit 1 and the clip's end, with the sound 0x832 |
+| 00143AF0 | behaviour 6 (the bite): clips 0xA, 0xB, 0xC, 0xE; the grab within 8 (0021BE40, 001A7B80): the player's bit 1, the time D_008104D4 by e +0xD bit 7 and D_0081070A, the offset D_00810320 normalized, 001B55E0(e, 0); the turn at 4 degrees a frame |
+| 00144040 | behaviour 8 (the leap and the carry): states 0..6 and 0x63 (section header in the source): the latch, the hold (0021BF90), the carry through 00182F90, the lift probe 0019AFE0 and the drop 0021C040 |
+| 00144C20 | behaviour 7 (the jump aside and the half turn of the bone record's +0x74) |
+| 001450B0 | the stage frame e +4 == 2: 00145210 (hit), 001453C0 (knock back), 001455A0 (death), the voice cues of clips 9 / 8, 00146CE0, 00145880, 001459A0, the clip time at 1.0 and the services |
+| 00145850 | the last frame e +4 == 3: 001B1190(e +0x9A), 001AFC10(e) |
 | 00145880 / 001459A0 / 00146110 / 001464B0 | the fall and run, the collision probes, the step probe and the forward probe |
 | 001469B0 | the alert counter (001B3F10 toward the player's +0x14C actor) |
 | 00146CE0 | the hit counter (damage, stagger, death) |
@@ -255,13 +288,13 @@ each function in the sources gives the field-level behaviour; in short:
 
 `python3 tools/test_level11_port_reference.py` (port root, macOS arm64 or
 Linux; no make target: the Makefile belongs to another chain while this side
-track runs). It compiles the three sources into
+track runs). It compiles the four sources into
 `build/level11/port/level11_port.dylib` with `-std=c11 -Wall -Wextra
 -Werror -Wpedantic -ffp-contract=off` (the reuse check builds
 `em_menu_hover.c`, unmodified, into `build/level11/port/reuse`; all of
 `build/` is ignored, and `build/level11` can be removed after a run). At
 most 4 worker processes (EM_TEST_JOBS overrides).
-`EM_LEVEL11_PORT_ONLY=<label prefix>` runs a subset (no coverage, fail-stop,
+`EM_LEVEL11_PORT_ONLY=<label prefixes, comma-separated>` runs a subset (no coverage, fail-stop,
 contract or reuse checks); `EM_LEVEL11_PORT_ALL=1` runs every designed case
 without the full-mode comparisons; `EM_LEVEL11_PORT_MISSING=1` lists
 unexecuted words; `EM_LEVEL11_PORT_SOURCE=<dir>` tests other copies of the
@@ -282,19 +315,25 @@ LEVEL8's / AREA06's / AREA22's / AREA04's), copied and owned here, with:
   that the boot jump tables 0x26EA00 (001F4190), 0x26EA40 (001F4840),
   0x26D270 (00142070) and 0x26D2A0 (001429D0) equal their ELF bytes and that
   the designed-record area 0x1C00000 is zero; the table loads are the only
-  accesses left out of the comparison (the switch encodes them).
+  accesses left out of the comparison (the switch encodes them; the second
+  part's switches are compare chains, no table).
 - **Callees.** A static check (`callee_checks`, every run) walks every
   entry's reachable words: every call target is a hook or another entry,
   so no original function runs unlisted at the top level of the oracle.
   Callees run as original code (RUN, each first rehearsed with the argument
   registers its hook does not pass poisoned): 001000E0, 001026A0,
-  00102850, 001028B8, 001028D0, 00102900, 00102918, 00102948, 00102958,
-  001029C0, 00102BB0, 00102C58, 0011DE90, 0011DF78, 0011E2A8, 0011E620,
+  00102760, 00102850, 001028B8, 001028D0, 00102900, 00102918, 00102948,
+  00102958, 001029C0, 00102BB0, 00102C58, 0011DE90, 0011DF78, 0011E2A8, 0011E620,
   001274B0, 00128250, 00128350, 001B1240, 001B12B0, 001B13F0, 001B1470,
   001B15D0. Every other callee is stubbed with scripted results (a
   Scribble writes what the callee would, e.g. 001B2BF0's floor at
   0x700038D0 and hit object at 0x700031D0, 0019A570's hit point, 001B2F70's
-  ground height, 001A6440's hit object at 0x700031D4).
+  ground height, 001A6440's hit object at 0x700031D4, 001B2B10's vector at
+  0x700038A0 before 00144040's latch copies it). A function that is both a
+  hook of its callers and an entry (001434C0, 00143610, 00143AF0, 00144040,
+  00144C20, 001450B0, 00145850) is stubbed when another entry calls it and
+  runs as itself as an entry: the oracle leaves the hook of the entry under
+  test out.
 - **D_00275B40** is pointed at the node's bone array (node +0x110) in the
   cases of the AREA13 owners and the actors, as the frame loop does.
 - **Compared, per case**: as LEVEL10 (the calls and their arguments; memory
@@ -302,7 +341,7 @@ LEVEL8's / AREA06's / AREA22's / AREA04's), copied and owned here, with:
   order, by address, size and changed-or-not; all memory after the last
   store; the return value; the store-log self-check; stops at unmapped or
   misaligned original accesses; every case again from a poisoned start
-  image; coverage of every reachable original non-branch word of all 42
+  image; coverage of every reachable original non-branch word of all 55
   entries; the table's ctx at every call).
 - **Header**: `header_checks` (every run): the C hook struct and the
   wrappers against HOOKS.
@@ -311,8 +350,8 @@ LEVEL8's / AREA06's / AREA22's / AREA04's), copied and owned here, with:
   for an unmapped address before any call; a latched fault; every entry
   with a latched fault, a NULL hook table, a NULL fault pointer and, for
   the entries with a result, a NULL result pointer) and
-  `hook_contract_site` (on passing cases that together reach every hook
-  but one (below), the callback and all 42 entries: calls failing, accesses
+  `hook_contract_site` (on passing cases that together reach every hook,
+  the callback and all 55 entries: calls failing, accesses
   refused, each hook NULL / INT32_MIN / 1 / INT32_MAX, `bytes` NULL;
   EM_TEST_FULL=1 every call and every access of each case, the default run
   an even sample of at most 8 calls and 16 accesses per case).
@@ -322,23 +361,22 @@ LEVEL8's / AREA06's / AREA22's / AREA04's), copied and owned here, with:
   negative piece index (the index counts up from 0); 00146CE0's second test
   of d +0x7B (ten words: the byte was tested zero just before and nothing
   in between writes it; e +0 aliases d +0x7B only for an odd e, whose
-  halfword e +0x34 already stops the original), whose call 0021C040 is
-  therefore the one hook the contract does not reach
-  (`CONTRACT_UNREACHABLE`); 001CDDC0's fog clamp to 0 (two words: VMAX
+  halfword e +0x34 already stops the original); 0021C040 is reached through
+  the stages, so `CONTRACT_UNREACHABLE` is empty; 001CDDC0's fog clamp to 0 (two words: VMAX
   with 0 runs before VFTOI4, and a case with fog.x = -10 confirms the order)
   and one compare of its (u, v) switch that no corner index 0..3 reaches.
-- **Access-order audit.** A lane scan (not committed) of the three sources
+- **Access-order audit.** A lane scan (not committed) of the sources
   for statements reading memory twice in an order C leaves unspecified; the
   ones it found were rewritten with sequenced reads and the test rerun.
 
 ### 3.2 Cases
 
-- **Capture** (151): 0x8240E0 on each image; [44]'s steps and 0x8249F0 on
+- **Capture** (205): 0x8240E0, 0x824060 and 0x824160 on each image; [44]'s steps and 0x8249F0 on
   [44] (a13c_00..02); 0x826610 on the four watchers' matrices (each
   image); [45]'s five step functions on [45] and its block (each image);
   every function of the actor family on both 0x141D20 actors of a13c_05 and
   a13c_06; 00118418 on every live sequencer track of every image.
-- **Designed** (1,345, the bound and survivor cases included): every state and sub-state of every function
+- **Designed** (1,835, the bound and survivor cases included): every state and sub-state of every function
   with each callee result on both sides of its test, on captured nodes with
   the state bytes patched (a13c_02's [44] and [45], a13c_05's actor) or on
   designed nodes in the free area 0x1C00000. Among them: the y bound 210
@@ -363,6 +401,17 @@ LEVEL8's / AREA06's / AREA22's / AREA04's), copied and owned here, with:
   floor), the exact-equal facing test, the frame counter's mask and the
   nested frames through 00141D20 -> 00142070 -> 001424C0 -> 00146110 and ->
   00142330 -> 001469B0 -> 001B3F10 -> 0019A6F0.
+- **The second part** (`creature_cases3`, on a13c_05's actor with its state
+  bytes, the bone record behind D_00275B40 + 4 and the player's bytes
+  patched; no capture reaches these behaviours beyond their entry state):
+  every state of the ten functions and one above the last, each callee result
+  on both sides of its test (0021BE40, 001A7B80, 0021BED0, 001B3250, 001B1560,
+  00146F80, 0019AFE0, 001EFE00), each float compare against a constant at the
+  constant and one float either side (25, 26, 35, 8, 18, 40, 84, 75, 71, 47,
+  17, 4, 74, 31, 20, +-pi/4, pi, 0 and the glow's 4 and 1 through the sum), the
+  flag words with the masked bits set and clear, d +0x7B with D_008106BD 0, 1
+  and 2, the random picks of 00145210 and 001450B0 with their negative
+  remainders, and the grab times over e +0xD bit 7 and D_0081070A.
 - **Bound cases** (`bound_cases`, 104, in the designed set): each
   float compare against a constant in the actor family, 001B3F10, 001E4610
   and 0x827F90 with the compared value exactly at the constant and one
@@ -375,23 +424,23 @@ LEVEL8's / AREA06's / AREA22's / AREA04's), copied and owned here, with:
   run therefore proves word coverage (every reachable non-branch word
   executed and compared), not both outcomes of every branch; the bound
   cases other than the survivors run only with EM_TEST_FULL=1.
-- **Survivor cases** (`survivor_cases`, always run): section 3.5.
+- **Survivor cases** (`survivor_cases`, always run; the second part's two are
+  in `DEFAULT_KEEP`): section 3.5.
 
 ### 3.3 Measured
 
-2026-10-01, M1, host shared with other lanes (load average 12..21 during the
-sweep). Default run: 395 cases (151 capture + 244 designed: 235 coverage
-picks and the 9 survivor cases), 732 runs (337 poisoned), 5,697 call
-entries compared, 2,564 helper register rehearsals, coverage 5,325 / 5,325
-reachable non-branch words (DEAD_WORDS left out), the header check, the
-callee check, the fail-stop checks, the hook contract (2,371 native runs on
-126 cases) and the reuse smoke sample (432 cases) passing; 6.6 s user +
-0.6 s system CPU, 3.1 s wall with 4 workers. `EM_TEST_FULL=1`: 1,496 cases
-(151 capture + 1,345 designed), 2,823 runs (1,327 poisoned), 36,698 call
-entries compared over all memory, 18,459 rehearsals, the hook contract on
-442 cases (19,534 native runs, every call and every access), the reuse
-check in full (8,736 cases, 333 / 333 reachable non-branch words of
-0020D930); 229.7 s user + 1.2 s system CPU, 63.0 s wall. All pass.
+2026-10-31, M1, host shared with other lanes (load average 10..15), EM_TEST_JOBS=2.
+Default run: 546 cases (205 capture + 341 designed), 991 runs (445 poisoned),
+6,851 call entries compared, 3,094 helper register rehearsals, coverage
+7,111 / 7,111 reachable non-branch words of the 55 entries (DEAD_WORDS left
+out), the header check (114 hooks), the callee check, the fail-stop checks, the
+hook contract (2,632 native runs on 153 cases) and the reuse smoke sample (432
+cases) passing; about 6 s wall. `EM_TEST_FULL=1`: 2,040 cases (205 capture +
+1,835 designed), 3,747 runs (1,707 poisoned), 40,255 call entries compared over
+all memory, 19,987 rehearsals, the hook contract on 505 cases (20,132 native
+runs, every call and every access), the reuse check in full (8,736 cases,
+333 / 333 reachable non-branch words of 0020D930); 203.1 s user + 2.2 s system
+CPU, 1 min 51 s wall. All pass.
 
 ### 3.4 Reuse check (the existing translation over the eleventh-level captures)
 
@@ -447,7 +496,23 @@ survivor cases existed.
   unsigned; 001F4190's death tick read unsigned before the subtraction into
   a signed value (the same bits).
 
+- **The second part** (lane M1, one round, seed 0xB12, 100 of 1,740 candidate
+  single-edit mutants of `em_level11_port_creature_b.c`, the rules above, run
+  through its designed cases and the family's capture cases): 93 killed, 5
+  rejected by the compiler, 2 survived, both real gaps now closed: a mask 0x8000
+  made 0x8001 at 00144040's drop (no case had e +0x2C's low bits set: the clip
+  words 0x7FFF, and d +0x30 = 0xFFFFEFFF at every clip-end test, `mask ...`) and
+  its d +0x4C sign test made non-strict (the test re-reads the word after
+  0019AFE0, and only a callee that writes it can tell: `s5 lift reread`). Each
+  mutant was rebuilt and fails on the new cases; the real translation passes.
+
 ## Binding
+
+Lane M1 (2026-10-31): the second part's ten entries are in the headers'
+prototypes, so `tools/gen_later_dispatch.py` gives each a case of
+`em_area01_runtime_later` and `tools/gen_mid_route_bridge.py` the twelve new m11
+hook adapters. 00142070's and 00141D20's hooks re-enter
+`em_area01_runtime_call` by address and fall through to those cases.
 
 Lane H1 (2026-10-30): AREA13's entries through `em_area01_runtime_area13.inc`
 (dispatch_a13_l11, the generated m11 hooks). It added 0x824060 (a direct call
@@ -504,16 +569,22 @@ keep their earlier bindings. What a host must do, as that binding does:
   verification status is their own lanes', not re-checked here. The stubbed
   callees (every hook not in the RUN list above) are not verified here,
   and the helpers run as original code need port translations paired by
-  address. The AREA13 hook 0x824060 (the roof area test) has no
-  translation (no census row of any level: ELEVENTH_LEVEL_ROUTE.md section
-  7 item 4); 001434C0, 00143610, 001437E0, 00143AF0, 00144040, 00144C20
-  (behaviours 3..8), 001450B0 and 00145850 (states 2 / 3) ran in no
-  census and have no translation.
+  address. Behaviour 5 (001437E0) is `em_level12_port_001437E0`.
+- **Callees with no live binding** (the runtime's fail-stop stops at the
+  address when they are reached; nothing stands in): 00146F80 (the ground
+  probe of 00144040's state 4: a move probe ahead, then a two-ray slope
+  probe; no translation in the port), 0021BED0 (the player's action-blocked
+  test, state 3's grab), 0021BF90 (starts the player's reaction 0x3C, state 3's
+  hold) and 0021C040 (its follow-up: the release of a held player in 00143610,
+  00144040, 00145210, 001453C0 and 001455A0, only with d +0x7B set, which only
+  that hold sets). Each exists only as a hook of the level ports.
 
 ## Known gaps
 
 - **Live evidence.** The captures are end-of-beat states: most paths are
-  designed cases on the captured RAM with state bytes patched. [44] is
+  designed cases on the captured RAM with state bytes patched; behaviours 3,
+  4, 6, 7, 8 and the stages are designed cases only (their capture cases run
+  whatever state the actors held). [44] is
   freed after a13c_02 and [45] sits in its last phase from a13c_03 on, so
   their earlier steps, the thrown piece and the effects run only on
   designed states; the actor family's behaviours 1 and 2 are captured

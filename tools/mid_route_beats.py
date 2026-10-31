@@ -58,6 +58,10 @@ OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
 A13_ROUTE = 'levels-recordings-20261018-10/s87/route_a13'
 BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
+A13B_ROUTE = 'levels-recordings-20261018-11/s87/route_a13b'
+A13BS_ROUTE = 'levels-recordings-20261018-18/s87/route_a13b'
+A13C_ROUTE = 'levels-recordings-20261018-11/s87/route_a13c'
+A13D_ROUTE = 'levels-recordings-20261018-12/s87/route_a13d'
 A15_ROUTE = 'levels-recordings-20261018-19/s87/route_a15'
 A15B_ROUTE = 'levels-recordings-20261018-19/s87/route_a15b'
 A15C_ROUTE = 'levels-recordings-20261018-25/s87/route_a15b'
@@ -113,6 +117,30 @@ BEATS = {
     'a13_03': ('a13_03', A13_ROUTE, 'a13_03_item27'),
     'a13_04': ('a13_04', A13_ROUTE, 'a13_04_hatch'),
     'a13_05': ('a13_05', A13_ROUTE, 'a13_05_shaft'),
+    # AREA13's second load (TENTH / ELEVENTH / TWELFTH_LEVEL_ROUTE.md, lane M1):
+    # a13b_05 ends in AREA04 entry 7; a13d_07 ends at hatch [63], the beat
+    # before AREA19's entry 10 (a19b is lane J1's).
+    'a13b_01': ('a13b_01', A13B_ROUTE, 'a13b_01_door17'),
+    'a13b_02': ('a13b_02', A13B_ROUTE, 'a13b_02_button15'),
+    'a13b_03': ('a13b_03', A13B_ROUTE, 'a13b_03_door8'),
+    'a13b_04': ('a13b_04', A13B_ROUTE, 'a13b_04_lift_call'),
+    'a13b_05': ('a13b_05', A13B_ROUTE, 'a13b_05_lift_ride'),
+    'a13b_s0': ('a13c_00', A13BS_ROUTE, 'a13b_s0_roof_ladder'),
+    'a13c_00': ('a13c_00', A13C_ROUTE, 'a13c_00_recharger'),
+    'a13c_01': ('a13c_01', A13C_ROUTE, 'a13c_01_to_machine'),
+    'a13c_02': ('a13c_02', A13C_ROUTE, 'a13c_02_battery'),
+    'a13c_03': ('a13c_03', A13C_ROUTE, 'a13c_03_blast'),
+    'a13c_04': ('a13c_04', A13C_ROUTE, 'a13c_04_cure'),
+    'a13c_05': ('a13c_05', A13C_ROUTE, 'a13c_05_boom'),
+    'a13c_06': ('a13c_06', A13C_ROUTE, 'a13c_06_south'),
+    'a13d_00': ('a13d_00', A13D_ROUTE, 'a13d_00_stair'),
+    'a13d_01': ('a13d_01', A13D_ROUTE, 'a13d_01_ladder405'),
+    'a13d_02': ('a13d_02', A13D_ROUTE, 'a13d_02_block890'),
+    'a13d_03': ('a13d_03', A13D_ROUTE, 'a13d_03_jump'),
+    'a13d_04': ('a13d_04', A13D_ROUTE, 'a13d_04_ladder426'),
+    'a13d_05': ('a13d_05', A13D_ROUTE, 'a13d_05_ladder432'),
+    'a13d_06': ('a13d_06', A13D_ROUTE, 'a13d_06_door20'),
+    'a13d_07': ('a13d_07', A13D_ROUTE, 'a13d_07_hatch63'),
     # AREA15 (FOURTEENTH / FIFTEENTH_LEVEL_ROUTE.md): sub 0's way out, sub 1's
     # event, the forced return, the two scripts, the bed, door [14].
     'a15a_00': ('area15', 'area15_arrival_20261030/s87/route_a15a', 'a15a_00_arrival'),
@@ -311,6 +339,10 @@ CHAINS = {
     'bossg': ('boss', ('a04b_g2', 'a04b_g3', 'a04b_g4', 'a04b_g5')),
     'bosst': ('a04b_02', ('a04b_g0', 'a04b_g1')),
     'a13': ('area13', ('a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')),
+    'a13b': ('a13b_01', ('a13b_01', 'a13b_02', 'a13b_03', 'a13b_04', 'a13b_05')),
+    'a13c': ('a13c_00', ('a13c_00', 'a13c_01', 'a13c_02', 'a13c_03', 'a13c_04', 'a13c_05', 'a13c_06')),
+    'a13d': ('a13d_00', ('a13d_00', 'a13d_01', 'a13d_02', 'a13d_03', 'a13d_04', 'a13d_05', 'a13d_06',
+                         'a13d_07')),
     'a15a': ('area15', ('a15a_00',)),
     'a15': ('a15_00', ('a15_00',)),
     # one run: the event's scripts run on across the forced return
