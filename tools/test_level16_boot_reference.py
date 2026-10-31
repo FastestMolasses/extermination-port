@@ -5,7 +5,7 @@ against the ORIGINAL instructions. Unwired.
 The harness is tools/test_level14_port_reference.py (`O`), configured as
 test_level16_beast_reference.py configures it. Every entry runs as original
 code from the user's ELF or overlay over a fork recording; 0x823780, 0x825040,
-0x8251C0, 0x825280 and 0017C370 run inside their callers at the top level of
+0x8251C0 and 0x825280 run inside their callers at the top level of
 the oracle, as they are inlined in the translation (PIECES holds the first
 four so their words count too); every other callee is a hook, and the helpers
 in MATH run as original code nested in the oracle. Compared per case: every
@@ -44,9 +44,6 @@ FUNCS = {
     0x001BD460: ('em_level16_boot_001BD460', 256, [U], I),
     0x001C82A0: ('em_level16_boot_001C82A0', 476, [U, U], None),
     0x00158430: ('em_level16_boot_00158430', 344, [U], None),
-    0x0017C370: ('em_level16_boot_0017C370', 208, [U], None),
-    0x0021BED0: ('em_level16_boot_0021BED0', 184, [U], I),
-    0x0021BF90: ('em_level16_boot_0021BF90', 176, [U, U], None),
     0x0021C040: ('em_level16_boot_0021C040', 212, [U, U], None),
     0x008235A0: ('em_level16_boot_a03_008235A0', 0x1D8, [U], None),
     0x00823810: ('em_level16_boot_a03_00823810', 0x114, [U], None),
@@ -349,32 +346,10 @@ def cases():
     for raw in (NAN, INF, NINF):
         add(f'5280/raw/{raw:x}', 0x825310, st(1) + [(ROOM, b(7)), (0x810350, w(raw)), (0x810358, w(raw))], {0x1BA1C0: [1]})
         add(f'5280/rawz/{raw:x}', 0x825310, st(1) + [(ROOM, b(7)), (0x810350, f(600.)), (0x810358, w(raw))], {0x1BA1C0: [1]})
-    # ---- 0017C370
-    for mode in (0, 5, 6, 7, 8):
-        for kind in (0, 3, 2):
-            for side in (0, 1, 0x80, 0xFF):
-                add(f'c370/{mode}/{kind}/{side}', 0x17C370, [(A + 0x1F0, b(mode)), (A + 0x1F1, b(kind)), (A + 0x235, b(side))],
-                    {0x17B490: [9, 0x80]})
-    for clip in (0, 1, -1, 0x12345):
-        add(f'c370/clip/{clip}', 0x17C370, [(A + 0x1F0, b(6))], {0x17B490: [clip]})
-    for yaw in (0., 3.1415927, -3.1415927, 4., 7.):
-        add(f'c370/yaw/{yaw}', 0x17C370, [(A + 0x1F0, b(7)), (A + 0xC4, f(yaw))])
-    # ---- 0021BED0: every reason, in order
-    live = [(A, b(1)), (A + 4, b(1)), (A + 0xA, b(1)), (A + 0x220, f(5.)), (MODE, b(0))]
-    add('bed0/free', 0x21BED0, live)
-    for label, patch in (('mode', (MODE, b(1))), ('hp0', (A + 0x220, f(0.))), ('hp', (A + 0x220, f(-1.))), ('nan', (A + 0x220, w(NAN))),
-                         ('b0', (A, b(2))), ('b4', (A + 4, b(2))), ('236', (A + 0x236, b(1))), ('a', (A + 0xA, b(0))),
-                         ('20e', (A + 0x20E, h(1))), ('20e8', (A + 0x20E, h(0x8000)))):
-        add(f'bed0/{label}', 0x21BED0, live + [patch])
-    for first, second in ((1, 0), (0, 1), (0, -1), (-1, 0), (0x100, 0)):
-        add(f'bed0/hooks/{first}/{second}', 0x21BED0, live, {0x21BB00: [first], 0x21BC40: [second]})
     # ---- 0021BF90 / 0021C040
     for kind in range(10):
-        for start in (0, 0x81):
-            add(f'bf90/{kind}/{start}', 0x21BF90, [(B + 3, b(kind)), (A, b(start)), (A + 0xD, b(0xEE)), (A + 0x25F, b(0xEE)), (A + 0xF, b(0xEE))])
         add(f'c040/{kind}', 0x21C040, [(B + 3, b(kind)), (A + 0x1F0, b(0x3C)), (A + 0xD, b(0xEE)), (A + 0xF, b(0xEE))])
         add(f'c040/no/{kind}', 0x21C040, [(B + 3, b(kind)), (A + 0x1F0, b(0x3D))])
-    add('bf90/0xFF', 0x21BF90, [(B + 3, b(0xFF))])
     add('c040/0xFF', 0x21C040, [(B + 3, b(0xFF)), (A + 0x1F0, b(0x3C))])
     # ---- a seeded random sample over everything, on the entry's own image
     rng = random.Random(0x16B007)

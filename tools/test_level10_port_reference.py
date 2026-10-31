@@ -134,6 +134,8 @@ FUNCS = {
     # boot
     0x118790: ('em_level10_port_00118790', 0x98, [U], I),
     0x1305B0: ('em_level10_port_001305B0', 0x4F8, [U, U], None),
+    0x130AB0: ('em_level10_port_00130AB0', 0x760, [U, U, S], None),
+    0x133CD0: ('em_level10_port_00133CD0', 0xC0, [U], I),
     0x1833F0: ('em_level10_port_001833F0', 0x48, [U], None),
     0x1885F0: ('em_level10_port_001885F0', 0x1C, [U], I),
     0x1E6F60: ('em_level10_port_001E6F60', 0xEC, [I, I, I, I, I, I, I], None),
@@ -159,12 +161,17 @@ HOOKS = [
     ('w_001028B8', 0x1028B8, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001028D0', 0x1028D0, [(U, 4), (U, 5), (U, 6)], None),
     ('w_00102948', 0x102948, [(U, 4), (U, 5)], None),
+    ('w_001029C0', 0x1029C0, [(U, 4)], None),
+    ('w_00102BB0', 0x102BB0, [(U, 4), (U, 5), (F, 12)], None),
     ('w_001031E0', 0x1031E0, [(U, 4), (U, 5)], None),
+    ('w_0011DF78', 0x11DF78, [(F, 12)], F),
     ('w_00122BB8', 0x122BB8, [], I),
     ('w_00131F20', 0x131F20, [(U, 4), (U, 5), (U, 6)], None),
     ('w_00132490', 0x132490, [(U, 4), (U, 5)], None),
     ('w_001662D0', 0x1662D0, [(U, 4)], None),
+    ('w_00182F90', 0x182F90, [(U, 4), (U, 5)], None),
     ('w_001831F0', 0x1831F0, [(I, 4)], None),
+    ('w_0019A440', 0x19A440, [(U, 4), (U, 5), (I, 6)], I),
     ('w_0019A570', 0x19A570, [(U, 4), (U, 5), (I, 6), (I, 7)], I),
     ('w_0019AA80', 0x19AA80, [(U, 4), (U, 5), (I, 6)], I),
     ('w_0019C6F0', 0x19C6F0, [(I, 4), (I, 5)], I),
@@ -176,6 +183,7 @@ HOOKS = [
     ('w_001B10B0', 0x1B10B0, [(U, 4), (I, 5), (I, 6)], I),
     ('w_001B1240', 0x1B1240, [(U, 4), (F, 12), (F, 13)], F),
     ('w_001B12B0', 0x1B12B0, [(F, 12), (F, 13), (F, 14)], F),
+    ('w_001B1470', 0x1B1470, [(F, 12)], F),
     ('w_001B1560', 0x1B1560, [(U, 4), (U, 5), (F, 12)], I),
     ('w_001B17A0', 0x1B17A0, [(U, 4)], I),
     ('w_001B1E20', 0x1B1E20, [(I, 4), (I, 5)], None),
@@ -209,11 +217,14 @@ HOOKS = [
     ('w_001E8B40', 0x1E8B40, [(I, 4)], None),
     ('w_001EFD90', 0x1EFD90, [(I, 4), (U, 5), (U, 6)], None),
     ('w_001EFE00', 0x1EFE00, [(I, 4), (U, 5)], I),
+    ('w_001EFEB0', 0x1EFEB0, [(I, 4), (U, 5)], None),
     ('w_001F5940', 0x1F5940, [(I, 4), (U, 5), (I, 6)], None),
     ('w_001FAE70', 0x1FAE70, [(I, 4)], None),
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], I),
     ('w_001FC580', 0x1FC580, [(U, 4), (I, 5)], None),
     ('w_0021BE40', 0x21BE40, [(U, 4)], I),
+    ('w_0021BED0', 0x21BED0, [(U, 4)], I),
+    ('w_0021BF90', 0x21BF90, [(U, 4), (U, 5)], None),
     ('w_00825420', 0x825420, [(U, 4)], None),
     ('w_00825930', 0x825930, [(U, 4)], None),
 # END GENERATED HOOKS
@@ -224,11 +235,12 @@ BY_ADDRESS = {address: (name, args, result) for name, address, args, result in H
 # the native side). Pure helpers only: none of them reaches hardware; each
 # is first rehearsed with the argument registers its hook does not pass
 # poisoned (Oracle.rehearse).
-RUN = {0x1026A0, 0x102738, 0x1028B8, 0x1028D0, 0x102948, 0x1031E0, 0x1B1240, 0x1B12B0}
+RUN = {0x1026A0, 0x102738, 0x1028B8, 0x1028D0, 0x102948, 0x1031E0, 0x1B1240, 0x1B12B0, 0x1029C0, 0x102BB0,
+       0x11DF78, 0x1B1470}
 
 # Jump tables (runtime address of the jump -> (table, words)): door [27]'s
 # steps 0..5 (AREA19 0x823580, the table in the overlay's data).
-JUMP_TABLES = {0x823604: (0x82F800, 6)}
+JUMP_TABLES = {0x823604: (0x82F800, 6), 0x130B1C: (0x26D120, 6)}
 TABLE_BYTES = frozenset(a for table, count in JUMP_TABLES.values() for a in range(table, table + 4 * count))
 CALLBACK_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_uint32)
 
@@ -580,6 +592,8 @@ class Oracle:
         self.script, self.run_set = script, run_set
         ee.save, ee.write, ee.load = self.save, self.write, self.load
         for address in BY_ADDRESS:
+            if address == entry:   # a hook of its callers: here it is the entry
+                continue
             ee.hooks[address] = self.handler(address)
         for callback in args[1]:
             assert callback not in ee.hooks, hex(callback)
@@ -1488,6 +1502,8 @@ def load_captures(elf):
         assert ram[0x100000:0x241000] == elf[0x300:0x300 + 0x141000], (beat, 'boot text differs from the ELF')
         if oid == 16:
             for table, count in JUMP_TABLES.values():
+                if table < ARENA:   # a boot table
+                    continue
                 at = table - ARENA
                 assert ram[table:table + 4 * count] == data[at:at + 4 * count], (beat, 'overlay jump table differs')
         assert not any(ram[FREE:FREE + 0x40000]), (beat, 'the designed-record area is not zero')
@@ -1823,6 +1839,30 @@ def boot_cases(add, rng):
     c = CREATURE
     e = c + 0x1F0
     common = bones(c) + [(c + 5, b8(6))]
+    # 00133CD0: clear, and blocked on each ray
+    add('grab 133CD0 clear', B5, 0x133CD0, [c], common, queues={0x19A440: [0] * 5})
+    for k in range(5):
+        add('grab 133CD0 blocked %d' % k, B5, 0x133CD0, [c], common, queues={0x19A440: [0] * k + [1]})
+    # 00130AB0, the grab, by +6
+    grab = common + [(c + 5, b8(7)), (e + 0x58, h16(0x1000))]
+    for st in (0, 1, 3, 5, 6, 7):
+        add('grab 130AB0 s%d' % st, B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(st))])
+    add('grab 130AB0 s1 idle', B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(1)), (e + 0x58, h16(0))])
+    add('grab 130AB0 s2 idle', B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(2)), (e + 0x58, h16(0))])
+    add('grab 130AB0 s3 idle', B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(3)), (e + 0x58, h16(0))])
+    add('grab 130AB0 s3 go', B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(3)), (0x8106BD, b8(1))])
+    for bed, ray, high, inside in ((1, 0, 0.0, 1), (0, 1, 0.0, 1), (0, 0, 9.0, 1), (0, 0, 0.0, 0), (0, 0, 0.0, 1)):
+        add('grab 130AB0 s2 %d %d %g %d' % (bed, ray, high, inside), B5, 0x130AB0, [c, e, STACK_TOP],
+            grab + [(c + 6, b8(2)), (0x810354, f32b(high)), (c + 0xB4, f32b(0.0))],
+            queues={0x21BED0: [bed], 0x19A440: [ray], 0x1B1EA0: [inside]})
+    for t50, t52, d, hard, big, hp, bd in ((0x12B, 0, 0, 0, 0, 50.0, 0), (0x12B, 0, 1, 1, 0, 50.0, 0), (0x12B, 0, 0, 1, 0, 50.0, 0),
+                                           (0x12B, 0, 1, 0, 0, 50.0, 0), (5, 3, 0, 0, 0, 50.0, 1), (5, 3, 0, 0, 0, 50.0, 0),
+                                           (5, 0x1D, 0, 0, 0, 50.0, 0), (5, 0x1D, 0, 1, 0, 50.0, 0), (5, 0x1D, 0x80, 1, 0, 50.0, 0),
+                                           (5, 0x1D, 0x80, 0, 0, 50.0, 0), (5, 0x1D, 0, 0, 0, 2.0, 0)):
+        add('grab 130AB0 s4 %X %X %X %d %g %d' % (t50, t52, d, hard, hp, bd), B5, 0x130AB0, [c, e, STACK_TOP],
+            grab + [(c + 6, b8(4)), (e + 0x50, h16(t50)), (e + 0x52, h16(t52)), (c + 0xD, b8(d)), (0x81070A, b8(hard)),
+                    (0x8104D0, f32b(hp)), (0x8106BD, b8(bd))])
+    add('grab 130AB0 s5 72', B5, 0x130AB0, [c, e, STACK_TOP], grab + [(c + 6, b8(5)), (c + 0x3C, f32b(72.0)), (e + 0x58, h16(0))])
     for st in (0, 1):
         for e54 in (0, 1):
             for x3c in (100.0, 136.0, 137.0):
@@ -2348,7 +2388,7 @@ DEFAULT_KEEP = frozenset([
     'probe 829370 s4 0 0 01 11 200 F',
     'probe 829370 s4 0 1C06800 12 11 0 14'
 ])
-SURVIVORS = ('survivor ',)
+SURVIVORS = ('survivor ', 'grab ')
 
 
 def select_cases(elf):

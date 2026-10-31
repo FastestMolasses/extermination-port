@@ -157,6 +157,9 @@ typedef struct EmPlayerClosureWorkers {
     /* 001AFA90(cls): *node = a byte view (at least 0xD0 bytes, original
      * offsets) of the node it allocated, or NULL when it returned 0. */
     int (*alloc)(void *context, int cls, uint8_t **node);
+    /* After the fields of a node from `alloc` are written (optional): the
+     * record is the caller's staging image, this places it. */
+    int (*alloc_done)(void *context, const uint8_t *node);
     /* build_trs_matrix(p + D0, p + B0, p + C0, p + 60): out is written to
      * the record's +D0 by the caller. */
     int (*trs)(void *context, uint32_t out[16], const uint32_t position[3],

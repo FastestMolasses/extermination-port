@@ -1,10 +1,9 @@
 /* em_coll_segment_walkers.h - the segment and camera queries and their walkers.
  *
  * Lane "coll-segment-walkers" (docs/COLL_SEGMENT_WALKERS.md). Hand
- * translations of the original routines below, read from the .s (each was
- * a NEARMISS file in the decomp when translated, so its readable C was not
- * trusted; the doc lists where the C was wrong; 0019A440 and its walkers
- * follow the decomp's byte-matched C):
+ * translations of the original routines below, read from the .s (every one
+ * is a NEARMISS file in the decomp, so its readable C is not trusted; the
+ * doc lists where the C is wrong):
  *
  *   0019A570(from, to, mask, id)   the segment query: 001A6440 (mask bit 0),
  *                                  001A0B10 (bit 1), 0019D330 (bit 2). The climb, drum, recovery,
@@ -13,16 +12,13 @@
  *   0019A910(from, to, mask)       the camera query: 001A6AD0 (bit 0),
  *                                  001A1390 (bit 1), 0019D770 (bit 2). The camera (0018D330, 0018DD20,
  *                                  00197490, 00198240) uses masks 6 and 7.
- *   0019A440(from, to, mask)       the plain query, no hull lock and no
- *                                  query class: 001A1B80 (bit 1), 0019DB50
- *                                  (bit 2). Its callers use mask 6.
- *   001A0B10 / 001A1390 / 001A1B80 the three cell walkers: pass 1 the static
+ *   001A0B10 / 001A1390            the two cell walkers: pass 1 the static
  *                                  cells of *0x70003250, pass 2 the published
  *                                  class-4 owners (D_00275B7C). They test
  *                                  0x1000 prims with 001A4030, 0x2000 prims
  *                                  with 001A50A0 and 0x4000 prims with
  *                                  001A5C30; 0x8000 prims are skipped.
- *   0019D330 / 0019D770 / 0019DB50 the three grid walkers: a span of one rank
+ *   0019D330 / 0019D770            the two grid walkers: a span of one rank
  *                                  table (0019F1A0 over all six directions),
  *                                  each node's six rank bounds, an attribute
  *                                  gate, then 0019ED80.
@@ -50,7 +46,7 @@
  * world cannot supply, a static cell without its D_0024D7C0 kind view, a pass-2 directory word
  * with bit 31, a prim or hull outside the directory image, an index outside
  * a grid table, the grid walkers' uninitialized span registers, and a
- * failing 0011E748 are faults: -1. The queries then leave the caller's
+ * failing 0011E748 are faults: -1. The two queries then leave the caller's
  * state and scratch exactly as they were (they work on copies). A walker or
  * prim test called directly may leave a partly updated state.
  *
@@ -109,8 +105,8 @@ int em_coll_segment_0019A570(const EmCollSegment *seg, const float from[3], cons
 /* 0019A910(from, to, mask). */
 int em_coll_segment_0019A910(const EmCollSegment *seg, const float from[3], const float to[3],
                              unsigned mask);
-/* 0019A440(from, to, mask): mask bit 0 is ignored and 0x7000324E is not
- * written. */
+/* 0019A440(from, to, mask): 0019A910's front end without the hull step, over
+ * the twins 001A1B80 / 0019DB50 (the kind threshold 0x5A). */
 int em_coll_segment_0019A440(const EmCollSegment *seg, const float from[3], const float to[3],
                              unsigned mask);
 /* 0019AA80(from, to, mask) (byte-matched decomp C): from / to into
@@ -131,11 +127,11 @@ int em_coll_segment_001A0B10(const EmCollProbeWorld *world, const EmSdkMathConte
                              EmCollProbeState *state, EmCollSegmentFaceScratch *face);
 int em_coll_segment_001A1390(const EmCollProbeWorld *world, const EmSdkMathContext *math,
                              EmCollProbeState *state, EmCollSegmentFaceScratch *face);
-int em_coll_segment_001A1B80(const EmCollProbeWorld *world, const EmSdkMathContext *math,
-                             EmCollProbeState *state, EmCollSegmentFaceScratch *face);
 int em_coll_segment_0019D330(const EmCollProbeGrid *grid, EmCollProbeState *state);
 int em_coll_segment_0019D770(const EmCollProbeGrid *grid, EmCollProbeState *state);
 int em_coll_segment_0019DB50(const EmCollProbeGrid *grid, EmCollProbeState *state);
+int em_coll_segment_001A1B80(const EmCollProbeWorld *world, const EmSdkMathContext *math,
+                             EmCollProbeState *state, EmCollSegmentFaceScratch *face);
 /* 1 hit, 0 miss, -1 fault. `prim` is the prim header in the original
  * byte layout (0x1C bytes for 001A50A0, at least 0x18 for 001A5C30). */
 int em_coll_segment_001A50A0(const uint8_t *prim, EmCollProbeState *state,

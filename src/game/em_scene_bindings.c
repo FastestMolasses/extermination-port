@@ -6230,3 +6230,25 @@ void em_scene_bindings_module_loader_report(FILE *out)
             (unsigned)s_area_uploads[0], (unsigned)s_area_uploads[1], bank ? (unsigned)bank->calls : 0u,
             bank ? (unsigned)bank->uploads : 0u);
 }
+
+static EmActor *s_spawned_node;
+
+int em_scene_bindings_node_alloc(uint8_t cls)
+{
+    s_spawned_node = em_actor_pool_alloc_001AFA90(&s_pool, &s_state, cls);
+    return s_spawned_node ? 1 : 0;
+}
+
+int em_scene_bindings_node_commit(const uint8_t *image)
+{
+    EmActor *a = s_spawned_node;
+    s_spawned_node = NULL;
+    if (!a || !image) return -1;
+    a->model = image[3];
+    a->param = image[0xD];
+    memcpy(&a->callback, image + 0x10, 4);
+    memcpy(a->f60, image + 0x60, 16);
+    memcpy(a->pos, image + 0xB0, 16);
+    memcpy(a->rot, image + 0xC0, 16);
+    return area01_rebind(NULL, a, a->callback);
+}

@@ -350,3 +350,230 @@ int em_level10_port_008236E0(const EmLevel10PortHooks *h, EmLevel10PortFault *fa
     l10_w32(&o, 0x00275C1Cu, 0x0082E280u);
     return l10_end(&o);
 }
+
+/* ------------------------------------------------------------------------
+ * 00133CD0 (self): 1 when none of the five rays of D_00245140 from the
+ * creature's chest is blocked: each row through 001B2B10 plus the position,
+ * the probe 0019A440(mask 6) from the row's height at the position.
+ * 00130AB0 (self, ent; behaviour 7, the grab): by +6:
+ *   0: clip 0x17, ent +0x6B = 1. 1: clip end: clip 0x18, sound 0x7D0.
+ *   2: clip end: the player free (0021BED0 zero), 00133CD0 and within 6
+ *   high: the four corners D_00244F90 through 00131F20 plus the position;
+ *   the player inside them (001B1EA0): +6 3, 0021BF90 (the catch), ent +0x65
+ *   = 1, the player's heading opposite the creature's, a point 15 ahead for
+ *   00182F90, clip 0x1A. Otherwise +6 5, clip 0x19.
+ *   3: clip end: D_008106BD 1 lets go (+6 5, clip 0x1C), else +6 4, clip 0x1B.
+ *   4: the hold: 300 ticks throw the player (+F 3, +22C by +D and D_0081070A,
+ *   clip 0x1D); D_008106BD 1 lets go; every 30 ticks a bite (+224, +F 5 and
+ *   +6 5 when it kills) with effect 0x80000022.
+ *   5: at clip time 72 the effect 0x8000002A; clip end: back to +5 0.
+ *   Unless +6 is 7: 00132490(self, ent).
+ * ---------------------------------------------------------------------- */
+#define G_A0 0x700038A0u
+#define G_B0 0x700038B0u
+
+static int32_t l10_00133CD0(L10 *o, uint32_t p)
+{
+    uint32_t q = 0x00245140u;
+    for (int i = 0; i < 5; i++) {
+        int32_t r = 0;
+        if (l10_c_00102948(o, G_A0, q)) return 0;
+        if (l10_c_001B2B10(o, p, G_A0, G_A0)) return 0;
+        if (l10_c_00102948(o, G_B0, p + 0xB0)) return 0;
+        if (l10_c_001028B8(o, G_A0, G_B0, G_A0)) return 0;
+        l10_w32(o, 0x700038B4u, l10_u32(o, 0x700038A4u));
+        if (l10_c_0019A440(o, G_B0, G_A0, 6, &r)) return 0;
+        if (r != 0) return 0;
+        q += 0x10;
+    }
+    return 1;
+}
+
+int em_level10_port_00133CD0(const EmLevel10PortHooks *h, uint32_t self, int32_t *result, EmLevel10PortFault *fault)
+{
+    L10 o;
+    if (!result || l10_begin(&o, h, fault)) return -1;
+    const int32_t r = l10_00133CD0(&o, self);
+    if (l10_failed(&o)) return -1;
+    *result = r;
+    return 0;
+}
+
+static void grab_catch(L10 *o, uint32_t p, uint32_t e, uint32_t m)
+{
+    int32_t r = 0;
+    uint32_t q = m, v = 0;
+    for (int i = 0; i < 4; i++) {
+        if (l10_c_00131F20(o, p, q, q)) return;
+        if (l10_c_001028B8(o, q, q, p + 0xB0)) return;
+        q += 0x10;
+    }
+    if (l10_c_001B1EA0(o, 0, 0x00810360u, m, 4, &r)) return;
+    if (r != 0) {
+        l10_w8(o, p + 6, l10_u8(o, p + 6) + 1u);
+        if (l10_c_0021BF90(o, 0x008102B0u, p)) return;
+        l10_w8(o, e + 0x65, 1);
+        if (l10_c_001B1470(o, L10_ADD(F_PI, l10_u32(o, p + 0xC4)), &v)) return;
+        l10_w32(o, 0x00810374u, v);
+        l10_w32(o, 0x700038A0u, 0);
+        l10_w32(o, 0x700038A4u, 0);
+        l10_w32(o, 0x700038A8u, F_15);
+        l10_w32(o, 0x700038ACu, 0);
+        if (l10_c_00131F20(o, p, G_A0, G_A0)) return;
+        if (l10_c_001028B8(o, G_A0, G_A0, p + 0xB0)) return;
+        if (l10_c_00182F90(o, 0x008102B0u, G_A0)) return;
+        l10_c_001C67E0(o, p, 0x1A, F_ONE, F_ZERO);
+        return;
+    }
+    l10_w8(o, p + 6, 5);
+    l10_c_001C67E0(o, p, 0x19, F_ONE, F_ZERO);
+}
+
+static void grab_bite(L10 *o, uint32_t p, uint32_t e)
+{
+    l10_w16(o, e + 0x52, 0);
+    const uint32_t big = l10_u8(o, p + 0xD) & 0x80u;
+    const uint32_t hard = l10_u8(o, 0x0081070Au);
+    l10_w32(o, 0x70003A20u, big ? (hard ? 0x41000000u : 0x40C00000u) : (hard ? F_5 : F_3));
+    const uint32_t d = l10_u32(o, 0x008104D0u), v = l10_u32(o, 0x70003A20u);
+    if (L10_LE(d, v)) {
+        l10_w8(o, p + 6, 5);
+        l10_w8(o, e + 0x65, 0);
+        l10_w8(o, 0x008102BFu, 5);
+        l10_w32(o, 0x008104D4u, l10_u32(o, 0x008104D0u));
+        l10_w8(o, 0x008102B0u, l10_u8(o, 0x008102B0u) | 2u);
+        if (l10_c_001C67E0(o, p, 0x1D, F_ONE, F_ZERO)) return;
+    } else {
+        l10_w32(o, 0x008104D4u, v);
+        l10_w8(o, 0x008102B0u, l10_u8(o, 0x008102B0u) | 2u);
+    }
+    l10_w32(o, 0x700038A8u, 0);
+    l10_w32(o, 0x700038A4u, 0);
+    l10_w32(o, 0x700038A0u, 0);
+    l10_w32(o, 0x700038ACu, F_ONE);
+    l10_w32(o, 0x700038A4u, l10_u32(o, p + 0xC4));
+    l10_w32(o, 0x700038B0u, F_2);
+    l10_w32(o, 0x700038B4u, 0x41780000u);
+    l10_w32(o, 0x700038B8u, F_ONE);
+    l10_w32(o, 0x700038BCu, F_ONE);
+    if (l10_c_001B2B10(o, p, G_B0, G_B0)) return;
+    if (l10_c_001028B8(o, G_B0, p + 0xB0, G_B0)) return;
+    l10_c_001EFD90(o, (int32_t)0x80000022u, G_B0, G_A0);
+}
+
+int em_level10_port_00130AB0(const EmLevel10PortHooks *h, uint32_t p, uint32_t e, uint32_t sp, EmLevel10PortFault *fault)
+{
+    L10 o;
+    if (l10_begin(&o, h, fault)) return -1;
+    const uint32_t m = sp - 0x40u;
+    uint8_t row[4][16];
+    for (unsigned k = 0; k < 4; ++k) l10_q(&o, 0x00244F90u + 0x10u * k, row[k]);
+    for (unsigned k = 0; k < 4; ++k) l10_wq(&o, m + 0x10u * k, row[k]);
+    const uint32_t st = l10_u8(&o, p + 6);
+    int32_t r = 0;
+    uint32_t v = 0;
+    switch (st) {
+    case 0:
+        l10_w8(&o, p + 6, l10_u8(&o, p + 6) + 1u);
+        l10_w8(&o, e + 0x63, 0);
+        l10_w8(&o, e + 0x6B, 1);
+        l10_c_001C67E0(&o, p, 0x17, F_5, F_ZERO);
+        break;
+    case 1:
+        if (l10_u16(&o, e + 0x58) & 0x1000u) {
+            l10_w8(&o, p + 6, st + 1u);
+            if (l10_c_001C67E0(&o, p, 0x18, F_ONE, F_ZERO)) break;
+            l10_c_001FBD50(&o, p, 0x7D0, 0, F_300, &r);
+        }
+        break;
+    case 2:
+        if (l10_u16(&o, e + 0x58) & 0x1000u) {
+            if (l10_c_0021BED0(&o, 0x008102B0u, &r)) break;
+            int inside = 0;
+            if (r == 0) {
+                inside = l10_00133CD0(&o, p);
+                if (l10_failed(&o)) break;
+                if (inside) {
+                    const uint32_t py = l10_u32(&o, p + 0xB4);
+                    if (l10_c_0011DF78(&o, L10_SUB(l10_u32(&o, 0x00810354u), py), &v)) break;
+                    inside = L10_LE(v, 0x40C00000u);
+                }
+            }
+            if (inside) grab_catch(&o, p, e, m);
+            else {
+                l10_w8(&o, p + 6, 5);
+                l10_c_001C67E0(&o, p, 0x19, F_ONE, F_ZERO);
+            }
+        }
+        break;
+    case 3:
+        if (l10_u16(&o, e + 0x58) & 0x1000u) {
+            if (l10_u8(&o, 0x008106BDu) != 1u) {
+                l10_w8(&o, p + 6, st + 1u);
+                l10_w16(&o, e + 0x50, 0);
+                l10_w16(&o, e + 0x52, 0);
+                l10_c_001C67E0(&o, p, 0x1B, F_ONE, F_ZERO);
+            } else {
+                l10_w8(&o, p + 6, 5);
+                l10_w8(&o, e + 0x65, 0);
+                l10_w8(&o, 0x008106BDu, 0);
+                l10_c_001C67E0(&o, p, 0x1C, F_ONE, F_ZERO);
+            }
+        }
+        break;
+    case 4: {
+        uint32_t t = (l10_u16(&o, e + 0x50) + 1u) & 0xFFFFu;
+        l10_w16(&o, e + 0x50, t);
+        if (t >= 0x12C) {
+            l10_w8(&o, p + 6, l10_u8(&o, p + 6) + 1u);
+            l10_w8(&o, 0x008102BFu, 3);
+            l10_w8(&o, e + 0x65, 0);
+            if (l10_u8(&o, p + 0xD) & 1u)
+                l10_w32(&o, 0x008104DCu, l10_u8(&o, 0x0081070Au) != 0 ? 0x42340000u : 0x42200000u);
+            else
+                l10_w32(&o, 0x008104DCu, l10_u8(&o, 0x0081070Au) != 0 ? 0x42480000u : 0x42200000u);
+            l10_c_001C67E0(&o, p, 0x1D, F_ONE, F_ZERO);
+        } else if (l10_u8(&o, 0x008106BDu) == 1u) {
+            l10_w8(&o, p + 6, 5);
+            l10_w8(&o, e + 0x65, 0);
+            l10_w8(&o, 0x008106BDu, 0);
+            l10_c_001C67E0(&o, p, 0x1C, F_ONE, F_ZERO);
+        } else {
+            t = (l10_u16(&o, e + 0x52) + 1u) & 0xFFFFu;
+            l10_w16(&o, e + 0x52, t);
+            if (t >= 0x1E) grab_bite(&o, p, e);
+        }
+        break;
+    }
+    case 5:
+        if (L10_EQ(l10_u32(&o, p + 0x3C), 0x42900000u)) {
+            if (l10_c_001029C0(&o, 0x700036A0u)) break;
+            if (l10_c_00102BB0(&o, 0x700036A0u, 0x700036A0u, l10_u32(&o, p + 0xC4))) break;
+            l10_w32(&o, 0x700038A0u, F_2);
+            l10_w32(&o, 0x700038A4u, 0x41780000u);
+            l10_w32(&o, 0x700038A8u, F_ONE);
+            l10_w32(&o, 0x700038ACu, F_ONE);
+            if (l10_c_001B2B10(&o, p, G_A0, G_A0)) break;
+            if (l10_c_001028B8(&o, G_A0, p + 0xB0, G_A0)) break;
+            uint32_t w[4];
+            for (unsigned k = 0; k < 4; ++k) w[k] = l10_u32(&o, G_A0 + 4u * k);
+            for (unsigned k = 0; k < 4; ++k) l10_w32(&o, 0x700036D0u + 4u * k, w[k]);
+            if (l10_c_001EFEB0(&o, (int32_t)0x8000002Au, 0x700036A0u)) break;
+        }
+        if (l10_u16(&o, e + 0x58) & 0x1000u) {
+            l10_w8(&o, p + 5, 0);
+            l10_w8(&o, p + 6, 0);
+            l10_w8(&o, e + 0x62, 0);
+            l10_w16(&o, e + 0x50, 0);
+            l10_w16(&o, e + 0x52, 0);
+            l10_w16(&o, e + 0x5A, 0);
+            l10_w8(&o, e + 0x6B, 0);
+        }
+        break;
+    default:
+        break;
+    }
+    if (l10_failed(&o)) return -1;
+    if (l10_u8(&o, p + 6) != 7u) l10_c_00132490(&o, p, e);
+    return l10_end(&o);
+}

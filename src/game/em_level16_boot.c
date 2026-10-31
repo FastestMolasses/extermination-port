@@ -51,62 +51,6 @@ static int32_t e001B3670(L16B *o, uint32_t self, uint32_t target, uint32_t aim, 
     return (int8_t)r;
 }
 
-/* 0017C370: the reaction's reset of the motion words; in the modes 6 and 7 its
- * clip and the half turn. */
-static uint32_t e0017C370(L16B *o, uint32_t e)
-{
-    const uint32_t mode = B(e + 0x1F0);
-    if (mode == 6 || mode == 7) {
-        int32_t clip = 0;
-        uint32_t yaw = 0;
-        C(0017B490, e, B(e + 0x1F1) == 3 ? 2 : 4, (int32_t)B(e + 0x235), 0, &clip);
-        C(001749A0, e, clip, 1, 0);
-        C(001B1470, L16B_ADD(F(3.1415927f), R(e + 0xC4)), &yaw);
-        W(e + 0xC4, yaw);
-        W(e + 0x1FC, F(8.0f));
-    }
-    W(e + 0x38, 0);
-    W(e + 0x240, 0);
-    WB(e + 0x25C, 0);
-    WB(e + 0x25E, 0);
-    W(e + 0x260, 0);
-    W(e + 0x264, 0);
-    W(e + 0x268, 0);
-    return 0;
-}
-
-/* The player's action-blocked test. */
-static int32_t e0021BED0(L16B *o, uint32_t e)
-{
-    int32_t r = 0;
-    if (B(0x70003B8D) || L16B_LE(R(e + 0x220), 0) || B(e) != 1 || B(e + 4) != 1 || B(e + 0x236))
-        return 1;
-    C(0021BB00, e, &r);
-    if (r) return 1;
-    C(0021BC40, e, &r);
-    if (r) return 1;
-    if (!B(e + 0xA) || SH(e + 0x20E)) return 1;
-    return 0;
-}
-
-/* Hit reaction 0x3C: the direction from the hit record's kind. */
-static uint32_t e0021BF90(L16B *o, uint32_t p, uint32_t hit)
-{
-    WB(p, B(p) | 2);
-    WB(p + 4, 2); WB(p + 5, 0xD); WB(p + 6, 0);
-    WB(p + 0x1F0, 0x3C); WB(p + 0x1F1, 1);
-    switch (B(hit + 3)) {
-    case 1: WB(p + 0xD, 0); WB(p + 0x25F, 1); break;
-    case 4: WB(p + 0xD, 1); break;
-    case 7: WB(p + 0xD, 2); WB(p + 0x25F, 1); break;
-    case 6: WB(p + 0xD, 3); WB(p + 0x25F, 1); break;
-    case 5: WB(p + 0xD, 4); break;
-    default: WB(p + 0xD, 0); break;
-    }
-    (void)e0017C370(o, p);
-    return 0;
-}
-
 /* The follow-up of reaction 0x3C. */
 static uint32_t e0021C040(L16B *o, uint32_t p, uint32_t hit)
 {
@@ -673,32 +617,6 @@ int em_level16_boot_001B3670(const EmLevel16BootHooks *h, uint32_t a0, uint32_t 
     if (l16b_end(&o)) return -1;
     *result = r;
     return 0;
-}
-
-int em_level16_boot_0017C370(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault)
-{
-    L16B o;
-    if (l16b_begin(&o, h, fault)) return -1;
-    (void)e0017C370(&o, a0);
-    return l16b_end(&o);
-}
-
-int em_level16_boot_0021BED0(const EmLevel16BootHooks *h, uint32_t a0, int32_t *result, EmLevel16BootFault *fault)
-{
-    L16B o;
-    if (!result || l16b_begin(&o, h, fault)) return -1;
-    const int32_t r = e0021BED0(&o, a0);
-    if (l16b_end(&o)) return -1;
-    *result = r;
-    return 0;
-}
-
-int em_level16_boot_0021BF90(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault)
-{
-    L16B o;
-    if (l16b_begin(&o, h, fault)) return -1;
-    (void)e0021BF90(&o, a0, a1);
-    return l16b_end(&o);
 }
 
 int em_level16_boot_0021C040(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault)

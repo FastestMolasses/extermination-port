@@ -2910,9 +2910,9 @@ shooting and knifing anywhere also run without a fault.
   states have none yet); `mid_route_beats.py --single`: 19 of 34 beats end on their
   recordings' progress blocks and positions; the SFX lockstep with the original
   driver over 0x44F past its loop.
-- Status: **PARTIAL**. From cards, nothing row-exact; four beats stop at an
-  unmeasured VU1 result or an unbound owner each; the tendril field and the worms
-  are not drawn.
+- Status: **PARTIAL**. From cards, nothing row-exact; three beats stop at the VU1
+  result of a streak on the camera plane (ERCPR of zero, not established); the
+  tendril field and the worms are not drawn.
 
 ### AREA13's later story from its start cards
 

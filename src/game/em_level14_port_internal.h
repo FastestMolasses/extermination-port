@@ -22,6 +22,7 @@ typedef struct {
     const EmLevel14PortHooks *h;
     EmLevel14PortFault *fault;
     uint8_t sink[16]; /* reads/writes after a fault land here */
+    int32_t sound_result; /* the last 001FBD50's v0 */
 } L14;
 
 static inline int l14_latch(L14 *o, uint32_t address, int32_t code)
@@ -692,7 +693,7 @@ static inline int l14_c_001FBD50(L14 *o, uint32_t a0, int32_t n1, int32_t n2, ui
 {
     if (l14_failed(o)) return -1;
     if (!o->h->w_001FBD50) return l14_latch(o, 0x001FBD50u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
-    return o->h->w_001FBD50(o->h->ctx, a0, n1, n2, l14_float(f3)) < 0 ? l14_latch(o, 0x001FBD50u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
+    return o->h->w_001FBD50(o->h->ctx, a0, n1, n2, l14_float(f3), &o->sound_result) < 0 ? l14_latch(o, 0x001FBD50u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l14_c_001FC3C0(L14 *o, uint32_t a0, uint32_t a1, int32_t n2, uint32_t f3, uint32_t f4)
@@ -764,6 +765,13 @@ static inline int l14_c_00824C90(L14 *o, uint32_t a0)
     if (!o->h->w_00824C90) return l14_latch(o, 0x00824C90u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
     return o->h->w_00824C90(o->h->ctx, a0) < 0 ? l14_latch(o, 0x00824C90u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
 }
+static inline int l14_c_0011A070(L14 *o, int32_t n0)
+{
+    if (l14_failed(o)) return -1;
+    if (!o->h->w_0011A070) return l14_latch(o, 0x0011A070u, EM_LEVEL14_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0011A070(o->h->ctx, n0) < 0 ? l14_latch(o, 0x0011A070u, EM_LEVEL14_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 /* END GENERATED WRAPPERS */
 
 /* Translations called by other translations (direct calls, no hook). */

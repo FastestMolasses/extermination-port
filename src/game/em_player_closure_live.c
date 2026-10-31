@@ -1116,18 +1116,23 @@ static int camera_1B0460(int a0)
 /* The 0E / 13 / 14 / 18 closure reads and writes the canonical scene bytes
  * directly (its D_00810702 store went through w_set_810702 first). */
 static int x_camera_1B0460(void *c, int a0) { (void)c; return camera_1B0460(a0); }
-/* 001AFA90(8) from 0016BAE0 (0016B790 sub-state 1): the node it fills
- * runs 00188340 as its +0x10 callback, whose setup 00188430 binds model
- * 0x46 / 0x47 (by +0xD) through 001C6120 / 001CA6E0 and allocates its bones,
- * and whose per-type steps are 00188180 / 00188250. None of those has a
- * port translation, so the spawn stays fail-stop here rather than
- * allocating a node no behaviour would run. */
+/* 001AFA90(8) from 0016BAE0 (0016B790 sub-state 1): the pool's record, and
+ * a staging image for the fields 0016BAE0 writes (x_alloc_done places them);
+ * its behaviour 00188340 is em_level9_port's. */
+static uint8_t s_spawn_image[0x100];
 static int x_alloc(void *c, int cls, uint8_t **node)
 {
-    (void)c; (void)cls;
-    if (node) *node = NULL;
-    return unbound("001AFA90 from 0016BAE0 (the crawl spawn: its node's 00188340 / 00188430 / "
-                   "00188180 / 00188250 are not translated)");
+    (void)c;
+    memset(s_spawn_image, 0, sizeof s_spawn_image);
+    const int rc = em_scene_bindings_node_alloc((uint8_t)cls);
+    if (rc < 0) return -1;
+    if (node) *node = rc ? s_spawn_image : NULL;
+    return 0;
+}
+static int x_alloc_done(void *c, const uint8_t *node)
+{
+    (void)c;
+    return em_scene_bindings_node_commit(node);
 }
 /* 00182430(p, tier) over the record: em_player_step_sounds (the footstep's
  * one translation) with +23A / +23C, 00179B90 and 001FBD50(p, id, 0, 300)
@@ -2626,7 +2631,7 @@ static void bind_closure_0e(void)
     w->arbiter = w_arbiter; w->clip_row = w_00188550; w->clip_row_B = x_001885B0;
     w->ledge_3D = x_00178390; w->ledge_3B = x_001782A0;
     w->random = w_random5; w->clip_frames = w_clip_frames; w->to_int = w_to_int_bits;
-    w->fade = w_fade; w->fade_end = w_fade_end; w->camera = x_camera_1B0460; w->alloc = x_alloc;
+    w->fade = w_fade; w->fade_end = w_fade_end; w->camera = x_camera_1B0460; w->alloc = x_alloc; w->alloc_done = x_alloc_done;
     w->trs = w_trs_bits; w->transform = w_apply_bits; w->vadd = w_vadd_bits;
     w->sine = w_sin_r; w->cosine = w_cos_r; w->wrap = w_wrap_bits; w->approach = w_approach_bits;
 }
@@ -3584,6 +3589,21 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     };
     for (unsigned i = 0; i < sizeof kMajor2 / sizeof *kMajor2; ++i)
         set2(b, kMajor2[i].state, kMajor2[i].fn, &L.m2, NULL, m2_pre, m2_post, kMajor2[i].name);
+    set2(b, 0x15, knees_state, NULL, NULL, reaction_pre, reaction_post, "00224FE0");
+    {
+        /* 0015B770's +5 0xD and 0xE by +0xD: kinds 0 and 1. */
+        static Slot latch[4];
+        slot(&latch[0], latch_0, NULL, NULL, reaction_pre, reaction_post, "0021FB40");
+        slot(&latch[1], latch_1, NULL, NULL, reaction_pre, reaction_post, "002208C0");
+        slot(&latch[2], throw_0, NULL, NULL, reaction_pre, reaction_post, "0021FED0");
+        slot(&latch[3], throw_1, NULL, NULL, reaction_pre, reaction_post, "00220B50");
+        for (unsigned k = 0; k < 2; ++k) {
+            b->stage.phase13[k] = slot_run;
+            b->stage.phase13_context[k] = &latch[k];
+            b->stage.phase14[k] = slot_run;
+            b->stage.phase14_context[k] = &latch[2u + k];
+        }
+    }
 
     /* 0015B530's 00162DB0 / 00163B40 (PLAYER_FALL.md "Stage slots"). */
     slot(&L.major4[EM_PLAYER_MAJOR4_00162DB0], em_player_fall_state5, &L.fall, NULL, NULL, NULL, "00162DB0");

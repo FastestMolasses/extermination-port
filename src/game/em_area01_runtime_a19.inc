@@ -15,7 +15,7 @@ static int dispatch_area19(EmArea01Runtime *r, EmArea01Call *c)
         {0x00825030u, 0x10u, 1}, {0x008250F0u, 0x20u, 1}, {0x00825240u, 0x70u, 1}, {0x00825420u, 0x70u, 1},
         {0x008255D0u, 0x20u, 1}, {0x008257C0u, 0x20u, 1}, {0x00825930u, 0x20u, 1}, {0x00825AB0u, 0x30u, 1},
         {0x00825C70u, 0x20u, 1}, {0x00825EE0u, 0x20u, 1}, {0x00826100u, 0x20u, 1}, {0x00826570u, 0x30u, 1},
-        {0x00826840u, 0x20u, 1}, {0x00826B30u, 0x20u, 1}, {0x00826C10u, 0x30u, 1}, {0x00827430u, 0x20u, 1},
+        {0x00826470u, 0x10u, 1}, {0x00826500u, 0x20u, 1}, {0x00826540u, 0x10u, 1}, {0x00826840u, 0x20u, 1}, {0x00826B30u, 0x20u, 1}, {0x00826C10u, 0x30u, 1}, {0x00827430u, 0x20u, 1},
         {0x00827540u, 0x00u, 1}, {0x00827550u, 0x30u, 1}, {0x00827790u, 0x70u, 1}, {0x008279E0u, 0x20u, 1},
         {0x00827B10u, 0x00u, 0}, {0x00827B20u, 0x10u, 0}, {0x00827B60u, 0x30u, 1}, {0x00827DD0u, 0x60u, 1},
         {0x00829370u, 0x80u, 2}, {0x00829840u, 0x40u, 1}, {0x008298D0u, 0x20u, 1}, {0x00829A70u, 0x40u, 1}};
@@ -95,10 +95,13 @@ static int dispatch_area19(EmArea01Runtime *r, EmArea01Call *c)
         }
         where = f13.address; code = f13.code;
         break;
-    case 0x00826B30u: case 0x00827540u:
+    case 0x00826B30u: case 0x00827540u: case 0x00826470u: case 0x00826500u: case 0x00826540u:
         m14_hooks(r, &h14);
         rc = c->function == 0x00826B30u ? em_level14_port_00826B30(&h14, a0, &i, &f14)
-                                        : em_level14_port_00827540(&h14, a0, &i, &f14);
+           : c->function == 0x00827540u ? em_level14_port_00827540(&h14, a0, &i, &f14)
+           : c->function == 0x00826470u ? em_level14_port_00826470(&h14, a0, &i, &f14)
+           : c->function == 0x00826500u ? em_level14_port_00826500(&h14, a0, &i, &f14)
+                                        : em_level14_port_00826540(&h14, a0, &i, &f14);
         has_i = 1;
         where = f14.address; code = f14.code;
         break;

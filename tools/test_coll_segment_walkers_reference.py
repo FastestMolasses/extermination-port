@@ -65,6 +65,7 @@ OUT = ROOT / 'build/coll_segment_walkers_reference'
 ROUTE, BEATS = cp.ROUTE, cp.BEATS
 
 SEG, CAM, PLAIN = 0x19A570, 0x19A910, 0x19A440
+SIGHT, CELLS_SIGHT, GRID_SIGHT = PLAIN, 0x1A1B80, 0x19DB50
 CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM = 0x1A0B10, 0x1A1390, 0x19D330, 0x19D770
 CELLS_PLAIN, GRID_PLAIN = 0x1A1B80, 0x19DB50
 SPAN_CHOSEN = 0x19DD58        # 0019DB50: the six-span choice is over, its result not yet used
@@ -648,6 +649,7 @@ class Pair:
                          stage=self.args(a, c))
 
     def camera(self, case, where, a, c, mask):
+        self.both(where, case, SIGHT, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
         return self.both(where, case, CAM, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
 
     def plain(self, case, where, a, c, mask):
