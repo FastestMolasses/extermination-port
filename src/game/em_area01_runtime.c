@@ -115,6 +115,15 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_level13_port.h"
 #include "game/em_level14_port.h"
 #include "game/em_level15_creatures.h"
+#include "game/em_area15_route.h"
+#include "game/em_area03_route.h"
+#include "game/em_area03_arrival.h"
+#include "game/em_area19_route.h"
+#include "game/em_level9_port.h"
+#include "game/em_level15_fountain.h"
+#include "game/em_level15_motion.h"
+#include "game/em_level15_perception.h"
+#include "game/em_level15_support.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_runtime.h"
@@ -202,7 +211,9 @@ static int dispatch_infection(EmArea01Runtime *r, EmArea01Call *c)
 
 static int dispatch_mid(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
-    if (r->area == 6 && dispatch_a06(r, c, rc))
+    /* em_area06_port's boot routines serve any area that spawns them (AREA15
+     * sub 1's and AREA03's 00219870 records); its overlay owners only AREA06. */
+    if ((r->area == 6 || c->function < 0x00823500u) && dispatch_a06(r, c, rc))
         return 1;
     if (c->function == 0x00183010u || c->function == 0x0012D940u) {
         if (c->na < 2 || c->nf) { *rc = fail(r, c->function); return 1; }
@@ -256,7 +267,8 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
 {
     /* the areas em_area01_state binds: AREA00..02, AREA04, AREA06, AREA22 */
-    if (!r || !host || !host->bytes || !host->worker || !(area <= 2 || area == 4 || area == 6 || area == 0x16))
+    if (!r || !host || !host->bytes || !host->worker || !(area <= 2 || area == 4 || area == 6 || area == 0x16 ||
+                                                     area == 0x0F || area == 3))
         return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
@@ -595,6 +607,21 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 }
 
 #include "game/em_area01_runtime_boss.inc"
+#include "game/em_area01_runtime_area15.inc"
+#include "game/em_area01_runtime_later.inc"
+
+int em_area01_runtime_later(EmArea01Runtime *r, EmArea01Call *c, int *rc)
+{
+    return r && c && rc && !r->fault && dispatch_later(r, c, rc);
+}
+
+/* The areas whose overlay owners are their own dispatch's (the later areas
+ * in the shared composition); any other overlay address there goes to the
+ * host's workers (fail-stop). */
+static int mid_host(unsigned area)
+{
+    return area == 0x16 || area == 6 || area == 0x0F || area == 3;
+}
 
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
 {
@@ -603,17 +630,37 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 2 && c->function >= 0x00823500u)
         return dispatch_overlay02(r, c);
     int rc;
-    if (r->area == 4 && dispatch_level8(r, c, &rc))
+    if (r->area == 0x0F && c->function == 0x001CB2B0u) {
+        /* 0x826850's +0xD 0xD method (kind 12): 001CB200's class-6 draw on
+         * channel 3 (the screen-copy pass 001D4440) has no live chain page
+         * yet. Nothing but the picture depends on it: its packet, its
+         * colour words D_00251C20..2B and its scratch matrices. Open item,
+         * docs/AREA15_PORT.md. */
+        static int reported;
+        if (!reported) fprintf(stderr, "em_area01: 001CB2B0: the class-6 draw of AREA15 sub 1's [3] is not drawn\n");
+        reported = 1;
+        return 0;
+    }
+    if (r->area == 0x0F && dispatch_a15(r, c, &rc))
         return rc;
-    if (r->area == 4 && dispatch_boss(r, c, &rc))
+    if (r->area == 3 && dispatch_a03(r, c, &rc))
+        return rc;
+    /* The creature family's boot entries and the script actors serve AREA15
+     * and AREA03 too (their overlay addresses went to their own dispatch or
+     * reach the host's fail-stop below). */
+    const int later = (r->area == 0x0F || r->area == 3) && c->function < 0x00823500u;
+    const int creatures = r->area == 4 || later;
+    if (creatures && dispatch_level8(r, c, &rc))
+        return rc;
+    if (creatures && dispatch_boss(r, c, &rc))
         return rc;
     if (r->area == 4 && (c->function >= 0x00823500u || c->function == 0x001C1A80u))
         return dispatch_overlay04(r, c);
-    if (r->area == 4 && c->function == 0x001BAC00u)
+    if (creatures && c->function == 0x001BAC00u)
         return rv_001BAC00(r, c);          /* AREA04's arrival script op14 */
-    if (r->area == 4 && c->function == 0x001BB0E0u)
+    if (creatures && c->function == 0x001BB0E0u)
         return rv_001BB0E0(r, c);          /* the script actors it places */
-    if (r->area == 4 && c->function == 0x001F9660u)
+    if (creatures && c->function == 0x001F9660u)
         return rv_001F9660(r, c);          /* their command 6's sound copy (event [3]'s script, a04b_03) */
     /* AREA22's overlay holds no owner (its one function is the area init
      * 0x823580, em_area01_state's); AREA06's bound owners are dispatch_a06's.
@@ -662,14 +709,13 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     }
     if (c->function == 0x001F8350u)
         return dispatch_infection(r, c);
-    if ((r->area == 0x16 || r->area == 6 || (r->area == 4 && c->function == 0x0012D940u)) &&
-        dispatch_mid(r, c, &rc))
+    if ((mid_host(r->area) || (r->area == 4 && c->function == 0x0012D940u)) && dispatch_mid(r, c, &rc))
         return rc;
-    if ((r->area == 0x16 || r->area == 6) && c->function >= 0x00823500u)
+    if (mid_host(r->area) && c->function >= 0x00823500u)
         return r->host.worker(r->host.ctx, c);
     if (dispatch_revisit(r, c, &rc))
         return rc;
-    if ((r->area == 2 || r->area == 4) && c->function == 0x001F4E40u) {
+    if ((r->area == 2 || creatures) && c->function == 0x001F4E40u) {
         /* 001F4E40(pos, colour, rate; f12): em_area02_misc's translation
          * over this runtime's bytes (0x70003B68 and the scratch blocks). */
         if (c->na < 3 || c->nf < 1) return fail(r, c->function);
@@ -683,7 +729,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
             return fail(r, m.fault_address ? m.fault_address : c->function);
         return 0;
     }
-    if ((r->area == 2 || r->area == 4 || r->area == 6) && c->function == 0x001E4CE0u) {
+    if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x0F || r->area == 3) &&
+        c->function == 0x001E4CE0u) {
         /* The burst emitter node 001E4CE0 (spawned by the car's 001EFD20,
          * by a drum's in AREA04 and by AREA06's g[11] 00219870):
          * em_area02_misc's translation over this runtime's bytes. */
@@ -713,7 +760,7 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     /* em_area02_math's boot routines (the panels, the bed, the lift, the
      * light owners 001C48C0..): boot code, so AREA04's, AREA06's and
      * AREA22's too. */
-    if ((r->area == 2 || r->area == 4 || r->area == 6 || r->area == 0x16) && dispatch_math02(r, c, &rc))
+    if ((r->area == 2 || r->area == 4 || mid_host(r->area)) && dispatch_math02(r, c, &rc))
         return rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;
@@ -751,7 +798,7 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         /* 0019A310(out) (byte-matched C; em_player_slope_angle's float
          * operations): the slope of the stage record's normal. AREA04's
          * creature family (a04b_03). */
-        if (r->area != 4) return r->host.worker(r->host.ctx, c);
+        if (!creatures) return r->host.worker(r->host.ctx, c);
         if (c->na != 1 || c->nf) return fail(r, c->function);
         const uint8_t *word = bytes(r, 0x700031D0u, 4, 0);
         if (!word) return fail(r, 0x700031D0u);
@@ -801,7 +848,7 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
          * a, b), then 0011E748 of x*x + y*y + z*z over 0x70003600 (mul.s,
          * mul.s, adda.s, madd.s); the result in f0. AREA04's creature
          * 0012E3A0 measures with it (a04b_03). */
-        if (r->area != 4) return r->host.worker(r->host.ctx, c);   /* elsewhere: the host's */
+        if (!creatures) return r->host.worker(r->host.ctx, c);   /* elsewhere: the host's */
         if (c->na != 2 || c->nf) return fail(r, c->function);
         EmArea01Call sub = {.function = 0x001028D0u, .sp = c->sp, .na = 3, .nf = 0};
         sub.a[0] = 0x70003600u;

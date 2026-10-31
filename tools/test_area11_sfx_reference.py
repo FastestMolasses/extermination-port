@@ -196,9 +196,11 @@ COMMANDS={1,3,5,6,0xA,0xB,0xC,0xD}
 def parse_emsr(blob):
     """Independent reader of the EMSR v2 registry the native loader consumes."""
     magic,version,sample_count,entry_count,ladder_count,reserved=struct.unpack_from('<4sIIIII',blob)
-    assert (magic,version,reserved)==(b'EMSR',2,0)
+    # reserved: D_00242630's size, in a registry with a pan slide
+    assert (magic,version)==(b'EMSR',2) and reserved in (0,64)
     at=24
     ladder=struct.unpack_from(f'<{ladder_count}H',blob,at);at+=2*ladder_count
+    at+=2*reserved
     entries=[]
     for _ in range(entry_count):
         sid,area,sub,state,count,reason,bank,zero=struct.unpack_from('<IhhBBHHH',blob,at);at+=16
@@ -206,7 +208,7 @@ def parse_emsr(blob):
         ops=[]
         for _ in range(count):
             values=struct.unpack_from('<HBBBBHHHIHHBbBBBBBBI',blob,at);at+=32
-            assert values[18]==0
+            assert values[18]==0 or values[1]==1   # a pan slide's key-on: +0x4C
             op=dict(zip(OP_FIELDS,values[:18]))
             if op['kind']==1:
                 # A slide script's key-on: level (voice +0x2C) and the

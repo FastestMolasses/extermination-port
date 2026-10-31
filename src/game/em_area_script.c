@@ -815,8 +815,8 @@ static EmScriptCommandResult op0A(Op *o)
  * (float) rec +0x14 and phase 1, then (on phase 1, falling through) stores
  * rec +0x10 - 1.0 and advances when that is 0.0, any other phase advancing
  * at once; sub 4 binds D_0028A490[rec +0x1C] at the owner's +0x40 first and
- * passes 0.0 for both floats. Sub 5 (bone_init_default_2) faults; every
- * value outside 0..6 advances without a call. */
+ * passes 0.0 for both floats; sub 5 binds it the same way and calls
+ * bone_init_default_2. Every value outside 0..6 advances without a call. */
 static EmScriptCommandResult op0B(Op *o)
 {
     const EmAreaScriptWorld *w = o->w;
@@ -865,7 +865,16 @@ static EmScriptCommandResult op0B(Op *o)
         o->h->st_0E = 0;
         return EM_SCRIPT_ADVANCE;
     case 5:
-        return fault(o, 0x001B8020u);
+        /* AREA15's script 0x827D70: as sub 4, with bone_init_default_2. */
+        NEED(w->s040, 0x1B802000u);
+        WORKER(r_0028A490, EM_AREA_SCRIPT_D_0028A490);
+        CALL(EM_AREA_SCRIPT_D_0028A490, o->k->r_0028A490(o->ctx,
+             EM_AREA_SCRIPT_D_0028A490 + 4u * u32(o->rec, 0x1C), &bank));
+        *w->s040 = bank;
+        WORKER(w_001C63E0, 0x001C63E0u);
+        CALL(0x001C63E0u, o->k->w_001C63E0(o->ctx, w->self, s16(o->rec, 0x14)));
+        o->h->st_0E = 0;
+        return EM_SCRIPT_ADVANCE;
     default:
         return EM_SCRIPT_ADVANCE;
     }

@@ -57,6 +57,10 @@ OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
 BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
+A15_ROUTE = 'levels-recordings-20261018-19/s87/route_a15'
+A15B_ROUTE = 'levels-recordings-20261018-19/s87/route_a15b'
+A15C_ROUTE = 'levels-recordings-20261018-25/s87/route_a15b'
+A03_ROUTE = 'levels-recordings-20261018-26/s87/route_a03'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -101,9 +105,20 @@ BEATS = {
     'a04b_g3': ('boss', BOSS_ROUTE, 'a04b_g3_fight'),
     'a04b_g4': ('boss', BOSS_ROUTE, 'a04b_g4_drop'),
     'a04b_g5': ('boss', BOSS_ROUTE, 'a04b_g5_lift'),
+    # AREA15 (FOURTEENTH / FIFTEENTH_LEVEL_ROUTE.md): sub 0's way out, sub 1's
+    # event, the forced return, the two scripts, the bed, door [14].
+    'a15_00': ('a15_00', A15_ROUTE, 'a15_00_door14'),
+    'a15b_00': ('a15b_00', A15B_ROUTE, 'a15b_00_event'),
+    'a15b_01': ('a15b_01', A15B_ROUTE, 'a15b_01_return'),
+    'a15b_02': ('a15b_02', A15B_ROUTE, 'a15b_02_scripts'),
+    'a15b_03': ('a15b_03', A15C_ROUTE, 'a15b_03_bed'),
+    'a15b_04': ('a15b_04', A15C_ROUTE, 'a15b_04_door14'),
+    # AREA03 sub 0's lift (the last recorded beat).
+    'a03_00': ('a03_00', A03_ROUTE, 'a03_00_elevator'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
-          'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',)}
+          'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
+          'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -273,6 +288,11 @@ CHAINS = {
     'boss': ('a04b_03', ('a04b_03', 'a04b_s5', 'a04b_s6', 'a04b_s7')),
     'bossg': ('boss', ('a04b_g2', 'a04b_g3', 'a04b_g4', 'a04b_g5')),
     'bosst': ('a04b_02', ('a04b_g0', 'a04b_g1')),
+    'a15': ('a15_00', ('a15_00',)),
+    # one run: the event's scripts run on across the forced return
+    'a15b': ('a15b_00', ('a15b_00', 'a15b_01', 'a15b_02', 'a15b_03', 'a15b_04')),
+    'a15c': ('a15b_03', ('a15b_03', 'a15b_04')),
+    'a03': ('a03_00', ('a03_00',)),
 }
 
 

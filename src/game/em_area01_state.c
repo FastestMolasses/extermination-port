@@ -50,6 +50,8 @@ typedef struct {
 static const MidOverlay k_mid[] = {
     {0x16u, 0x13u, 0xC0u, EM_AREA01_STATE_A22_DATA_SIZE, EM_AREA01_STATE_A22_BSS, EM_AREA01_STATE_A22_BSS_SIZE},
     {0x06u, 0x06u, 0x2AC0u, EM_AREA01_STATE_A06_DATA_SIZE, EM_AREA01_STATE_A06_BSS, EM_AREA01_STATE_A06_BSS_SIZE},
+    {0x0Fu, 0x0Cu, 0x3440u, EM_AREA01_STATE_A15_DATA_SIZE, EM_AREA01_STATE_A15_BSS, EM_AREA01_STATE_A15_BSS_SIZE},
+    {0x03u, 0x04u, 0x33C0u, EM_AREA01_STATE_A03_DATA_SIZE, EM_AREA01_STATE_A03_BSS, EM_AREA01_STATE_A03_BSS_SIZE},
 };
 
 static const MidOverlay *mid_overlay(unsigned area)
@@ -206,6 +208,19 @@ int em_area01_state_00824290(EmArea01State *s)
     return 0;
 }
 
+/* AREA15's and AREA03's init at 0x823580 (byte-identical C,
+ * overlay_AREA15_func_00823540.c / overlay_AREA03_func_00823540.c: keys
+ * 0xF00, 0xF01, 0x300, 0x301): four stores, C1C = the overlay's BSS;
+ * test_area15_area03_state_reference runs the original against this. */
+static int mid_init(EmArea01State *s, const MidOverlay *o)
+{
+    STORE(0x00275C28u, 0x20);
+    STORE(0x00275C1Cu, o->bss);
+    STORE(0x00275C2Cu, 0);
+    STORE(0x00275C24u, 0);
+    return 0;
+}
+
 int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
 {
     if (!s || s->fault) return -1;
@@ -236,6 +251,8 @@ int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
         if (em_area22_port_00823580(&h, &f) < 0) return fail(s, f.address ? f.address : 0x00823580u);
     } else if (area == 6 && sub <= 1) {
         if (em_area01_state_00824290(s) < 0) return -1;
+    } else if ((area == 0x0F || area == 3) && sub <= 1) {
+        if (mid_init(s, mid_overlay(area)) < 0) return -1;
     }
     /* Original 001E7780 walks the initializer's canonical pointer/count,
      * rather than clearing either overlay's whole BSS on a rebuild. */

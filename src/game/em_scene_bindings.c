@@ -176,6 +176,7 @@
 #include "game/em_area01_live.h"
 #include "game/em_area00_low.h"
 #include "game/em_area01_scene_view.h"
+#include "game/em_boot_constants.h"
 #include "game/em_anim_runtime_rest.h"
 #include "game/em_world_textures_live.h"
 #include "game/em_script_host_workers.h"
@@ -228,14 +229,20 @@ static const char *area02_file(unsigned sub, const char *name)
  * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
 static int mid_area(unsigned area, unsigned sub)
 {
-    return (area == 0x16u || area == 6u) && sub == 0;
+    return ((area == 0x16u || area == 6u || area == 3u) && sub == 0) || (area == 0x0Fu && sub <= 1);
 }
+/* AREA15 keeps one folder per sub, AREA03's recorded sub lives in the level
+ * pack's tree (tools/export_area03_assets.py). */
 static const char *mid_file(unsigned area, const char *name)
 {
     static char path[4][96];
     static unsigned next;
     char *out = path[next++ & 3u];
-    snprintf(out, sizeof path[0], "assets/area%02u/sub0%s%s", area, name[0] ? "/" : "", name);
+    if (area == 3u)
+        snprintf(out, sizeof path[0], "assets/levels/03/sub0%s%s", name[0] ? "/" : "", name);
+    else
+        snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, area == 0x0Fu ? s_state.d810701 : 0u,
+                 name[0] ? "/" : "", name);
     return out;
 }
 static const char *mid_cells(unsigned area)
@@ -2697,6 +2704,8 @@ static int rcl_bind(void)
     const int area01 = strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0 || strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0;
     if (!arrival_scene() && em_rcl_static_world_load(NULL) < 0)
         return -1;
+    if (arrival_scene() && em_rcl_static_world_block_load(NULL) < 0)
+        return -1;
     if (em_rcl_bind(views, sizeof views / sizeof views[0], &workers) < 0)
         return -1;
     if (area01 || (mid_area(s_state.d810700, s_state.d810701) && ld->d28A490[0x45])) {
@@ -2740,7 +2749,10 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, AREA02_SCENE_DIR "/sub1") == 0 ||
            strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0 ||
            strcmp(g.scene_dir, "assets/area22/sub0") == 0 ||
-           strcmp(g.scene_dir, "assets/area06/sub0") == 0;
+           strcmp(g.scene_dir, "assets/area06/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area15/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area15/sub1") == 0 ||
+           strcmp(g.scene_dir, "assets/levels/03/sub0") == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -3501,10 +3513,26 @@ static int area_read(void)
         int rc = em_game_legacy_area_load(scene);
         if (rc < 0)
             return rc;
+        /* The level background of a later area that arms it (render ctx
+         * flags 0x20 / 0x21, 001C1F50): its export, when one exists (the
+         * exporter writes it only for an armed capture; em_render_frame's
+         * background_gate checks TEX0 and colour against the list). */
+        if (mid_area(s_state.d810700, s_state.d810701)) {
+            const char *bg = mid_file(s_state.d810700, "background.embg");
+            FILE *probe = fopen(bg, "rb");
+            if (probe) {
+                fclose(probe);
+                if (em_gfx_background_load(em_frame_gfx(), bg) != 0) {
+                    fprintf(stderr, "em_scene: %s did not load\n", bg);
+                    return -1;
+                }
+            }
+        }
         /* The original area delivery replaced GS texture memory. Invalidate
          * the one native TEX0 registry at that same completed-load point. */
         ++s_area_resource_epoch;
-        if (em_world_textures_live_bind(s_state.d810700, s_state.d810701) < 0 || player_packet() < 0)
+        if (em_world_textures_live_bind(s_state.d810700, s_state.d810701) < 0 || player_packet() < 0 ||
+            em_boot_constants_select(s_state.d810700) < 0)
             return -1;
         return em_shadow_live_select_area(s_state.d810700, s_state.d810701);
     }
@@ -3802,7 +3830,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
-    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6) && fn == 0x001E4CE0u)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0F ||
+         s_state.d810700 == 3) && fn == 0x001E4CE0u)
         goto bind;
     /* The creature's death effect (001B4CF0's 001EFD90: em_level11_port). */
     if (s_state.d810700 == 4 && (fn == 0x001F4840u || fn == 0x001F88C0u || fn == 0x001F7E40u))
@@ -3841,6 +3870,33 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     }
     if (s_state.d810700 == 0x16 && fn >= 0x00823500u)
         return -1;
+    /* AREA15's and AREA03's owners (em_area01_runtime dispatch_a15 /
+     * dispatch_a03): their placements' and groups' behaviours. */
+    if (s_state.d810700 == 0x0F && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x008235A0u: case 0x00823850u: case 0x00824070u: case 0x00824510u: case 0x00824990u:
+        case 0x00824E00u: case 0x008252D0u: case 0x00825320u: case 0x00825430u: case 0x00825D10u:
+        case 0x00826600u: case 0x00826850u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
+    if (s_state.d810700 == 3 && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x00823930u: case 0x00825290u: case 0x00825430u: case 0x008256E0u: case 0x00825980u:
+        case 0x00825DF0u: case 0x00826340u: case 0x008265D0u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
+    /* AREA15's and AREA03's boot owners (their placements', groups' and
+     * spawns'): the runtime's owners or its fallback
+     * (em_area01_runtime_later); an untranslated one faults at its address
+     * when it runs. */
+    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3) && fn < 0x00823500u && fn && fn != 0x001F5040u)
+        goto bind;
     /* AREA06's boot owners: g[11]'s node 00219870 and the debris spawner
      * 0021AE90 (effect 0x80000044; em_area06_port through em_area01_runtime
      * dispatch_a06). The infection node 001F8350 (effect 0x80000048,
@@ -3853,7 +3909,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
      * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
-    if (s_state.d810700 == 1 && fn == 0x001F5040u) {
+    if ((s_state.d810700 == 1 || s_state.d810700 == 0x0F || s_state.d810700 == 3) && fn == 0x001F5040u) {
         if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;
         a->callback = fn;
@@ -3904,7 +3960,8 @@ static int area00_spawned_fallback(EmActor *a)
     /* AREA02: any boot owner the area runtime runs too, e.g. the car's
      * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
-    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x16) && a)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x16 ||
+         s_state.d810700 == 0x0F || s_state.d810700 == 3) && a)
         return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
@@ -4033,6 +4090,13 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 6u, 0x00826000u, 0x00828F00u);
     if (s_state.d810700 == 0x16 && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 0x13u, 0x00823600u, 0x00823E00u);
+    if (s_state.d810700 == 0x0F && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 0x0Cu, 0x00826980u, 0x00829F00u);
+    if (s_state.d810700 == 3 && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 4u, 0x00826900u, 0x00829100u);
+    int rc;
+    if (call->function < 0x00823500u && em_area01_runtime_later(&s_area01_live.runtime, call, &rc))
+        return rc;
     fprintf(stderr, "em_area01: unbound worker %08X from live composition\n", call->function);
     return -1;
 }

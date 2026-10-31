@@ -75,6 +75,14 @@ static const struct {
     {"a04b_03", 0x04},
     {"a04b_04", 0x04},
     {"boss", 0x04},
+    /* AREA15 and AREA03 (lane K1) */
+    {"a15_00", 0x0F},
+    {"a15b_00", 0x0F},
+    {"a15b_01", 0x0F},
+    {"a15b_02", 0x0F},
+    {"a15b_03", 0x0F},
+    {"a15b_04", 0x0F},
+    {"a03_00", 0x03},
 };
 
 static struct {
@@ -88,7 +96,7 @@ static struct {
  * rows in frame order) played from control as the whole pad. */
 enum { PAD_MAX = 4096 };
 typedef struct { int f; uint16_t buttons; uint8_t lx, ly; } PadRow;
-enum { PATH_MAX_ROWS = 20000 };
+enum { PATH_MAX_ROWS = 40000 };
 static struct {
     int loaded, active, done;
     unsigned count, last, start;

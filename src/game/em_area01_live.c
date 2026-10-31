@@ -488,6 +488,7 @@ static int model_function(uint32_t fn)
     case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:
     case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
     case 0x001C63D0u: /* 001BE6C0 (AREA01's way back, a01v) */
+    case 0x001CA5F0u: /* AREA15's 0x826850 */
         return 1;
     default:return 0;
     }
@@ -1128,6 +1129,17 @@ static int worker(void *ctx,EmArea01Call *c)
         if(a && em_area11_boxes_owner_view(a)) {
             if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
             int rc=em_area11_boxes_owner_001CA5E0(a,c->a[1],c->function==0x001CA6E0u ? 0u : c->a[2]);
+            if(em_area01_live_resume(l)<0)return -1;
+            c->v0=0;return rc<0 ? -1 : 0;
+        }
+    }
+    if(c->function==0x001CA5F0u && c->na>=2) {
+        /* 001CA5F0(owner, kind) on a typed shared owner (AREA15's 0x826850,
+         * state 0): +0x4C, as above. */
+        EmActor *a=actor(l,c->a[0]);
+        if(a && em_area11_boxes_owner_view(a)) {
+            if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
+            int rc=em_area11_boxes_owner_001CA5F0(a,c->a[1]);
             if(em_area01_live_resume(l)<0)return -1;
             c->v0=0;return rc<0 ? -1 : 0;
         }

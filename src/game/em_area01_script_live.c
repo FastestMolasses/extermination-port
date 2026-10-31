@@ -32,7 +32,13 @@ static const AreaScripts k_areas[]={
     {6,6,0x00826D40u,0x00827AC0u,0x00826000u,0x2F00u,EM_AREA06_SCRIPT_DEST_PATH},
     /* AREA22: no script chains (SIXTH_LEVEL_ROUTE.md section 2.1); the
      * overlay data 0x823600 + 0x800 holds only its placement tables. */
-    {0x16,0x13,0,0,0x00823600u,0x800u,EM_AREA22_SCRIPT_DEST_PATH}
+    {0x16,0x13,0,0,0x00823600u,0x800u,EM_AREA22_SCRIPT_DEST_PATH},
+    /* AREA15 (export_area15_tables: the 15 chains' window 0x826E70..
+     * 0x8297F0, the overlay data 0x826980 + 0x3580). */
+    {0x0F,0x0C,0x00826E70u,0x008297F0u,0x00826980u,0x3580u,EM_AREA15_SCRIPT_DEST_PATH},
+    /* AREA03 (export_area03_assets: the five chains' window 0x827170..
+     * 0x828FD0, the overlay data 0x826900 + 0x2800). */
+    {0x03,0x04,0x00827170u,0x00828FD0u,0x00826900u,0x2800u,EM_AREA03_SCRIPT_DEST_PATH}
 };
 static const AreaScripts *area_scripts(unsigned area)
 {
@@ -117,13 +123,17 @@ int em_area01_script_player_banks(EmArea01Script *s,
      * (the LOAD GAME path straight into AREA02 leaves 0x97 / 0x98 clear;
      * the route from AREA01 keeps AREA01's rows). A read through a zero
      * row still faults at the pose host. */
-    struct Span { uint32_t a,n;const uint8_t *p; } span[3];
+    struct Span { uint32_t a,n;const uint8_t *p; } span[4];
     unsigned live=0;
-    for(unsigned i=0;i<3;++i) {
-        const uint32_t a=ld->d28A490[0x96+i];
+    /* AREA15's script 0x8277C0 binds row 0x9B (op0A sub 1); a row a load left
+     * stale from another area maps nothing there (its read faults). */
+    static const uint8_t rows[4]={0x96,0x97,0x98,0x9B};
+    for(unsigned i=0;i<4;++i) {
+        const uint32_t a=ld->d28A490[rows[i]];
         if(!a)continue;
         span[live].a=a;span[live].n=0;
         span[live].p=em_module_loader_memory_rest(s->loader,a,&span[live].n);
+        if(rows[i]==0x9B && (!span[live].p || !span[live].n))continue;
         if(!span[live].p || !span[live].n || a>UINT32_MAX-span[live].n)return -1;
         ++live;
     }
@@ -160,6 +170,12 @@ static int clip(void *ctx,uint32_t actor,int16_t index,float blend,float frame)
     EmArea01Script *s=ctx;
     EmArea01Call c={.function=0x001C67E0u,.a={actor,(uint64_t)(int64_t)index},.na=2,
                     .f={em_ee_bits(blend),em_ee_bits(frame)},.nf=2};
+    return s->host.worker(s->host.ctx,&c);
+}
+static int bone(void *ctx,uint32_t actor,int16_t index)
+{
+    EmArea01Script *s=ctx;
+    EmArea01Call c={.function=0x001C63E0u,.a={actor,(uint64_t)(int64_t)index},.na=2};
     return s->host.worker(s->host.ctx,&c);
 }
 static int advance(void *ctx,uint32_t actor,float dt,int32_t *result)
@@ -199,6 +215,13 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
         break;
     case 0x008242C0u: /* AREA06's op09 callback (em_area06_port) */
         if (s->area!=6) return -1;
+        break;
+    case 0x00823F60u: /* AREA15's (em_area15_route) */
+        if (s->area!=0x0F) return -1;
+        break;
+    case 0x00826270u: case 0x00826330u: case 0x00826860u: case 0x00826880u: case 0x008268B0u:
+        /* AREA03's lift scripts (em_area03_route) */
+        if (s->area!=3) return -1;
         break;
     case 0x00824E40u: /* AREA00 arrival script 00828D60 */
     case 0x008253E0u: /* AREA00 terminal script 008299E0 */
@@ -246,7 +269,7 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
     if(n<0 || (size_t)n>=sizeof path || em_spawn_table_load(&s->timeline_tables,path)<0)goto fail;
     s->host=*host;s->loader=loader;s->area=area_id;s->bound=1;
     EmAreaScriptHostArea area={.ctx=s,.overlay_id=area_scripts(area_id)->overlay_id,.image=image,.resource=resource,
-        .owner_bank=owner_bank,.clip=clip,.record=record,.camera=camera,.advance=advance};
+        .owner_bank=owner_bank,.clip=clip,.bone=bone,.record=record,.camera=camera,.advance=advance};
     if (em_area11_script_host_area(&area)<0) goto fail;
     return 0;
 fail:

@@ -75,6 +75,7 @@ typedef struct {
     const uint8_t *(*resource)(void *, uint32_t address, uint32_t size);
     int (*owner_bank)(void *, EmActor *, uint32_t *value, int write);
     int (*clip)(void *, uint32_t actor, int16_t clip, float blend, float frame);
+    int (*bone)(void *, uint32_t actor, int16_t clip);   /* 001C63E0 */
     int (*record)(void *, uint32_t function, uint32_t actor, uint32_t block,
                   uint32_t record, int32_t *result);
     int (*camera)(void *, uint32_t function, uint32_t camera);

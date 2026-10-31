@@ -15,8 +15,9 @@ enum {
     EM_SFX_STATE_AUDIBLE = 1,     /* every operation runs natively         */
     EM_SFX_STATE_ABSENT = 2,      /* original 001FB9F0/00119EA0 return -1  */
     EM_SFX_STATE_UNSUPPORTED = 3, /* needs driver features not reproduced  */
-    EM_SFX_OP_MAX = 32,
-    EM_SFX_LADDER_MAX = 0x240
+    EM_SFX_OP_MAX = 64,
+    EM_SFX_LADDER_MAX = 0x240,
+    EM_SFX_PAN_TABLE = 64
 };
 
 /* Script operations (001152D8 dispatch). */
@@ -25,8 +26,12 @@ enum {
     EM_SFX_OP_KEY_OFF = 2,    /* A0 note 0 prog: 001176E0                  */
     EM_SFX_OP_PORTAMENTO = 3, /* B0 41 len depth prog note: 00118078       */
     EM_SFX_OP_END = 4,        /* FF 2F 00: 00117C28                        */
-    EM_SFX_OP_VOLUME = 5      /* B0 07 len target prog note: 001181B0's
+    EM_SFX_OP_VOLUME = 5,     /* B0 07 len target prog note: 001181B0's
                                * SFX-track arm (a volume slide)            */
+    EM_SFX_OP_PAN = 6,        /* B0 0A len target prog note: 00118418's
+                               * SFX-track arm (a pan slide)               */
+    EM_SFX_OP_JUMP = 7        /* B0 60 lo hi 0: 00118790, the loop back to
+                               * operation `length`, on the next tick      */
 };
 
 typedef struct {
@@ -51,6 +56,8 @@ typedef struct {
      * the scalar (product * level) >> 27; product 0 = not carried. */
     uint8_t level;
     uint64_t product;
+    /* Key-ons of a script with a pan slide: +0x4C (tone +0xC), its start. */
+    uint8_t pan_level;
 } EmSfxOp;
 
 typedef struct {
@@ -76,6 +83,9 @@ typedef struct {
     EmSfxEntry *entries;
     EmSfxSample *samples;
     uint16_t *ladder;     /* D_00241D70 (00117918's pitch ladder)          */
+    uint16_t pan_table[EM_SFX_PAN_TABLE]; /* D_00242630 (0 entries unless a
+                           * script of the registry has a pan slide)       */
+    unsigned pan_count;
 } EmSfxRegistry;
 
 /* Transactional: on any validation failure the old registry is kept and
@@ -175,6 +185,10 @@ typedef struct {
      * not carried by the key-on's operation). */
     uint16_t level, vslide, vtarget, vstart, vremaining, vtotal;
     uint64_t product;
+    /* 00118418 / 00116598's pan slide: +0x4C the pan level, +0x48 the slide
+     * flag, +0x58 its target, +0x5A its start, +0x5C the ticks left, +0x5E
+     * its length. */
+    uint16_t pan_level, pslide, ptarget, pstart, premaining, ptotal;
     /* SPU2 voice model */
     uint16_t pitch, volume[2], adsr1, adsr2;
     const EmSfxSample *sample, *next_sample;

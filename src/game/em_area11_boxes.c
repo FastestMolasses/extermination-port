@@ -1247,6 +1247,15 @@ int em_area11_boxes_owner_001CA5E0(EmActor *actor, uint32_t handle, uint32_t kin
     return 0;
 }
 
+/* 001CA5F0(owner, kind) on a bound world owner: +0x4C = kind's method. */
+int em_area11_boxes_owner_001CA5F0(EmActor *actor, uint32_t kind)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b) return -1;
+    b->method = em_owner_services_method_001CA5F0(kind);
+    return 0;
+}
+
 int em_area11_boxes_owner_fields(const EmActor *actor, uint32_t *anim, uint32_t *model,
                                   uint32_t *method)
 {

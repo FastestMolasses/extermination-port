@@ -79,7 +79,7 @@ ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # (export_area22_sfx.scope_binding) and AREA06 sub 0
 # (export_area06_sfx.sub_binding), each its captures' binding; resolved
 # after AREA04, so every earlier scope keeps its samples and indices.
-MID_SCOPES = ((0x16, 0), (6, 0))
+MID_SCOPES = ((0x16, 0), (6, 0), (0x0F, 0), (0x0F, 1), (3, 0))
 MID_IDS = AREA00_IDS
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
@@ -289,10 +289,21 @@ def mid_bindings():
         # AREA06's helper first: it needs AREA01's nested load-map builder,
         # which AREA22's configure replaces (export_area06_common's guard)
         import export_area06_common  # noqa: F401
+        import export_area15_common as A15   # the same guard (export_area13_common's)
+        import export_area03_common as A03
+        for name, value in saved.items():    # their imports configure C
+            setattr(C, name, value)
         import export_area22_sfx as S22
         result = dict(S22.scope_binding()[0])
         import export_area06_sfx as S6
         result.update(S6.sub_binding(0)[0])
+        # AREA15's two subs and AREA03's (export_area13_sfx's target path).
+        for sub in (0, 1):
+            A15.install(sub)
+            result.update(A15.SX.target_binding('area15'))
+        A15.uninstall()
+        A03.install()
+        result.update(A03.SX.target_binding('area03'))
         assert sorted(result) == sorted(MID_SCOPES), sorted(result)
         return result
     finally:
@@ -434,12 +445,15 @@ def script_events(data, position, limit=0x1000):
       B0 41 a2 a3 prog note  00118078 portamento set-up, cursor +6
       B0 07 a2 a3 prog note  001181B0 volume slide set-up (the SFX track's
                          +0x34 == 1 arm: length a2, target a3), cursor +6
+      B0 0A a2 a3 prog note  00118418 pan slide set-up (the same arm), cursor +6
+      B0 60 lo hi 0      00118790 the track's loop to a script offset
       FF 2F 00           00117C28 end of track (no delta)
     Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
     """
     events, running, acc, tick = [], None, 0, 0
-    end = min(position + limit, len(data))
+    start, end = position, min(position + limit, len(data))
     while position < end:
+        at = position
         if data[position] & 0x80:
             running = data[position]
             position += 1
@@ -454,6 +468,20 @@ def script_events(data, position, limit=0x1000):
             note, vel, prog = data[position:position + 3]
             position += 3
             events.append(dict(kind='a0', tick=tick, note=note, vel=vel, prog=prog))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x60:
+            # 00118790, count 0: the track goes on at the script offset
+            # (+0x14), at the next tick (the +0x3C arm clears +0x20). Nothing
+            # after it runs: the track ends only by a stop.
+            _, low, high, count = data[position:position + 4]
+            if count:
+                raise Unsupported('script', 'a counted B0 60 loop')
+            if acc:
+                raise Unsupported('script', 'a B0 60 loop off the tick grid')
+            target = start + (high << 8 | low)
+            if not any(e['at'] == target for e in events):
+                raise Unsupported('script', 'a B0 60 target that is no event')
+            events.append(dict(kind='jump', tick=tick, at=at, target=target))
+            return events
         elif running & 0xF0 == 0xB0 and data[position] == 0x41:
             _, length, depth, prog, note = data[position:position + 5]
             position += 5
@@ -464,10 +492,16 @@ def script_events(data, position, limit=0x1000):
             position += 5
             events.append(dict(kind='volume', tick=tick, note=note, prog=prog,
                                length=length, depth=target))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x0A:
+            _, length, target, prog, note = data[position:position + 5]
+            position += 5
+            events.append(dict(kind='pan', tick=tick, note=note, prog=prog,
+                               length=length, depth=target))
         elif running & 0xF0 == 0xB0:
             raise Unsupported('script', f'unsupported controller 0x{data[position]:02X}')
         else:
             raise Unsupported('script', f'unsupported status 0x{running:02X}')
+        events[-1]['at'] = at
         delta = 0
         while True:
             byte = data[position]
@@ -482,8 +516,10 @@ def script_events(data, position, limit=0x1000):
     raise Unsupported('script', 'truncated')
 
 
-OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME = 1, 2, 3, 4, 5
-OP_MAX = 32
+OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME, OP_PAN, OP_JUMP = 1, 2, 3, 4, 5, 6, 7
+OP_MAX = 64
+# D_00242630 entries 00116598's pan slide indexes (+0x4C >> 2).
+PAN_COUNT = 64
 # D_00241D70 entries exported for 00117918: the A0 bend is always 0x40, so
 # indices stay within (11|12)*16 + fine(-128..127) + 0xD0 +- 15 (portamento).
 LADDER_COUNT = 0x240
@@ -528,7 +564,16 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
             raise Unsupported('track defaults')
         channel = channels[0]
         out = []
+        loop = events[-1].get('target')
+        loop_row = None
         for event in events:
+            if event.get('at') == loop:
+                loop_row = len(out)
+            if event['kind'] == 'jump':
+                # EM_SFX_OP_JUMP: `length` = the target's operation index
+                out.append(dict(kind='jump', op=OP_JUMP, tick=event['tick'],
+                                length=sum('op' in e for e in out[:loop_row])))
+                continue
             if event['kind'] == 'end':
                 out.append(dict(kind='end', op=OP_END, tick=event['tick']))
                 continue
@@ -537,6 +582,9 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                 continue
             if event['kind'] == 'volume':
                 out.append(dict(event, op=OP_VOLUME))
+                continue
+            if event['kind'] == 'pan':
+                out.append(dict(event, op=OP_PAN))
                 continue
             if event['vel'] == 0:
                 # 001176E0: keys off this track's sustained (voice +0x0C)
@@ -591,7 +639,7 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                             tone_offset=tone_at, center=tone[2], fine=fine,
                             range=tone[13], alloc=tone[0], priority=tone[1],
                             pitch=pitch, scalar=scalar, pan=pan,
-                            level=velocity, product=product,
+                            pan_level=tone[12], level=velocity, product=product,
                             adsr1=struct.unpack_from('<H', tone, 6)[0],
                             adsr2=struct.unpack_from('<H', tone, 8)[0],
                             flags=flags, reverb=bool(flags & 0x80),
@@ -604,9 +652,13 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
         # A script with a volume slide: its key-ons carry the level and the
         # product the driver recomputes 001179E0's scalar from.
         slide = any(e.get('op') == OP_VOLUME for e in out)
+        # A script with a pan slide (00118418, the SFX arm): its key-ons carry
+        # +0x4C, the slide's start.
+        pan_slide = any(e.get('op') == OP_PAN for e in out)
         for e in out:
             if e.get('op') == OP_KEY_ON:
                 e['slide'] = slide
+                e['pan_slide'] = pan_slide
         if len([e for e in out if 'op' in e]) > OP_MAX:
             raise Unsupported('script', f'more than {OP_MAX} operations')
         return dict(base, state=STATE_AUDIBLE, bank=f'{bank.name}#row{bank.row}',
@@ -719,9 +771,14 @@ def export(out_dir: Path):
         packed = struct.pack(f"<{len(sample['pcm'])}h", *sample['pcm'])
         assert packed == A.decode_adpcm(sample['adpcm']), sample['offset']
     ladder = [elf.u16(A.PITCH_LADDER + 2 * i) for i in range(LADDER_COUNT)]
+    # D_00242630, only in a registry with a pan slide (its size in the header's
+    # last word; the other registries keep their bytes).
+    pans = [] if not any(ev.get('op') == OP_PAN for e in entries for ev in e.get('events', ())) else \
+        [elf.u16(A.PAN_TABLE + 2 * i) for i in range(PAN_COUNT)]
     blob = bytearray(struct.pack('<4sIIIII', b'EMSR', 2, len(ordered),
-                                 len(entries), LADDER_COUNT, 0))
+                                 len(entries), LADDER_COUNT, len(pans)))
     blob += struct.pack(f'<{LADDER_COUNT}H', *ladder)
+    blob += struct.pack(f'<{len(pans)}H', *pans)
     for entry in entries:
         ops = [e for e in entry.get('events', []) if 'op' in e]
         # Voice +0x22 is the D_00281D50 handle; within one scene the
@@ -750,7 +807,7 @@ def export(out_dir: Path):
                 op.get('adsr1', 0), op.get('adsr2', 0), op.get('center', 0),
                 op.get('fine', 0), op.get('range', 0), op.get('alloc', 0),
                 op.get('priority', 0), op.get('length', 0), op.get('depth', 0),
-                0, tail)
+                op.get('pan_level', 0) if op.get('pan_slide') else 0, tail)
     for sample in ordered:
         loop = sample['loop_start']
         blob += struct.pack('<II', len(sample['pcm']),

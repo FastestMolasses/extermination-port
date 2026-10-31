@@ -1590,6 +1590,27 @@ int em_rcl_001C1DC0(void)
 
 /* ---- the static world (docs/STATIC_WORLD.md) ------------------------------ */
 
+/* 001E1E60's .data block alone (boot data, the export's): an area reached
+ * without AREA11's load (a loaded game) still draws its level background. */
+static int s_d253560_loaded;
+int em_rcl_static_world_block_load(const char *path)
+{
+    if (!R.loaded || R.fault) return -1;
+    if (s_d253560_loaded) return 0;
+    FILE *f = fopen(path ? path : EM_RCL_STATIC_WORLD_PATH, "rb");
+    if (!f) return -1;
+    uint8_t head[0x30];
+    int ok = fread(head, 1, sizeof head, f) == sizeof head && memcmp(head, "EMSW", 4) == 0 &&
+             rd32(head + 4) == 1 && rd32(head + 8) == 2 && rd32(head + 0x20) == D_253560 &&
+             rd32(head + 0x24) == D_253560_SIZE;
+    ok = ok && fseek(f, (long)rd32(head + 0x28), SEEK_SET) == 0 &&
+         fread(s_d253560_words, 1, D_253560_SIZE, f) == D_253560_SIZE;
+    fclose(f);
+    if (!ok) return -1;
+    s_d253560_loaded = 1;
+    return 0;
+}
+
 int em_rcl_static_world_load(const char *path)
 {
     if (!R.loaded || R.fault) return -1;
@@ -1621,6 +1642,7 @@ int em_rcl_static_world_load(const char *path)
         fprintf(stderr, "render context: %s is not a static-world export\n", path ? path : EM_RCL_STATIC_WORLD_PATH);
         return -1;
     }
+    s_d253560_loaded = 1;
     s_bank = bank;
     s_bank_address = bank_address;
     s_bank_size = bank_size;
