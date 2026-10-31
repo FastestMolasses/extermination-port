@@ -23,7 +23,7 @@ steered, and no group here ran from New Game.
 | a03c_02 | not passed | the creatures kill the player: superseded by a03d_00 |
 | a03c_03 | end position good, AREA04 sub 1 loads | end block: health 58 for 56 |
 | a03d_00 | **passes** (chain and card) | the seal [23] |
-| a03d_01 | **passes** from its card; in the chain the door is not reached | door [24], AREA04 sub 1's load |
+| a03d_01 | **passes** from its card (door [24], AREA04 sub 1's load); the chain a03d, which runs on from a03d_00, fails it: the player is bitten at the door and door [24] is not opened | |
 | a04c_00 | fail-stop | see "the held face" |
 | a04c_01 | not passed | the creatures kill the player: superseded by a04d_01 |
 | a04c_02 | plays to the load | stops at `assets/area07`'s scene |
@@ -72,15 +72,17 @@ recording's. Those differences are the harness's; they are listed per beat.
   them), through the fallback dispatch. Oracles: `test_level16_creature_reference`,
   `test_level16_beast_reference`, every reachable word.
 - **Boot and overlay owners** (`em_level16_boot`, `tools/gen_level16_boot.py`, oracle
-  `test_level16_boot_reference`, every reachable word): 001B3670, 001B3C30, 001BD460,
-  001C82A0, 00158430 (the seal), 0017C370, 0021BED0, 0021BF90, 0021C040; AREA03's
-  0x8235A0, 0x823810, 0x825200; AREA04's 0x824EF0 (with 0x825040, 0x8251C0) and
-  0x825310 (with 0x825280), through `em_area01_runtime_area03x.inc`.
-- **Elsewhere:** 001ED450 (`em_level14_port`, in the same oracle) through
-  `handler_001ED450`; 0019A440, 001A1B80, 0019DB50 (`em_coll_segment_walkers`,
-  `test_coll_segment_walkers_reference`); 001C81C0 (`em_pose_host_workers`) with
-  `em_area01_model_clip_pose`; 001C94B0 through `em_owner_services`; the SDK's 0011CB90
-  and 0011E080 through `dispatch_n1`.
+  `test_level16_boot_reference`, every reachable word): 001B3670, 001B3C30, 001C82A0,
+  00158430 (the seal), 0021C040; AREA03's 0x8235A0, 0x823810, 0x825200; AREA04's
+  0x824EF0 (with 0x825040, 0x8251C0) and 0x825310 (with 0x825280), through
+  `em_area01_runtime_area03x.inc`.
+- **Elsewhere, the other lanes' one definition:** 001ED450 and 001BD460 (lane P1:
+  `em_level14_port`, `em_area08_route`; the first stays in this module's oracle),
+  0021BED0 (`em_level8_port`), 0021BF90 and 0017C370 (lane J1's), 0019A440, 001A1B80,
+  0019DB50 (lane J1's `em_coll_segment_walkers`; `test_coll_segment_walkers_reference`
+  keeps this lane's added cases), the SDK's 0011CB90 and 0011E080 (`em_area01_live`).
+- **This lane's outside the module:** 001C81C0 (`em_pose_host_workers`) with
+  `em_area01_model_clip_pose`; 001C94B0 through `em_owner_services`.
 - **Storage:** `scratch_3900` (0x70003900..0x70003A23), `pose_buffers`
   (0x00286340..0x00289B3F, 00148B40's four 0xE00-byte buffers).
 - **Boot data:** `AREA04X_WINDOWS` in export_area00_runtime_tables.py; boot constants
