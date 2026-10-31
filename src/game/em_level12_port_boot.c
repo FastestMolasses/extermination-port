@@ -1656,3 +1656,39 @@ static void l12_00224FE0(L12 *o, uint32_t p)
     }
 }
 LT_ENTRY(00224FE0)
+
+/* ------------------------------------------------------------------------
+ * 001751A0 (self; byte-matched C): the stick classifier: 0x70003B8D set does
+ * nothing; +0x23F = the gait D_00810E57 (zero: +0x24C = -1); else +0x244,
+ * +0x248 the cosines of the stick bytes as angles, the heading atan2 + pi +
+ * D_008106A0 wrapped, less the yaw +0xC4 wrapped (0x70003A20), its magnitude
+ * (0x70003A24): up to pi/4 +0x24C 0, from 3pi/4 1, between 2 (negative) or 3.
+ * ---------------------------------------------------------------------- */
+int em_level12_port_001751A0(const EmLevel12PortHooks *h, uint32_t self, EmLevel12PortFault *fault)
+{
+    L12 o_, *o = &o_;
+    if (l12_begin(o, h, fault)) return -1;
+    if (l12_u8(o, 0x70003B8Du) != 0) return l12_end(o);
+    l12_w8(o, self + 0x23F, l12_u8(o, 0x00810E57u));
+    if (l12_u8(o, self + 0x23F) == 0) {
+        l12_w32(o, self + 0x24C, 0xFFFFFFFFu);
+        return l12_end(o);
+    }
+    const uint32_t a65 = L12_MUL(0x40490FDBu, L12_DIV(L12_CVT_S_W(l12_u8(o, 0x00810E65u)), 0x43800000u));
+    const uint32_t a64 = L12_MUL(0x40490FDBu, L12_DIV(L12_CVT_S_W(l12_u8(o, 0x00810E64u)), 0x43800000u));
+    uint32_t c = 0, r = 0;
+    if (l12_c_0011DE90(o, a64, &c)) return -1;
+    l12_w32(o, self + 0x244, c);
+    if (l12_c_0011DE90(o, a65, &c)) return -1;
+    l12_w32(o, self + 0x248, c);
+    if (l12_c_0011E620(o, L12_NEG(c), l12_u32(o, self + 0x244), &r)) return -1;
+    if (l12_c_001B1470(o, L12_ADD(L12_ADD(0x40490FDBu, r), l12_u32(o, 0x008106A0u)), &r)) return -1;
+    if (l12_c_001B1470(o, L12_SUB(r, l12_u32(o, self + 0xC4)), &r)) return -1;
+    l12_w32(o, 0x70003A20u, r);
+    if (l12_c_0011DF78(o, r, &r)) return -1;
+    l12_w32(o, 0x70003A24u, r);
+    if (L12_LE(r, 0x3F490FDBu)) l12_w32(o, self + 0x24C, 0);
+    else if (L12_LE(0x4016CBE4u, r)) l12_w32(o, self + 0x24C, 1);
+    else l12_w32(o, self + 0x24C, L12_LT(l12_u32(o, 0x70003A20u), 0) ? 2u : 3u);
+    return l12_end(o);
+}

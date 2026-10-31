@@ -140,6 +140,7 @@ FUNCS = {
     0x179560: ('em_level12_port_00179560', 0x118, [U], None),
     0x17F9E0: ('em_level12_port_0017F9E0', 0x1A4, [U], None),
     0x17FB90: ('em_level12_port_0017FB90', 0xF0, [U], None),
+    0x1751A0: ('em_level12_port_001751A0', 0x1B8, [U], None),
     0x21BF90: ('em_level12_port_0021BF90', 0xB0, [U, U], None),
     0x21FB40: ('em_level12_port_0021FB40', 0x390, [U], None),
     0x21FED0: ('em_level12_port_0021FED0', 0x3F0, [U], None),
@@ -1980,6 +1981,13 @@ def player_cases(add, rng):
     H = 0x1C00000
     for k in (1, 4, 7, 6, 5, 3):
         add('latch 21BF90 %d' % k, B, 0x21BF90, [p, H], [(H + 3, b8(k))])
+    # 001751A0, the stick classifier: gated, no gait, each answer
+    add('latch 1751A0 gated', B, 0x1751A0, [p], [(0x70003B8D, b8(1))])
+    add('latch 1751A0 still', B, 0x1751A0, [p], [(0x70003B8D, b8(0)), (0x810E57, b8(0))])
+    for lx, ly, yaw in [(lx, ly, y) for lx, ly in ((0, 128), (128, 0), (64, 200), (200, 64))
+                        for y in (0.0, 0.5, 1.5, 2.6, -1.5, -2.6)]:
+        add('latch 1751A0 %d %d %g' % (lx, ly, yaw), B, 0x1751A0, [p],
+            [(0x70003B8D, b8(0)), (0x810E57, b8(1)), (0x810E64, b8(lx)), (0x810E65, b8(ly)), (p + 0xC4, fw(yaw))])
     add('latch 17FB90', B, 0x17FB90, [p], [(0x700031D0, w32(H)), (H + 0x34, w32(0x3F800000))])
     for hit, hp, sub, c28, flags in ((1.0, 50.0, 0, 0, 0), (1.0, 0.0, 0, 0, 0), (0.0, 50.0, 0, 1, 0), (0.0, 50.0, 0, 0, 0),
                                      (0.0, 50.0, 1, 0, 0x1000), (0.0, 50.0, 1, 0, 0), (0.0, 50.0, 2, 0, 0)):
@@ -2372,6 +2380,10 @@ DEFAULT_ARGS = {entry: [STACK_TOP if k == S else (fb(1.0) if k == F else FREE) f
 # Words the static walk reaches that no input can reach, and why (each
 # word's instruction class was checked, never its text reproduced).
 DEAD_WORDS = {
+    # 001751A0's (float)(unsigned) conversions of the two stick bytes: the arm
+    # for a value with bit 31 set (a byte never has it).
+    **{a: 'a byte has no bit 31' for a in (0x175204, 0x175208, 0x17520C, 0x175210, 0x175214, 0x175218, 0x175250, 0x175254,
+                                            0x175258, 0x17525C, 0x175260, 0x175264, 0x175268)},
     # 0013C8C0: the fall-through after the two compares of the coin
     # ((0x70003B68 + 0x70003B8A) & 1 is 0 or 1): the slot of a branch no
     # coin reaches

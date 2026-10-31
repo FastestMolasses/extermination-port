@@ -35,6 +35,10 @@ static uint8_t *ledge_bytes(void *ctx, uint32_t a, uint32_t n)
     if (a == LEDGE_KIND + 3u && n == 1) return &LG.hit_kind;
     if (a >= 0x700031B0u && a + n <= 0x700031C0u) return LG.s31B0 + (a - 0x700031B0u);
     if (a == 0x70003B8Du && n == 1) return &scene()->spad3B8D;
+    if (a == 0x00810E57u && n == 1) return &P.gait;
+    if (a == 0x00810E64u && n == 1) return &P.lx;
+    if (a == 0x00810E65u && n == 1) return &P.ly;
+    if (a == 0x008106A0u && n == 4) return (uint8_t *)&P.d8106A0;
     if (a >= LEDGE_HIT && a + n <= LEDGE_HIT + sizeof LG.rec) return LG.rec + (a - LEDGE_HIT);
     if (a == 0x00275B40u && n == 4) return (uint8_t *)&L.d275B40;
     /* the area bytes and D_008106F2, the world's (00169250 / 00194240) */
@@ -77,6 +81,7 @@ static int lg_sin(void *c, float x, float *r) { return w_sin_r(c, x, r); }
 static int lg_cos(void *c, float x, float *r) { return w_cos_r(c, x, r); }
 static int lg_atan2(void *c, float y, float x, float *r) { return w_atan2_r(c, y, x, r); }
 static int lg_wrap(void *c, float x, float *r) { (void)c; *r = em_player_sdk_wrap(x); return 0; }
+static int lg_abs_wrap(void *c, float x, float *r) { (void)c; *r = em_sdk_math_original_0011DF78(x); return 0; }
 static int lg_001749A0(void *c, uint32_t a0, int32_t clip, int32_t flags, float blend)
 {
     (void)a0;
@@ -92,41 +97,17 @@ static int lg_00174A50(void *c, uint32_t a0, float blend)
     (void)a0;
     return w_row_request(NULL, c, blend);
 }
-/* 001751A0(self) (byte-matched C): the stick classifier. Scratch 0x70003A20
- * and 0x70003A24 take the turn and its magnitude. */
+/* 001751A0(self): em_level12_port's translation over the pad block. */
+static void ledge_hooks(EmLevel12PortHooks *h, EmPlayerLiveActor *a);
+static int ledge_report(const char *name, const EmLevel12PortFault *f);
 static int lg_001751A0(void *c, uint32_t a0)
 {
-    (void)a0;
     EmPlayerLiveActor *a = c;
     refresh_pad();
-    if (P.spad3B8D != 0) return 0;
-    em_live_set_u8(a, 0x23F, P.gait);
-    if (P.gait == 0) {
-        em_live_set_u32(a, 0x24C, UINT32_C(0xFFFFFFFF));
-        return 0;
-    }
-    /* 3.14159265f * ((float)byte / 256.0f) */
-    const uint32_t F_PI_BITS = 0x40490FDBu, F_256 = 0x43800000u;
-    const uint32_t a65 = em_ee_mul_bits(F_PI_BITS, em_ee_div_bits(em_ee_cvt_s_w_bits((uint32_t)P.ly), F_256));
-    const uint32_t a64 = em_ee_mul_bits(F_PI_BITS, em_ee_div_bits(em_ee_cvt_s_w_bits((uint32_t)P.lx), F_256));
-    float cos64, cos65, r;
-    if (w_cos_r(NULL, bfloat(a64), &cos64) < 0) return -1;
-    em_live_set_f32(a, 0x244, cos64);
-    if (w_cos_r(NULL, bfloat(a65), &cos65) < 0) return -1;
-    em_live_set_f32(a, 0x248, cos65);
-    if (w_atan2_r(NULL, bfloat(em_ee_neg_bits(fbits(cos65))), cos64, &r) < 0) return -1;
-    uint32_t bits = em_ee_add_bits(em_ee_add_bits(F_PI_BITS, fbits(r)), P.d8106A0);
-    bits = fbits(em_player_sdk_wrap(bfloat(bits)));
-    bits = fbits(em_player_sdk_wrap(bfloat(em_ee_sub_bits(bits, em_live_u32(a, 0xC4)))));
-    L.land.s3A20 = bfloat(bits);
-    const uint32_t mag = fbits(em_sdk_math_original_0011DF78(bfloat(bits)));
-    memcpy(LG.s3A24, &mag, 4);
-    uint32_t kind;
-    if (em_ee_c_le_bits(mag, 0x3F490FDBu)) kind = 0;
-    else if (em_ee_c_le_bits(0x4016CBE4u, mag)) kind = 1;
-    else kind = em_ee_c_lt_bits(bits, 0) ? 2 : 3;
-    em_live_set_u32(a, 0x24C, kind);
-    return 0;
+    EmLevel12PortHooks h;
+    ledge_hooks(&h, a);
+    EmLevel12PortFault f = {0, 0};
+    return em_level12_port_001751A0(&h, a0, &f) < 0 ? ledge_report("001751A0", &f) : 0;
 }
 static int lg_00175900(void *c, uint32_t a0, int32_t search, int32_t *result)
 {
@@ -249,6 +230,7 @@ static void ledge_hooks(EmLevel12PortHooks *h, EmPlayerLiveActor *a)
     h->bytes = ledge_bytes;
     h->w_001026A0 = lg_001026A0;
     h->w_0011DE90 = lg_cos;
+    h->w_0011DF78 = lg_abs_wrap;
     h->w_0011E2A8 = lg_sin;
     h->w_0011E620 = lg_atan2;
     h->w_001B1470 = lg_wrap;

@@ -220,6 +220,7 @@ int em_level12_port_00146740(const EmLevel12PortHooks *h, uint32_t e, uint32_t d
                              EmLevel12PortFault *fault);
 int em_level12_port_0016EF50(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_00179560(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
+int em_level12_port_001751A0(const EmLevel12PortHooks *h, uint32_t self, EmLevel12PortFault *fault);
 int em_level12_port_0017FB90(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_0021BF90(const EmLevel12PortHooks *h, uint32_t p, uint32_t hit, EmLevel12PortFault *fault);
 int em_level12_port_0021FB40(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
