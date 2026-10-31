@@ -103,6 +103,8 @@ int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route);
  * the calls since the process start. */
 int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint64_t tex0, uint32_t rgba);
 uint32_t em_shadow_live_effect_decals(void);
+uint8_t *em_shadow_live_stage_bytes(void);
+int em_shadow_live_001CF470(const uint32_t m[16], int32_t *count);
 int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_t size,
                                   const uint8_t *const nodes[], uint32_t node_count);
 

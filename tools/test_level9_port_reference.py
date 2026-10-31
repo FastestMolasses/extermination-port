@@ -139,6 +139,7 @@ FUNCS = {
     0x153F10: ('em_level9_port_00153F10', 0xF0, [U], None),
     0x154040: ('em_level9_port_00154040', 0xE0, [U, U], None),
     0x154120: ('em_level9_port_00154120', 0x340, [U, U], None),
+    0x156620: ('em_level9_port_00156620', 0x910, [U], None),
     0x154740: ('em_level9_port_00154740', 0x274, [U, U], None),
     0x1549C0: ('em_level9_port_001549C0', 0x540, [U, U], None),
     0x15A200: ('em_level9_port_0015A200', 0xB8, [U, I, I], I),
@@ -224,6 +225,8 @@ HOOKS = [
     ('w_00192010', 0x192010, [(U, 4), (F, 12), (F, 13), (F, 14)], None),
     ('w_0019A570', 0x19A570, [(U, 4), (U, 5), (I, 6), (I, 7)], I),
     ('w_0019AA80', 0x19AA80, [(U, 4), (U, 5), (I, 6)], I),
+    ('w_0019AB20', 0x19AB20, [(U, 4), (U, 5), (U, 6), (I, 7)], I),
+    ('w_0019AD00', 0x19AD00, [(U, 4), (U, 5), (I, 6)], I),
     ('w_0019B6C0', 0x19B6C0, [(U, 4), (U, 5), (U, 6)], I),
     ('w_0019C6F0', 0x19C6F0, [(I, 4), (I, 5)], I),
     ('w_001A2370', 0x1A2370, [(U, 4), (U, 5)], None),
@@ -233,7 +236,7 @@ HOOKS = [
     ('w_001AFA90', 0x1AFA90, [(I, 4)], U),
     ('w_001AFC10', 0x1AFC10, [(U, 4)], None),
     ('w_001B0C60', 0x1B0C60, [(I, 4), (I, 5), (I, 6)], None),
-    ('w_001B0D80', 0x1B0D80, [(U, 4)], None),
+    ('w_001B0D80', 0x1B0D80, [(U, 4)], I),
     ('w_001B0F60', 0x1B0F60, [(U, 4), (I, 5)], I),
     ('w_001B0FD0', 0x1B0FD0, [(U, 4)], I),
     ('w_001B1020', 0x1B1020, [(U, 4), (I, 5), (I, 6), (I, 7)], None),
@@ -246,6 +249,7 @@ HOOKS = [
     ('w_001B1630', 0x1B1630, [(F, 12), (F, 13), (F, 14)], I),
     ('w_001B17A0', 0x1B17A0, [(U, 4)], I),
     ('w_001B1B70', 0x1B1B70, [(U, 4)], None),
+    ('w_001B1D20', 0x1B1D20, [(U, 4)], None),
     ('w_001B1EA0', 0x1B1EA0, [(I, 4), (U, 5), (U, 6), (I, 7)], I),
     ('w_001B2140', 0x1B2140, [(U, 4)], I),
     ('w_001B4810', 0x1B4810, [(U, 4)], None),
@@ -297,6 +301,7 @@ HOOKS = [
     ('w_001EFE00', 0x1EFE00, [(I, 4), (U, 5)], I),
     ('w_001EFFD0', 0x1EFFD0, [(I, 4), (U, 5), (U, 6), (I, 7), (F, 12)], None),
     ('w_001F02C0', 0x1F02C0, [(U, 4), (I, 5), (F, 12)], None),
+    ('w_001F0460', 0x1F0460, [(I, 4), (U, 5)], None),
     ('w_001F4A00', 0x1F4A00, [(U, 4), (U, 5)], None),
     ('w_001F4BF0', 0x1F4BF0, [(U, 4), (U, 5)], None),
     ('w_001F4E20', 0x1F4E20, [(U, 4), (U, 5), (F, 12)], None),
@@ -304,6 +309,7 @@ HOOKS = [
     ('w_001F9100', 0x1F9100, [(U, 4), (U, 5), (U, 6), (F, 12)], None),
     ('w_001FB9F0', 0x1FB9F0, [(I, 4), (I, 5), (I, 6), (I, 7)], None),
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], I),
+    ('w_001FC580', 0x1FC580, [(U, 4), (I, 5)], None),
     ('w_0021B9A0', 0x21B9A0, [(I, 4), (F, 12), (F, 13)], None),
     ('w_00823830', 0x823830, [(U, 4)], None),
     ('w_00824160', 0x824160, [(U, 4)], None),
@@ -1658,7 +1664,7 @@ def load_captures(elf):
 # the entries that reach a node's +0x4C method (directly or through a
 # translated callee), and 0x827150's step table
 SELF_ENTRIES = {0x823700, 0x823940, 0x823E90, 0x824180, 0x824BB0, 0x8266A0, 0x826850, 0x826FF0, 0x827150,
-                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120}
+                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120, 0x156620}
 STEP_TABLE = 0x82D190
 SCRIBBLED_CALLBACKS = set()
 HEAVY = {0x824BB0, 0x827150, 0x1E5AC0, 0x1DE920, 0x1C06E0, 0x1549C0}
@@ -2145,6 +2151,44 @@ def exit_cases(add, rng):
         for mode in (0, 3, 4):
             add('exit 153F10 %d %d m%d' % (state, step, mode), B, 0x153F10, [f],
                 [(f + 4, b8(state)), (f + 5, b8(step)), (B8D, b8(mode))], queues={0x1B10B0: [1]})
+    # 00156620, the drum: arming, the idle (hit and clear, near and far), the
+    # burst's kinds, its flight, its landings.
+    add('exit 156620 s0', B, 0x156620, [f], [(f + 4, b8(0))], queues={0x1B0FD0: [0]})
+    add('exit 156620 s0 busy', B, 0x156620, [f], [(f + 4, b8(0))], queues={0x1B0FD0: [1]})
+    for d36 in (0, 1):
+        for near in (0, 1):
+            for dx in (10.0, 60.0):
+                add('exit 156620 s1 %d %d %g' % (d36, near, dx), B, 0x156620, [f],
+                    [(f + 4, b8(1)), (f + 0x36, h16(d36)), (f + 0xB0, fw(1000.0, 0.0, 1000.0)),
+                     (PLAYER + 0xA0, fw(1000.0 + dx, 0.0, 1000.0))],
+                    queues={0x19A570: [near]})
+    for kind in (0xA, 0xC, 0x18, 0x2A, 3):
+        add('exit 156620 s2p0 %X' % kind, B, 0x156620, [f], [(f + 3, b8(kind)), (f + 4, b8(2)), (f + 5, b8(0))],
+            queues={0x122BB8: [0xFF, 0x1F, 0x300, 0x100]})
+        for count in (2, 1):
+            add('exit 156620 s2p1 %X %d' % (kind, count), B, 0x156620, [f],
+                [(f + 3, b8(kind)), (f + 4, b8(2)), (f + 5, b8(1)), (f + 0x28, h16(count))])
+    for phase, count in ((2, 0), (2, 3), (3, 0)):
+        for lift in (1.0, -1.0, -5.0):
+            for speed in (0.0, 2.0):
+                for wall in (0, 1):
+                    for d36 in (0, 1, 0x2000):
+                        for ground in (0, 1):
+                            for area, y, r in ((0x15, 2.0, 0), (0x15, 2.0, 1), (0x15, 9.0, 0), (0x13, 2.0, 0)):
+                                if ground and (area, y, r) != (0x13, 2.0, 0):
+                                    continue
+                                add('exit 156620 fly %d %d %g %g %d %X %d %X %g %d'
+                                    % (phase, count, lift, speed, wall, d36, ground, area, y, r), B, 0x156620, [f],
+                                    [(f + 4, b8(2)), (f + 5, b8(phase)), (f + 0x28, h16(count)), (f + 0x36, h16(d36)),
+                                     (f + 0x38, fw(speed)), (f + 0x1F0 + 0x78, fw(lift)), (f + 0xB4, fw(y)),
+                                     (0x810700, b8(area)), (0x70003B68, struct.pack('<I', 1)), (0x70003B8A, h16(0))],
+                                    queues={0x19AD00: [wall], 0x19AB20: [ground], 0x1B0D80: [r]})
+    add('exit 156620 frame', B, 0x156620, [f],
+        [(f + 4, b8(2)), (f + 5, b8(3)), (f + 0x1F0 + 0x78, fw(-1.0)), (f + 0xB4, fw(2.0)), (0x810700, b8(0x15)),
+         (0x70003B68, struct.pack('<I', 0x40)), (0x70003B8A, h16(0))], queues={0x19AB20: [0], 0x1B0D80: [1]})
+    add('exit 156620 s3', B, 0x156620, [f], [(f + 4, b8(3))])
+    add('exit 156620 s4', B, 0x156620, [f], [(f + 4, b8(4))])
+    add('exit 156620 s2 p4', B, 0x156620, [f], [(f + 4, b8(2)), (f + 5, b8(4))])
     for count, limit in ((5, 20), (12, 12), (13, 12), (0, 3)):
         for area, sub in ((0x13, 0), (0x13, 9), (0xD, 0)):
             add('exit 154740 %d %d %X %d' % (count, limit, area, sub), B, 0x154740, [f, scr],
@@ -2817,6 +2861,33 @@ PINNED_RANDOM = ()
 # with the capture cases the default run reaches every word the whole set
 # reaches (greedy, cheapest first); SURVIVORS are the mutation sweep's cases.
 DEFAULT_KEEP = frozenset([
+    'exit 156620 s2p0 2A',
+    'exit 156620 s2p1 2A 1',
+    'exit 156620 s2p1 3 1',
+    'exit 156620 s0',
+    'exit 156620 s0 busy',
+    'exit 156620 s1 0 0 10',
+    'exit 156620 s1 0 0 60',
+    'exit 156620 s1 1 1 10',
+    'exit 156620 s1 1 0 10',
+    'exit 156620 s2p0 A',
+    'exit 156620 s2p0 C',
+    'exit 156620 s2p0 18',
+    'exit 156620 s2p0 3',
+    'exit 156620 s2p1 A 1',
+    'exit 156620 s2p1 18 1',
+    'exit 156620 s2p1 A 2',
+    'exit 156620 fly 2 0 1 2 1 0 0 13 2 0',
+    'exit 156620 fly 3 0 -1 2 0 0 1 13 2 0',
+    'exit 156620 fly 3 0 -5 2 0 1 0 15 2 0',
+    'exit 156620 fly 3 0 1 0 0 2000 0 13 2 0',
+    'exit 156620 fly 2 3 -1 0 0 0 0 15 2 0',
+    'exit 156620 frame',
+    'exit 156620 fly 3 0 -1 0 0 0 0 15 9 0',
+    'exit 156620 fly 3 0 -1 0 0 0 0 15 2 1',
+    'exit 156620 s3',
+    'exit 156620 s4',
+    'exit 156620 s2 p4',
     'exit 154120 step4',
     'exit 154120 1 0 0 0 2 0',
     'exit 154120 1 0 1 0 2 0',

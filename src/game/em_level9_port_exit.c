@@ -80,7 +80,10 @@ int em_level9_port_001383C0(const EmLevel9PortHooks *h, uint32_t self, EmLevel9P
         uint32_t v = l9_u16(&o, ent + 0x34);
         if (v != 0) l9_w16(&o, ent + 0x34, v - 1u);
     }
-    if (l9_c_001B0D80(&o, self)) return -1;
+    {
+        int32_t ignored = 0;
+        if (l9_c_001B0D80(&o, self, &ignored)) return -1;
+    }
     if (l9_s8(&o, ent + 0x87) != 0) {
         if (l9_u8(&o, D_00810700) != 0x13u || l9_u8(&o, D_00810701) != 0) l9_c_001B5360(&o, self);
     }
@@ -1037,6 +1040,264 @@ int em_level9_port_00153F10(const EmLevel9PortHooks *h, uint32_t self, EmLevel9P
         default:
             break;
         }
+        break;
+    }
+    case 3:
+        l9_c_001AFC10(&o, self);
+        break;
+    default:
+        break;
+    }
+    return l9_end(&o);
+}
+
+/* ------------------------------------------------------------------------
+ * 00156620 (self): the drum (byte-matched C, the AREA11 drums' owner too;
+ * here spawned by the AREA19 pieces of em_level13_port_area19.c). ent = self
+ * +0x1F0.
+ *   0: 001B0FD0(self) == 0: +0x34 = 1, +0 = 1, ent +0x10 / +0x20 = the
+ *      position / rotation, 001C6380(self).
+ *   1: with +0x36 set: +0 = +4 = 2, a probe 4 above to 4 below; a 0019A570
+ *      hit (mask 4) raises the matrix at 0x700036A0 for 001F0460(4). Then
+ *      the +0x4C method, the squared distance to the player against 50^2:
+ *      within, +1 = 1 and 001B1D20(self); else 001B17A0(self).
+ *   2: by +5, 0: the burst effects at +7 height (kinds 0x18, 0x2A: 0x8000001C
+ *      and sound 0x1A1; else 0x8000002E and 0x19F), +0x28 = 2, the angle of
+ *      kinds 10 and 12, speed and lift from the rand tables 00246A00 /
+ *      00246A10. 1: +0x28 down; at zero the angle is taken: kinds 0x18, 0x2A
+ *      go to +4 = 3; else the next step, +0x28 = 8. 2: +0x28 down, at zero
+ *      the next step with +0 = 1, +0x36 = 0, +0x34 = 1. 2 and 3: the flight:
+ *      spin, step, wall probe (the speed stops), gravity 0.06 down to -4; on
+ *      step 3 a +0x36 hit without bit 0x2000 lands (sound 0x1A0); falling,
+ *      a 0019AB20 floor lands; in AREA21 (0x15) below 5.0 with the frame's
+ *      test, 0x8000005F and sound 0xDB. Then 001C6380, 001A2370 (self +0xD0),
+ *      001B17A0, the +0x4C method.
+ *   3: 001AFC10(self).
+ * ---------------------------------------------------------------------- */
+#define DRUM_A0 0x700038A0u
+#define DRUM_B0 0x700038B0u
+#define DRUM_FX 0x700036A0u
+
+static void drum_land(L9 *o, uint32_t self)
+{
+    l9_w32(o, DRUM_A0 + 0, l9_u32(o, self + 0xB0));
+    l9_w32(o, DRUM_A0 + 4, L9_ADD(0x40800000u, l9_u32(o, self + 0xB4)));
+    l9_w32(o, DRUM_A0 + 8, l9_u32(o, self + 0xB8));
+    l9_w32(o, DRUM_A0 + 0xC, 0x3F800000u);
+    if (l9_c_001EFD20(o, (int32_t)0x80000013u, DRUM_A0)) return;
+    if (l9_c_001EFD20(o, (int32_t)0x8000002Eu, DRUM_A0)) return;
+    l9_c_001FC580(o, self, 0x1A0);
+}
+
+static void drum_burst(L9 *o, uint32_t self, uint32_t ent)
+{
+    int32_t r = 0;
+    uint32_t v = 0;
+    l9_w32(o, DRUM_A0 + 0, l9_u32(o, self + 0xB0));
+    l9_w32(o, DRUM_A0 + 4, L9_ADD(0x40E00000u, l9_u32(o, self + 0xB4)));
+    l9_w32(o, DRUM_A0 + 8, l9_u32(o, self + 0xB8));
+    l9_w32(o, DRUM_A0 + 0xC, 0x3F800000u);
+    if (l9_c_001EFD20(o, (int32_t)0x80000013u, DRUM_A0)) return;
+    uint32_t k = l9_u8(o, self + 3);
+    if (k == 0x18 || k == 0x2A) {
+        if (l9_c_001EFD20(o, (int32_t)0x8000001Cu, DRUM_A0)) return;
+        if (l9_c_001FC580(o, self, 0x1A1)) return;
+    } else {
+        if (l9_c_001EFD20(o, (int32_t)0x8000002Eu, DRUM_A0)) return;
+        if (l9_c_001FC580(o, self, 0x19F)) return;
+    }
+    l9_w16(o, self + 0x28, 2);
+    l9_w8(o, self + 5, l9_u8(o, self + 5) + 1u);
+    k = l9_u8(o, self + 3);
+    if (k == 0xA) {
+        if (l9_c_00122BB8(o, &r)) return;
+        const uint32_t x = L9_DIV(L9_MUL(0x40C90FDBu, L9_CVT((uint32_t)r & 0xF0u)), 0x43800000u);
+        if (l9_c_001B1470(o, x, &v)) return;
+        l9_w32(o, ent + 0x74, v);
+    } else if (k == 0xC) {
+        if (l9_c_00122BB8(o, &r)) return;
+        const uint32_t x = L9_CVT((uint32_t)r & 0x1Fu);
+        const uint32_t y = L9_ADD(l9_u32(o, self + 0xC4), L9_DIV(L9_MUL(F_PI, x), 0x43340000u));
+        if (l9_c_001B1470(o, y, &v)) return;
+        l9_w32(o, ent + 0x74, v);
+    }
+    if (l9_c_00122BB8(o, &r)) return;
+    l9_w32(o, self + 0x38, l9_u32(o, 0x00246A00u + (((uint32_t)r & 0x300u) >> 8) * 4));
+    if (l9_c_00122BB8(o, &r)) return;
+    l9_w32(o, ent + 0x78, l9_u32(o, 0x00246A10u + (((uint32_t)r & 0x300u) >> 8) * 4));
+}
+
+/* The flight; 1: a landing left the switch without the tail. */
+static int drum_flight(L9 *o, uint32_t self, uint32_t ent)
+{
+    int32_t r = 0;
+    uint32_t v = 0, s = 0, c = 0;
+    const uint32_t step = L9_LT(l9_u32(o, ent + 0x78), 0) ? 0x3C8EFA35u : 0x3C0EFA35u;
+    if (l9_c_001B1470(o, L9_ADD(step, l9_u32(o, self + 0xC0)), &v)) return -1;
+    l9_w32(o, self + 0xC0, v);
+    if (l9_c_0011E2A8(o, l9_u32(o, ent + 0x74), &s)) return -1;
+    {
+        const uint32_t speed = l9_u32(o, self + 0x38);
+        l9_w32(o, self + 0xB0, L9_ADD(l9_u32(o, self + 0xB0), L9_MUL(speed, s)));
+    }
+    if (l9_c_0011DE90(o, l9_u32(o, ent + 0x74), &c)) return -1;
+    {
+        const uint32_t speed = l9_u32(o, self + 0x38);
+        l9_w32(o, self + 0xB8, L9_ADD(l9_u32(o, self + 0xB8), L9_MUL(speed, c)));
+    }
+    if (l9_c_0011E2A8(o, l9_u32(o, ent + 0x74), &s)) return -1;
+    l9_w32(o, DRUM_A0 + 0, L9_ADD(l9_u32(o, self + 0xB0), L9_MUL(0x40E00000u, s)));
+    l9_w32(o, DRUM_A0 + 4, L9_ADD(0x40E00000u, l9_u32(o, self + 0xB4)));
+    if (l9_c_0011DE90(o, l9_u32(o, ent + 0x74), &c)) return -1;
+    l9_w32(o, DRUM_A0 + 8, L9_ADD(l9_u32(o, self + 0xB8), L9_MUL(0x40E00000u, c)));
+    if (!L9_EQ(l9_u32(o, self + 0x38), 0)) {
+        if (l9_c_0019AD00(o, self, DRUM_A0, (int32_t)0x80000007u, &r)) return -1;
+        if (r != 0) l9_w32(o, self + 0x38, 0);
+    }
+    uint32_t lift = L9_SUB(l9_u32(o, ent + 0x78), 0x3D75C28Fu);
+    l9_w32(o, ent + 0x78, lift);
+    if (L9_LT(lift, 0xC0800000u)) l9_w32(o, ent + 0x78, 0xC0800000u);
+    lift = l9_u32(o, ent + 0x78);
+    l9_w32(o, self + 0xB4, L9_ADD(l9_u32(o, self + 0xB4), lift));
+    const uint32_t hit = l9_u8(o, self + 5) == 3u ? l9_u16(o, self + 0x36) : 0;
+    if (hit != 0) {
+        if (!(hit & 0x2000u)) {
+            drum_land(o, self);
+            if (l9_failed(o)) return -1;
+            l9_w16(o, self + 0x36, 0);
+            l9_w8(o, self + 4, 3);
+            l9_w8(o, self + 5, 0);
+            l9_w8(o, self + 0, 2);
+            return 0;
+        }
+        l9_w16(o, self + 0x36, 0);
+    }
+    if (L9_LT(l9_u32(o, ent + 0x78), 0)) {
+        l9_w32(o, DRUM_A0 + 0, 0);
+        l9_w32(o, DRUM_A0 + 4, 0xC1200000u);
+        l9_w32(o, DRUM_A0 + 8, 0);
+        l9_w32(o, DRUM_A0 + 0xC, 0x3F800000u);
+        if (l9_c_0019AB20(o, self, self + 0xB0, DRUM_A0, (int32_t)0x80000007u, &r)) return -1;
+        if (r != 0) {
+            drum_land(o, self);
+            if (l9_failed(o)) return -1;
+            l9_w16(o, self + 0x36, 0);
+            l9_w8(o, self + 4, 3);
+            l9_w8(o, self + 5, 0);
+        } else {
+            int go = 0;
+            const uint32_t index = (uint32_t)l9_s16(o, 0x70003B8Au);
+            if ((l9_u32(o, 0x70003B68u) + index) & 0x3Fu) go = 1;
+            else {
+                if (l9_c_001B0D80(o, self, &r)) return -1;
+                go = r == 0;
+            }
+            if (go && l9_u8(o, 0x00810700u) == 0x15u && L9_LT(l9_u32(o, self + 0xB4), 0x40A00000u)) {
+                l9_w32(o, DRUM_A0 + 0, l9_u32(o, self + 0xB0));
+                l9_w32(o, DRUM_A0 + 4, F_10);
+                l9_w32(o, DRUM_A0 + 8, l9_u32(o, self + 0xB8));
+                l9_w32(o, DRUM_A0 + 0xC, 0x3F800000u);
+                if (l9_c_001EFD20(o, (int32_t)0x8000005Fu, DRUM_A0)) return -1;
+                if (l9_c_001FBD50(o, self, 0xDB, 0, 0x44480000u, &r)) return -1;
+                l9_w16(o, self + 0x36, 0);
+                l9_w8(o, self + 4, 3);
+                l9_w8(o, self + 5, 0);
+            }
+        }
+    }
+    return 0;
+}
+
+int em_level9_port_00156620(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault)
+{
+    L9 o;
+    if (l9_begin(&o, h, fault)) return -1;
+    const uint32_t ent = self + 0x1F0;
+    int32_t r = 0;
+    uint32_t v = 0;
+    switch (l9_u8(&o, self + 4)) {
+    case 0:
+        if (l9_c_001B0FD0(&o, self, &r) || r != 0) break;
+        l9_w16(&o, self + 0x34, 1);
+        l9_w8(&o, self + 0, 1);
+        if (l9_c_00102948(&o, ent + 0x10, self + 0xB0)) break;
+        if (l9_c_00102948(&o, ent + 0x20, self + 0xC0)) break;
+        l9_c_001C6380(&o, self);
+        break;
+    case 1:
+        if (l9_s16(&o, self + 0x36) != 0) {
+            l9_w8(&o, self + 0, 2);
+            l9_w8(&o, self + 4, 2);
+            if (l9_c_00102948(&o, DRUM_A0, self + 0xB0)) break;
+            if (l9_c_00102948(&o, DRUM_B0, DRUM_A0)) break;
+            {
+                const uint32_t up = l9_u32(&o, DRUM_A0 + 4), down = l9_u32(&o, DRUM_B0 + 4);
+                l9_w32(&o, DRUM_A0 + 4, L9_ADD(up, 0x40800000u));
+                l9_w32(&o, DRUM_B0 + 4, L9_SUB(down, 0x40800000u));
+            }
+            if (l9_c_0019A570(&o, DRUM_A0, DRUM_B0, 4, 0, &r)) break;
+            if (r != 0) {
+                if (l9_c_001029C0(&o, DRUM_FX)) break;
+                if (l9_c_00102B08(&o, DRUM_FX, DRUM_FX, 0x3FC90FDBu)) break;
+                if (l9_c_00102918(&o, DRUM_FX, DRUM_FX, self + 0xB0)) break;
+                l9_w32(&o, 0x700036D4u, L9_ADD(l9_u32(&o, 0x700036D4u), 0x3E4CCCCDu));
+                if (l9_c_001F0460(&o, 4, DRUM_FX)) break;
+            }
+        }
+        if (l9_callback(&o, l9_u32(&o, self + 0x4C), self)) break;
+        if (l9_c_001028D0(&o, DRUM_A0, 0x00810350u, self + 0xB0)) break;
+        l9_w32(&o, 0x700038ACu, 0);
+        if (l9_c_00102738(&o, DRUM_A0, DRUM_A0, &v)) break;
+        l9_w32(&o, 0x70003A20u, v);
+        l9_w32(&o, 0x70003A24u, 0x42480000u);
+        {
+            const uint32_t limit = L9_MUL(l9_u32(&o, 0x70003A24u), 0x42480000u);
+            v = l9_u32(&o, 0x70003A20u);
+            l9_w32(&o, 0x70003A24u, limit);
+            r = L9_LT(limit, v);
+        }
+        if (r) {
+            l9_c_001B17A0(&o, self, &r);
+        } else {
+            l9_w8(&o, self + 1, 1);
+            l9_c_001B1D20(&o, self);
+        }
+        break;
+    case 2: {
+        const uint32_t s5 = l9_u8(&o, self + 5);
+        int landed = 0;
+        if (s5 == 0) drum_burst(&o, self, ent);
+        else if (s5 == 1) {
+            const int32_t t = l9_s16(&o, self + 0x28) - 1;
+            l9_w16(&o, self + 0x28, (uint32_t)t);
+            if ((int16_t)t == 0) {
+                l9_w32(&o, self + 0xC4, l9_u32(&o, ent + 0x74));
+                const uint32_t k = l9_u8(&o, self + 3);
+                if (k == 0x18 || k == 0x2A) {
+                    l9_w8(&o, self + 4, 3);
+                    l9_w8(&o, self + 5, 0);
+                } else {
+                    l9_w8(&o, self + 5, l9_u8(&o, self + 5) + 1u);
+                    l9_w16(&o, self + 0x28, 8);
+                }
+            }
+        } else if (s5 == 2 || s5 == 3) {
+            if (s5 == 2) {
+                const int32_t t = l9_s16(&o, self + 0x28);
+                if (t == 0) {
+                    l9_w8(&o, self + 5, s5 + 1u);
+                    l9_w8(&o, self + 0, 1);
+                    l9_w16(&o, self + 0x36, 0);
+                    l9_w16(&o, self + 0x34, 1);
+                } else l9_w16(&o, self + 0x28, (uint32_t)(t - 1));
+            }
+            landed = drum_flight(&o, self, ent);
+        }
+        if (l9_failed(&o) || landed < 0) break;
+        if (l9_c_001C6380(&o, self)) break;
+        if (l9_c_001A2370(&o, self, self + 0xD0)) break;
+        if (l9_c_001B17A0(&o, self, &r)) break;
+        l9_callback(&o, l9_u32(&o, self + 0x4C), self);
         break;
     }
     case 3:

@@ -276,6 +276,11 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return !write && active && contains(a,n,0x00282154u,3)
             ? (uint8_t *)(uintptr_t)active+(a-0x00282154u) : NULL;
     }
+    if(overlaps(a,n,0x008112C0u,0xA00u)) {
+        /* D_008112C0..D_00811CBF: the clipper's stage (em_shadow_live's). */
+        uint8_t *stage=em_shadow_live_stage_bytes();
+        return stage && contains(a,n,0x008112C0u,0xA00u) ? stage+(a-0x008112C0u) : NULL;
+    }
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
         return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
     if(overlaps(a,n,D81F970_BASE,D81F970_SIZE))
@@ -632,6 +637,8 @@ static int low_entry(EmArea01Live *l,EmArea01Call *c)
     /* 001B5360(node): the 0012A5D0 bugs' walk step from 0012D940's state 1
      * (AREA22's corridor bugs, +5 = 10 / 11), em_area00_low's translation. */
     case 0x001B5360u: rc=c->na<1 ? -1 : em_area00_low_001B5360(&low,a0);break;
+    /* 001FC580(node, id): the AREA19 drums' (00156620) landing sound. */
+    case 0x001FC580u: rc=c->na<2 ? -1 : em_area00_low_001FC580(&low,a0,(int32_t)a1);break;
     default: rc=-1;break;
     }
     if(rc<0)
@@ -644,7 +651,7 @@ static int low_entry_handles(uint32_t fn)
     switch(fn) {
     case 0x0012B410u: case 0x0012B970u: case 0x0012BE20u: case 0x0012C490u: case 0x0012CAA0u:
     case 0x0012D240u: case 0x0012D850u: case 0x00129FC0u: case 0x0012E070u:
-    case 0x0012DE90u: case 0x00102870u: case 0x00128830u: case 0x001B5360u:
+    case 0x0012DE90u: case 0x00102870u: case 0x00128830u: case 0x001B5360u: case 0x001FC580u:
         return 1;
     default:
         return 0;
@@ -1068,6 +1075,25 @@ static int worker(void *ctx,EmArea01Call *c)
         const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
         int rc=em_area01_timeline_call(&host,c,&fault);
         return worker_result(l,rc,fault);
+    }
+    if(c->function==0x001CD370u && c->na==1) {
+        /* 001CD370(i): D_00275670 + i * 0x40 + 0x2240, the clip matrices. */
+        const uint8_t *context=bytes(l,0x00275670u,4,0);
+        uint32_t base=0;
+        if(!context)return worker_result(l,-1,c->function);
+        memcpy(&base,context,4);
+        c->v0=(uint64_t)(int64_t)(int32_t)(base+(uint32_t)c->a[0]*0x40u+0x2240u);
+        return worker_result(l,0,0);
+    }
+    if(c->function==0x001CF470u) {
+        /* 001CF470(D_008112C0, m): the level ports' 001CDDC0 clip. */
+        const uint8_t *m=c->na==2 && (uint32_t)c->a[0]==0x008112C0u ? bytes(l,(uint32_t)c->a[1],64,0) : NULL;
+        if(!m)return worker_result(l,-1,c->function);
+        uint32_t rows[16];int32_t count=0;
+        memcpy(rows,m,sizeof rows);
+        const int rc=em_shadow_live_001CF470(rows,&count);
+        c->v0=(uint64_t)(int64_t)count;
+        return worker_result(l,rc,rc<0 ? c->function : 0);
     }
     if(c->function==0x001FBD50u || c->function==0x001FBF50u || c->function==0x001B1380u ||
        c->function==0x001FC3C0u || c->function==0x001FC520u) {

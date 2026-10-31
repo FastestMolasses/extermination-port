@@ -901,6 +901,23 @@ int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint
 
 uint32_t em_shadow_live_effect_decals(void) { return S.effect_decals; }
 
+/* D_008112C0..D_00811CBF, the clipper's stage (one storage for every caller:
+ * the level ports' 001CDDC0 write its input through this view). */
+uint8_t *em_shadow_live_stage_bytes(void) { return S.bound ? (uint8_t *)S.stage : NULL; }
+
+/* 001CF470(D_008112C0, m) for those callers. */
+int em_shadow_live_001CF470(const uint32_t m[16], int32_t *count)
+{
+    if (S.fault) return -1;
+    if (!S.bound) return fail(0x001CF470u, "the shadow is not bound");
+    S.effect_decal.stage = S.stage;
+    S.effect_decal.workers = &S.dbase;
+    if (em_shadow_decal_001CF470(&S.effect_decal, m, count) < 0)
+        return fail(S.effect_decal.fault.address ? S.effect_decal.fault.address : 0x001CF470u,
+                    "001CF470 (a level port's quad) faulted");
+    return 0;
+}
+
 /* --------------------------------- another owner's 001F9100 decal */
 
 static int od_001CB5F0(void *ctx, uint32_t table, int32_t id, int32_t count, uint8_t **bytes)
