@@ -22,6 +22,7 @@ typedef struct {
     const EmLevel12PortHooks *h;
     EmLevel12PortFault *fault;
     uint8_t sink[16]; /* reads/writes after a fault land here */
+    int32_t floor_result; /* the last 00175900's v0 */
 } L12;
 
 static inline int l12_latch(L12 *o, uint32_t address, int32_t code)
@@ -398,6 +399,13 @@ static inline int l12_c_001749A0(L12 *o, uint32_t a0, int32_t n1, int32_t n2, ui
     return o->h->w_001749A0(o->h->ctx, a0, n1, n2, l12_float(f3)) < 0 ? l12_latch(o, 0x001749A0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l12_c_001749F0(L12 *o, uint32_t a0, int32_t n1, uint32_t f2, uint32_t f3)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_001749F0) return l12_latch(o, 0x001749F0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001749F0(o->h->ctx, a0, n1, l12_float(f2), l12_float(f3)) < 0 ? l12_latch(o, 0x001749F0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l12_c_00174A50(L12 *o, uint32_t a0, uint32_t f1)
 {
     if (l12_failed(o)) return -1;
@@ -412,6 +420,13 @@ static inline int l12_c_00174AB0(L12 *o, uint32_t a0)
     return o->h->w_00174AB0(o->h->ctx, a0) < 0 ? l12_latch(o, 0x00174AB0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l12_c_00174AC0(L12 *o, uint32_t a0, int32_t n1)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_00174AC0) return l12_latch(o, 0x00174AC0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_00174AC0(o->h->ctx, a0, n1) < 0 ? l12_latch(o, 0x00174AC0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l12_c_001751A0(L12 *o, uint32_t a0)
 {
     if (l12_failed(o)) return -1;
@@ -419,11 +434,18 @@ static inline int l12_c_001751A0(L12 *o, uint32_t a0)
     return o->h->w_001751A0(o->h->ctx, a0) < 0 ? l12_latch(o, 0x001751A0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l12_c_001754E0(L12 *o, uint32_t a0, int32_t n1, int32_t *result)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_001754E0) return l12_latch(o, 0x001754E0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001754E0(o->h->ctx, a0, n1, result) < 0 ? l12_latch(o, 0x001754E0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l12_c_00175900(L12 *o, uint32_t a0, int32_t n1)
 {
     if (l12_failed(o)) return -1;
     if (!o->h->w_00175900) return l12_latch(o, 0x00175900u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
-    return o->h->w_00175900(o->h->ctx, a0, n1) < 0 ? l12_latch(o, 0x00175900u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+    return o->h->w_00175900(o->h->ctx, a0, n1, &o->floor_result) < 0 ? l12_latch(o, 0x00175900u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l12_c_001764E0(L12 *o, uint32_t a0)
@@ -433,11 +455,46 @@ static inline int l12_c_001764E0(L12 *o, uint32_t a0)
     return o->h->w_001764E0(o->h->ctx, a0) < 0 ? l12_latch(o, 0x001764E0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l12_c_00178B90(L12 *o, uint32_t a0, int32_t n1)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_00178B90) return l12_latch(o, 0x00178B90u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_00178B90(o->h->ctx, a0, n1) < 0 ? l12_latch(o, 0x00178B90u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l12_c_001796C0(L12 *o, uint32_t a0)
 {
     if (l12_failed(o)) return -1;
     if (!o->h->w_001796C0) return l12_latch(o, 0x001796C0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
     return o->h->w_001796C0(o->h->ctx, a0) < 0 ? l12_latch(o, 0x001796C0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_00179880(L12 *o, uint32_t a0, uint32_t a1)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_00179880) return l12_latch(o, 0x00179880u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_00179880(o->h->ctx, a0, a1) < 0 ? l12_latch(o, 0x00179880u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0017C370(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0017C370) return l12_latch(o, 0x0017C370u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0017C370(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0017C370u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0017C540(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0017C540) return l12_latch(o, 0x0017C540u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0017C540(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0017C540u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_00182430(L12 *o, uint32_t a0, int32_t n1)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_00182430) return l12_latch(o, 0x00182430u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_00182430(o->h->ctx, a0, n1) < 0 ? l12_latch(o, 0x00182430u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l12_c_00188610(L12 *o, uint32_t a0, int32_t *result)
@@ -592,6 +649,13 @@ static inline int l12_c_001B2B10(L12 *o, uint32_t a0, uint32_t a1, uint32_t a2)
     return o->h->w_001B2B10(o->h->ctx, a0, a1, a2) < 0 ? l12_latch(o, 0x001B2B10u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l12_c_001B61C0(L12 *o, int32_t n0, int32_t n1, int32_t n2, int32_t n3)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_001B61C0) return l12_latch(o, 0x001B61C0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001B61C0(o->h->ctx, n0, n1, n2, n3) < 0 ? l12_latch(o, 0x001B61C0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l12_c_001B6F00(L12 *o, uint32_t a0, uint32_t a1, uint32_t f2)
 {
     if (l12_failed(o)) return -1;
@@ -618,6 +682,13 @@ static inline int l12_c_001C6160(L12 *o, uint32_t a0, int32_t *result)
     if (l12_failed(o)) return -1;
     if (!o->h->w_001C6160) return l12_latch(o, 0x001C6160u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
     return o->h->w_001C6160(o->h->ctx, a0, result) < 0 ? l12_latch(o, 0x001C6160u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_001C61D0(L12 *o, uint32_t a0, int32_t n1, int32_t *result)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_001C61D0) return l12_latch(o, 0x001C61D0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001C61D0(o->h->ctx, a0, n1, result) < 0 ? l12_latch(o, 0x001C61D0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l12_c_001C64F0(L12 *o, uint32_t a0, uint32_t f1)
@@ -801,6 +872,62 @@ static inline int l12_c_0021BE40(L12 *o, uint32_t a0, uint32_t a1, int32_t *resu
     if (!o->h->w_0021BE40) return l12_latch(o, 0x0021BE40u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
     return o->h->w_0021BE40(o->h->ctx, a0, a1, result) < 0 ? l12_latch(o, 0x0021BE40u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
 }
+static inline int l12_c_0021C120(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021C120) return l12_latch(o, 0x0021C120u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021C120(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0021C120u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021C190(L12 *o, uint32_t a0, int32_t *result)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021C190) return l12_latch(o, 0x0021C190u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021C190(o->h->ctx, a0, result) < 0 ? l12_latch(o, 0x0021C190u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021C200(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021C200) return l12_latch(o, 0x0021C200u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021C200(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0021C200u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021C270(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021C270) return l12_latch(o, 0x0021C270u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021C270(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0021C270u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021C350(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021C350) return l12_latch(o, 0x0021C350u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021C350(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0021C350u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021D250(L12 *o, uint32_t a0, int32_t n1)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021D250) return l12_latch(o, 0x0021D250u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021D250(o->h->ctx, a0, n1) < 0 ? l12_latch(o, 0x0021D250u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021D2E0(L12 *o, uint32_t a0, int32_t n1, int32_t n2)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021D2E0) return l12_latch(o, 0x0021D2E0u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021D2E0(o->h->ctx, a0, n1, n2) < 0 ? l12_latch(o, 0x0021D2E0u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l12_c_0021D490(L12 *o, uint32_t a0)
+{
+    if (l12_failed(o)) return -1;
+    if (!o->h->w_0021D490) return l12_latch(o, 0x0021D490u, EM_LEVEL12_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021D490(o->h->ctx, a0) < 0 ? l12_latch(o, 0x0021D490u, EM_LEVEL12_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 /* END GENERATED WRAPPERS */
 
 /* Float constants (bit patterns, as the originals materialize them). */

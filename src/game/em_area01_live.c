@@ -1107,6 +1107,17 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_timeline_call(&host,c,&fault);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x0021BF90u && c->na==2 && (uint32_t)c->a[0]==0x008102B0u) {
+        /* 0021BF90(the player, hit): the latch's start (the record's own
+         * translations); the hit's +3 byte through this map. */
+        const uint8_t *k=bytes(l,(uint32_t)c->a[1]+3u,1,0);
+        if(!k)return worker_result(l,-1,c->function);
+        const uint8_t kind=*k;
+        if(em_area01_live_suspend(l)<0)return -1;
+        const int rc=em_player_closure_live_0021BF90(kind);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,rc<0 ? c->function : 0);
+    }
     if(c->function==0x001CD370u && c->na==1) {
         /* 001CD370(i): D_00275670 + i * 0x40 + 0x2240, the clip matrices. */
         const uint8_t *context=bytes(l,0x00275670u,4,0);
@@ -1414,7 +1425,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return rc;
     }
     case 0x0019AA80u: /* the AREA01 revisit's 0x8282F0 probe */
-    case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
+    case 0x0019A570u: case 0x0019A910u: case 0x0019A440u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x001A0B10u: case 0x0019D330u: case 0x001A7280u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
     case 0x001A5C30u: case 0x0019AD00u: case 0x0019AFE0u: case 0x0019B2C0u: {

@@ -3584,6 +3584,21 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     };
     for (unsigned i = 0; i < sizeof kMajor2 / sizeof *kMajor2; ++i)
         set2(b, kMajor2[i].state, kMajor2[i].fn, &L.m2, NULL, m2_pre, m2_post, kMajor2[i].name);
+    set2(b, 0x15, knees_state, NULL, NULL, reaction_pre, reaction_post, "00224FE0");
+    {
+        /* 0015B770's +5 0xD and 0xE by +0xD: kinds 0 and 1. */
+        static Slot latch[4];
+        slot(&latch[0], latch_0, NULL, NULL, reaction_pre, reaction_post, "0021FB40");
+        slot(&latch[1], latch_1, NULL, NULL, reaction_pre, reaction_post, "002208C0");
+        slot(&latch[2], throw_0, NULL, NULL, reaction_pre, reaction_post, "0021FED0");
+        slot(&latch[3], throw_1, NULL, NULL, reaction_pre, reaction_post, "00220B50");
+        for (unsigned k = 0; k < 2; ++k) {
+            b->stage.phase13[k] = slot_run;
+            b->stage.phase13_context[k] = &latch[k];
+            b->stage.phase14[k] = slot_run;
+            b->stage.phase14_context[k] = &latch[2u + k];
+        }
+    }
 
     /* 0015B530's 00162DB0 / 00163B40 (PLAYER_FALL.md "Stage slots"). */
     slot(&L.major4[EM_PLAYER_MAJOR4_00162DB0], em_player_fall_state5, &L.fall, NULL, NULL, NULL, "00162DB0");
