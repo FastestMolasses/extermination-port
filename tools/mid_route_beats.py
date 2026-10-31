@@ -270,6 +270,15 @@ def trace(beat):
 LEAD = {'a13_00': 210}
 
 
+# Steering only (no pad byte changes): a recorded press made at the very edge of
+# a Use's reach. a13c_01's Cross on door [17] stands 0.1 inside it: a card's
+# player standing 0.2 short of the row misses, so the rows aim further in.
+# a13c_05's walk along [44]'s platform stops pushing a corner the steered walk
+# overruns into the drop west of it: the rows stop 2 units east of the corner.
+PATH_EDIT = {'a13c_01': ((140, 166, 772.5, 1256.0),),
+             'a13c_05': ((846, 934, 811.5, 1129.5),)}
+
+
 def prepare(name, beats):
     """The chain's EMA1 pad (each beat's recorded commands, placed at its
     first counter relative to the chain's first beat), its path (the
@@ -296,7 +305,10 @@ def prepare(name, beats):
             if value != sent or (rows and rows[-1][0] == r['f'] + off):
                 rows.append((r['f'] + off, *value))
                 sent = value
-        path += [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
+        rows_path = [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
+        for lo, hi, x, z in PATH_EDIT.get(b, ()):
+            rows_path[lo:hi + 1] = [(x, z, yaw) for _x, _z, yaw in rows_path[lo:hi + 1]]
+        path += rows_path
         marks.append(off + t['frames'])
     last = marks.pop()
     assert rows and len(rows) <= 4096 and all(0 <= f <= last for f, *_ in rows), name
@@ -368,6 +380,8 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    if beats[0].startswith(('a13b_', 'a13c_', 'a13d_')) or beats[-1].startswith(('a13b_', 'a13c_', 'a13d_')):
+        env['EM_START_AT_FINE'] = '2' if beats[0] in ('a13c_04', 'a13c_05') else '1'
     start = time.time()
     ended = False
     with open(log_path, 'w') as log:

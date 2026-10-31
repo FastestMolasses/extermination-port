@@ -210,6 +210,10 @@ static struct {
     float path_yaw[PATH_MAX_ROWS];
     int path_has_yaw;
     unsigned turn;             /* frames spent turning for the coming press */
+    /* EM_START_AT_FINE=1: the finer press and stop steering (a released walk
+     * slides two units; AREA13's ladders and door edges want 0.3 and 0.03):
+     * tools/mid_route_beats.py sets it for AREA13's later beats. */
+    int fine;
 } pad;
 
 static int refuse(const char *why, const char *detail)
@@ -679,6 +683,10 @@ void em_start_at_pad_control(unsigned counter)
 {
     if (!s.on || !pad.loaded || pad.active || pad.done) return;
     pad.active = 1;
+    {
+        const char *fine = getenv("EM_START_AT_FINE");
+        pad.fine = fine ? atoi(fine) : 0;
+    }
     pad.start = counter;
     pad.t = 0;
     pad.hold = 0;
@@ -792,32 +800,32 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         const unsigned before = t >= 4 ? (unsigned)t - 4u : 0u;
         const float bx = pad.path[t][0] - pad.path[before][0], bz = pad.path[t][1] - pad.path[before][1];
         if (press && bx * bx + bz * bz < 0.04f && pad.path_has_yaw && heading && fwd && d2 < 20.0f * 20.0f &&
-            pad.turn < 480u) {
+            pad.turn < (pad.fine ? 480u : 90u)) {
             float off = pad.path_yaw[t] - *heading;
             while (off > 3.14159265f) off -= 6.2831853f;
             while (off < -3.14159265f) off += 6.2831853f;
             const float n = sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2]);
-            /* (A step is about 0.3: after 160 frames 0.6 will do.) */
-            const float near = pad.turn < 160u ? 0.3f : 0.6f;
+            /* (A step is about 0.3: after 320 frames 0.6 will do.) */
+            const float near = pad.fine && pad.turn < 320u ? 0.3f : 0.6f;
             if (d2 > near * near && n > 0.0f) {
                 const float fx = fwd[0] / n, fz = fwd[2] / n, d = sqrtf(d2);
                 /* A released walk still slides about two units (its stop
                  * action): near the place the stick lets go early, and a
                  * standing player takes short steps. */
-                const float mag = d >= 2.0f ? 0.5f : 0.42f + 0.04f * d;
+                const float mag = d >= 2.0f || !pad.fine ? 0.5f : 0.42f + 0.04f * d;
                 pad.turn++;
-                pad.now = moving && d < 2.2f
+                pad.now = pad.fine && moving && d < 2.2f
                               ? (EmPadState){0}
                               : (EmPadState){0, mag * (-hx * fz + hz * fx) / d, -mag * (hx * fx + hz * fz) / d, 0, 0};
                 return 0;
             }
-            if (fabsf(off) > 0.03f && n > 0.0f) {
+            if (fabsf(off) > (pad.fine ? 0.03f : 0.08f) && n > 0.0f) {
                 const float fx = fwd[0] / n, fz = fwd[2] / n;
                 const float wx = sinf(pad.path_yaw[t]), wz = cosf(pad.path_yaw[t]);
                 pad.turn++;
                 /* A walking player stops first: a stick held while walking
                  * is an arc that leaves the place and orbits it. */
-                pad.now = moving ? (EmPadState){0}
+                pad.now = pad.fine && moving ? (EmPadState){0}
                                  : (EmPadState){0, 0.5f * (-wx * fz + wz * fx), -0.5f * (wx * fx + wz * fz), 0, 0};
                 return 0;
             }
@@ -862,10 +870,11 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         }
         float dx = pad.path[k][0] - pos[0], dz = pad.path[k][1] - pos[2];
         float d = sqrtf(dx * dx + dz * dz);
-        /* A recorded stop with the stick held pushes against something: the
-         * player walks up to it and pushes on the recorded heading. */
+        /* EM_START_AT_FINE=2: a recorded stop with the stick held pushes
+         * against something: the player walks up to it and pushes on the
+         * recorded heading. */
         float cap = 1.0f;
-        if (pad.path_has_yaw && k + 1u < pad.path_count) {
+        if (pad.fine == 2 && pad.path_has_yaw && k + 1u < pad.path_count) {
             const float sx = pad.path[k + 1u][0] - pad.path[k][0], sz = pad.path[k + 1u][1] - pad.path[k][1];
             if (sx * sx + sz * sz < 1e-6f && d < 10.0f) {
                 cap = 0.5f;
@@ -878,7 +887,7 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         }
         /* A press made running (a running jump) leaves on the recorded
          * heading: the last rows before it steer by that heading. */
-        if (pad.path_has_yaw && heading && t >= 4) {
+        if (pad.fine && pad.path_has_yaw && heading && t >= 4) {
             const float rx = pad.path[t][0] - pad.path[t - 4][0], rz = pad.path[t][1] - pad.path[t - 4][1];
             for (unsigned i = 0; rx * rx + rz * rz >= 0.04f && i < pad.count; ++i)
                 if (pad.row[i].f >= t && pad.row[i].f <= t + 10 && pad.row[i].buttons &&

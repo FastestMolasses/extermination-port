@@ -569,6 +569,11 @@ recording-derived and stay in the ignored `build/`.
   shifts the pool). Comparison only, for tools/test_boss_fight.py (written by
   tools/capture_boss_fight.py anchors); it writes game state and is never part
   of play.
+  `EM_START_AT_FINE=1` (with EM_START_AT_PATH) uses the finer press and stop
+  steering AREA13's later beats need: a walking player stops first, a press
+  waits for 0.3 units (0.6 after 320 frames) and 0.03 rad, a running press
+  leaves on the recorded heading; 2 also pushes a recorded stop on the recorded
+  heading (docs/AREA13_LATER.md).
   `EM_START_AT_MARKS=<f>,<f>,...` (with EM_START_AT_PAD) prints the position,
   the rand() state and the progress block when the script's clock reaches
   each frame (`pad mark <f>`): a chained beat's end. A path wait of 10 frames
