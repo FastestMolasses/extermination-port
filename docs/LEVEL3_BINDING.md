@@ -323,6 +323,13 @@ from New Game:
   row 0): the native stream leaves a01_s5 at another state, and the burn's
   reaction draws rand() & 1 for its clip.
 
+**2026-10-30, lane J1 (branch `area19`): AREA19 from start cards.** AREA19 subs 0
+and 1 run in the shared composition: state, owners, scripts, assets, start points
+`area19`, `a19_01`, `a19_02`, `a19b_01`, `a19b_02`, `a19c_00` .. `a19c_07`, `a19d_00`
+.. `a19d_20`. The doors of AREA13 and AREA15 into AREA19 and door [50] out of it now
+load. Nothing is row-exact yet. Evidence, shared changes and open items:
+docs/AREA19_PORT.md.
+
 **2026-10-30, lane K1 (branch `area15`): AREA15 and AREA03 from start cards.**
 AREA15 subs 0 / 1 and AREA03 sub 0 run in the shared composition: state, owners,
 scripts, assets, start points `area15`, `a15_00`, `a15b_00` .. `a15b_04`,
