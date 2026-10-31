@@ -1,5 +1,6 @@
 #ifndef EM_AIM_FIRE_WORLD_LIVE_H
 #define EM_AIM_FIRE_WORLD_LIVE_H
+#include "game/em_coll_grid_hull.h"
 #include "game/em_aim_fire_live.h"
 #include "game/em_collision_world.h"
 
@@ -87,4 +88,5 @@ const uint8_t *em_aim_fire_world_live_player_hull(uint32_t address, uint32_t *si
  * after one of this composition's segment probes hit the player; the host
  * hands it to em_area01_collision_set_player_proxy). */
 const void *em_aim_fire_world_live_player_body(void);
+const EmCollHullWorld *em_aim_fire_world_live_hulls(void);
 #endif

@@ -14,6 +14,9 @@ recordings were made through the decomp's hidden, run-locked `route_capture`.
 
 ## Current state
 
+**2026-10-31, lane M1 (branch `area13x`): AREA13's later beats (a13b, a13c, a13d)
+from start cards, into AREA04 entry 7 and AREA19 entry 10: docs/AREA13_LATER.md.**
+
 **2026-10-30, lane H1 (branch `area13`): New Game row-exact through the lift's
 AREA13 load, the lobby, the outside, the hatch and the shaft, to AREA19's load.**
 `--run --until a13_05` (the bed branch; drive tables `build/drive_replay_bed`,

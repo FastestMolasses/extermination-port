@@ -3862,7 +3862,10 @@ int em_scene_bindings_panel_owner_read(uint32_t owner, uint32_t offset, uint32_t
         !((offset == 3 && size == 1) || (offset == 0x34 && size == 2)))
         return -1;
     const EmActor *a = &s_pool.records[(owner - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE];
-    if (!a->status || a->self != a || (a->callback != 0x00158EC0u && a->callback != 0x00159210u))
+    /* 00158EC0, 00159210, and AREA13's battery machine [44] 0x823E90 */
+    if (!a->status || a->self != a ||
+        (a->callback != 0x00158EC0u && a->callback != 0x00159210u &&
+         !(s_state.d810700 == 0x0D && a->callback == 0x00823E90u)))
         return -1;
     uint8_t b[2];
     if (em_area01_actor_view_snapshot(&s_area01_live.actors, owner + offset, size, b) < 0)
@@ -4077,11 +4080,12 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         if (fn == 0x00823DA0u) goto bind;
         return -1;
     }
-    /* AREA15's, AREA03's, AREA08's, AREA07's and AREA19's boot owners (their placements',
+    /* AREA15's, AREA03's, AREA08's, AREA07's, AREA19's and AREA13's boot owners (their placements',
      * groups' and spawns'): the runtime's owners or its fallback
      * (em_area01_runtime_later); an untranslated one faults at its address
      * when it runs. */
-    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7 || s_state.d810700 == 0x13) &&
+    if ((s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 || s_state.d810700 == 7 || s_state.d810700 == 0x13 ||
+         s_state.d810700 == 0x0D) &&
         fn < 0x00823500u && fn && fn != 0x001F5040u)
         goto bind;
     /* AREA06's boot owners: g[11]'s node 00219870 and the debris spawner
@@ -4100,7 +4104,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
      * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
     if ((s_state.d810700 == 1 || s_state.d810700 == 4 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
-         s_state.d810700 == 7 || s_state.d810700 == 0x13) && fn == 0x001F5040u) {
+         s_state.d810700 == 7 || s_state.d810700 == 0x13 || s_state.d810700 == 0x0D) && fn == 0x001F5040u) {
         if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;
         a->callback = fn;
@@ -4347,7 +4351,8 @@ static int area01_contact(void *ctx, uint32_t function, uint32_t entry, uint32_t
     /* 0x823B10: AREA06's contact word (0x823B50's record +0x34; another
      * overlay's code at the address never reaches here: only AREA06
      * records hold it). */
-    const int contact = function == 0x001E3D20u || (s_state.d810700 == 6 && function == 0x00823B10u);
+    const int contact = function == 0x001E3D20u || (s_state.d810700 == 6 && function == 0x00823B10u) ||
+                        (s_state.d810700 == 0x0D && function == 0x008284E0u); /* [45]'s thrown piece */
     if (!contact || player != EM_AREA01_PLAYER_BASE || player_b0 != player + 0xB0u) {
         fprintf(stderr, "em_area01: 001A8660: a +0x34 contact %08X (entry %08X, player %08X) with no binding\n",
                 (unsigned)function, (unsigned)entry, (unsigned)player);
