@@ -96,7 +96,7 @@ linked byte-identical. Grid node numbers are that RAM's (the header at *0x0028A5
 - **Hit points and damage.** 0013D490 (BM): +0x34 = 60 (100 with bit 7 of +0xD, set when
   D_00810808 == 0xFF; 100 / 200 with D_0081070A). A round is `dmg 5` (001861C0, BM);
   001B41F0 (BM) on type 5 stores `5 | 0x8000` when the hit polygon's +0x1C is non-zero,
-  else 5; 00141A30 (NM... C) multiplies a 0x8000 hit by 5. Measured (exploration, 30
+  else 5; 00141A30 multiplies a 0x8000 hit by 5. Measured (exploration, 30
   units, R1 lock): every hit took 5, so 12 rounds per creature; 25 of damage stunned it
   (e[4] = 2) for about 24 frames. A hit of 25 was not seen. The knife's +0x36 is 3
   (AIM_FIRE.md), so a melee is 3, or 15 with the 0x8000 bit.
@@ -308,9 +308,13 @@ counters 217003..262010, each beat starting on the previous beat's last counter.
 | infection | 30 | 100 | 40 / 50 / 60 a08_01 f630 / f902 / f993; 75 / 85 a08_06 f760 / f2735; 100 a03c_02 f452 |
 | rounds | 21 | 51 | a08_01 f1095; the magazine stays 21 |
 
+## 5. Census
+
+Not run (section 8).
+
 ## 6. Tried and not kept
 
-Scratch under `../Extermination/build/route16cap/` (deleted at the end); leads, not ground truth.
+Exploration runs from scratch snapshots (deleted); leads, not ground truth.
 
 - **Shooting the creatures.** R1 lock from 34 units in AREA03 sub 0: 12 hits, 5 each, a leap (-20)
   between. The lock takes a creature only in front of the player and within about 40 units (nothing
@@ -356,8 +360,8 @@ Scratch under `../Extermination/build/route16cap/` (deleted at the end); leads, 
 a07_00 ends in AREA07's chamber C at health 17, infection 100, 51 rounds, D_00810848 bit 1 set, flag 0x25
 still clear. The way on, read from the graph: back to the lift room, the corridor north, the slider [26]
 (needs bit 1: done), sub 2 (g[0] item 0x1E), the slider [13] to sub 3 (g[2] item 0x1E, g[1] item 0x20,
-[7] 0x823990: with D_0081076D... the half 0x823C20 sets flag 0x25 here because AREA08's flag 0x18 is
-0xFF: read, not played), and the bed [42] in chamber A for item 0x20.
+[7], whose half 0x823C20 runs script 0x826930 (flag 0x25) because AREA08's flag 0x18 is 0xFF: read, not
+played), and the bed [42] in chamber A for item 0x20.
 
 From health 17 exploration died on the way back to door [35]. A run that gets further needs more health
 at AREA07's arrival: the drain alone costs about 25 between arrival and sub 2. Levers, in order of
