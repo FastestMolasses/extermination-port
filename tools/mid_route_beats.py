@@ -237,7 +237,7 @@ def trace(beat):
 # Neutral frames before a beat's first row in a run from a card: AREA13's
 # lift replays its door script at a loaded game's arrival (the recording's
 # row 0 is past it, the player locked), so the recorded walk waits for it.
-LEAD = {'a13_00': 210, 'a08_00': 195}
+LEAD = {'a13_00': 210, 'a08_00': 195, 'a07_00': 195, 'a07b_00': 195}
 
 
 def prepare(name, beats):

@@ -525,12 +525,12 @@ static int grid_walk(const EmCollProbeGrid *g, EmCollProbeState *s, int walk)
         if (s->rank[2] < wd[8]) continue;                             /* 0x19D5DC: +0x10 */
         if (wd[9] < s->rank[3]) continue;                             /* 0x19D5F4: +0x12 */
         const uint8_t attr = g->emcl->polys[g->first + (uint32_t)node].attr;   /* 0x19D600: +0x1A */
-        s->span_hi = attr;                                            /* 0x19D608: 0x70003B88 */
+        if (walk != WALK_SIGHT) s->span_hi = attr;                    /* 0x19D608: 0x70003B88 */
         if (walk == WALK_SEGMENT) {
             if (!segment_kind_passes(s->span_hi, s->query_class)) continue;   /* 0x19D614..0x19D694 */
         } else if (walk == WALK_CAMERA) {
             if (s->span_hi >= 0x51 && s->span_hi < 0x54) continue;    /* 0x19DA54, 0x19DA60 */
-        } else if (s->span_hi >= 0x5A) {
+        } else if (attr >= 0x5A) {
             continue;                                                 /* 0019DB50's filter */
         }
         const int r = em_coll_probe_0019ED80(g, s, node);             /* 0x19D69C / 0x19DA74 */

@@ -568,6 +568,10 @@ recording-derived and stay in the ignored `build/`.
   shifts the pool). Comparison only, for tools/test_boss_fight.py (written by
   tools/capture_boss_fight.py anchors); it writes game state and is never part
   of play.
+  In AREA08 and AREA07 the anchor also takes the creatures and nests (0012E3A0,
+  001383C0), whose timers spawn bugs. `EM_START_AT_RAW=<a>-<b>[,...]` runs those
+  script frames on the recorded stick with no steering: a hang's hand-over-hand
+  turns on the stick (tools/mid_route_beats.py raw_rows).
   `EM_START_AT_MARKS=<f>,<f>,...` (with EM_START_AT_PAD) prints the position,
   the rand() state and the progress block when the script's clock reaches
   each frame (`pad mark <f>`): a chained beat's end. A path wait of 10 frames
