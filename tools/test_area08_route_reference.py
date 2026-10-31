@@ -20,6 +20,8 @@ SET = DECOMP / 'build/fork_refs/levels-recordings-20261030-1/s87'
 U, I, F, S = O.U, O.I, O.F, O.S
 FUNCS = {
     0x0012DD70: ('em_area08_route_0012DD70', 0x120, [U, U], None),
+    0x00130AB0: ('em_area08_route_00130AB0', 0x754, [U, U, S], None),
+    0x0015A750: ('em_area08_route_0015A750', 0x3A0, [U, S], None),
     0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
     0x00157360: ('em_area08_route_00157360', 0x248, [U, U, U], I),
     0x0015A070: ('em_area08_route_0015A070', 0x170, [U], None),
@@ -44,7 +46,8 @@ FUNCS07 = {0x00823DA0: ('em_area08_route_a07_00823DA0', 0x1D8, [U], None),
            0x00823B40: ('em_area08_route_a07_00823B40', 0xDC, [U], None),
            0x00823C20: ('em_area08_route_a07_00823C20', 0x17C, [U], None)}
 # 00159FC0 is a hook of 0015A070: its own pass, the hook table's slot unused
-FUNCS159 = {0x00159FC0: ('em_area08_route_00159FC0', 0xAC, [U, U], I)}
+FUNCS159 = {0x00159FC0: ('em_area08_route_00159FC0', 0xAC, [U, U], I),
+            0x00133CD0: ('em_area08_route_00133CD0', 0xDC, [U], I)}
 OVERLAY_FILES = {8: DECOMP/'extract/OVERLAY/AREA08.BIN', 7: DECOMP/'extract/OVERLAY/AREA07.BIN'}
 HOOKS = [
     ('w_00102760', 0x00102760, [('u', 4), ('u', 5)], None),
@@ -64,6 +67,15 @@ HOOKS = [
     ('w_00158590', 0x00158590, [('u', 4), ('i', 5), ('i', 6)], None),
     ('w_00159FC0', 0x00159FC0, [('u', 4), ('u', 5)], 'i'),
     ('w_00182F90', 0x00182F90, [('u', 4), ('u', 5)], None),
+    ('w_0019A440', 0x0019A440, [('u', 4), ('u', 5), ('i', 6)], 'i'),
+    ('w_00131F20', 0x00131F20, [('u', 4), ('u', 5), ('u', 6)], None),
+    ('w_00132490', 0x00132490, [('u', 4), ('u', 5)], None),
+    ('w_00133CD0', 0x00133CD0, [('u', 4)], 'i'),
+    ('w_001B1EA0', 0x001B1EA0, [('i', 4), ('u', 5), ('u', 6), ('i', 7)], 'i'),
+    ('w_001B2B10', 0x001B2B10, [('u', 4), ('u', 5), ('u', 6)], None),
+    ('w_001EFD90', 0x001EFD90, [('i', 4), ('u', 5), ('u', 6)], None),
+    ('w_0021BED0', 0x0021BED0, [('u', 4)], 'i'),
+    ('w_0021BF90', 0x0021BF90, [('u', 4), ('u', 5)], None),
     ('w_001287F0', 0x001287F0, [('u', 4), ('u', 5), ('i', 6), ('f', 12)], None),
     ('w_00128830', 0x00128830, [('u', 4), ('f', 12), ('f', 13), ('f', 14)], None),
     ('w_001B5360', 0x001B5360, [('u', 4)], None),
@@ -133,7 +145,7 @@ def configure(oid):
     O.BEATS = beats
     O.BEAT_DIRS = {b: SET/FOLDERS[b]/b for b in beats}
     O.RESIDENT = {b: resident for b in beats}
-    O.BY_ADDRESS = {a: (n, args, res) for n, a, args, res in HOOKS if not (oid == 159 and a == 0x159FC0)}
+    O.BY_ADDRESS = {a: (n, args, res) for n, a, args, res in HOOKS if not (oid == 159 and a in (0x159FC0, 0x133CD0))}
     O.BY_NAME = {n: a for n, a, _, _ in HOOKS}
     O.HOOK_NAMES = [h[0] for h in HOOKS]+['w_callback']
     O.Hooks = type('Hooks', (C.Structure,), {'_fields_':
@@ -145,7 +157,8 @@ def configure(oid):
     O.RETURN_SITES = O.RETURN_SITES_FULL = tuple(e for e, f in funcs.items() if f[3])
     a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380',
            'w_001B6F00', 'w_001BA1C0', 'w_001C4760', 'w_001F4BF0', 'w_001FABB0', 'w_001FB0B0')
-    used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0')}[oid]
+    used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0', 'w_00102948', 'w_001B2B10', 'w_001028B8',
+                                                                   'w_0019A440')}[oid]
     O.CONTRACT_UNREACHABLE = {h[0]: 'not called in this pass' for h in HOOKS if h[0] not in used}
     O.LOCAL_STORES = set()
     O.DEFAULT_ARGS = {e: [O.STACK_TOP if k == S else (A, P, V)[i] for i, k in enumerate(f[2])]
@@ -153,8 +166,9 @@ def configure(oid):
     O.image_for = lambda _: O.CAPTURES[beats[0]][0]
     O.CAPTURES.clear()
     O.CAPTURES.update(O.load_captures(O.read_elf()))
-    O.JUMP_TABLES = {}
-    O.TABLE_BYTES = frozenset()
+    # 00130AB0's and 0015A750's switches: their tables D_0026D120, D_0026D390
+    O.JUMP_TABLES = {0x130B1C: (0x26D120, 6), 0x15A804: (0x26D390, 7)}
+    O.TABLE_BYTES = frozenset(a for table, n in O.JUMP_TABLES.values() for a in range(table, table + 4 * n))
 
 
 def cases(oid):
@@ -179,6 +193,8 @@ def cases(oid):
     if oid == 159:
         for use in (0, 4):
             add(f'use159/{use}', 0x159FC0, [(A+0xB, b(use))])
+        for hit in ([0], [1], [0, 0, 1], [0, 0, 0, 0, 0]):
+            add(f'clear/{len(hit)}/{hit[-1]}', 0x133CD0, [], O.Script({0x19A440: list(hit)}))
         return out
     if oid == 7:
         steps(0x823DA0)
@@ -223,6 +239,32 @@ def cases(oid):
                     add(f'beat/{area}/{step}/{timer}/{bit}', 0x157360,
                         [(P+4, b(step)), (V+0x10, f(timer)), (A+0x2E, b(bit)), (0x810700, b(area)), (0x810841+area, b(1)),
                          (V+0x20, O.fw(1.0, 2.0, 3.0, 1.0)), (V+0x30, O.fw(4.0, 5.0, 6.0, 1.0))])
+    # 0x130AB0
+    for step in (0, 1, 2, 3, 4, 5, 6, 7):
+        for flag in (0, 0x1000):
+            for r1, r2, r3 in ((0, 0, 0), (0, 1, 0), (0, 1, 1), (1, 0, 0)):
+                for d in (5.0, 7.0):
+                    add(f'grab/{step}/{flag}/{r1}{r2}{r3}/{d}', 0x130AB0,
+                        [(A+6, b(step)), (P+0x58, h(flag))],
+                        O.Script({0x21BED0: [r1], 0x133CD0: [r2], 0x1B1EA0: [r3], 0x11DF78: [O.fb(d)]}))
+    for t in (0x10, 0x12B):
+        for t2 in (0x1C, 0x1D):
+            for bd in (0, 1, 0x80, 0x81):
+                for hard in (0, 1):
+                    for bad in (0, 1):
+                        for hp in (2.0, 90.0):
+                            add(f'grab4/{t}/{t2}/{bd}/{hard}/{bad}/{hp}', 0x130AB0,
+                                [(A+6, b(4)), (P+0x50, h(t)), (P+0x52, h(t2)), (A+0xD, b(bd)), (0x81070A, b(hard)),
+                                 (0x8106BD, b(bad)), (0x8104D0, f(hp))])
+    for got in (0, 1):
+        add(f'grab3/{got}', 0x130AB0, [(A+6, b(3)), (P+0x58, h(0x1000)), (0x8106BD, b(got))])
+    for clock in (71.0, 72.0):
+        add(f'grab5/{clock}', 0x130AB0, [(A+6, b(5)), (A+0x3C, f(clock))])
+    # 0x15A750
+    for kind in range(7):
+        for phase in (0.5, 1.995, 2.5):
+            add(f'sparks/{kind}/{phase}', 0x15A750, [(A+0x54, h(kind)), (A+0x1F0, f(phase)), (A+0x1F4, w(0x12345678 + kind)),
+                                                     (A+0x20, f(30.0))])
     # 0x12DD70
     for step in (0, 1, 2):
         for anim in (0, 0x100):

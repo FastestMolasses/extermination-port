@@ -683,6 +683,229 @@ static void fall_0012DD70(A08R *o, uint32_t self, uint32_t ctl)
     }
 }
 
+/* func_00133CD0.c (byte-matched): five probes round the creature; 1 when no ray
+ * hits. */
+static int32_t clear_00133CD0(A08R *o, uint32_t p)
+{
+    uint32_t q = 0x245140;
+    for (int i = 0; i < 5; ++i, q += 0x10) {
+        int32_t r = 0;
+        CV(00102948, 0x700038A0, q);
+        CV(001B2B10, p, 0x700038A0, 0x700038A0);
+        CV(00102948, 0x700038B0, p + 0xB0);
+        CV(001028B8, 0x700038A0, 0x700038B0, 0x700038A0);
+        W(0x700038B4, R(0x700038A4));
+        CV(0019A440, 0x700038B0, 0x700038A0, 6, &r);
+        if (r) return 0;
+    }
+    return 1;
+}
+
+/* The clip change the state below opens with: anim_clip_init (001C67E0). */
+#define CLIP(n, speed) C(001C67E0, p, (n), F(speed), 0)
+
+/* func_00130AB0.c (byte-matched): the 0012E3A0 creature's grab of the player. */
+static void grab_00130AB0(A08R *o, uint32_t p, uint32_t e, uint32_t sp)
+{
+    const uint32_t m = sp - 0x40u;
+    uint32_t st, v, w, d;
+    int32_t r = 0, t;
+    uint8_t q[4][16];
+    for (uint32_t k = 0; k < 4; ++k) a08r_q(o, 0x244F90u + 0x10u * k, q[k]);
+    for (uint32_t k = 0; k < 4; ++k) a08r_wq(o, m + 0x10u * k, q[k]);
+    st = B(p + 6);
+    switch (st) {
+    case 0:
+        WB(p + 6, B(p + 6) + 1);
+        WB(e + 0x63, 0);
+        WB(e + 0x6B, 1);
+        CLIP(0x17, 5.0f);
+        break;
+    case 1:
+        if (a08r_u16(o, e + 0x58) & 0x1000) {
+            WB(p + 6, st + 1);
+            CLIP(0x18, 1.0f);
+            C(001FBD50, p, 0x7D0, 0, F(300.0f), &r);
+        }
+        break;
+    case 2:
+        if (a08r_u16(o, e + 0x58) & 0x1000) {
+            C(0021BED0, 0x8102B0, &r);
+            if (r == 0) {
+                C(00133CD0, p, &r);
+                if (r) {
+                    w = R(p + 0xB4);
+                    v = A08R_SUB(R(0x810354), w);
+                    C(0011DF78, v, &v);
+                    if (A08R_LE(v, F(6.0f))) {
+                        for (uint32_t k = 0, c = m; k < 4; ++k, c += 0x10) {
+                            C(00131F20, p, c, c);
+                            C(001028B8, c, c, p + 0xB0);
+                        }
+                        C(001B1EA0, 0, 0x810360, m, 4, &r);
+                        if (r) {
+                            WB(p + 6, B(p + 6) + 1);
+                            C(0021BF90, 0x8102B0, p);
+                            WB(e + 0x65, 1);
+                            C(001B1470, A08R_ADD(PI, R(p + 0xC4)), &v);
+                            W(0x810374, v);
+                            W(0x700038A0, 0); W(0x700038A4, 0); W(0x700038A8, F(15.0f)); W(0x700038AC, 0);
+                            C(00131F20, p, 0x700038A0, 0x700038A0);
+                            C(001028B8, 0x700038A0, 0x700038A0, p + 0xB0);
+                            C(00182F90, 0x8102B0, 0x700038A0);
+                            CLIP(0x1A, 1.0f);
+                            break;
+                        }
+                    }
+                }
+            }
+            WB(p + 6, 5);
+            CLIP(0x19, 1.0f);
+        }
+        break;
+    case 3:
+        if (a08r_u16(o, e + 0x58) & 0x1000) {
+            if (B(0x8106BD) != 1) {
+                WB(p + 6, st + 1);
+                WH(e + 0x50, 0);
+                WH(e + 0x52, 0);
+                CLIP(0x1B, 1.0f);
+            } else {
+                WB(p + 6, 5);
+                WB(e + 0x65, 0);
+                WB(0x8106BD, 0);
+                CLIP(0x1C, 1.0f);
+            }
+        }
+        break;
+    case 4:
+        t = (a08r_u16(o, e + 0x50) + 1) & 0xFFFF;
+        WH(e + 0x50, (uint32_t)t);
+        if (t >= 0x12C) {
+            WB(p + 6, B(p + 6) + 1);
+            WB(0x8102BF, 3);
+            WB(e + 0x65, 0);
+            if (B(p + 0xD) & 1) W(0x8104DC, B(0x81070A) ? F(45.0f) : F(40.0f));
+            else W(0x8104DC, B(0x81070A) ? F(50.0f) : F(40.0f));
+            CLIP(0x1D, 1.0f);
+        } else if (B(0x8106BD) == 1) {
+            WB(p + 6, 5);
+            WB(e + 0x65, 0);
+            WB(0x8106BD, 0);
+            CLIP(0x1C, 1.0f);
+        } else {
+            t = (a08r_u16(o, e + 0x52) + 1) & 0xFFFF;
+            WH(e + 0x52, (uint32_t)t);
+            if (t >= 0x1E) {
+                WH(e + 0x52, 0);
+                if (B(p + 0xD) & 0x80) W(0x70003A20, B(0x81070A) ? F(8.0f) : F(6.0f));
+                else W(0x70003A20, B(0x81070A) ? F(5.0f) : F(3.0f));
+                d = R(0x8104D0);
+                w = R(0x70003A20);
+                if (A08R_LE(d, w)) {
+                    WB(p + 6, 5);
+                    WB(e + 0x65, 0);
+                    WB(0x8102BF, 5);
+                    W(0x8104D4, R(0x8104D0));
+                    WB(0x8102B0, B(0x8102B0) | 2);
+                    CLIP(0x1D, 1.0f);
+                } else {
+                    W(0x8104D4, w);
+                    WB(0x8102B0, B(0x8102B0) | 2);
+                }
+                W(0x700038A8, 0); W(0x700038A4, 0); W(0x700038A0, 0); W(0x700038AC, ONE);
+                W(0x700038A4, R(p + 0xC4));
+                W(0x700038B0, F(2.0f)); W(0x700038B4, F(15.5f)); W(0x700038B8, ONE); W(0x700038BC, ONE);
+                C(001B2B10, p, 0x700038B0, 0x700038B0);
+                C(001028B8, 0x700038B0, p + 0xB0, 0x700038B0);
+                C(001EFD90, (int32_t)0x80000022, 0x700038B0, 0x700038A0);
+            }
+        }
+        break;
+    case 5:
+        if (A08R_EQ(R(p + 0x3C), F(72.0f))) {
+            C(001029C0, 0x700036A0);
+            C(00102BB0, 0x700036A0, 0x700036A0, R(p + 0xC4));
+            W(0x700038A0, F(2.0f)); W(0x700038A4, F(15.5f)); W(0x700038A8, ONE); W(0x700038AC, ONE);
+            C(001B2B10, p, 0x700038A0, 0x700038A0);
+            C(001028B8, 0x700038A0, p + 0xB0, 0x700038A0);
+            {
+                const uint32_t w0 = R(0x700038A0), w1 = R(0x700038A4), w2 = R(0x700038A8), w3 = R(0x700038AC);
+                W(0x700036D0, w0); W(0x700036D4, w1); W(0x700036D8, w2); W(0x700036DC, w3);
+            }
+            {
+                uint32_t node = 0;
+                C(001EFEB0, (int32_t)0x8000002A, 0x700036A0, &node);
+            }
+        }
+        if (a08r_u16(o, e + 0x58) & 0x1000) {
+            WB(p + 5, 0);
+            WB(p + 6, 0);
+            WB(e + 0x62, 0);
+            WH(e + 0x50, 0);
+            WH(e + 0x52, 0);
+            WH(e + 0x5A, 0);
+            WB(e + 0x6B, 0);
+        }
+        break;
+    default: break;
+    }
+    if (B(p + 6) != 7) C(00132490, p, e);
+}
+
+/* func_0015A750.c (NEARMISS: control flow and the calls as the original's):
+ * a flame's sparks, one call of the 0015A2C0 owner. */
+static void sparks_0015A750(A08R *o, uint32_t p, uint32_t sp)
+{
+    static const struct { uint32_t mode, count; } kinds[7] = {
+        {0x18, 2}, {0x20, 3}, {0x20, 5}, {0x18, 3}, {0x20, 5}, {0x18, 3}, {0x20, 4}};
+    const uint32_t work = sp - 0x60u;
+    int32_t handle = 0, count, kind;
+    uint32_t rng, dt;
+    C(001029C0, 0x700036A0);
+    C(00102918, 0x700036A0, 0x700036A0, p + 0xB0);
+    W(0x700036D4, A08R_ADD(R(0x700036D4), F(2.0f)));
+    C(001CCF70, p + 0xB0, &handle);
+    dt = R(p + 0x20);
+    rng = R(p + 0x1F4);
+    dt = A08R_DIV(dt, F(60.0f));
+    kind = S16(p + 0x54);
+    if (kind < 0 || kind > 6) {
+        /* the original reads an uninitialised count: not reachable here */
+        a08r_latch(o, 0x0015A750u, EM_AREA08_ROUTE_FAULT_BAD_ADDRESS);
+        return;
+    }
+    W(0x248280, kinds[kind].mode);
+    count = (int32_t)kinds[kind].count;
+    for (int32_t i = 1; i < count; ++i) {
+        uint32_t a, b, ratio, x, z;
+        a = A08R_ADD(A08R_DIV(A08R_CVT_S_W(rng >> 16 & 0xFFFF), F(65535.0f)), F(0.0001f));
+        a = A08R_ADD(R(p + 0x1F0), A08R_MUL(F(0.5f), a));
+        rng = rng * 37u + 11u;
+        if (!A08R_LE(a, F(2.0f))) a = A08R_SUB(a, ONE);
+        ratio = A08R_DIV(A08R_CVT_S_W(i + 1), A08R_CVT_S_W(count));
+        kind = S16(p + 0x54);
+        x = A08R_MUL(R(0x248120u + 20u * (uint32_t)kind), ratio);
+        W(0x248210, x);
+        b = A08R_ADD(A08R_DIV(A08R_CVT_S_W(rng >> 16 & 0xFFFF), F(65535.0f)), F(0.0001f));
+        rng = rng * 37u + 11u;
+        kind = S16(p + 0x54);
+        z = A08R_MUL(R(0x248128u + 20u * (uint32_t)kind), ratio);
+        W(0x248218, z);
+        W(0x248210, A08R_SUB(R(0x248210), F(5.0f)));
+        W(0x248218, A08R_SUB(R(0x248218), F(5.0f)));
+        W(0x24822C, A08R_MUL(F(64.0f), dt));
+        W(0x24823C, 0);
+        C(001CFAE0, work, 0, 0x700036A0, a, b, dt, F(0.1f));
+        C(001CFBE0, handle, 1, 0x248200, work, 1);
+    }
+    {
+        const uint32_t phase = A08R_ADD(R(p + 0x1F0), F(0.01f));
+        W(p + 0x1F0, phase);
+        if (!A08R_LE(phase, F(2.0f))) W(p + 0x1F0, A08R_SUB(R(p + 0x1F0), ONE));
+    }
+}
+
 /* func_001BD370.c: the doors opening, the twin of 001BD270's closing: rec +0x10
  * and then +0x14 rise by 0.2, clamped at 5; the four pose floats +0x7C. */
 static int32_t open_001BD370(A08R *o, uint32_t rec)
@@ -859,6 +1082,27 @@ int em_area08_route_008235E0(const EmArea08RouteHooks *h, uint32_t self, int32_t
     A08R o; int32_t r;
     if (!result || a08r_begin(&o, h, fault)) return -1;
     r = rise_008235E0(&o, self);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
+}
+
+int em_area08_route_00130AB0(const EmArea08RouteHooks *h, uint32_t p, uint32_t e, uint32_t sp, EmArea08RouteFault *fault)
+{
+    A08R o; if (a08r_begin(&o, h, fault)) return -1;
+    grab_00130AB0(&o, p, e, sp); return a08r_end(&o);
+}
+
+int em_area08_route_0015A750(const EmArea08RouteHooks *h, uint32_t p, uint32_t sp, EmArea08RouteFault *fault)
+{
+    A08R o; if (a08r_begin(&o, h, fault)) return -1;
+    sparks_0015A750(&o, p, sp); return a08r_end(&o);
+}
+
+int em_area08_route_00133CD0(const EmArea08RouteHooks *h, uint32_t p, int32_t *result, EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = clear_00133CD0(&o, p);
     if (a08r_failed(&o)) return -1;
     *result = r; return 0;
 }
