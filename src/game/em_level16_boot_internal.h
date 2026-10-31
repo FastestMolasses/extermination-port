@@ -298,6 +298,14 @@ static inline int l16b_c_001B1020(L16B *o, uint32_t a0, int32_t a1, int32_t a2, 
     return 0;
 }
 
+static inline int l16b_c_001B10B0(L16B *o, uint32_t a0, int32_t a1, int32_t a2, int32_t *out)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001B10B0) return l16b_latch(o, 0x001B10B0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001B10B0(o->h->ctx, a0, a1, a2, out) < 0) return l16b_latch(o, 0x001B10B0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
 static inline int l16b_c_001B1190(L16B *o, int32_t a0)
 {
     if (l16b_failed(o)) return -1;
@@ -332,6 +340,14 @@ static inline int l16b_c_001B17A0(L16B *o, uint32_t a0, int32_t *out)
     return 0;
 }
 
+static inline int l16b_c_001B1EA0(L16B *o, int32_t a0, uint32_t a1, uint32_t a2, int32_t a3, int32_t *out)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001B1EA0) return l16b_latch(o, 0x001B1EA0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001B1EA0(o->h->ctx, a0, a1, a2, a3, out) < 0) return l16b_latch(o, 0x001B1EA0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
 static inline int l16b_c_001B2B10(L16B *o, uint32_t a0, uint32_t a1, uint32_t a2)
 {
     if (l16b_failed(o)) return -1;
@@ -356,11 +372,43 @@ static inline int l16b_c_001BA1A0(L16B *o, uint32_t a0, uint32_t a1)
     return 0;
 }
 
+static inline int l16b_c_001BA1C0(L16B *o, uint32_t a0, int32_t a1, int32_t *out)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001BA1C0) return l16b_latch(o, 0x001BA1C0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001BA1C0(o->h->ctx, a0, a1, out) < 0) return l16b_latch(o, 0x001BA1C0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
 static inline int l16b_c_001BA1F0(L16B *o, uint32_t a0, int32_t *out)
 {
     if (l16b_failed(o)) return -1;
     if (!o->h->w_001BA1F0) return l16b_latch(o, 0x001BA1F0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
     if (o->h->w_001BA1F0(o->h->ctx, a0, out) < 0) return l16b_latch(o, 0x001BA1F0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001BA540(L16B *o, uint32_t a0)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001BA540) return l16b_latch(o, 0x001BA540u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001BA540(o->h->ctx, a0) < 0) return l16b_latch(o, 0x001BA540u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001BA580(L16B *o, uint32_t a0, int32_t a1)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001BA580) return l16b_latch(o, 0x001BA580u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001BA580(o->h->ctx, a0, a1) < 0) return l16b_latch(o, 0x001BA580u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001BA8E0(L16B *o, uint32_t a0, int32_t a1)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001BA8E0) return l16b_latch(o, 0x001BA8E0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001BA8E0(o->h->ctx, a0, a1) < 0) return l16b_latch(o, 0x001BA8E0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
     return 0;
 }
 
@@ -385,6 +433,46 @@ static inline int l16b_c_001C6380(L16B *o, uint32_t a0)
     if (l16b_failed(o)) return -1;
     if (!o->h->w_001C6380) return l16b_latch(o, 0x001C6380u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
     if (o->h->w_001C6380(o->h->ctx, a0) < 0) return l16b_latch(o, 0x001C6380u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001C63E0(L16B *o, uint32_t a0, int32_t a1)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001C63E0) return l16b_latch(o, 0x001C63E0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001C63E0(o->h->ctx, a0, a1) < 0) return l16b_latch(o, 0x001C63E0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001C64F0(L16B *o, uint32_t a0, uint32_t a1, int32_t *out)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001C64F0) return l16b_latch(o, 0x001C64F0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001C64F0(o->h->ctx, a0, l16b_float(a1), out) < 0) return l16b_latch(o, 0x001C64F0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001C67E0(L16B *o, uint32_t a0, int32_t a1, uint32_t a2, uint32_t a3)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001C67E0) return l16b_latch(o, 0x001C67E0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001C67E0(o->h->ctx, a0, a1, l16b_float(a2), l16b_float(a3)) < 0) return l16b_latch(o, 0x001C67E0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001C68C0(L16B *o, uint32_t a0)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001C68C0) return l16b_latch(o, 0x001C68C0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001C68C0(o->h->ctx, a0) < 0) return l16b_latch(o, 0x001C68C0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001CA6F0(L16B *o, uint32_t a0, int32_t a1)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001CA6F0) return l16b_latch(o, 0x001CA6F0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001CA6F0(o->h->ctx, a0, a1) < 0) return l16b_latch(o, 0x001CA6F0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
     return 0;
 }
 
@@ -433,6 +521,22 @@ static inline int l16b_c_001F4F40(L16B *o, int32_t a0, int32_t *out)
     if (l16b_failed(o)) return -1;
     if (!o->h->w_001F4F40) return l16b_latch(o, 0x001F4F40u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
     if (o->h->w_001F4F40(o->h->ctx, a0, out) < 0) return l16b_latch(o, 0x001F4F40u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001FAE70(L16B *o, int32_t a0)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001FAE70) return l16b_latch(o, 0x001FAE70u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001FAE70(o->h->ctx, a0) < 0) return l16b_latch(o, 0x001FAE70u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l16b_c_001FB9F0(L16B *o, int32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t *out)
+{
+    if (l16b_failed(o)) return -1;
+    if (!o->h->w_001FB9F0) return l16b_latch(o, 0x001FB9F0u, EM_LEVEL16_BOOT_FAULT_NULL_WORKER);
+    if (o->h->w_001FB9F0(o->h->ctx, a0, a1, a2, a3, out) < 0) return l16b_latch(o, 0x001FB9F0u, EM_LEVEL16_BOOT_FAULT_WORKER_FAILED);
     return 0;
 }
 

@@ -191,7 +191,7 @@ static struct {
     /* EM_START_AT_RANDS=<file> ("f state" lines, f increasing): the
      * recording's state word at those script frames (comparison only). */
     unsigned rands, rand_next;
-    struct { int f; uint32_t state; } rand_at[8192];
+    struct { int f; uint32_t state; } rand_at[PATH_MAX_ROWS];
     /* EM_START_AT_RESTORE=<ram image>:<f>:<clock>[,...]: at that script frame the
      * hall bugs, the items' glow timers and the NPC's face take the image's
      * bytes and 0x70003B68 the recording's value (the actors' staggered
@@ -206,6 +206,12 @@ static struct {
     unsigned sync_address, sync_value;
     int sync_f, sync_done;
     unsigned sync_counter;
+    /* EM_START_AT_LOADS=<file> ("area sub room f" lines): a load the host
+     * drive ends earlier than the recording's: when the fade-in after that
+     * load starts, the script's clock is the recording's row f (comparison
+     * only: the rows after a load keep the world's frames). */
+    unsigned loads, load_next;
+    struct { unsigned key; int f; } load_at[64];
     /* EM_START_AT_MARKS: the script frames to report the block at. */
     unsigned mark_count, mark_next;
     int mark[64];
@@ -606,6 +612,18 @@ int em_start_at_check(void)
             }
             fclose(g);
         }
+        const char *loads = getenv("EM_START_AT_LOADS");
+        if (loads) {
+            FILE *g = fopen(loads, "r");
+            unsigned a, b, c;
+            int fr;
+            while (g && pad.loads < sizeof pad.load_at / sizeof pad.load_at[0] &&
+                   fscanf(g, "%x %x %x %d", &a, &b, &c, &fr) == 4) {
+                pad.load_at[pad.loads].key = a << 16 | b << 8 | c;
+                pad.load_at[pad.loads++].f = fr;
+            }
+            if (g) fclose(g);
+        }
         const char *sync = getenv("EM_START_AT_SYNC");
         if (sync && sync[0]) {
             if (sscanf(sync, "%x:%x:%d", &pad.sync_address, &pad.sync_value, &pad.sync_f) != 3)
@@ -732,6 +750,16 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
             pad.sync_done = 1;
         }
     }
+    if (pad.load_next < pad.loads) {
+        const uint8_t *b = em_scene_progress_at(em_scene_state(), 0x00810700u, 3);
+        const EmTransitionFade *fade = em_frame_transition();
+        if (b && fade && fade->substate == 1 &&
+            ((unsigned)b[0] << 16 | (unsigned)b[1] << 8 | b[2]) == pad.load_at[pad.load_next].key) {
+            printf("startup: EM_START_AT_LOADS: script frame %d is the recording's %d (comparison only)\n", pad.t,
+                   pad.load_at[pad.load_next].f);
+            pad.t = pad.load_at[pad.load_next++].f;
+        }
+    }
     const int t = pad.t;
     {
         static FILE *trace;
@@ -741,8 +769,9 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
             opened = 1;
             trace = path ? fopen(path, "w") : NULL;
         }
-        if (trace) em_scene_creature_trace(trace, t, pos);
+        if (trace) { em_scene_creature_trace(trace, t, pos); fflush(trace); }
     }
+    while (pad.rand_next + 1u < pad.rands && t >= pad.rand_at[pad.rand_next + 1u].f) pad.rand_next++;
     if (pad.rand_next < pad.rands && t >= pad.rand_at[pad.rand_next].f) {
         em_random_seed(pad.rand_at[pad.rand_next].state);
         printf("startup: EM_START_AT_RANDS: rand() state %08x at script frame %d (comparison only)\n",

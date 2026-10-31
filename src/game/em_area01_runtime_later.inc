@@ -1624,6 +1624,17 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         has = 1;
         break;
     }
+    case 0x00158430u: {
+        EmLevel16BootHooks h;
+        EmLevel16BootFault f = {0, 0};
+        if (c->na < 1u || c->nf < 0u || c->sp < 0x20u + EIGHTH_NEST) goto refused;
+        m16x_hooks(r, &h);
+        r->sp = c->sp - 0x20u - EIGHTH_NEST;
+        rc = em_level16_boot_00158430(&h, (uint32_t)c->a[0], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
     case 0x00159FC0u: {
         EmArea08RouteHooks h;
         EmArea08RouteFault f = {0, 0};

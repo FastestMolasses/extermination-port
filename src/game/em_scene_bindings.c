@@ -1108,7 +1108,7 @@ static void log_area02(FILE *f)
  * per script frame: the creatures' first bytes, positions and rand() word. */
 void em_scene_creature_trace(FILE *f, int t, const float pos[3])
 {
-    if (!s_area01_live.bound || !f) return;
+    if (!s_area01_live.bound || !f || !pos) return;
     fprintf(f, "{\"t\": %d, \"pos\": [%.5f, %.5f, %.5f], \"rand\": %u, \"n\": [", t, pos[0], pos[1], pos[2],
             em_random_peek());
     int n = 0;
@@ -3977,6 +3977,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         case 0x00823700u: case 0x00823B90u: case 0x00823EE0u: case 0x00824100u: case 0x008241F0u:
         case 0x00824320u: case 0x008246B0u: case 0x00824DC0u: case 0x00825510u: case 0x00825880u:
         case 0x00825B00u: case 0x00825D60u: case 0x00825DF0u: case 0x008260C0u: case 0x001C1A80u:
+        /* sub 1's (em_level16_boot through dispatch_a04x) */
+        case 0x00824EF0u: case 0x00825310u:
         /* the second visit (em_level8_port through em_area01_runtime area 4;
          * docs/LEVEL8_PORT.md): the group 0x828260 records' behaviours
          * 0x823920 / 0x823A90 and the effect node 0x8239A0 (event [3]'s
@@ -3990,6 +3992,10 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     /* The creature event [3]'s 0x824830 spawns (group 0x826790, a04b_03):
      * em_level8_port's 0012E3A0. */
     if (s_state.d810700 == 4 && fn == 0x0012E3A0u)
+        goto bind;
+    /* AREA04 sub 1's boot owners (its placements', groups' and spawns'): as
+     * AREA15's below, an untranslated one faults at its address when it runs. */
+    if (s_state.d810700 == 4 && s_state.d810701 == 1 && fn < 0x00823500u && fn && fn != 0x001F5040u)
         goto bind;
     /* AREA22's overlay has no owner; AREA06's are its placements' and
      * spawns' (em_area01_runtime dispatch_a06). Another overlay callback

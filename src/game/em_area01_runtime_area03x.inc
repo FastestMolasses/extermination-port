@@ -49,3 +49,24 @@ static int dispatch_a03x(EmArea01Runtime *r, EmArea01Call *c, int *out)
     return 1;
 }
 
+/* AREA04 sub 1's owners no earlier module has (em_level16_boot). */
+static int dispatch_a04x(EmArea01Runtime *r, EmArea01Call *c, int *out)
+{
+    const uint32_t fn = c->function;
+    if (fn != 0x00824EF0u && fn != 0x00825310u) return 0;
+    if (area_frame(r, c, 1, fn == 0x00824EF0u ? 0x20u : 0x30u, out) < 0) return 1;
+    EmLevel16BootHooks h;
+    m16x_hooks(r, &h);
+    EmLevel16BootFault f = {0, 0};
+    const uint32_t a0 = (uint32_t)c->a[0];
+    const int x = fn == 0x00824EF0u ? em_level16_boot_a04_00824EF0(&h, a0, c->sp, &f)
+                                    : em_level16_boot_a04_00825310(&h, a0, &f);
+    if (x < 0) {
+        fprintf(stderr, "em_area01: AREA04 %08X fault code %d at %08X\n", (unsigned)fn, (int)f.code, (unsigned)f.address);
+        *out = fail(r, f.address ? f.address : fn);
+    } else {
+        *out = 0;
+    }
+    return 1;
+}
+

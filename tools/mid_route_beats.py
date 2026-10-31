@@ -237,7 +237,7 @@ def trace(beat):
 # Neutral frames before a beat's first row in a run from a card: AREA13's
 # lift replays its door script at a loaded game's arrival (the recording's
 # row 0 is past it, the player locked), so the recorded walk waits for it.
-LEAD = {'a13_00': 210, 'a08_00': 195}
+LEAD = {'a13_00': 210, 'a08_00': 195, 'a03c_00': 210}
 
 
 def prepare(name, beats):
@@ -304,6 +304,52 @@ def restore_anchor(beat):
     return f'{folder / "eeMemory.bin"}:0:{clock:x}'
 
 
+def rand_anchors(name, beats, traces):
+    """The recording's rand() state word per script frame over the chain
+    (tools/record_beat_rands.py), when every beat has its table: a card's
+    draws of a frame need not fall in the original's order across owners, so
+    the creatures' choices keep the recording's only with the word put back
+    each frame (EM_START_AT_RANDS, comparison only). None without tables."""
+    tables = [ROOT / 'build/beat_rands' / f'{b}.txt' for b in beats]
+    if not all(t.exists() for t in tables):
+        return None
+    base = traces[0]['first_counter'] + LEAD.get(beats[0], 0) * -1
+    rows = {}
+    for table, t in zip(tables, traces):
+        off = t['first_counter'] - base
+        for line in table.read_text().splitlines():
+            f, word = line.split()
+            rows[int(f) + off] = word
+    out = OUT / 'pads' / f'{name}.rands'
+    out.write_text(''.join(f'{f} {w}\n' for f, w in sorted(rows.items())))
+    return out
+
+
+def load_anchors(name, beats, traces):
+    """(area, sub, room, script frame) of each room change in the chain: the
+    first row after it with the fade-in running (D_0028A9A0's substate 1). The
+    host drive ends a load sooner than the recording's, and a script clock left
+    behind gives the world frames the recording does not have
+    (EM_START_AT_LOADS, comparison only)."""
+    base = traces[0]['first_counter'] - LEAD.get(beats[0], 0)
+    out = []
+    for t in traces:
+        off = t['first_counter'] - base
+        rows = t['rows']
+        for i in range(1, len(rows)):
+            if rows[i]['area4'][:6] != rows[i - 1]['area4'][:6]:
+                j = next((k for k in range(i, len(rows)) if int(rows[k]['fade'][:4], 16) == 0x0100), None)
+                if j is not None:
+                    key = bytes.fromhex(rows[j]['area4'][:6])
+                    if not out or out[-1][:3] != tuple(key):
+                        out.append((*key, off + j))
+    if not out:
+        return None
+    path = OUT / 'pads' / f'{name}.loads'
+    path.write_text(''.join(f'{a:x} {b:x} {c:x} {f}\n' for a, b, c, f in out))
+    return path
+
+
 def row0_fade(beat):
     """The transition level at the recording's row 0 (D_0028A9A0 +4; 0 when
     no fade runs there): a loaded game's fade-in refuses the player's input,
@@ -355,6 +401,12 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    rands = rand_anchors(name, beats, traces)
+    if rands:
+        env['EM_START_AT_RANDS'] = str(rands)
+    loads = load_anchors(name, beats, traces)
+    if loads:
+        env['EM_START_AT_LOADS'] = str(loads)
     if beats[0] in RESTORE:
         env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
         del env['EM_START_AT_PATH']    # with the anchor the recorded pad alone keeps the route

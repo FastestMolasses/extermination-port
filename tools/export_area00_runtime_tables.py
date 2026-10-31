@@ -255,6 +255,16 @@ AREA15_WINDOWS = ((0x0024A86E, 2), (0x0024D7FC, 4), (0x0024D85C, 4), (0x002759E8
 # AREA08 / AREA07 (lane P1): their rows, the list pointers D_00275950..7F (AREA07
 # subs 0..3, its slider lists), D_00275980..9F (AREA08's subs, its slider lists).
 AREA08_WINDOWS = ((0x0024A85E, 4), (0x0024D7DC, 8), (0x0024D83C, 8), (0x00275950, 0x50))
+# AREA04 sub 1 (lane N1): 00154460's pad footprint row of kind 2 (0015A2C0's
+# placements [81]..[86]; rows 0, 1, 3, 4, 5 are in earlier windows), and
+# 001BF3C0's model ids D_00275630 (the steam 001BECC0 spawns there).
+# 00154740's area / sub records D_00246800 (the tendrils 001546C0).
+# The 0013D2D0 states' tables D_002458E0 / D_002458F0 and D_002753C8; the 00147390
+# family's D_00245B20 .. D_00245C60 (rolls, the frame's copies, the probe rows)
+# and D_00275400; 001B3F10's radii by type D_0024D740 .. D_0024D7BF.
+AREA04X_WINDOWS = ((0x00248148, 0x14), (0x00275630, 8), (0x00246800, 0xB0), (0x002458E0, 0x20),
+                   (0x00245B20, 0x170), (0x002753C0, 0x48), (0x0024D740, 0x80), (0x0024D720, 0x20), (0x002451E0, 0x700),
+                   (0x00245900, 0x60), (0x0027564C, 0x14))
 
 
 def blocks(elf):
@@ -264,7 +274,7 @@ def blocks(elf):
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
                *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS, *MID_WINDOWS,
-               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS, *AREA08_WINDOWS, *AREA19_WINDOWS)
+               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS, *AREA08_WINDOWS, *AREA19_WINDOWS, *AREA04X_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')

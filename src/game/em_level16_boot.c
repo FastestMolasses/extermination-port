@@ -91,6 +91,53 @@ static uint32_t e0021C040(L16B *o, uint32_t p, uint32_t hit)
     return 0;
 }
 
+/* The seal (AREA03's [23]): the lock bit by the area byte, cut by any hit. */
+static uint32_t e00158430(L16B *o, uint32_t self)
+{
+    const uint32_t bit = 0x810841u + B(0x810700);
+    int32_t r = 0;
+    switch (B(self + 4)) {
+    case 0:
+        if (B(bit) & ((1u << l16b_u16(o, self + 0x2E)) & 0xFF)) {
+            WB(self + 4, 3);
+            break;
+        }
+        C(001B0FD0, self, &r);
+        if (!r) {
+            C(001C6380, self);
+            WB(self, 1);
+            C(001F1110, self, 2);
+        }
+        break;
+    case 1:
+        if (SH(self + 0x36)) {
+            WB(self, 2);
+            WB(self + 4, 2);
+            WB(0x810841u + B(0x810700), B(0x810841u + B(0x810700)) | (1u << B(self + 0x2E)));
+            WB(0x810845, B(0x810845) | 4);
+            C(001FB9F0, 0x3F1, 0x1000, 0x1000, 0x1000, &r);
+        }
+        C(001F1180, self);
+        C(001B17A0, self, &r);
+        if (l16b_method(o, self)) return 0;
+        break;
+    case 2: case 3:
+        C(001AFC10, self);
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+int em_level16_boot_00158430(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault)
+{
+    L16B o;
+    if (l16b_begin(&o, h, fault)) return -1;
+    (void)e00158430(&o, a0);
+    return l16b_end(&o);
+}
+
 /* AREA03 0x8235A0 (sub 1's placement [22], the terminal of flag 0x29). */
 static uint32_t a03_8235A0(L16B *o, uint32_t self)
 {
@@ -213,6 +260,195 @@ static uint32_t a03_825200(L16B *o, uint32_t src, uint32_t sp)
         W(n + 0x10, 0x1F5040);
     }
     return 0;
+}
+
+/* AREA04 0x825040: [1]'s step while counter 0x28 is 0: inside the polygon read
+ * from 0x829530 below y 25 it starts script 0x829020 (flag 0x28 = 1); at the
+ * script's end it gives items 0x29 and 0x10 and sets counter 0x28. */
+static uint32_t a04_825040(L16B *o, uint32_t self, uint32_t sp)
+{
+    const uint32_t area = sp - 0x40u, blk = self + 0x1F0;
+    int32_t r = 0;
+    for (uint32_t k = 0; k < 0x40; k += 4) W(area + k, R(0x829530 + k));
+    switch (B(self + 5)) {
+    case 0:
+        C(001B1EA0, 0, 0x810350, area, 4, &r);
+        if (r == 1 && L16B_LT(R(0x810354), F(25.0f))) {
+            C(001BA1A0, blk, 0x829020);
+            WB(self + 5, 1);
+            WB(0x810780, 1);
+        }
+        break;
+    case 1:
+        C(001BA1F0, self, &r);
+        if (r) {
+            WB(self + 5, 0);
+            W(self + 0x40, R(0x28A5FC));
+            C(001C67E0, self, 0, 0, 0);
+            WB(0x810800, 1);
+            C(001C47A0, 0x29, 1);
+            C(001C4760, 0x10, 1);
+            C(001FAE70, 0);
+        }
+        C(001BA580, self, (int32_t)B(self + 0xD));
+        C(001C64F0, self, F(0.5f), &r);
+        WH(blk + 0xE, (uint32_t)r);
+        return 0;
+    default:
+        break;
+    }
+    C(001BA580, self, (int32_t)B(self + 0xD));
+    C(001C64F0, self, F(1.0f), &r);
+    return 0;
+}
+
+/* AREA04 0x8251C0: the same node once counter 0x28 is 1: Use plays 0x8293A0. */
+static uint32_t a04_8251C0(L16B *o, uint32_t self)
+{
+    const uint32_t blk = self + 0x1F0;
+    int32_t r = 0;
+    switch (B(self + 5)) {
+    case 0:
+        if (B(self + 0xB) & 4) {
+            C(001BA1A0, blk, 0x8293A0);
+            WB(self + 5, 1);
+        }
+        break;
+    case 1:
+        C(001BA1F0, self, &r);
+        if (r) {
+            C(001C67E0, self, 0, F(20.0f), 0);
+            WB(self + 0xB, 0);
+            WB(self + 5, 0);
+        }
+        break;
+    default:
+        break;
+    }
+    C(001BA580, self, (int32_t)B(self + 0xD));
+    C(001C64F0, self, F(1.0f), &r);
+    return 0;
+}
+
+/* AREA04 0x824EF0 (sub 1's placement [1]). */
+static uint32_t a04_824EF0(L16B *o, uint32_t self, uint32_t sp)
+{
+    int32_t r = 0;
+    switch (B(self + 4)) {
+    case 0:
+        C(001BA1C0, self, 0x28, &r);
+        if (r) {
+            WB(self + 4, 3);
+            break;
+        }
+        C(001B10B0, self, (int32_t)B(self + 0xD), 0x5B, &r);
+        C(001C63E0, self, 0);
+        C(001CA6F0, self, 2);
+        C(001BA8E0, self, (int32_t)B(self + 0xD));
+        W(self + 0x58, R(0x28A600));
+        W(self + 0x30, 0x829520);
+        WB(self + 4, 1);
+        WB(self, 1);
+        break;
+    case 1:
+        switch (B(0x810800)) {
+        case 0: (void)a04_825040(o, self, sp - 0x20u); break;
+        case 1: (void)a04_8251C0(o, self); break;
+        default: break;
+        }
+        if (l16b_failed(o)) return 0;
+        C(001C68C0, self);
+        C(001B17A0, self, &r);
+        WB(self + 1, 1);
+        if (l16b_method(o, self)) return 0;
+        break;
+    case 2: case 3:
+        C(001BA540, self);
+        C(001AFC10, self);
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+/* AREA04 0x825280: 1 outside the box x >= 552, z 235..279. */
+static int32_t a04_825280(L16B *o)
+{
+    if (L16B_LT(R(0x810350), F(552.0f))) return 1;
+    if (L16B_LT(F(279.0f), R(0x810358))) return 1;
+    if (L16B_LT(R(0x810358), F(235.0f))) return 1;
+    return 0;
+}
+
+/* AREA04 0x825310 (sub 1's placement [3]): the three arrival scripts of flag
+ * 0x31, one each by entry (bits of D_00810821). */
+static uint32_t a04_825310(L16B *o, uint32_t self)
+{
+    const uint32_t blk = self + 0x1F0, seen = 0x810821, room = 0x810702;
+    int32_t r = 0;
+    switch (B(self + 4)) {
+    case 0:
+        WB(self + 4, 1);
+        WB(self, 1);
+        break;
+    case 1:
+        switch (B(self + 5)) {
+        case 0:
+            C(001BA1C0, self, 0x31, &r);
+            if (r) {
+                if (B(room) == 0 && B(0x70003B8D) != 4 && !(B(seen) & 1)) {
+                    C(001BA1A0, blk, 0x829570);
+                    WB(self + 5, 1);
+                    WB(seen, B(seen) | 1);
+                    return 0;
+                }
+                if (B(room) == 2 && B(0x70003B8D) != 4 && !(B(seen) & 2)) {
+                    C(001BA1A0, blk, 0x829930);
+                    WB(self + 5, 1);
+                    WB(seen, B(seen) | 2);
+                    return 0;
+                }
+                if (B(room) == 7 && a04_825280(o) && !(B(seen) & 4)) {
+                    C(001BA1A0, blk, 0x829CF0);
+                    WB(self + 5, 1);
+                    WB(seen, B(seen) | 4);
+                    return 0;
+                }
+            }
+            break;
+        case 1:
+            C(001BA1F0, self, &r);
+            if (r) WB(self + 4, 3);
+            break;
+        default:
+            break;
+        }
+        C(001B17A0, self, &r);
+        break;
+    case 2: case 3:
+        C(001AFC10, self);
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+int em_level16_boot_a04_00824EF0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t sp, EmLevel16BootFault *fault)
+{
+    L16B o;
+    if (l16b_begin(&o, h, fault)) return -1;
+    (void)a04_824EF0(&o, a0, sp);
+    return l16b_end(&o);
+}
+
+int em_level16_boot_a04_00825310(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault)
+{
+    L16B o;
+    if (l16b_begin(&o, h, fault)) return -1;
+    (void)a04_825310(&o, a0);
+    return l16b_end(&o);
 }
 
 int em_level16_boot_a03_008235A0(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault)

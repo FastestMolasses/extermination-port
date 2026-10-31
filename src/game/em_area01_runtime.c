@@ -685,6 +685,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         return rc;
     if (creatures && dispatch_boss(r, c, &rc))
         return rc;
+    if (r->area == 4 && dispatch_a04x(r, c, &rc))
+        return rc;
     if (r->area == 4 && (c->function >= 0x00823500u || c->function == 0x001C1A80u))
         return dispatch_overlay04(r, c);
     if (creatures && c->function == 0x001BAC00u)

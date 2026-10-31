@@ -23,6 +23,9 @@ HOOKS = {
     0x001BA1A0: ('uu', None), 0x001BA1F0: ('u', 'i'), 0x001C47A0: ('ii', None), 0x001C4760: ('ii', None),
     0x001B17A0: ('u', 'i'), 0x001AFC10: ('u', None), 0x001B1020: ('uiii', 'i'), 0x001F1110: ('ui', None),
     0x001F1180: ('u', None), 0x001B1190: ('i', None),
+    0x001BA1C0: ('ui', 'i'), 0x001B10B0: ('uii', 'i'), 0x001C63E0: ('ui', None), 0x001CA6F0: ('ui', None),
+    0x001BA8E0: ('ui', None), 0x001C68C0: ('u', None), 0x001BA540: ('u', None), 0x001B1EA0: ('iuui', 'i'),
+    0x001FB9F0: ('iiii', 'i'), 0x001C67E0: ('uiff', None), 0x001FAE70: ('i', None), 0x001BA580: ('ui', None), 0x001C64F0: ('uf', 'i'),
 }
 TYPES = {'u': 'uint32_t', 'i': 'int32_t', 'f': 'float', 'q': 'uint64_t'}
 
