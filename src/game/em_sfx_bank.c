@@ -959,7 +959,7 @@ void em_sfx_driver_tick(EmSfxDriver *driver, EmSfxCommandSink sink,
         if (!track->running || !track->allocated || !track->entry) continue;
         const EmSfxEntry *entry = track->entry;
         while (track->next < entry->count &&
-               entry->ops[track->next].tick == track->tick) {
+               entry->ops[track->next].tick <= track->tick) {
             const EmSfxOp *op = &entry->ops[track->next++];
             if (op->kind == EM_SFX_OP_KEY_ON) key_on(driver, i, op, sink, context);
             else if (op->kind == EM_SFX_OP_KEY_OFF) key_off(driver, i, op);
@@ -967,10 +967,12 @@ void em_sfx_driver_tick(EmSfxDriver *driver, EmSfxCommandSink sink,
             else if (op->kind == EM_SFX_OP_VOLUME) volume(driver, i, op);
             else if (op->kind == EM_SFX_OP_PAN) pan_slide(driver, i, op);
             else if (op->kind == EM_SFX_OP_JUMP) {
-                /* 00118790: 001152D8's tail restarts the track at the target,
-                 * whose event runs on the next tick. */
+                /* 00118790: 001152D8's tail restarts the track at the target
+                 * with +0x20 = -0x8000: the target runs on the next tick, and
+                 * the wait after it is one tick short (the fork's trace of
+                 * 0x44E in AREA15 sub 1, the lockstep's pass V). */
                 track->next = op->length;
-                track->tick = (uint16_t)(entry->ops[op->length].tick - 1u);
+                track->tick = entry->ops[op->length].tick;
                 break;
             } else {                      /* 00117C28 (SFX track) */
                 track->running = 0;

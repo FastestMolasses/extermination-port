@@ -2,6 +2,12 @@
 #include "../src/game/em_module_loader.c"
 #include "game/em_area01_state.h"
 
+/* The loader's sound scope (em_sfx.c is not linked here). */
+void em_sfx_set_attachment(int index)
+{
+    (void)index;
+}
+
 static EmModuleLoader loader;
 static EmArea01State state;
 
