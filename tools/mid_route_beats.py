@@ -72,6 +72,9 @@ A08_ROUTE = 'levels-recordings-20261030-1/s87/route_a08'
 A03C_ROUTE = 'levels-recordings-20261030-1/s87/route_a03c'
 A04C_ROUTE = 'levels-recordings-20261030-1/s87/route_a04c'
 A07_ROUTE = 'levels-recordings-20261030-1/s87/route_a07'
+A03D_ROUTE = 'levels-recordings-20261031-1/s87/route_a03d'
+A04D_ROUTE = 'levels-recordings-20261031-1/s87/route_a04d'
+A07B_ROUTE = 'levels-recordings-20261031-1/s87/route_a07b'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -194,12 +197,26 @@ BEATS = {
     'a04c_01': ('a04c_01', A04C_ROUTE, 'a04c_01_door73'),
     'a04c_02': ('a04c_02', A04C_ROUTE, 'a04c_02_lift'),
     'a07_00': ('a07_00', A07_ROUTE, 'a07_00_switch'),
+    'a03d_00': ('a03d_00', A03D_ROUTE, 'a03d_00_seal'),
+    'a03d_01': ('a03d_01', A03D_ROUTE, 'a03d_01_door24'),
+    'a04d_00': ('a04d_00', A04D_ROUTE, 'a04d_00_event'),
+    'a04d_01': ('a04d_01', A04D_ROUTE, 'a04d_01_door73'),
+    'a04d_02': ('a04d_02', A04D_ROUTE, 'a04d_02_lift'),
+    'a07b_00': ('a07b_00', A07B_ROUTE, 'a07b_00_switch'),
+    'a07b_01': ('a07b_01', A07B_ROUTE, 'a07b_01_sub2'),
+    'a07b_02': ('a07b_02', A07B_ROUTE, 'a07b_02_duct'),
+    'a07b_03': ('a07b_03', A07B_ROUTE, 'a07b_03_sub3'),
+    'a07b_04': ('a07b_04', A07B_ROUTE, 'a07b_04_terminal'),
+    'a07b_05': ('a07b_05', A07B_ROUTE, 'a07b_05_back'),
+    'a07b_06': ('a07b_06', A07B_ROUTE, 'a07b_06_duct'),
+    'a07b_07': ('a07b_07', A07B_ROUTE, 'a07b_07_lift'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
           'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
           'a15a': ('a15a_',), 'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',),
           'a13': ('a13_',), 'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',),
-          'a03b': ('a03b_',), 'a08': ('a08_',), 'a03c': ('a03c_',), 'a04c': ('a04c_',), 'a07': ('a07_',)}
+          'a03b': ('a03b_',), 'a08': ('a08_',), 'a03c': ('a03c_',), 'a04c': ('a04c_',), 'a07': ('a07_',),
+          'a03d': ('a03d_',), 'a04d': ('a04d_',), 'a07b': ('a07b_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -397,6 +414,9 @@ CHAINS = {
     'a03c': ('a03c_00', ('a03c_00', 'a03c_01', 'a03c_02', 'a03c_03',)),
     'a04c': ('a04c_00', ('a04c_00', 'a04c_01', 'a04c_02',)),
     'a07': ('a07_00', ('a07_00',)),
+    'a03d': ('a03d_00', ('a03d_00', 'a03d_01',)),
+    'a04d': ('a04d_00', ('a04d_00', 'a04d_01', 'a04d_02',)),
+    'a07b': ('a07b_00', ('a07b_00', 'a07b_01', 'a07b_02', 'a07b_03', 'a07b_04', 'a07b_05', 'a07b_06', 'a07b_07',)),
 }
 
 

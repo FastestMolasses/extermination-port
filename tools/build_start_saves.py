@@ -250,6 +250,19 @@ START_POINTS = {
     'a04c_01': {'route': 'levels-recordings-20261030-1/s87/route_a04c', 'first': 'a04c_01_', 'area': 4},
     'a04c_02': {'route': 'levels-recordings-20261030-1/s87/route_a04c', 'first': 'a04c_02_', 'area': 4},
     'a07_00': {'route': 'levels-recordings-20261030-1/s87/route_a07', 'first': 'a07_00_', 'area': 7},
+    'a03d_00': {'route': 'levels-recordings-20261031-1/s87/route_a03d', 'first': 'a03d_00_', 'area': 3},
+    'a03d_01': {'route': 'levels-recordings-20261031-1/s87/route_a03d', 'first': 'a03d_01_', 'area': 3},
+    'a04d_00': {'route': 'levels-recordings-20261031-1/s87/route_a04d', 'first': 'a04d_00_', 'area': 4},
+    'a04d_01': {'route': 'levels-recordings-20261031-1/s87/route_a04d', 'first': 'a04d_01_', 'area': 4},
+    'a04d_02': {'route': 'levels-recordings-20261031-1/s87/route_a04d', 'first': 'a04d_02_', 'area': 4},
+    'a07b_00': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_00_', 'area': 7},
+    'a07b_01': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_01_', 'area': 7},
+    'a07b_02': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_02_', 'area': 7},
+    'a07b_03': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_03_', 'area': 7},
+    'a07b_04': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_04_', 'area': 7},
+    'a07b_05': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_05_', 'area': 7},
+    'a07b_06': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_06_', 'area': 7},
+    'a07b_07': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_07_', 'area': 7},
 }
 
 
