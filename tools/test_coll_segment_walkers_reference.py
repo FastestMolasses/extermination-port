@@ -1044,7 +1044,7 @@ def run_synthetic(item):
         r, _ = pair.segment(case, f'synthetic {k} segment', a32, e32, rng.choice((6, 6, 2, 4, 3)))
         out['seg'][slot[r]] += 1
         r, _ = pair.camera(case, f'synthetic {k} camera', a32, e32, rng.choice((6, 6, 2, 4)))
-        r, _ = pair.sight(case, f'synthetic {k} sight', a32, e32, rng.choice((6, 6, 2, 4)))
+        r, _ = pair.sight(case, f'synthetic {k} sight', a32, e32, (6, 6, 2, 4)[k % 4])
         out['cam'][slot[r]] += 1
         # The probe module's 0019B6C0 with this module bound as its pass-2
         # workers: owners of kind 0x5A+ reach 001A50A0 / 001A5C30.
