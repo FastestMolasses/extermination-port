@@ -19,6 +19,7 @@ DECOMP = ROOT.parent / 'Extermination'
 SET = DECOMP / 'build/fork_refs/levels-recordings-20261030-1/s87'
 U, I, F, S = O.U, O.I, O.F, O.S
 FUNCS = {
+    0x0012DD70: ('em_area08_route_0012DD70', 0x120, [U, U], None),
     0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
     0x00157360: ('em_area08_route_00157360', 0x248, [U, U, U], I),
     0x0015A070: ('em_area08_route_0015A070', 0x170, [U], None),
@@ -63,6 +64,10 @@ HOOKS = [
     ('w_00158590', 0x00158590, [('u', 4), ('i', 5), ('i', 6)], None),
     ('w_00159FC0', 0x00159FC0, [('u', 4), ('u', 5)], 'i'),
     ('w_00182F90', 0x00182F90, [('u', 4), ('u', 5)], None),
+    ('w_001287F0', 0x001287F0, [('u', 4), ('u', 5), ('i', 6), ('f', 12)], None),
+    ('w_00128830', 0x00128830, [('u', 4), ('f', 12), ('f', 13), ('f', 14)], None),
+    ('w_001B5360', 0x001B5360, [('u', 4)], None),
+    ('w_001B12B0', 0x001B12B0, [('f', 12), ('f', 13), ('f', 14)], 'f'),
     ('w_00102948', 0x00102948, [('u', 4), ('u', 5)], None),
     ('w_001B0460', 0x001B0460, [('i', 4)], None),
     ('w_001AFC10', 0x001AFC10, [('u', 4)], None),
@@ -218,6 +223,12 @@ def cases(oid):
                     add(f'beat/{area}/{step}/{timer}/{bit}', 0x157360,
                         [(P+4, b(step)), (V+0x10, f(timer)), (A+0x2E, b(bit)), (0x810700, b(area)), (0x810841+area, b(1)),
                          (V+0x20, O.fw(1.0, 2.0, 3.0, 1.0)), (V+0x30, O.fw(4.0, 5.0, 6.0, 1.0))])
+    # 0x12DD70
+    for step in (0, 1, 2):
+        for anim in (0, 0x100):
+            for done in (0, 0x1000):
+                add(f'fall12D/{step}/{anim}/{done}', 0x12DD70, [(A+7, b(step)), (P+0xE4, w(anim)), (P+0xF4, h(done)),
+                                                                (A+0xC0, f(0.5))], O.Script({0x1B12B0: [O.fb(0.6)]}))
     # 0x1BD370
     for a in (1.0, 2.8, 2.9, 3.0, 4.9, 5.0):
         for c in (0.0, 4.7, 4.8, 4.9, 5.0):

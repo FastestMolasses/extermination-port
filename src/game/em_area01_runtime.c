@@ -656,8 +656,9 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     /* 001CB1F0 / 001CB130 / 001CB060: the draw methods of AREA19's tendril
      * field and worms (0x26E310 kinds 10, 9, 8). Their VU1 programs (0x0023D4D0
      * and 001D3F60's) have no translation yet: not drawn (an open item of
-     * docs/LEVEL3_BINDING.md, lane J1). */
-    if (r->area == 0x13 && (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
+     * docs/LEVEL3_BINDING.md, lane J1). AREA08's and AREA07's boxes (001546C0 ->
+     * 00154F00) take the same method: docs/AREA08_PORT.md. */
+    if ((r->area == 0x13 || r->area == 8 || r->area == 7) && (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
         static int noted;
         if (!noted++) fprintf(stderr, "em_area01: %08X: its VU1 program is not translated, the node is not drawn\n",
                               (unsigned)c->function);

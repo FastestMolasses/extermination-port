@@ -984,6 +984,25 @@ static int handler_001EF1C0(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* The handler 001ED450, the third of that shape (em_level14_port). */
+static int handler_001ED450(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(0x001ED450u, "001ED450 without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    SkidCall c = {node, work, at, at + 0x1F0u};
+    EmLevel14PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &c;
+    h.bytes = death_bytes;
+    h.w_001CFB50 = death_001CFB50;
+    h.w_001CFBE0 = skid_001CFBE0;
+    EmLevel14PortFault fault = {0, 0};
+    if (em_level14_port_001ED450(&h, at + 0xD0u, (uint32_t)depth, &fault) < 0)
+        return fail(fault.address ? fault.address : 0x001ED450u, "001ED450 faulted (em_level14_port)");
+    return 0;
+}
+
 /* The splash handlers 001EAF00 / 001EAF80 / 001EB020 / 001EB7F0 / 001EC270 (D_00255434
  * entries, reached in AREA01 when the player wades a floor field:
  * 001A8840's contact event 6): em_area01_render_hud's translations, their
@@ -1515,6 +1534,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001ED100u) return handler_001ED100(node, depth, work);
     if (handler == 0x001EDE40u) return handler_001EDE40(node, depth, work);
     if (handler == 0x001EF1C0u) return handler_001EF1C0(node, depth, work);
+    if (handler == 0x001ED450u) return handler_001ED450(node, depth, work);
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (handler == 0x001EB980u) return handler_001EB980(node, depth, work);

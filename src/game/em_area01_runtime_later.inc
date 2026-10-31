@@ -151,6 +151,17 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         code = f.code;
         break;
     }
+    case 0x0012DD70u: {
+        EmArea08RouteHooks h;
+        EmArea08RouteFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        r08_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_area08_route_0012DD70(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
     case 0x0012E3A0u: {
         EmLevel8PortHooks h;
         EmLevel8PortFault f = {0, 0};
@@ -2501,6 +2512,17 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         m08_hooks(r, &h);
         r->sp = c->sp - 0x30u - EIGHTH_NEST;
         rc = em_level8_port_001ED100(&h, (int32_t)c->a[0], (int32_t)c->a[1], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
+    case 0x001ED450u: {
+        EmLevel14PortHooks h;
+        EmLevel14PortFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        m14_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_level14_port_001ED450(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
         where = f.address;
         code = f.code;
         break;

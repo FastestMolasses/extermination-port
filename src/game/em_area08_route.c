@@ -651,6 +651,38 @@ static void slider_a07_00823DA0(A08R *o, uint32_t self)
     }
 }
 
+/* func_0012DD70.c (byte-matched): a bug's two-step fall from a ceiling. */
+static void fall_0012DD70(A08R *o, uint32_t self, uint32_t ctl)
+{
+    uint32_t v = 0;
+    switch (B(self + 7)) {
+    case 0:
+        C(001B5360, self);
+        C(001B12B0, F(1.5707964f), R(self + 0xC0), F(0.06981317f), &v);
+        W(self + 0xC0, v);
+        if (R(ctl + 0xE4) == 0x100) {
+            C(001287F0, self, ctl, 9, 0);
+            W(self + 0xC0, 0);
+            WB(self + 7, B(self + 7) + 1);
+            W(ctl + 0xD8, 0);
+            WH(ctl + 0xF4, 0);
+        }
+        break;
+    case 1:
+        if (S16(ctl + 0xF4) & 0x1000) {
+            C(00128830, self, 0, 0, ONE);
+            C(001287F0, self, ctl, 0, 0);
+            C(001287F0, self, ctl, 2, F(6.0f));
+            WB(self + 5, 1);
+            WB(self + 6, 0);
+            WB(self + 7, 0);
+            C(00102948, ctl + 0x50, self + 0xB0);
+        }
+        break;
+    default: break;
+    }
+}
+
 /* func_001BD370.c: the doors opening, the twin of 001BD270's closing: rec +0x10
  * and then +0x14 rise by 0.2, clamped at 5; the four pose floats +0x7C. */
 static int32_t open_001BD370(A08R *o, uint32_t rec)
@@ -829,6 +861,12 @@ int em_area08_route_008235E0(const EmArea08RouteHooks *h, uint32_t self, int32_t
     r = rise_008235E0(&o, self);
     if (a08r_failed(&o)) return -1;
     *result = r; return 0;
+}
+
+int em_area08_route_0012DD70(const EmArea08RouteHooks *h, uint32_t self, uint32_t ctl, EmArea08RouteFault *fault)
+{
+    A08R o; if (a08r_begin(&o, h, fault)) return -1;
+    fall_0012DD70(&o, self, ctl); return a08r_end(&o);
 }
 
 int em_area08_route_001BD370(const EmArea08RouteHooks *h, uint32_t rec, int32_t *result, EmArea08RouteFault *fault)
