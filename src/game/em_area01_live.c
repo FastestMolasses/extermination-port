@@ -306,7 +306,7 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
             ? (uint8_t *)(void *)&fade->substate+a-0x0028A9A0u : NULL;
     }
     if((p=em_camera_live_bytes(a,n)))return l->active ? p : NULL;
-    if(overlaps(a,n,0x700038A0u,0x60u))
+    if(overlaps(a,n,0x700038A0u,0x80u))   /* to 0x7000391F: 0x824BB0's 0x70003910 */
         return l->active ? em_camera_live_scratch_bytes(a,n) : NULL;
     if((p=em_area11_interaction_host_scan_memory(a,n)))return p;
     if((p=em_effects_live_scratch_3660(a,n)))return p;
@@ -1058,6 +1058,13 @@ static int worker(void *ctx,EmArea01Call *c)
         rc=em_area01_flame_packet_invoke(&packet,c);
         if(em_area01_live_resume(l)<0)return -1;
         return worker_result(l,rc,em_effects_live_fault());
+    }
+    if(c->function==0x001575B0u) {
+        /* 001575B0 (byte-matched): 001FB9F0(0x3EF, 0x1000, 0x1000, 0x1000),
+         * 1. The recharger's script 0x247420 callback. */
+        EmArea01Call sub={.function=0x001FB9F0u,.sp=c->sp,.na=4,.a={0x3EFu,0x1000u,0x1000u,0x1000u}};
+        if(worker(l,&sub)<0)return -1;
+        c->v0=1;return 0;
     }
     if(c->function==0x00182BF0u || c->function==0x001B11E0u ||
        c->function==0x001B1EA0u || c->function==0x001C4760u || c->function==0x00157F60u) {

@@ -111,6 +111,26 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a13_03` | AREA13 | The east room (entry 4), after the scene | The pickup g[5] |
 | `a13_04` | AREA13 | The east room, with the pickup's item | Over the grating step to hatch [62] |
 | `a13_05` | AREA13 | At the open hatch [62] | The ladder down, which falls into AREA19 |
+| `a13b_01` | AREA13 (the second load) | Out of hatch [62] (entry 6), after AREA19's ladder | The ledge climb and door [17] outside |
+| `a13b_02` | AREA13 | Outside door [17] (entry 9) | Round to door [14] and its button [15] |
+| `a13b_03` | AREA13 | Inside door [14] (entry 3) | Door [8] into the lobby |
+| `a13b_04` | AREA13 | The lobby (entry 1) | The lift's outer button [12] |
+| `a13b_05` | AREA13 | At the outer button, the lift called | Into the car, the inner button, down to AREA04 entry 7 |
+| `a13c_00` | AREA13 | Outside door [17] | Door [17], the recharger [60] |
+| `a13c_01` | AREA13 | At the recharger, the battery full | Door [17], the roof ladder, the walkway to the battery machine [44] |
+| `a13c_02` | AREA13 | At [44]'s use point on the walkway | [44] with the battery: its page and script |
+| `a13c_03` | AREA13 | At [44], flag 0x1C set | Back along the walkway: the blast, [45]'s sequence, the ground |
+| `a13c_04` | AREA13 | On the ground after the blast | The roof, its north part, the stair, the pickup g[3] and the cure |
+| `a13c_05` | AREA13 | North of the building, cured | Back up, the drop onto the fallen boom, [7]'s area and its scene |
+| `a13c_06` | AREA13 | On the boom after [7]'s scene | Down the boom into the region south of the pipe fence |
+| `a13d_00` | AREA13 | South of the pipe fence | East to the switchback stair south of the big building |
+| `a13d_01` | AREA13 | At the top of the stair | The ladder to the roof corridor |
+| `a13d_02` | AREA13 | On the roof corridor | East to the first block's ladder |
+| `a13d_03` | AREA13 | On the first block | The running jump onto the second block |
+| `a13d_04` | AREA13 | On the second block | Its east ladder down to the corridor |
+| `a13d_05` | AREA13 | On the corridor | The ladder down to door [20]'s side |
+| `a13d_06` | AREA13 | At the ladder's foot | Door [20] from the north (entry 5) |
+| `a13d_07` | AREA13 | Inside door [20] | The hatch [63], whose ladder falls to AREA19 entry 10 |
 | `area15` | AREA15 sub 0 | Entry 0, the arrival through door [50] | The long conversation in the medical room |
 | `a15_00` | AREA15 sub 0 | After that conversation | The slider and door [14] to the stair tower (AREA19's load) |
 | `a15b_00` | AREA15 sub 1 | Entry 0, through door [51] | Up the stairs to the mezzanine: the event, then the forced return |

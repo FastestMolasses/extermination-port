@@ -418,6 +418,7 @@ start-point save through the original's own load path. Off by default
 | `area06`, `a06_01` .. `a06_05` | AREA06 sub 0: the a01u_02 arrival and where route_a06's beats start | `build/start_saves/<name>` |
 | `a06b`, `a06b_01`, `a01v`, `a01v_01`, `a01v_02`, `a22b`, `a22b_01` | the way back (route_a06b, route_a01v, route_a22b): where each beat starts | `build/start_saves/<name>` |
 | `area13`, `a13_01` .. `a13_05` | AREA13 sub 0 (the fork continuation's route_a13): the lift's arrival and where each beat starts. At `area13` a loaded game replays the lift's door script before the player moves (tools/mid_route_beats.py LEAD) | `build/start_saves/<name>` |
+| `a13b_01` .. `a13b_05`, `a13c_00` .. `a13c_06`, `a13d_00` .. `a13d_07` | AREA13's second load (route_a13b, route_a13c, route_a13d): where each beat starts (docs/AREA13_LATER.md) | `build/start_saves/<name>` |
 | `area15`, `a15_00`, `a15b_00` .. `a15b_04` | AREA15: the sub 0 arrival (the fork's snapshot inside a19d_20, tools/capture_area15_arrival.py) and where route_a15 / route_a15b's beats start (docs/AREA15_PORT.md) | `build/start_saves/<name>` |
 | `a03_00` | AREA03 sub 0: a19e_07's end, where route_a03's beat starts | `build/start_saves/<name>` |
 
