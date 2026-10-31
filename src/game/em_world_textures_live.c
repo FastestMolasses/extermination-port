@@ -36,7 +36,7 @@ static int supported(void)
                                     S.area == 3u || S.area == 0x13u || S.area == 8u || S.area == 7u) && S.mode <= 2u &&
                                    S.costume <= 2u))
         return 0;
-    if (S.area == 8u && (S.subarea == 2u || S.subarea == 3u)) return 1;
+    if ((S.area == 8u || S.area == 7u) && (S.subarea == 2u || S.subarea == 3u)) return 1;
     return ((S.area == 0u || S.area == 2u || S.area == 0x0Fu || S.area == 0x13u) && S.subarea <= 1u) ||
            (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u ||
                                 S.area == 0x0Du || S.area == 3u || S.area == 8u || S.area == 7u));

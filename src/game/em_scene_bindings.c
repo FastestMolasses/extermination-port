@@ -230,8 +230,9 @@ static const char *area02_file(unsigned sub, const char *name)
  * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
 static int mid_area(unsigned area, unsigned sub)
 {
-    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 3u || area == 7u) && sub == 0) ||
-           ((area == 0x0Fu || area == 0x13u) && sub <= 1) || (area == 8u && (sub == 0 || sub == 2 || sub == 3));
+    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 3u) && sub == 0) ||
+           ((area == 0x0Fu || area == 0x13u) && sub <= 1) ||
+           ((area == 8u || area == 7u) && (sub == 0 || sub == 2 || sub == 3));
 }
 /* AREA15 keeps one folder per sub, AREA03's recorded sub lives in the level
  * pack's tree (tools/export_area03_assets.py). */
@@ -247,7 +248,7 @@ static const char *mid_file(unsigned area, const char *name)
     else if (area == 3u)
         snprintf(out, sizeof path[0], "assets/levels/03/sub0%s%s", name[0] ? "/" : "", name);
     else
-        snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, (area == 0x0Fu || area == 8u) ? s_state.d810701 : 0u,
+        snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, (area == 0x0Fu || area == 8u || area == 7u) ? s_state.d810701 : 0u,
                  name[0] ? "/" : "", name);
     return out;
 }
@@ -2818,7 +2819,9 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, "assets/area08/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area08/sub2") == 0 ||
            strcmp(g.scene_dir, "assets/area08/sub3") == 0 ||
-           strcmp(g.scene_dir, "assets/area07/sub0") == 0;
+           strcmp(g.scene_dir, "assets/area07/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area07/sub2") == 0 ||
+           strcmp(g.scene_dir, "assets/area07/sub3") == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -4035,7 +4038,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
         }
     }
     if (s_state.d810700 == 7 && fn >= 0x00823500u) {
-        if (fn == 0x00823DA0u) goto bind;
+        if (fn == 0x00823DA0u || fn == 0x00823990u || fn == 0x00823F80u || fn == 0x008259D0u) goto bind;
         return -1;
     }
     /* AREA15's, AREA03's, AREA19's, AREA08's and AREA07's boot owners (their

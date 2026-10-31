@@ -367,8 +367,16 @@ static void owner_00824210(A08R *o, uint32_t self)
     }
 }
 
-/* func_overlay_AREA08_00824750.c: [2]'s half when D_0081076D is not 0xFF. */
-static void half_00824790(A08R *o, uint32_t self)
+/* The terminal owners' tables: AREA08's [2] (0x8245E0, flag 0x18) and AREA07's
+ * [17] (0x823990, flag 0x15), the same C with these bytes and scripts. */
+typedef struct {
+    uint32_t list, flag, lit, other, counter, first, both, item;
+} Terminal;
+static const Terminal k_a08t = {0x827160, 0x18, 0x810770, 0x81076D, 0x8107F0, 0x826420, 0x8268E0, 0x13};
+static const Terminal k_a07t = {0x827170, 0x15, 0x81076D, 0x810770, 0x8107ED, 0x8264B0, 0x826930, 0x11};
+
+/* func_overlay_AREA08_00824750.c, func_overlay_AREA07_00823B00.c. */
+static void half_first(A08R *o, uint32_t self, const Terminal *t)
 {
     int32_t r = 0;
     switch (B(self + 5)) {
@@ -376,29 +384,29 @@ static void half_00824790(A08R *o, uint32_t self)
         if (B(self + 0xB) & 4) {
             vec4(o, 0x700038A0, 0.0f, -6.0f, 0.0f, 1.0f);
             C(001B6F00, self, 0x700038A0, PI);
-            C(001BA1A0, self + 0x1F0, 0x826420);
+            C(001BA1A0, self + 0x1F0, t->first);
             WB(self + 5, 1);
         }
         break;
     case 1:
         C(001BA1F0, self, &r);
         if (r) {
-            C(001C4760, 0x13, 1);
-            WB(0x8107F0, 0xFF);
+            C(001C4760, (int32_t)t->item, 1);
+            WB(t->counter, 0xFF);
         }
         break;
     default: break;
     }
 }
 
-/* func_overlay_AREA08_00824830.c: [2]'s half once D_0081076D is 0xFF. */
-static void half_00824870(A08R *o, uint32_t self)
+/* func_overlay_AREA08_00824830.c, func_overlay_AREA07_00823BE0.c. */
+static void half_both(A08R *o, uint32_t self, const Terminal *t)
 {
     int32_t r = 0;
     switch (B(self + 5)) {
     case 0:
         if (B(self + 0xB) & 4) {
-            C(001BA1A0, self + 0x1F0, 0x8268E0);
+            C(001BA1A0, self + 0x1F0, t->both);
             vec4(o, 0x700038A0, 0.0f, -6.0f, 0.0f, 1.0f);
             C(001B6F00, self, 0x700038A0, PI);
             WB(self + 5, 1);
@@ -412,12 +420,12 @@ static void half_00824870(A08R *o, uint32_t self)
         }
         C(001BA1F0, self, &r);
         if (r) {
-            C(001C4760, 0x13, 1);
+            C(001C4760, (int32_t)t->item, 1);
             C(001C4760, 0x14, 1);
             if (a08r_c_001FABB0(o)) return;
             C(001FB0B0, 9);
-            WB(0x810770, 0xFF);
-            WB(0x8107F0, 0xFF);
+            WB(t->lit, 0xFF);
+            WB(t->counter, 0xFF);
             WB(self + 5, 2);
         }
         break;
@@ -425,8 +433,8 @@ static void half_00824870(A08R *o, uint32_t self)
     }
 }
 
-/* func_overlay_AREA08_008245A0.c: sub 3's terminal [2]. */
-static void terminal_008245E0(A08R *o, uint32_t self)
+/* func_overlay_AREA08_008245A0.c, func_overlay_AREA07_00823950.c. */
+static void terminal(A08R *o, uint32_t self, const Terminal *t)
 {
     int32_t r = 0;
     uint32_t lit;
@@ -435,13 +443,13 @@ static void terminal_008245E0(A08R *o, uint32_t self)
         C(001B0FD0, self, &r);
         if (r) break;
         C(001C6380, self);
-        W(self + 0x30, 0x827160);
+        W(self + 0x30, t->list);
         WB(self + 4, 1);
-        C(001BA1C0, self, 0x18, &r);
+        C(001BA1C0, self, (int32_t)t->flag, &r);
         WB(self, r ? 2 : 1);
         break;
     case 1:
-        lit = B(0x810770);
+        lit = B(t->lit);
         if (lit != 0xFF) {
             if (lit == 0) {
                 W(0x700038A0, A08R_ADD(R(self + 0xB0), F(0.4f)));
@@ -451,8 +459,8 @@ static void terminal_008245E0(A08R *o, uint32_t self)
                 W(0x700038B0, 0); W(0x700038B4, 0x80); W(0x700038B8, 0); W(0x700038BC, 0x80);
                 C(001F4BF0, 0x700038A0, 0x700038B0);
             }
-            if (B(0x81076D) == 0xFF) half_00824870(o, self);
-            else half_00824790(o, self);
+            if (B(t->other) == 0xFF) half_both(o, self, t);
+            else half_first(o, self, t);
             if (a08r_failed(o)) return;
         }
         C(001C6380, self);
@@ -465,6 +473,13 @@ static void terminal_008245E0(A08R *o, uint32_t self)
     default: break;
     }
 }
+
+static void half_00824790(A08R *o, uint32_t self) { half_first(o, self, &k_a08t); }
+static void half_00824870(A08R *o, uint32_t self) { half_both(o, self, &k_a08t); }
+static void terminal_008245E0(A08R *o, uint32_t self) { terminal(o, self, &k_a08t); }
+static void half_a07_00823B40(A08R *o, uint32_t self) { half_first(o, self, &k_a07t); }
+static void half_a07_00823C20(A08R *o, uint32_t self) { half_both(o, self, &k_a07t); }
+static void terminal_a07_00823990(A08R *o, uint32_t self) { terminal(o, self, &k_a07t); }
 
 /* func_overlay_AREA08_008249B0.c: sliders [27], [28], [29]. */
 static void slider_008249F0(A08R *o, uint32_t self)
@@ -788,6 +803,9 @@ ENTRY(00824870, half_00824870)
 ENTRY(008245E0, terminal_008245E0)
 ENTRY(008249F0, slider_008249F0)
 ENTRY(a07_00823DA0, slider_a07_00823DA0)
+ENTRY(a07_00823990, terminal_a07_00823990)
+ENTRY(a07_00823B40, half_a07_00823B40)
+ENTRY(a07_00823C20, half_a07_00823C20)
 
 int em_area08_route_00824BC0(const EmArea08RouteHooks *h, uint32_t self, uint32_t sp, EmArea08RouteFault *fault)
 {

@@ -31,7 +31,8 @@ GROUPS = ('levels-recordings-20261018-10/s87/route_a19', 'levels-recordings-2026
           'levels-recordings-20261018-19/s87/route_a15', 'levels-recordings-20261018-19/s87/route_a15b',
           'levels-recordings-20261018-25/s87/route_a15b', 'levels-recordings-20261018-26/s87/route_a03',
           # AREA08 and AREA07 (lane P1)
-          'levels-recordings-20261030-1/s87/route_a08', 'levels-recordings-20261030-1/s87/route_a07')
+          'levels-recordings-20261030-1/s87/route_a08', 'levels-recordings-20261030-1/s87/route_a07',
+          'levels-recordings-20261031-1/s87/route_a07b')
 
 
 def main():

@@ -293,7 +293,8 @@ def source_rand(beat):
 # at a load's placements (0012A5D0 nodes chase the player): the comparison
 # anchor EM_START_AT_RESTORE gives them the source state's records and clock
 # at script frame 0 (docs/STARTUP.md; comparison only).
-RESTORE = {'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06', 'a07_00'}
+RESTORE = {'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06', 'a07_00', 'a07b_00', 'a07b_01', 'a07b_02',
+           'a07b_03', 'a07b_04', 'a07b_05', 'a07b_06', 'a07b_07'}
 
 
 def restore_anchor(beat):
@@ -354,12 +355,16 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    # EM_MID_ROUTE_MODE: anchor (default: the source's bugs, the rand() table, the
+    # pad alone), both (the anchors and the steering), steer (the steering alone).
+    mode = os.environ.get('EM_MID_ROUTE_MODE', 'anchor')
     rands = ROOT / 'build/beat_rands' / f'{beats[0]}.txt'
-    if beats[0] in RESTORE and len(beats) == 1 and rands.exists():
-        env['EM_START_AT_RANDS'] = str(rands)
-    if beats[0] in RESTORE:
+    if beats[0] in RESTORE and mode != 'steer':
+        if len(beats) == 1 and rands.exists():
+            env['EM_START_AT_RANDS'] = str(rands)
         env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
-        del env['EM_START_AT_PATH']    # with the anchor the recorded pad alone keeps the route
+        if mode == 'anchor':
+            del env['EM_START_AT_PATH']    # with the anchors the recorded pad alone keeps the route
     start = time.time()
     ended = False
     with open(log_path, 'w') as log:

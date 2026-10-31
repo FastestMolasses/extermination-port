@@ -103,6 +103,9 @@ int em_area08_route_008249F0(const EmArea08RouteHooks *h, uint32_t a0, EmArea08R
 int em_area08_route_00824BC0(const EmArea08RouteHooks *h, uint32_t a0, uint32_t sp, EmArea08RouteFault *fault);
 /* AREA07 (0x823DA0 is another function in AREA08's overlay) */
 int em_area08_route_a07_00823DA0(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
+int em_area08_route_a07_00823990(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
+int em_area08_route_a07_00823B40(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
+int em_area08_route_a07_00823C20(const EmArea08RouteHooks *h, uint32_t a0, EmArea08RouteFault *fault);
 #ifdef __cplusplus
 }
 #endif

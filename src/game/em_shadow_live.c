@@ -220,6 +220,8 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     if (area == 8 && subarea == 2) path = "assets/levels/08/sub2/shadow_receivers.emsr";
     if (area == 8 && subarea == 3) path = "assets/levels/08/sub3/shadow_receivers.emsr";
     if (area == 7 && subarea == 0) path = "assets/levels/07/sub0/shadow_receivers.emsr";
+    if (area == 7 && subarea == 2) path = "assets/levels/07/sub2/shadow_receivers.emsr";
+    if (area == 7 && subarea == 3) path = "assets/levels/07/sub3/shadow_receivers.emsr";
     if (!path || S.fault) return -1;
     for (u32 k = 0; k < S.pass_count; ++k)
         if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;

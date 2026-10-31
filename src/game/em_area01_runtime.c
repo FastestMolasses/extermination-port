@@ -119,6 +119,8 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_level15_creatures.h"
 #include "game/em_area15_route.h"
 #include "game/em_area08_route.h"
+#include "game/em_area07_route.h"
+#include "game/em_area07_probe.h"
 #include "game/em_area03_route.h"
 #include "game/em_area03_arrival.h"
 #include "game/em_area19_route.h"

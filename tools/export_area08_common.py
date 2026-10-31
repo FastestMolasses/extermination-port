@@ -8,12 +8,15 @@ the subs the sixteenth level's fork recordings load.
     sub 3  a08_04_ceiling, a08_05_terminal       (the terminal)
   AREA07 (area 7, OVERLAY/AREA07.BIN = MWo3 id 7)
     sub 0  a04c_02_lift, a07_00_switch           (the lift, the chambers)
+    sub 2  a07b_01_sub2, a07b_02_duct            (the flames, the turrets)
+    sub 3  a07b_03_sub3, a07b_04_terminal        (the terminal)
 
 Like export_area15_common: the AREA13 lane's exporters model an area through
 a Target and per-target tables, imported and run unchanged; `install` points
 them at one (target, sub). Each load's nested list relocates id 0x45 in
 AREA08 subs 0, 3 and AREA07 sub 0 (export_area15_level.export_dynamic), not in
-AREA08 sub 2 (the stale-pointer model of export_area13_level.export_target).
+AREA08 sub 2 and AREA07 sub 2 (the stale-pointer model of
+export_area13_level.export_target).
 
 001A2370 / 0019C6F0 rules: no AREA08 C calls either; of AREA07's C only
 0x823F80 calls 001A2370 (*(node + 0x110)'s bone record, sub 2's deferred
@@ -38,6 +41,7 @@ import export_area13_sfx as SX  # noqa: E402
 C = A13.C
 ROOT, DECOMP = A13.ROOT, A13.DECOMP
 SET = DECOMP / 'build/fork_refs/levels-recordings-20261030-1/s87'
+SET2 = DECOMP / 'build/fork_refs/levels-recordings-20261031-1/s87'
 SCRATCH = ROOT / 'build/area08/assets'
 AREA08_SHA256 = 'f50d8d7cc590a448a0ed4a8c0f6ae99d096897534eb4d72dfc7569c7c498d3c6'
 AREA07_SHA256 = '3233b7bf53df85452cbd00959b09725734a22afccccd9ef670d62f72f716f96e'
@@ -59,6 +63,10 @@ SUBS = {
                         previous=SET / 'route_a08/a08_03_slider', dynamic=True),
     ('area07', 0): dict(paths=(SET / 'route_a04c/a04c_02_lift', SET / 'route_a07/a07_00_switch'),
                         previous=SET / 'route_a04c/a04c_01_door73', dynamic=True),
+    ('area07', 2): dict(paths=(SET2 / 'route_a07b/a07b_01_sub2', SET2 / 'route_a07b/a07b_02_duct'),
+                        previous=SET2 / 'route_a07b/a07b_00_switch', dynamic=False),
+    ('area07', 3): dict(paths=(SET2 / 'route_a07b/a07b_03_sub3', SET2 / 'route_a07b/a07b_04_terminal'),
+                        previous=SET2 / 'route_a07b/a07b_02_duct', dynamic=True),
 }
 # every func_001BA1A0 script argument of the committed overlay C (re-read by
 # export_area13_tables.c_script_entries)
@@ -152,7 +160,9 @@ def install(target, sub, tree=None):
     A13.capture_paths = lambda: [p for p in v['paths']]
     A13.configure(t)
     LV.PREVIOUS[target] = v['previous']
-    LV.CREATURES[target] = None
+    # AREA07 sub 2's turrets 0x823F80: 001A2370 over *(node + 0x11C) + 0x90
+    # (func_overlay_AREA07_00823F40.c), the AREA01 twin's rule.
+    LV.CREATURES[target] = 0x823F80 if target == 'area07' else None
     LV.FLAG_OWNERS[target] = None
     LV.flag_calls = flag_calls
     LV.E22.check_ctx_block = check_ctx_block

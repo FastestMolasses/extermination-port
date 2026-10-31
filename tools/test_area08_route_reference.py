@@ -38,7 +38,10 @@ FUNCS = {
     0x00824BC0: ('em_area08_route_00824BC0', 0x4FC, [U, S], None),
 }
 # AREA07's address space is another overlay: its own pass of the same harness
-FUNCS07 = {0x00823DA0: ('em_area08_route_a07_00823DA0', 0x1D8, [U], None)}
+FUNCS07 = {0x00823DA0: ('em_area08_route_a07_00823DA0', 0x1D8, [U], None),
+           0x00823990: ('em_area08_route_a07_00823990', 0x1A4, [U], None),
+           0x00823B40: ('em_area08_route_a07_00823B40', 0xDC, [U], None),
+           0x00823C20: ('em_area08_route_a07_00823C20', 0x17C, [U], None)}
 # 00159FC0 is a hook of 0015A070: its own pass, the hook table's slot unused
 FUNCS159 = {0x00159FC0: ('em_area08_route_00159FC0', 0xAC, [U, U], I)}
 OVERLAY_FILES = {8: DECOMP/'extract/OVERLAY/AREA08.BIN', 7: DECOMP/'extract/OVERLAY/AREA07.BIN'}
@@ -132,10 +135,11 @@ def configure(oid):
         [('ctx', C.c_void_p), ('bytes', O.BYTES_FN)] +
         [(name, O.hook_proto(args, res)) for name, _, args, res in HOOKS] +
         [('w_callback', O.CALLBACK_FN)]})
-    O.SELF_ENTRIES = {8: {0x15A070, 0x823870, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0}, 7: {0x823DA0}, 159: set()}[oid]
+    O.SELF_ENTRIES = {8: {0x15A070, 0x823870, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0}, 7: {0x823DA0, 0x823990}, 159: set()}[oid]
     O.HEAVY = set()
     O.RETURN_SITES = O.RETURN_SITES_FULL = tuple(e for e, f in funcs.items() if f[3])
-    a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380')
+    a07 = ('w_001AFC10', 'w_001B0FD0', 'w_001B17A0', 'w_001B2140', 'w_001BA1A0', 'w_001BA1F0', 'w_001C6380',
+           'w_001B6F00', 'w_001BA1C0', 'w_001C4760', 'w_001F4BF0', 'w_001FABB0', 'w_001FB0B0')
     used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0')}[oid]
     O.CONTRACT_UNREACHABLE = {h[0]: 'not called in this pass' for h in HOOKS if h[0] not in used}
     O.LOCAL_STORES = set()
@@ -173,6 +177,24 @@ def cases(oid):
         return out
     if oid == 7:
         steps(0x823DA0)
+        for e in (0x823990, 0x823B40, 0x823C20):
+            steps(e)
+        add('terminal/start/set', 0x823990, [], O.Script({0x1B0FD0: [0], 0x1BA1C0: [1]}))
+        for lit in (0, 1, 0xFF):
+            for other in (0, 0xFF):
+                for sub in (0, 1, 2, 3):
+                    for use in (0, 4):
+                        for result in (0, 1):
+                            add(f'terminal/{lit}/{other}/{sub}/{use}/{result}', 0x823990,
+                                [(A+4, b(1)), (A+5, b(sub)), (A+0xB, b(use)), (0x81076D, b(lit)), (0x810770, b(other)),
+                                 (A+0xB0, f(1.0))], O.Script({0x1BA1F0: [result]}))
+        for lit in (0, 1):
+            for count in (0, 1):
+                for sub in (0, 1, 2, 3):
+                    for result in (0, 1):
+                        add(f'half/{lit}/{count}/{sub}/{result}', 0x823C20,
+                            [(A+5, b(sub)), (A+6, b(count)), (A+0xB, b(4)), (0x81077D, b(lit))],
+                            O.Script({0x1BA1F0: [result]}))
         for z in (599.0, 600.0, 601.0):
             for pz in (599.0, 600.0, 601.0):
                 for result in (0, 1):
