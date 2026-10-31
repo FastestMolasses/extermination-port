@@ -230,16 +230,6 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return em_area01_player_view_bytes(&l->player,a,n,write);
     if(overlaps(a,n,LOCAL_BASE,sizeof l->locals))
         return contains(a,n,LOCAL_BASE,sizeof l->locals) ? l->locals+a-LOCAL_BASE : NULL;
-    /* 0x70003910..1F: 0x827DD0's hit direction (AREA19's trackers). */
-    if(overlaps(a,n,0x70003910u,16)) {
-        static uint8_t s3910[16];
-        return contains(a,n,0x70003910u,16) ? s3910+a-0x70003910u : NULL;
-    }
-    /* D_00275C10 / 14: 001E7D20's words (its once-a-frame step, AREA19). */
-    if(overlaps(a,n,0x00275C10u,8)) {
-        static uint8_t d275C10[8];
-        return contains(a,n,0x00275C10u,8) ? d275C10+a-0x00275C10u : NULL;
-    }
     if(overlaps(a,n,0x70003000u,sizeof l->scratch_3000))
         return em_area01_live_matrix_3000(l,a,n);
     if(overlaps(a,n,0x700034C0u,sizeof l->scratch_34C0))
@@ -374,6 +364,17 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if((p=write ? em_rcl_bytes_mut(a,n) : (uint8_t *)(void *)em_rcl_bytes(a,n)))return p;
     if(l->host.bytes && (p=l->host.bytes(l->host.ctx,a,n,write)))return p;
     if((p=em_effects_live_window_mutable(a,n)))return p;
+    /* Words only AREA19's code reaches, behind every shared storage:
+     * 0x70003910..1F, 0x827DD0's hit direction (its trackers); D_00275C10 /
+     * 14, 001E7D20's once-a-frame step. */
+    if(contains(a,n,0x70003910u,16)) {
+        static uint8_t s3910[16];
+        return s3910+a-0x70003910u;
+    }
+    if(contains(a,n,0x00275C10u,8)) {
+        static uint8_t d275C10[8];
+        return d275C10+a-0x00275C10u;
+    }
     if(write)return NULL;
     const uint8_t *q=em_collision_world_contact_bytes(a,n);
     if(!q)q=em_effects_live_window(a,n);
@@ -1541,7 +1542,6 @@ static int worker(void *ctx,EmArea01Call *c)
     case 0x0011DF78u:
         if(c->nf<1)return -1;
         c->f0=em_ee_bits(em_sdk_math_original_0011DF78(em_ee_float(c->f[0])));return 0;
-    case 0x0011E2A8u: case 0x0011DE90u: case 0x0011E398u:
     case 0x0011E080u:
         if(c->nf<1)return -1;
         c->v0=(uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));return 0;
@@ -1555,6 +1555,7 @@ static int worker(void *ctx,EmArea01Call *c)
             if(em_area01_live_resume(l)<0)return -1;
             return rc;
         }
+    case 0x0011E2A8u: case 0x0011DE90u: case 0x0011E398u:
     case 0x0011DBB8u: case 0x0011E620u: case 0x0011E748u: case 0x0011CB90u:
         if(!sdk || c->nf<(c->function==0x0011E620u ? 2u : 1u))return -1;
         if(c->function==0x0011E2A8u)out=em_sdk_math_original_float_0011E2A8(sdk,em_ee_float(c->f[0]));
