@@ -57,6 +57,11 @@ OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
 BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
+A19_ROUTE = 'levels-recordings-20261018-10/s87/route_a19'
+A19B_ROUTE = 'levels-recordings-20261018-13/s87/route_a19b'
+A19C0_ROUTE = 'levels-recordings-20261018-14/s87/route_a19c'
+A19C_ROUTE = 'levels-recordings-20261018-17/s87/route_a19c'
+A19D_ROUTE = 'levels-recordings-20261018-19/s87/route_a19d'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -101,9 +106,47 @@ BEATS = {
     'a04b_g3': ('boss', BOSS_ROUTE, 'a04b_g3_fight'),
     'a04b_g4': ('boss', BOSS_ROUTE, 'a04b_g4_drop'),
     'a04b_g5': ('boss', BOSS_ROUTE, 'a04b_g5_lift'),
+    # AREA19 (lane J1): the entry-9 rooms, entry 10's side and sub 1. The
+    # arrival by the hatch [63] (a19b_00) and door [50]'s AREA15 scene are
+    # the other lanes'.
+    'a19_00': ('area19', A19_ROUTE, 'a19_00_duct'),
+    'a19_01': ('a19_01', A19_ROUTE, 'a19_01_pickup_g2'),
+    'a19_02': ('a19_02', A19_ROUTE, 'a19_02_duct_back'),
+    'a19b_01': ('a19b_01', A19B_ROUTE, 'a19b_01_ledge'),
+    'a19b_02': ('a19b_02', A19B_ROUTE, 'a19b_02_ladder1023'),
+    'a19c_00': ('a19c_00', A19C0_ROUTE, 'a19c_00_bar840'),
+    'a19c_01': ('a19c_01', A19C_ROUTE, 'a19c_01_bar841'),
+    'a19c_02': ('a19c_02', A19C_ROUTE, 'a19c_02_use7'),
+    'a19c_03': ('a19c_03', A19C_ROUTE, 'a19c_03_slide'),
+    'a19c_04': ('a19c_04', A19C_ROUTE, 'a19c_04_walkway'),
+    'a19c_05': ('a19c_05', A19C_ROUTE, 'a19c_05_door27'),
+    'a19c_06': ('a19c_06', A19C_ROUTE, 'a19c_06_ladder959'),
+    'a19c_07': ('a19c_07', A19C_ROUTE, 'a19c_07_door52'),
+    'a19d_00': ('a19d_00', A19D_ROUTE, 'a19d_00_beastA'),
+    'a19d_01': ('a19d_01', A19D_ROUTE, 'a19d_01_ceiling'),
+    'a19d_02': ('a19d_02', A19D_ROUTE, 'a19d_02_lockB'),
+    'a19d_03': ('a19d_03', A19D_ROUTE, 'a19d_03_beastB'),
+    'a19d_04': ('a19d_04', A19D_ROUTE, 'a19d_04_alcove'),
+    'a19d_05': ('a19d_05', A19D_ROUTE, 'a19d_05_valve37'),
+    'a19d_06': ('a19d_06', A19D_ROUTE, 'a19d_06_g3'),
+    'a19d_07': ('a19d_07', A19D_ROUTE, 'a19d_07_cage'),
+    'a19d_08': ('a19d_08', A19D_ROUTE, 'a19d_08_west'),
+    'a19d_09': ('a19d_09', A19D_ROUTE, 'a19d_09_westdeck'),
+    'a19d_10': ('a19d_10', A19D_ROUTE, 'a19d_10_area82E050'),
+    'a19d_11': ('a19d_11', A19D_ROUTE, 'a19d_11_bar858'),
+    'a19d_12': ('a19d_12', A19D_ROUTE, 'a19d_12_post'),
+    'a19d_13': ('a19d_13', A19D_ROUTE, 'a19d_13_bar1195'),
+    'a19d_14': ('a19d_14', A19D_ROUTE, 'a19d_14_roof'),
+    'a19d_15': ('a19d_15', A19D_ROUTE, 'a19d_15_deckB'),
+    'a19d_16': ('a19d_16', A19D_ROUTE, 'a19d_16_ladder694'),
+    'a19d_17': ('a19d_17', A19D_ROUTE, 'a19d_17_seal_far'),
+    'a19d_18': ('a19d_18', A19D_ROUTE, 'a19d_18_seal'),
+    'a19d_19': ('a19d_19', A19D_ROUTE, 'a19d_19_flights'),
+    'a19d_20': ('a19d_20', A19D_ROUTE, 'a19d_20_door50'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
-          'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',)}
+          'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
+          'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -273,6 +316,10 @@ CHAINS = {
     'boss': ('a04b_03', ('a04b_03', 'a04b_s5', 'a04b_s6', 'a04b_s7')),
     'bossg': ('boss', ('a04b_g2', 'a04b_g3', 'a04b_g4', 'a04b_g5')),
     'bosst': ('a04b_02', ('a04b_g0', 'a04b_g1')),
+    'a19': ('area19', ('a19_00', 'a19_01', 'a19_02')),
+    'a19b': ('a19b_01', ('a19b_01', 'a19b_02')),
+    'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
+    'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
 }
 
 

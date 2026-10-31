@@ -83,15 +83,15 @@ MUSIC_ROWS, VOICE_ROWS = 68, 179
 MUSIC_TABLE, VOICE_TABLE = 0x25DD30, 0x25E170
 SEARCH_NAMES = (0x26EBB0, 0x26EBD0)
 STREAM_TABLE = 0x26EC60
-AREAS = (11, 1, 0, 2, 4, 0x16, 6)
+AREAS = (11, 1, 0, 2, 4, 0x16, 6, 0x13)
 # D_00264DD0 indices of the exported areas' message-record tables.
 # AREA22 has none: D_00264DD0[0x17] is 0 (export_area22_tables.py).
-MESSAGE_TABLES = {2: 'AREA01', 1: 'AREA00', 3: 'AREA02', 5: 'AREA04', 7: 'AREA06'}
+MESSAGE_TABLES = {2: 'AREA01', 1: 'AREA00', 3: 'AREA02', 5: 'AREA04', 7: 'AREA06', 0x14: 'AREA19'}
 # The spawn records 001B0250 copies into D_008106C8 (D_0024D650[area][room]
 # + entry * 0x30, word +0x1C): 001FAE70's music cue is its bits 8..14. The
 # middle of the route to the first boss (AREA01's upper-floor entries, AREA04,
 # AREA06, AREA22) plays these at the area loads.
-SPAWN_TABLE, SPAWN_RECORD, SPAWN_AREAS = 0x24D650, 0x30, (1, 4, 6, 0x16)
+SPAWN_TABLE, SPAWN_RECORD, SPAWN_AREAS = 0x24D650, 0x30, (1, 4, 6, 0x13, 0x16)
 # Cues named by original code paths (see the module docstring).
 MUSIC_EXTRA = {25: '001FAE70 AREA11 selection (captured D_00282178[0] = 25)',
                0x18: '001FAE70 override cue (D_008104E4 == 1)',

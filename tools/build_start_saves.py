@@ -45,6 +45,10 @@ route's manifest: its first beat's source state):
   a04b_00 .. a04b_04
                    the source state of the fork continuation's route_a04b
                    beat (AREA04's second visit; a04b_00: a22b_01's end)
+  area19, a19_01, a19_02, a19b_01, a19b_02, a19c_00 .. a19c_07,
+  a19d_00 .. a19d_20
+                   AREA19 sub 0 and sub 1 (route_a19, route_a19b, route_a19c,
+                   route_a19d): the source state of that beat
   boss             the source state of a04b_g2 in the fight's own recording
                    (tools/capture_boss_fight.py: the SHOTGUN UNIT fitted, six
                    shells, in the hall outside door [45])
@@ -110,6 +114,13 @@ WRITTEN = (0xF, 0x63F)             # the bytes the writer sets in the chosen slo
 QCOPY = 0x102948
 POSE_COPIES = ((0x810710, 0x810350), (0x810720, 0x810370))
 POSE = range(0x10, 0x30)           # D_00810710..72F: the block's bytes the two copies write
+
+# The fork recordings of AREA19's route groups (a19c_00 was recorded apart).
+A19 = 'levels-recordings-20261018-10/s87/route_a19'
+A19B = 'levels-recordings-20261018-13/s87/route_a19b'
+A19C0 = 'levels-recordings-20261018-14/s87/route_a19c'
+A19C = 'levels-recordings-20261018-17/s87/route_a19c'
+A19D = 'levels-recordings-20261018-19/s87/route_a19d'
 
 START_POINTS = {
     'area01': {'route': 's87/route_a01', 'first': 'a01_00_', 'area': 1},
@@ -178,6 +189,19 @@ START_POINTS = {
     # The first boss (tools/capture_boss_fight.py): the shotgun chain's
     # reader beat, door [45] behind the player and the SHOTGUN UNIT fitted.
     'boss': {'route': 'boss_fight_20261030/s87/route_a04b', 'first': 'a04b_g2_', 'area': 4},
+    # AREA19 (lane J1): the entry-9 rooms (TENTH_LEVEL_ROUTE.md: area19 is
+    # a13_05's end, the foot of the ladder under AREA13's hatch [62]), entry
+    # 10's side (TWELFTH_LEVEL_ROUTE.md, from a19b_00's end: the hatch [63]'s
+    # arrival is lane H1's) and on through sub 1 (THIRTEENTH and
+    # FOURTEENTH_LEVEL_ROUTE.md). Each is the source state of that beat.
+    'area19': {'route': A19, 'first': 'a19_00_', 'area': 0x13},
+    'a19_01': {'route': A19, 'first': 'a19_01_', 'area': 0x13},
+    'a19_02': {'route': A19, 'first': 'a19_02_', 'area': 0x13},
+    'a19b_01': {'route': A19B, 'first': 'a19b_01_', 'area': 0x13},
+    'a19b_02': {'route': A19B, 'first': 'a19b_02_', 'area': 0x13},
+    'a19c_00': {'route': A19C0, 'first': 'a19c_00_', 'area': 0x13},
+    **{f'a19c_0{k}': {'route': A19C, 'first': f'a19c_0{k}_', 'area': 0x13} for k in range(1, 8)},
+    **{f'a19d_{k:02}': {'route': A19D, 'first': f'a19d_{k:02}_', 'area': 0x13} for k in range(0, 21)},
 }
 
 

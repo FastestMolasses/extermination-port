@@ -15,7 +15,7 @@ enum {
     EM_SFX_STATE_AUDIBLE = 1,     /* every operation runs natively         */
     EM_SFX_STATE_ABSENT = 2,      /* original 001FB9F0/00119EA0 return -1  */
     EM_SFX_STATE_UNSUPPORTED = 3, /* needs driver features not reproduced  */
-    EM_SFX_OP_MAX = 32,
+    EM_SFX_OP_MAX = 40,
     EM_SFX_LADDER_MAX = 0x240
 };
 
@@ -25,8 +25,10 @@ enum {
     EM_SFX_OP_KEY_OFF = 2,    /* A0 note 0 prog: 001176E0                  */
     EM_SFX_OP_PORTAMENTO = 3, /* B0 41 len depth prog note: 00118078       */
     EM_SFX_OP_END = 4,        /* FF 2F 00: 00117C28                        */
-    EM_SFX_OP_VOLUME = 5      /* B0 07 len target prog note: 001181B0's
+    EM_SFX_OP_VOLUME = 5,     /* B0 07 len target prog note: 001181B0's
                                * SFX-track arm (a volume slide)            */
+    EM_SFX_OP_LOOP = 6        /* B0 60 lo hi 0: 00118790's jump for ever;
+                               * operation `target` runs on the next tick  */
 };
 
 typedef struct {
@@ -51,6 +53,7 @@ typedef struct {
      * the scalar (product * level) >> 27; product 0 = not carried. */
     uint8_t level;
     uint64_t product;
+    uint32_t target;      /* EM_SFX_OP_LOOP: the operation it jumps to    */
 } EmSfxOp;
 
 typedef struct {

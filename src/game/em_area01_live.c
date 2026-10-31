@@ -230,6 +230,11 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return em_area01_player_view_bytes(&l->player,a,n,write);
     if(overlaps(a,n,LOCAL_BASE,sizeof l->locals))
         return contains(a,n,LOCAL_BASE,sizeof l->locals) ? l->locals+a-LOCAL_BASE : NULL;
+    /* D_00275C10 / 14: 001E7D20's words (its once-a-frame step, AREA19). */
+    if(overlaps(a,n,0x00275C10u,8)) {
+        static uint8_t d275C10[8];
+        return contains(a,n,0x00275C10u,8) ? d275C10+a-0x00275C10u : NULL;
+    }
     if(overlaps(a,n,0x70003000u,sizeof l->scratch_3000))
         return em_area01_live_matrix_3000(l,a,n);
     if(overlaps(a,n,0x700034C0u,sizeof l->scratch_34C0))
@@ -488,6 +493,7 @@ static int model_function(uint32_t fn)
     case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:
     case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
     case 0x001C63D0u: /* 001BE6C0 (AREA01's way back, a01v) */
+    case 0x001C9940u: /* 001C6910's tail (em_level12_port) */
         return 1;
     default:return 0;
     }
@@ -1138,7 +1144,10 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_collision_view_commit(&l->collision)<0 || em_area01_player_view_commit(&l->player)<0)return -1;
         em_camera_live_view_publish();
         uint32_t result;
-        int rc=em_area01_model_call(&l->model,c->function,c->a[0],c->a[1],c->a[2],c->a[3],
+        /* 001C9940 takes the record's +0x110 and +0xD0. */
+        const uint32_t node=c->function==0x001C9940u ? (uint32_t)c->a[0]-0x110u : (uint32_t)c->a[0];
+        if(c->function==0x001C9940u && (uint32_t)c->a[2]!=node+0xD0u)return -1;
+        int rc=em_area01_model_call(&l->model,c->function,node,c->a[1],c->a[2],c->a[3],
                                      em_ee_float(c->f[0]),em_ee_float(c->f[1]),&result);
         em_camera_live_adopt_view();
         if(player_begin(l)<0 || em_area01_collision_view_begin(&l->collision)<0)return -1;
@@ -1288,7 +1297,7 @@ static int worker(void *ctx,EmArea01Call *c)
     case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x001A0B10u: case 0x0019D330u: case 0x001A7280u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
-    case 0x001A5C30u: case 0x0019AD00u: {
+    case 0x001A5C30u: case 0x0019AD00u: case 0x0019AFE0u: case 0x0019B2C0u: {
         /* Native lists need committed actors. The collision adapter then
          * reads vector operands through fresh actor/player byte views. */
         if(em_area01_live_suspend(l)<0)return -1;
@@ -1471,13 +1480,27 @@ static int worker(void *ctx,EmArea01Call *c)
         if(c->nf<1)return -1;
         c->f0=em_ee_bits(em_sdk_math_original_0011DF78(em_ee_float(c->f[0])));return 0;
     case 0x0011E2A8u: case 0x0011DE90u: case 0x0011E398u:
-    case 0x0011DBB8u: case 0x0011E620u: case 0x0011E748u:
+    case 0x0011E080u:
+        if(c->nf<1)return -1;
+        c->v0=(uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));return 0;
+    case 0x0011DF98u:
+        if(c->nf<1)return -1;
+        c->f0=em_ee_bits(em_sdk_math_original_0011DF98(em_ee_float(c->f[0])));return 0;
+    case 0x001F6640u: case 0x001F66F0u:
+        if(c->na<1 || em_area01_live_suspend(l)<0)return -1;
+        {
+            int rc=em_effects_live_room_list(em_scene_state(),c->function,(uint32_t)c->a[0]);
+            if(em_area01_live_resume(l)<0)return -1;
+            return rc;
+        }
+    case 0x0011DBB8u: case 0x0011E620u: case 0x0011E748u: case 0x0011CB90u:
         if(!sdk || c->nf<(c->function==0x0011E620u ? 2u : 1u))return -1;
         if(c->function==0x0011E2A8u)out=em_sdk_math_original_float_0011E2A8(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011DE90u)out=em_sdk_math_original_float_0011DE90(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011E398u)out=em_sdk_math_original_float_0011E398(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011DBB8u)out=em_sdk_math_original_float_0011DBB8(sdk,em_ee_float(c->f[0]));
         else if(c->function==0x0011E748u)out=em_sdk_math_original_float_0011E748(sdk,em_ee_float(c->f[0]));
+        else if(c->function==0x0011CB90u)out=em_sdk_math_original_0011CB90(em_ee_float(c->f[0]));
         else out=em_sdk_math_original_float_0011E620(sdk,em_ee_float(c->f[0]),em_ee_float(c->f[1]));
         if(sdk->fault)return -1;
         c->f0=em_ee_bits(out);return 0;

@@ -113,6 +113,13 @@ uint8_t *em_area01_actor_view_bytes(EmArea01ActorView *v, uint32_t address, uint
     if (size > EM_ACTOR_RECORD_SIZE - offset) { fail(v, address, 1); return NULL; }
     EmActor *a = &v->pool->records[index];
     EmArea01ActorRecordView *r = &v->record[index];
+    /* A freed record's +0 is the 0 001AFC10 stored: a class list keeps its
+     * pointer until the list's next rebuild, and 001A06A0's walk skips the
+     * entry by that byte (the pickup taken in a19_01 with bugs in the room). */
+    if (!write && offset == 0 && size == 1 && (!a->allocated || a->self != a)) {
+        static uint8_t free_status;
+        return &free_status;
+    }
     if (em_area01_actor_view_touch(v, address - offset) < 0) return NULL;
     if (!a->allocated || a->self != a || a->generation != r->generation) {
         fail(v, address, 2); return NULL;

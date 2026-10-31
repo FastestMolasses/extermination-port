@@ -81,6 +81,13 @@ ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # after AREA04, so every earlier scope keeps its samples and indices.
 MID_SCOPES = ((0x16, 0), (6, 0))
 MID_IDS = AREA00_IDS
+# AREA19 sub 0 and sub 1 (lane J1): the capture-checked bindings
+# export_area19_sfx.py / export_area19s1_sfx.py recorded in each sub's
+# banks.json over its container (those exporters run first); resolved last,
+# so every earlier scope keeps its samples.
+AREA19_SCOPES = ((0x13, 0), (0x13, 1))
+AREA19_IDS = AREA00_IDS
+AREA19_SFX_DIRS = {0: ROOT / 'assets/area19/sub0/sfx', 1: ROOT / 'assets/area19s1/sub1/sfx'}
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -300,6 +307,37 @@ def mid_bindings():
             setattr(C, name, value)
 
 
+def area19_bindings():
+    """AREA19's sub-0 and sub-1 bindings from each sub's banks.json (its
+    captures' D_00281D50 / D_0027C6C0 slots, checked at that export) over
+    the container and the global rows."""
+    gdata = (DECOMP / GLOBAL_CONTAINER).read_bytes()
+    global_rows = A.parse_container(gdata)
+    result = {}
+    for sub, folder in AREA19_SFX_DIRS.items():
+        report = json.loads((folder / 'banks.json').read_text())
+        data = (folder / 'area19_banks.bin').read_bytes()
+        name = f'area19_sub{sub}_banks.bin'
+        area_rows = A.parse_container(data)
+        if report['target'] != 'area19' or report['sub'] != sub or \
+                hashlib.sha256(data).hexdigest() != report['container_sha256']:
+            raise ValueError(f'{folder}: banks.json does not describe this container')
+        groups = {}
+        for key, source in sorted(report['bindings'].items()):
+            g, i = map(int, key.split('.'))
+            where, row = source.split('#row')
+            bank = Bank(GLOBAL_CONTAINER, gdata, global_rows, int(row)) if where == 'global' else \
+                Bank(name, data, area_rows, int(row))
+            lst = groups.setdefault(g, [])
+            if len(lst) != i:
+                raise ValueError(f'{folder}: group {g} slot {i} bound without slot {len(lst)}')
+            lst.append(bank)
+        refused = {tuple(map(int, k.split('.'))): v for k, v in report['refused_why'].items()}
+        result[(0x13, sub)] = dict(groups=groups, refused=refused,
+                                   binding=f'AREA19 sub {sub} captures (D_00281D50/D_0027C6C0)')
+    return result
+
+
 def area_bindings(elf):
     """(area, sub) -> {group: [Bank]} plus provenance."""
     global_rows = containers_by_type(GLOBAL_CONTAINER,
@@ -345,6 +383,7 @@ def area_bindings(elf):
     bindings.update(area02_bindings())
     bindings.update(area04_bindings())
     bindings.update(mid_bindings())
+    bindings.update(area19_bindings())
     for i, scope in enumerate(ATTACHMENT_SCOPES):
         name = f'extract/chunk{50 + i}/f00_id86.bin'
         rows = containers_by_type(name, (DECOMP / name).read_bytes())
@@ -434,12 +473,22 @@ def script_events(data, position, limit=0x1000):
       B0 41 a2 a3 prog note  00118078 portamento set-up, cursor +6
       B0 07 a2 a3 prog note  001181B0 volume slide set-up (the SFX track's
                          +0x34 == 1 arm: length a2, target a3), cursor +6
+      B0 60 lo hi 00 delta  00118790 the track's jump (D_00281AD4 is the
+                         script's start in an SFX track): the cursor moves to
+                         start + hi:lo at the tick's tail, the accumulator is
+                         0 before that tail, so the target's events are read
+                         on the next tick with -SEQ_TICK. Count byte 0: for
+                         ever. Once the walk reaches a target with the same
+                         accumulator again the script repeats exactly: the
+                         walk ends in a 'loop' event naming that event.
       FF 2F 00           00117C28 end of track (no delta)
     Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
     """
     events, running, acc, tick = [], None, 0, 0
+    start, seen = position, {}
     end = min(position + limit, len(data))
     while position < end:
+        seen.setdefault((position, acc), len(events))
         if data[position] & 0x80:
             running = data[position]
             position += 1
@@ -464,6 +513,21 @@ def script_events(data, position, limit=0x1000):
             position += 5
             events.append(dict(kind='volume', tick=tick, note=note, prog=prog,
                                length=length, depth=target))
+        elif running & 0xF0 == 0xB0 and data[position] == 0x60:
+            _, lo, hi, count = data[position:position + 4]
+            if count:
+                raise Unsupported('script', f'a counted track jump ({count})')
+            target = start + (hi << 8 | lo)
+            if not data[target] & 0x80:
+                raise Unsupported('script', 'a track jump to a data byte')
+            running, position, acc = data[target], target, -A.SEQ_TICK
+            again = seen.get((position, acc))
+            if again is not None:
+                events.append(dict(kind='loop', tick=tick, target=again))
+                events.append(dict(kind='end', tick=tick))
+                return events
+            tick += 1
+            continue
         elif running & 0xF0 == 0xB0:
             raise Unsupported('script', f'unsupported controller 0x{data[position]:02X}')
         else:
@@ -482,8 +546,8 @@ def script_events(data, position, limit=0x1000):
     raise Unsupported('script', 'truncated')
 
 
-OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME = 1, 2, 3, 4, 5
-OP_MAX = 32
+OP_KEY_ON, OP_KEY_OFF, OP_PORTAMENTO, OP_END, OP_VOLUME, OP_LOOP = 1, 2, 3, 4, 5, 6
+OP_MAX = 40
 # D_00241D70 entries exported for 00117918: the A0 bend is always 0x40, so
 # indices stay within (11|12)*16 + fine(-128..127) + 0xD0 +- 15 (portamento).
 LADDER_COUNT = 0x240
@@ -537,6 +601,11 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                 continue
             if event['kind'] == 'volume':
                 out.append(dict(event, op=OP_VOLUME))
+                continue
+            if event['kind'] == 'loop':
+                # target: the event's operation index (a 'no voice' event
+                # has none: the next operation's)
+                out.append(dict(event, op=OP_LOOP, target=sum('op' in e for e in out[:event['target']])))
                 continue
             if event['vel'] == 0:
                 # 001176E0: keys off this track's sustained (voice +0x0C)
@@ -601,6 +670,7 @@ def resolve(elf, bindings, sound_id, area, sub, samples):
                             unit_words=[left, right]))
         if not [e for e in out if e.get('op') == OP_KEY_ON]:
             raise Unsupported('no voice')
+        assert all(e['target'] < i for i, e in enumerate(e for e in out if 'op' in e) if e['op'] == OP_LOOP)
         # A script with a volume slide: its key-ons carry the level and the
         # product the driver recomputes 001179E0's scalar from.
         slide = any(e.get('op') == OP_VOLUME for e in out)
@@ -664,6 +734,9 @@ def scene_ids(census=True):
     for scope in MID_SCOPES:
         scenes.setdefault(scope, [])
         scenes[scope] += [i for i in MID_IDS if i not in scenes[scope]]
+    for scope in AREA19_SCOPES:
+        scenes.setdefault(scope, [])
+        scenes[scope] += [i for i in AREA19_IDS if i not in scenes[scope]]
     for scope in ATTACHMENT_SCOPES:
         scenes[scope] = list(ATTACHMENT_IDS)
     if census:
@@ -700,7 +773,7 @@ def export(out_dir: Path):
     # Registry entry rows still sort by scope/id after sample allocation.
     def scope_order(kv):
         scope = kv[0]
-        return (6 if scope in ATTACHMENT_SCOPES else 5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES
+        return (7 if scope in AREA19_SCOPES else 6 if scope in ATTACHMENT_SCOPES else 5 if scope in MID_SCOPES else 4 if scope in AREA04_SCOPES
                 else 3 if scope in AREA02_SCOPES
                 else 2 if scope in AREA00_SCOPES else 1 if scope == ARRIVAL_SCOPE else 0,
                 MID_SCOPES.index(scope) if scope in MID_SCOPES else scope)
@@ -738,7 +811,7 @@ def export(out_dir: Path):
             # 40-bit product of the other five 001179E0 factors (bits 32..39,
             # then 0..31); every other key-on leaves them 0. OP_VOLUME keeps
             # its length / target where the portamento keeps length / depth.
-            tail = 0
+            tail = op['target'] if op['op'] == OP_LOOP else 0
             if op['op'] == OP_KEY_ON and op.get('slide'):
                 assert 0 < op['product'] < 1 << 40 and (op['product'] * op['level']) >> 27 == op['scalar']
                 op = dict(op, length=op['level'], depth=op['product'] >> 32)

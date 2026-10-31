@@ -31,7 +31,14 @@ SOURCES = (('src/game/em_area22_port.h', 'EmArea22PortHooks', 'm22'),
            ('src/game/em_level12_port.h', 'EmLevel12PortHooks', 'm12'),
            ('src/game/em_level13_port.h', 'EmLevel13PortHooks', 'm13'),
            ('src/game/em_level14_port.h', 'EmLevel14PortHooks', 'm14'),
-           ('src/game/em_level15_creatures.h', 'EmLevel15CreaturesHooks', 'm15'))
+           ('src/game/em_level15_creatures.h', 'EmLevel15CreaturesHooks', 'm15'),
+           ('src/game/em_area19_route.h', 'EmArea19RouteHooks', 'm19'),
+           # the fallback dispatch's modules (tools/gen_later_dispatch.py)
+           ('src/game/em_level9_port.h', 'EmLevel9PortHooks', 'm09'),
+           ('src/game/em_level15_fountain.h', 'EmLevel15FountainHooks', 'm15f'),
+           ('src/game/em_level15_motion.h', 'EmLevel15MotionHooks', 'm15m'),
+           ('src/game/em_level15_perception.h', 'EmLevel15PerceptionHooks', 'm15p'),
+           ('src/game/em_level15_support.h', 'EmLevel15SupportHooks', 'm15s'))
 HOOK = re.compile(r'int \(\*w_([0-9A-F]{8}|callback)\)\(void \*ctx(?:, )?([^)]*)\);')
 
 

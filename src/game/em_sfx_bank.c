@@ -75,6 +75,10 @@ static int emsr_op_valid(const EmSfxRegistry *registry, const EmSfxOp *op,
         for (unsigned i = 5; i < 25; ++i)
             if (b[i]) return 0;
         return !b[27] && !read32(b + 28);
+    case EM_SFX_OP_LOOP:
+        for (unsigned i = 3; i < 28; ++i)
+            if (b[i]) return 0;
+        return 1;
     case EM_SFX_OP_KEY_OFF:
     case EM_SFX_OP_END:
         for (unsigned i = (op->kind == EM_SFX_OP_END ? 3 : 5); i < 32; ++i)
@@ -160,6 +164,10 @@ int em_sfx_registry_load(EmSfxRegistry *registry, const char *path)
                 op->level = b[25];
                 op->product = (uint64_t)b[26] << 32 | read32(b + 28);
                 op->length = op->depth = 0;
+            }
+            if (op->kind == EM_SFX_OP_LOOP) {
+                op->target = read32(b + 28);
+                if (op->target >= j) goto done;
             }
             key_ons += op->kind == EM_SFX_OP_KEY_ON;
             /* The script ends with exactly one FF 2F, ticks never go back. */
@@ -908,7 +916,13 @@ void em_sfx_driver_tick(EmSfxDriver *driver, EmSfxCommandSink sink,
             else if (op->kind == EM_SFX_OP_KEY_OFF) key_off(driver, i, op);
             else if (op->kind == EM_SFX_OP_PORTAMENTO) portamento(driver, i, op);
             else if (op->kind == EM_SFX_OP_VOLUME) volume(driver, i, op);
-            else {                        /* 00117C28 (SFX track) */
+            else if (op->kind == EM_SFX_OP_LOOP) {
+                /* 00118790: the jump ends this tick's reads; the target's
+                 * events run on the next tick. */
+                track->next = (uint16_t)op->target;
+                track->tick = (uint16_t)(entry->ops[op->target].tick - 1u);
+                break;
+            } else {                      /* 00117C28 (SFX track) */
                 track->running = 0;
                 track->effect = 0;
                 track->ended = 1;

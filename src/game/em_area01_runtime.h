@@ -70,4 +70,8 @@ int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *h
 /* Named original entry or worker; recursive module calls use this same
  * dispatcher. The first failure stays latched until a new binding. */
 int em_area01_runtime_call(EmArea01Runtime *r, EmArea01Call *call);
+/* The later levels' boot translations as the fallback of an address no
+ * owner binds (the host's missing-worker path, before its fail-stop;
+ * tools/gen_later_dispatch.py). Returns 1 with *rc when it took the call. */
+int em_area01_runtime_later(EmArea01Runtime *r, EmArea01Call *c, int *rc);
 #endif

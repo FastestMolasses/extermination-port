@@ -4,6 +4,8 @@
 #include "game/em_camera_live.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_effects_live.h"
+#include "game/em_level12_port.h"
+#include "game/em_aim_fire_sdk_memory.h"
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_runtime.h"
 #include "game/em_equipment_live.h"
@@ -2363,6 +2365,8 @@ int em_player_closure_live_water_contact(EmPlayerLiveActor *actor)
     return L.water(L.water_context, 0x00187DE0u, actor, 0);
 }
 
+#include "game/em_player_closure_ledge.inc"
+
 /* ---- The bind ----------------------------------------------------------------- */
 
 static void bind_fall(void)
@@ -3512,6 +3516,7 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     set1(b, 0x12, em_player_closure1019_0016AE40, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016AE40");
     set1(b, 0x19, em_player_closure1019_0016DE40, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016DE40");
     set1(b, 0x1A, em_player_closure1019_0016EBA0, &L.c10, &L.c10_scratch.s3A20, c10_pre, c10_post, "0016EBA0");
+    set1(b, 0x1B, ledge_state, NULL, NULL, NULL, NULL, "0016EF50");
     set1(b, 0x1C, em_player_slide_live_state, &L.slide, NULL, NULL, NULL, "0016C6A0");
     set1(b, 0x1D, em_player_weapon_state1D, &L.wa, &L.wa_scene.spad3A20, wa_pre, wa_post, "0016FCF0");
     set1(b, 0x1E, em_player_weapon_state1E, &L.wa, &L.wa_scene.spad3A20, wa_pre, wa_post, "001703E0");

@@ -75,6 +75,41 @@ static const struct {
     {"a04b_03", 0x04},
     {"a04b_04", 0x04},
     {"boss", 0x04},
+    /* AREA19 (lane J1; area byte 0x13) */
+    {"area19", 0x13},
+    {"a19_01", 0x13},
+    {"a19_02", 0x13},
+    {"a19b_01", 0x13},
+    {"a19b_02", 0x13},
+    {"a19c_00", 0x13},
+    {"a19c_01", 0x13},
+    {"a19c_02", 0x13},
+    {"a19c_03", 0x13},
+    {"a19c_04", 0x13},
+    {"a19c_05", 0x13},
+    {"a19c_06", 0x13},
+    {"a19c_07", 0x13},
+    {"a19d_00", 0x13},
+    {"a19d_01", 0x13},
+    {"a19d_02", 0x13},
+    {"a19d_03", 0x13},
+    {"a19d_04", 0x13},
+    {"a19d_05", 0x13},
+    {"a19d_06", 0x13},
+    {"a19d_07", 0x13},
+    {"a19d_08", 0x13},
+    {"a19d_09", 0x13},
+    {"a19d_10", 0x13},
+    {"a19d_11", 0x13},
+    {"a19d_12", 0x13},
+    {"a19d_13", 0x13},
+    {"a19d_14", 0x13},
+    {"a19d_15", 0x13},
+    {"a19d_16", 0x13},
+    {"a19d_17", 0x13},
+    {"a19d_18", 0x13},
+    {"a19d_19", 0x13},
+    {"a19d_20", 0x13},
 };
 
 static struct {
@@ -88,7 +123,7 @@ static struct {
  * rows in frame order) played from control as the whole pad. */
 enum { PAD_MAX = 4096 };
 typedef struct { int f; uint16_t buttons; uint8_t lx, ly; } PadRow;
-enum { PATH_MAX_ROWS = 20000 };
+enum { PATH_MAX_ROWS = 40000 };
 static struct {
     int loaded, active, done;
     unsigned count, last, start;
