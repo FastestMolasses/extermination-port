@@ -55,6 +55,9 @@ route's manifest: its first beat's source state):
   area13, a13_01 .. a13_05
                    AREA13 (the fork continuation's route_a13): the lift's
                    arrival, then the source state of each later beat
+  a13b_01 .. a13b_05, a13c_00 .. a13c_06, a13d_00 .. a13d_07
+                   AREA13's second load (route_a13b, route_a13c, route_a13d):
+                   the source state of that beat
   a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01
                    the source state of that route beat: a loaded game
                    placed where the beat starts (the cutscene skip runs,
@@ -201,6 +204,30 @@ START_POINTS = {
     'a13_03': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_03_', 'area': 0x0D},
     'a13_04': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_04_', 'area': 0x0D},
     'a13_05': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_05_', 'area': 0x0D},
+    # AREA13's second load (TENTH / ELEVENTH / TWELFTH_LEVEL_ROUTE.md, lane M1):
+    # the source state of each beat. a13b_01 is a13b_00's end (the hatch [62]
+    # after AREA19's ladder, sub 0 entry 6); a13c_00 is a13b_01's end, a13d_00
+    # a13c_06's end, the south region.
+    'a13b_01': {'route': 'levels-recordings-20261018-11/s87/route_a13b', 'first': 'a13b_01_', 'area': 0x0D},
+    'a13b_02': {'route': 'levels-recordings-20261018-11/s87/route_a13b', 'first': 'a13b_02_', 'area': 0x0D},
+    'a13b_03': {'route': 'levels-recordings-20261018-11/s87/route_a13b', 'first': 'a13b_03_', 'area': 0x0D},
+    'a13b_04': {'route': 'levels-recordings-20261018-11/s87/route_a13b', 'first': 'a13b_04_', 'area': 0x0D},
+    'a13b_05': {'route': 'levels-recordings-20261018-11/s87/route_a13b', 'first': 'a13b_05_', 'area': 0x0D},
+    'a13c_00': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_00_', 'area': 0x0D},
+    'a13c_01': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_01_', 'area': 0x0D},
+    'a13c_02': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_02_', 'area': 0x0D},
+    'a13c_03': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_03_', 'area': 0x0D},
+    'a13c_04': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_04_', 'area': 0x0D},
+    'a13c_05': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_05_', 'area': 0x0D},
+    'a13c_06': {'route': 'levels-recordings-20261018-11/s87/route_a13c', 'first': 'a13c_06_', 'area': 0x0D},
+    'a13d_00': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_00_', 'area': 0x0D},
+    'a13d_01': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_01_', 'area': 0x0D},
+    'a13d_02': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_02_', 'area': 0x0D},
+    'a13d_03': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_03_', 'area': 0x0D},
+    'a13d_04': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_04_', 'area': 0x0D},
+    'a13d_05': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_05_', 'area': 0x0D},
+    'a13d_06': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_06_', 'area': 0x0D},
+    'a13d_07': {'route': 'levels-recordings-20261018-12/s87/route_a13d', 'first': 'a13d_07_', 'area': 0x0D},
     # AREA15 (FOURTEENTH_LEVEL_ROUTE.md, FIFTEENTH_LEVEL_ROUTE.md): the end of
     # a19d_20 (sub 0, after [0]'s scene) and a15_01 (door [51], sub 1 entry
     # 0), each later beat's source state. AREA03: a19e_07's end (door [25]).
@@ -250,6 +277,19 @@ START_POINTS = {
     'a04c_01': {'route': 'levels-recordings-20261030-1/s87/route_a04c', 'first': 'a04c_01_', 'area': 4},
     'a04c_02': {'route': 'levels-recordings-20261030-1/s87/route_a04c', 'first': 'a04c_02_', 'area': 4},
     'a07_00': {'route': 'levels-recordings-20261030-1/s87/route_a07', 'first': 'a07_00_', 'area': 7},
+    'a03d_00': {'route': 'levels-recordings-20261031-1/s87/route_a03d', 'first': 'a03d_00_', 'area': 3},
+    'a03d_01': {'route': 'levels-recordings-20261031-1/s87/route_a03d', 'first': 'a03d_01_', 'area': 3},
+    'a04d_00': {'route': 'levels-recordings-20261031-1/s87/route_a04d', 'first': 'a04d_00_', 'area': 4},
+    'a04d_01': {'route': 'levels-recordings-20261031-1/s87/route_a04d', 'first': 'a04d_01_', 'area': 4},
+    'a04d_02': {'route': 'levels-recordings-20261031-1/s87/route_a04d', 'first': 'a04d_02_', 'area': 4},
+    'a07b_00': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_00_', 'area': 7},
+    'a07b_01': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_01_', 'area': 7},
+    'a07b_02': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_02_', 'area': 7},
+    'a07b_03': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_03_', 'area': 7},
+    'a07b_04': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_04_', 'area': 7},
+    'a07b_05': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_05_', 'area': 7},
+    'a07b_06': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_06_', 'area': 7},
+    'a07b_07': {'route': 'levels-recordings-20261031-1/s87/route_a07b', 'first': 'a07b_07_', 'area': 7},
 }
 
 

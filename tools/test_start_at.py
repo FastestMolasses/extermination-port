@@ -67,7 +67,7 @@ FULL = os.environ.get('EM_TEST_FULL') == '1'
 # EM_* name the source reads must be refused with it (step 4).
 COMPATIBLE = {
     'EM_START_AT', 'EM_START_AT_TEST', 'EM_START_AT_DIR', 'EM_START_AT_PAD', 'EM_START_AT_PATH', 'EM_START_AT_RAND', 'EM_START_AT_RANDS', 'EM_START_AT_RESTORE', 'EM_START_AT_SYNC', 'EM_START_AT_FADE',
-    'EM_START_AT_MARKS',
+    'EM_START_AT_MARKS', 'EM_START_AT_FINE',
     'EM_NEW_GAME',  # its own; EM_NEW_GAME=1 refused apart
     'EM_HEADLESS', 'EM_HEADLESS_RASTER', 'EM_UNCAPPED', 'EM_MUTE', 'EM_INPUT_TEST',  # the host; the pad's changes printed
     'EM_PS2_DRIVE_REPLAY', 'EM_IOP_TICK_PHASE',                           # the disc-drive timing

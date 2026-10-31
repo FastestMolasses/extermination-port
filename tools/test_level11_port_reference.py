@@ -139,6 +139,16 @@ FUNCS = {
     0x142330: ('em_level11_port_00142330', 0x184, [U, U, S], None),
     0x1424C0: ('em_level11_port_001424C0', 0x510, [U, U, S], None),
     0x1429D0: ('em_level11_port_001429D0', 0xAEC, [U, U, S], None),
+    0x1434C0: ('em_level11_port_001434C0', 0x14C, [U, U], None),
+    0x143610: ('em_level11_port_00143610', 0x1CC, [U, U], None),
+    0x143AF0: ('em_level11_port_00143AF0', 0x544, [U, U], None),
+    0x144040: ('em_level11_port_00144040', 0xBD4, [U, U], None),
+    0x144C20: ('em_level11_port_00144C20', 0x488, [U, U], None),
+    0x1450B0: ('em_level11_port_001450B0', 0x15C, [U, U], None),
+    0x145210: ('em_level11_port_00145210', 0x1A4, [U, U], None),
+    0x1453C0: ('em_level11_port_001453C0', 0x1DC, [U, U], None),
+    0x1455A0: ('em_level11_port_001455A0', 0x2A8, [U, U], None),
+    0x145850: ('em_level11_port_00145850', 0x30, [U, U], None),
     0x145880: ('em_level11_port_00145880', 0x114, [U, U], None),
     0x1459A0: ('em_level11_port_001459A0', 0x770, [U, U], None),
     0x146110: ('em_level11_port_00146110', 0x394, [U, U, S], I),
@@ -175,6 +185,7 @@ HOOKS = [
 # BEGIN GENERATED HOOKS
     ('w_001000E0', 0x1000E0, [(Q, 4), (Q, 5)], I),
     ('w_001026A0', 0x1026A0, [(U, 4), (U, 5), (U, 6)], None),
+    ('w_00102760', 0x102760, [(U, 4), (U, 5)], None),
     ('w_00102850', 0x102850, [(U, 4), (U, 5), (F, 12)], None),
     ('w_001028B8', 0x1028B8, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001028D0', 0x1028D0, [(U, 4), (U, 5), (U, 6)], None),
@@ -207,17 +218,22 @@ HOOKS = [
     ('w_00145850', 0x145850, [(U, 4), (U, 5)], None),
     ('w_00146740', 0x146740, [(U, 4), (U, 5)], I),
     ('w_00146AF0', 0x146AF0, [(U, 4), (U, 5), (F, 12)], I),
+    ('w_00146F80', 0x146F80, [(U, 4)], I),
+    ('w_00182F90', 0x182F90, [(U, 4), (U, 5)], None),
     ('w_0019A570', 0x19A570, [(U, 4), (U, 5), (I, 6), (I, 7)], I),
     ('w_0019AB20', 0x19AB20, [(U, 4), (U, 5), (U, 6), (I, 7)], I),
     ('w_0019AD00', 0x19AD00, [(U, 4), (U, 5), (I, 6)], I),
+    ('w_0019AFE0', 0x19AFE0, [(U, 4), (U, 5), (U, 6), (I, 7)], I),
     ('w_0019D330', 0x19D330, [], I),
     ('w_001A0B10', 0x1A0B10, [], I),
     ('w_001A6440', 0x1A6440, [(I, 4)], I),
     ('w_001A7280', 0x1A7280, [(I, 4)], I),
+    ('w_001A7B80', 0x1A7B80, [(U, 4)], I),
     ('w_001AFA90', 0x1AFA90, [(I, 4)], U),
     ('w_001AFC10', 0x1AFC10, [(U, 4)], None),
     ('w_001B0D80', 0x1B0D80, [(U, 4)], None),
     ('w_001B10B0', 0x1B10B0, [(U, 4), (I, 5), (I, 6)], I),
+    ('w_001B1190', 0x1B1190, [(I, 4)], None),
     ('w_001B1240', 0x1B1240, [(U, 4), (F, 12), (F, 13)], F),
     ('w_001B12B0', 0x1B12B0, [(F, 12), (F, 13), (F, 14)], F),
     ('w_001B13F0', 0x1B13F0, [(U, 4), (U, 5), (F, 12)], I),
@@ -232,6 +248,7 @@ HOOKS = [
     ('w_001B2B10', 0x1B2B10, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001B2BF0', 0x1B2BF0, [(U, 4), (U, 5), (U, 6), (F, 12)], I),
     ('w_001B2F70', 0x1B2F70, [(U, 4), (U, 5)], I),
+    ('w_001B3250', 0x1B3250, [(U, 4), (U, 5), (F, 12)], I),
     ('w_001B32F0', 0x1B32F0, [(U, 4), (U, 5), (F, 12)], I),
     ('w_001B3390', 0x1B3390, [(U, 4), (U, 5), (U, 6), (F, 12)], I),
     ('w_001B3440', 0x1B3440, [(U, 4), (U, 5), (U, 6), (F, 12)], I),
@@ -241,6 +258,7 @@ HOOKS = [
     ('w_001B4810', 0x1B4810, [(U, 4)], None),
     ('w_001B4CF0', 0x1B4CF0, [(U, 4)], None),
     ('w_001B5360', 0x1B5360, [(U, 4)], None),
+    ('w_001B55E0', 0x1B55E0, [(U, 4), (I, 5)], None),
     ('w_001BA1A0', 0x1BA1A0, [(U, 4), (U, 5)], None),
     ('w_001BA1F0', 0x1BA1F0, [(U, 4)], I),
     ('w_001C6120', 0x1C6120, [(U, 4), (I, 5)], U),
@@ -253,6 +271,7 @@ HOOKS = [
     ('w_001CA1C0', 0x1CA1C0, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001CA3B0', 0x1CA3B0, [(U, 4), (F, 12), (F, 13), (F, 14)], None),
     ('w_001CA4D0', 0x1CA4D0, [(U, 4), (U, 5), (U, 6)], None),
+    ('w_001CA5E0', 0x1CA5E0, [(U, 4), (U, 5), (I, 6)], None),
     ('w_001CA7B0', 0x1CA7B0, [(U, 4), (F, 12)], I),
     ('w_001CA940', 0x1CA940, [(I, 4), (I, 5)], None),
     ('w_001CB5F0', 0x1CB5F0, [(U, 4), (I, 5), (I, 6)], U),
@@ -274,6 +293,9 @@ HOOKS = [
     ('w_001FABB0', 0x1FABB0, [], None),
     ('w_001FAE70', 0x1FAE70, [(I, 4)], None),
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], I),
+    ('w_0021BE40', 0x21BE40, [(U, 4), (U, 5)], I),
+    ('w_0021BED0', 0x21BED0, [(U, 4)], I),
+    ('w_0021BF90', 0x21BF90, [(U, 4), (U, 5)], None),
     ('w_0021C040', 0x21C040, [(U, 4), (U, 5)], None),
 # END GENERATED HOOKS
 ]
@@ -285,7 +307,7 @@ BY_ADDRESS = {address: (name, args, result) for name, address, args, result in H
 # poisoned (Oracle.rehearse).
 RUN = {0x1000E0, 0x11DE90, 0x11DF78, 0x11E2A8, 0x11E620, 0x1274B0, 0x128250, 0x128350, 0x1B1240, 0x1B12B0,
        0x1B13F0, 0x1B1470, 0x1B15D0, 0x1026A0, 0x102850, 0x1028B8, 0x1028D0, 0x102900, 0x102918, 0x102948, 0x102958,
-       0x1029C0, 0x102BB0, 0x102C58}
+       0x1029C0, 0x102BB0, 0x102C58, 0x102760}
 
 # Jump tables (runtime address of the jump -> (table, words)), in the boot
 # .rodata (checked against the ELF before any case).
@@ -355,7 +377,8 @@ def fbits(value):
 # ----------------------------------------------------------------------------
 # build + inputs
 # ----------------------------------------------------------------------------
-SOURCES = ('em_level11_port_area13.c', 'em_level11_port_boot.c', 'em_level11_port_creature.c')
+SOURCES = ('em_level11_port_area13.c', 'em_level11_port_boot.c', 'em_level11_port_creature.c',
+           'em_level11_port_creature_b.c')
 
 
 def header_checks(source_dir=None):
@@ -641,7 +664,8 @@ class Oracle:
         self.script, self.run_set = script, run_set
         ee.save, ee.write, ee.load = self.save, self.write, self.load
         for address in BY_ADDRESS:
-            ee.hooks[address] = self.handler(address)
+            if address != entry:   # an entry that is also a hook of its callers runs as itself
+                ee.hooks[address] = self.handler(address)
         for callback in args[1]:
             assert callback not in ee.hooks, hex(callback)
             ee.hooks[callback] = self.callback_hook(callback)
@@ -1557,7 +1581,7 @@ def load_captures(elf):
 
 # the entries that reach a node's +0x4C method (directly or through a
 # translated callee)
-SELF_ENTRIES = {0x824390, 0x824520, 0x141D20, 0x142070}
+SELF_ENTRIES = {0x824390, 0x824520, 0x141D20, 0x142070, 0x1450B0}
 SCRIBBLED_CALLBACKS = set()
 HEAVY = {0x828500, 0x827F90, 0x828F40}
 
@@ -1633,6 +1657,7 @@ def case_list(elf):
     boot_cases(add, rng)
     creature_cases(add, rng)
     creature_cases2(add, rng)
+    creature_cases3(add, rng)
     bound_cases(add)
     survivor_cases(add)
     return cases, captured, len(cases) - captured
@@ -2284,6 +2309,305 @@ def creature_cases2(add, rng):
                     0x1B2F70: [Scribble(1, [(0x700038A0, f32b(floor_))])]})
 
 
+def creature_cases3(add, rng):
+    """The family's second part (em_level11_port_creature_b.c): behaviours
+    3, 4, 6, 7, 8, the stage frame 001450B0 with its three stages and the
+    last frame 00145850, on a13c_05's actor with the state bytes patched:
+    every state, each callee result on both sides of its test, each float
+    compare against a constant exactly at the constant and one float either
+    side."""
+    B = B5
+    e = ACTOR
+    d = e + 0x1F0
+    rec = FREE + 0xC000    # the bone record behind D_00275B40 + 4
+    base = bones(e) + [(e + 0x114, w32(rec)), (rec + 0x74, f32b(0.25)), (e + 0xB0, fw(722.0, 159.0, 733.0, 1.0)),
+                       (e + 0xC4, f32b(0.5)), (0x810360, fw(740.0, 159.0, 760.0, 1.0)), (d + 0x7A, b8(0))]
+    frame = Scribble(None, [(0x700038A0, fw(11.0, 12.0, 13.0, 14.0))])
+
+    def around(value):
+        if value == 0.0:   # the EE compares denormals as zero: the smallest normals either side
+            return ((0, 'eq'), (0x00800000, 'up'), (0x80800000, 'dn'))
+        return ((fb(value), 'eq'), (up(value), 'up'), (down(value), 'dn'))
+
+    def st(v):
+        return (e + 6, b8(v))
+
+    def clip(v):
+        return (e + 0x2C, h16(v))
+
+    # 001434C0: behaviour 3
+    add('beh3 1434C0 s0', B, 0x1434C0, [e, d], base + [st(0), (d + 0x20, w32(7)), (d + 0x75, b8(9))])
+    for d20 in (0, 1, 5):
+        for b, tag in around(25.0):
+            add('beh3 1434C0 s1 %d %s' % (d20, tag), B, 0x1434C0, [e, d],
+                base + [st(1), (d + 0x20, w32(d20)), (e + 0x3C, bits32(b))])
+    for d30 in (0, 0x1000):
+        for b, tag in around(0.0) + ((fb(1.0), 'pos'), (fb(-1.0), 'neg')):
+            add('beh3 1434C0 s2 %X %s' % (d30, tag), B, 0x1434C0, [e, d],
+                base + [st(2), (d + 0x30, w32(d30)), (d + 0x48, bits32(b))])
+    add('beh3 1434C0 s3', B, 0x1434C0, [e, d], base + [st(3)])
+    # 00143610: behaviour 4
+    for word in (9, 0x8009, 5):
+        for d7b in (0, 1):
+            for f6bd in ((0, 1, 2) if d7b else (0,)):
+                add('beh4 143610 s0 %X %d %d' % (word, d7b, f6bd), B, 0x143610, [e, d],
+                    base + [st(0), clip(word), (d + 0x7B, b8(d7b)), (0x8106BD, b8(f6bd))])
+    for b, tag in around(26.0):
+        for d48 in (1.0, 0.0, -1.0):
+            for d74 in (2, 1, 0):
+                add('beh4 143610 s1 %s %g %d' % (tag, d48, d74), B, 0x143610, [e, d],
+                    base + [st(1), (e + 0x3C, bits32(b)), (d + 0x48, f32b(d48)), (d + 0x74, b8(d74))])
+    for b, tag in around(0.0) + ((fb(1.0), 'pos'), (fb(-1.0), 'neg')):
+        for d74 in (2, 1):
+            add('beh4 143610 s2 %s %d' % (tag, d74), B, 0x143610, [e, d],
+                base + [st(2), (d + 0x48, bits32(b)), (d + 0x74, b8(d74))])
+    for d30 in (0, 0x1000):
+        add('beh4 143610 s3 %X' % d30, B, 0x143610, [e, d], base + [st(3), (d + 0x30, w32(d30))])
+    add('beh4 143610 s4', B, 0x143610, [e, d], base + [st(4)])
+    # 00143AF0: behaviour 6
+    add('beh6 143AF0 s0', B, 0x143AF0, [e, d], base + [st(0), (e + 0x5E, b8(1))])
+    for d24 in (0, 1):
+        for b, tag in around(35.0):
+            for d30 in (0, 0x1000):
+                add('beh6 143AF0 s1 %d %s %X' % (d24, tag, d30), B, 0x143AF0, [e, d],
+                    base + [st(1), (d + 0x24, w32(d24)), (e + 0x3C, bits32(b)), (d + 0x30, w32(d30)), (d + 0x20, w32(7))])
+    for state in (2, 3):
+        for d24 in (0, 1):
+            for b, tag in around(8.0):
+                add('beh6 143AF0 s%d %d %s' % (state, d24, tag), B, 0x143AF0, [e, d],
+                    base + [st(state), (d + 0x24, w32(d24)), (e + 0x3C, bits32(b)), (d + 0x20, w32(1))])
+        for d20, r21, r7b in ((0, 1, 0), (0, 0, 0), (0, 0, 1), (1, 0, 1)):
+            add('beh6 143AF0 s%d grab %d %d %d' % (state, d20, r21, r7b), B, 0x143AF0, [e, d],
+                base + [st(state), (e + 0x3C, f32b(5.0)), (d + 0x20, w32(d20))],
+                queues={0x21BE40: [r21], 0x1A7B80: [r7b]})
+        for flag in (0, 0x80):
+            for hard in (0, 1):
+                for p0 in (1, 3):
+                    add('beh6 143AF0 s%d lock %X %d %d' % (state, flag, hard, p0), B, 0x143AF0, [e, d],
+                        base + [st(state), (e + 0x3C, f32b(5.0)), (d + 0x20, w32(0)), (e + 0xD, b8(flag | 3)),
+                                (0x81070A, b8(hard)), (0x8102B0, b8(p0))],
+                        queues={0x21BE40: [0], 0x1A7B80: [1]})
+        add('beh6 143AF0 s%d end' % state, B, 0x143AF0, [e, d],
+            base + [st(state), (d + 0x30, w32(0x1000)), (d + 0x20, w32(1)), (d + 0x24, w32(1))])
+    for b, tag in around(18.0):
+        add('beh6 143AF0 s2 speed %s' % tag, B, 0x143AF0, [e, d],
+            base + [st(2), (d + 0x5C, bits32(b)), (d + 0x24, w32(1)), (d + 0x20, w32(1))])
+    for d30 in (0, 0x1000):
+        for rnd in (0, 0x7FFFFFFF, 0x00A80000, -0x80000):
+            add('beh6 143AF0 s4 %X %X' % (d30, rnd & MASK), B, 0x143AF0, [e, d],
+                base + [st(4), (d + 0x30, w32(d30)), (d + 0x70, b8(9))], default={0x122BB8: rnd})
+    add('beh6 143AF0 s5', B, 0x143AF0, [e, d], base + [st(5)])
+    # 00144040: behaviour 8
+    for word in (5, 0x8005, 7):
+        add('beh8 144040 s0 %X' % word, B, 0x144040, [e, d], base + [st(0), clip(word)])
+    for b, tag in around(40.0):
+        for r60 in (0, 1):
+            add('beh8 144040 s1 near %s %d' % (tag, r60), B, 0x144040, [e, d],
+                base + [st(1), (d + 0x5C, bits32(b)), (e + 0xD, b8(3)), (d + 0x62, h16(1)), (d + 0x74, b8(0))],
+                queues={0x1B1560: [r60, 1]})
+    for r32 in (0, 1, 2):
+        add('beh8 144040 s1 leap %d' % r32, B, 0x144040, [e, d],
+            base + [st(1), (d + 0x5C, f32b(30.0)), (e + 0xD, b8(0x83))], queues={0x1B1560: [1], 0x1B3250: [r32]})
+    for d62, r32, d74, r2 in ((0, 0, 0, 1), (1, 1, 0, 1), (1, 0, 1, 1), (1, 0, 2, 1), (1, 0, 2, 0), (1, 0, 0, 0),
+                              (-1, 0, 0, 1)):
+        add('beh8 144040 s1 far %d %d %d %d' % (d62, r32, d74, r2), B, 0x144040, [e, d],
+            base + [st(1), (d + 0x5C, f32b(60.0)), (d + 0x62, h16(d62)), (d + 0x74, b8(d74))],
+            queues={0x1B1560: [r2], 0x1B3250: [r32]})
+    for d24 in (0, 1):
+        for b, tag in around(84.0):
+            add('beh8 144040 s2 sound %d %s' % (d24, tag), B, 0x144040, [e, d],
+                base + [st(2), (d + 0x24, w32(d24)), (e + 0x3C, bits32(b)), clip(5)])
+    add('beh8 144040 s2 bit15', B, 0x144040, [e, d], base + [st(2), clip(0x8005), (e + 0x3C, f32b(10.0))])
+    add('beh8 144040 s2 low bits', B, 0x144040, [e, d], base + [st(2), clip(0x7FFF), (e + 0x3C, f32b(10.0))])
+    add('beh8 144040 s3 low bits', B, 0x144040, [e, d],
+        base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, f32b(3.0)), clip(0x7FFF), (d + 0x20, w32(0))],
+        queues={0x21BED0: [1]})
+    for b, tag in around(75.0):
+        add('beh8 144040 s2 75 %s' % tag, B, 0x144040, [e, d],
+            base + [st(2), (e + 0x3C, bits32(b)), clip(5), (d + 0x24, w32(1)), (d + 0x20, w32(1)), (d + 0x40, f32b(2.0))])
+    for b, tag in around(71.0):
+        add('beh8 144040 s2 71 %s' % tag, B, 0x144040, [e, d],
+            base + [st(2), (e + 0x3C, bits32(b)), clip(5), (d + 0x24, w32(1)), (d + 0x20, w32(0))],
+            queues={0x21BE40: [1]})
+    for d20, r21, r7b in ((1, 0, 1), (0, 1, 1), (0, 0, 0), (0, 0, 1)):
+        for p0 in (1, 3):
+            add('beh8 144040 s2 grab %d %d %d %d' % (d20, r21, r7b, p0), B, 0x144040, [e, d],
+                base + [st(2), (e + 0x3C, f32b(60.0)), clip(5), (d + 0x24, w32(1)), (d + 0x20, w32(d20)),
+                        (0x8102B0, b8(p0)), (0x8102BF, b8(9))],
+                queues={0x21BE40: [r21], 0x1A7B80: [r7b], 0x1B2B10: [frame]})
+    for b, tag in around(47.0):
+        for d30, d20 in ((0, 0), (0, 1), (0x1000, 0), (0x1000, 1)):
+            add('beh8 144040 s2 47 %s %X %d' % (tag, d30, d20), B, 0x144040, [e, d],
+                base + [st(2), (e + 0x3C, bits32(b)), clip(5), (d + 0x24, w32(1)), (d + 0x20, w32(d20)),
+                        (d + 0x30, w32(d30))], queues={0x21BE40: [1]})
+    for d24 in (0, 1):
+        for b, tag in around(17.0):
+            add('beh8 144040 s3 sound %d %s' % (d24, tag), B, 0x144040, [e, d],
+                base + [st(3), (d + 0x24, w32(d24)), (e + 0x3C, bits32(b)), clip(5), (d + 0x20, w32(1))])
+    for d20, word, d30 in ((1, 5, 0x1000), (0, 0x8005, 0x1000), (0, 0x8005, 0), (1, 5, 0)):
+        add('beh8 144040 s3 skip %d %X %X' % (d20, word, d30), B, 0x144040, [e, d],
+            base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, f32b(3.0)), clip(word), (d + 0x20, w32(d20)),
+                    (d + 0x30, w32(d30))])
+    for b, tag in around(8.0):
+        add('beh8 144040 s3 8 %s' % tag, B, 0x144040, [e, d],
+            base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, bits32(b)), clip(5), (d + 0x20, w32(0)), (d + 0x40, f32b(2.0))])
+    for b, tag in around(4.0):
+        add('beh8 144040 s3 4 %s' % tag, B, 0x144040, [e, d],
+            base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, bits32(b)), clip(5), (d + 0x20, w32(0))],
+            queues={0x21BED0: [1]})
+    for red, r7b, d30 in ((1, 1, 0x1000), (0, 0, 0x1000), (0, 0, 0)):
+        add('beh8 144040 s3 grab %d %d %X' % (red, r7b, d30), B, 0x144040, [e, d],
+            base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, f32b(3.0)), clip(5), (d + 0x20, w32(0)), (d + 0x30, w32(d30))],
+            queues={0x21BED0: [red], 0x1A7B80: [r7b]})
+    for p0 in (1, 3):
+        add('beh8 144040 s3 latch %d' % p0, B, 0x144040, [e, d],
+            base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, f32b(3.0)), clip(5), (d + 0x20, w32(0)), (0x8102B0, b8(p0)),
+                    (0x8102BF, b8(9))],
+            queues={0x21BED0: [0], 0x1A7B80: [1], 0x1B3250: [1], 0x1B2B10: [0, frame]})
+    add('beh8 144040 s3 hold', B, 0x144040, [e, d],
+        base + [st(3), (d + 0x24, w32(1)), (e + 0x3C, f32b(3.0)), clip(5), (d + 0x20, w32(0)), (d + 0x7B, b8(0))],
+        queues={0x21BED0: [0], 0x1A7B80: [1], 0x1B3250: [0]})
+    for r46, d74, d20 in ((0, 0, 2), (0, 0, 1), (0, 0, 0), (1, 0, 5), (0, 1, 5), (0, 2, 5), (0, 0, -1)):
+        add('beh8 144040 s4 %d %d %d' % (r46, d74, d20), B, 0x144040, [e, d],
+            base + [st(4), (d + 0x74, b8(d74)), (d + 0x20, w32(d20))], queues={0x146F80: [r46]})
+    for d4c, r19 in ((0.0, 0), (1.0, 0), (1.0, 1), (-1.0, 0), (-1.0, 1)):
+        add('beh8 144040 s5 lift %g %d' % (d4c, r19), B, 0x144040, [e, d],
+            base + [st(5), (d + 0x4C, f32b(d4c)), (d + 0x50, f32b(0.5)), (d + 0x7B, b8(0)), (e + 0x3C, f32b(90.0))],
+            queues={0x19AFE0: [r19]})
+    # 0019AFE0 writing d +0x4C: the sign test reads it again after the call
+    for after in (0.0, -1.0):
+        add('beh8 144040 s5 lift reread %g' % after, B, 0x144040, [e, d],
+            base + [st(5), (d + 0x4C, f32b(1.0)), (d + 0x7B, b8(0)), (e + 0x3C, f32b(90.0))],
+            queues={0x19AFE0: [Scribble(0, [(d + 0x4C, f32b(after))])]})
+    add('beh8 144040 s5 lift denormal', B, 0x144040, [e, d],
+        base + [st(5), (d + 0x4C, bits32(1)), (d + 0x7B, b8(0)), (e + 0x3C, f32b(90.0))])
+    for word in (0, 0x8000, 0x7FFF):
+        for b, tag in around(84.0):
+            for hard in (0, 1):
+                for p0 in (1, 3):
+                    add('beh8 144040 s5 drop %X %s %d %d' % (word, tag, hard, p0), B, 0x144040, [e, d],
+                        base + [st(5), (d + 0x4C, f32b(0.0)), (d + 0x7B, b8(1)), clip(word), (e + 0x3C, bits32(b)),
+                                (0x81070A, b8(hard)), (0x8102B0, b8(p0))])
+    for b, tag in around(74.0):
+        add('beh8 144040 s5 74 %s' % tag, B, 0x144040, [e, d],
+            base + [st(5), (d + 0x4C, f32b(0.0)), (d + 0x7B, b8(0)), (e + 0x3C, bits32(b))])
+    for d74, d30 in ((0, 0x1000), (2, 0), (2, 0x1000), (1, 0x1000)):
+        add('beh8 144040 s6 %d %X' % (d74, d30), B, 0x144040, [e, d],
+            base + [st(6), (d + 0x74, b8(d74)), (d + 0x30, w32(d30)), (d + 0x64, h16(7)), (d + 0x7A, b8(1))])
+    add('beh8 144040 s63', B, 0x144040, [e, d], base + [st(0x63)])
+    for state in (7, 0x62, 0xFF):
+        add('beh8 144040 s%X' % state, B, 0x144040, [e, d], base + [st(state)])
+    # 00144C20: behaviour 7
+    for turn in (0.3, -0.3, 1.0, -1.0, 0.0):
+        add('beh7 144C20 s0 %g' % turn, B, 0x144C20, [e, d], base + [st(0), (0x810374, f32b(0.5 + turn))])
+    wrap = RUN - {0x1B1470}
+    for value in (0.7853982, -0.7853982):
+        for b, tag in around(value):
+            add('beh7 144C20 s0 bound %g %s' % (value, tag), B, 0x144C20, [e, d], base + [st(0)],
+                queues={0x1B1470: [b, fb(0.75), fb(-0.25)]}, run_set=wrap)
+    for b, tag in around(0.0):
+        add('beh7 144C20 s0 zero %s' % tag, B, 0x144C20, [e, d], base + [st(0)],
+            queues={0x1B1470: [b, fb(0.75), fb(-0.25)]}, run_set=wrap)
+    for d48 in (-1.0, 0.0, 1.0):
+        for word, d30 in ((8, 0x1000), (0x8008, 0x1000), (5, 0x1000), (5, 0), (8, 0)):
+            add('beh7 144C20 s1 %g %X %X' % (d48, word, d30), B, 0x144C20, [e, d],
+                base + [st(1), (d + 0x48, f32b(d48)), clip(word), (d + 0x30, w32(d30))])
+    for b, tag in around(0.0):
+        add('beh7 144C20 s1 zero %s' % tag, B, 0x144C20, [e, d], base + [st(1), (d + 0x48, bits32(b)), clip(8)])
+    for b, tag in around(31.0):
+        for d74, r60 in ((0, 0), (1, 0), (2, 0), (2, 1)):
+            add('beh7 144C20 s2 %s %d %d' % (tag, d74, r60), B, 0x144C20, [e, d],
+                base + [st(2), (e + 0x3C, bits32(b)), (d + 0x74, b8(d74)), (d + 0x40, f32b(2.0))],
+                queues={0x1B1560: [r60]})
+    for d4c, d54, d58 in ((1.0, 5.0, -0.275), (-1.0, 5.0, -0.275), (1.0, -1.0, -0.275), (-1.0, -1.0, 0.5),
+                          (1.0, 0.1, -0.1), (1.0, 0.275, -0.275)):
+        add('beh7 144C20 s3 %g %g %g' % (d4c, d54, d58), B, 0x144C20, [e, d],
+            base + [st(3), (d + 0x4C, f32b(d4c)), (d + 0x50, f32b(0.5)), (d + 0x54, f32b(d54)), (d + 0x58, f32b(d58)),
+                    (d + 0x7A, b8(1))])
+    turn = RUN - {0x1B12B0}
+    for b, tag in around(3.1415927):
+        for d5c, r60 in ((21.0, 0), (19.0, 0), (19.0, 1), (20.0, 1)):
+            add('beh7 144C20 s3 end %s %g %d' % (tag, d5c, r60), B, 0x144C20, [e, d],
+                base + [st(3), (d + 0x4C, f32b(1.0)), (d + 0x54, f32b(5.0)), (d + 0x58, f32b(-0.25)),
+                        (d + 0x5C, f32b(d5c))],
+                queues={0x1B12B0: [b], 0x1B1560: [r60]}, run_set=turn)
+    for b, tag in around(20.0):
+        add('beh7 144C20 s3 near %s' % tag, B, 0x144C20, [e, d],
+            base + [st(3), (d + 0x54, f32b(0.25)), (d + 0x58, f32b(-0.25)), (d + 0x5C, bits32(b))],
+            queues={0x1B1560: [1]})
+    add('beh7 144C20 s4', B, 0x144C20, [e, d], base + [st(4)])
+    # 00145210, 001453C0, 001455A0: the stages (entries of their own)
+    for hit in (0x8000, 0x9000, 0x1000, 0, 0x0FFF):
+        for rnd in (0, 0x20000, 0x40000, -0x20000, -0x40000):
+            if hit & 0x8000 and rnd:
+                continue
+            add('stage 145210 s0 %X %X' % (hit, rnd & MASK), B, 0x145210, [e, d],
+                base + [st(0), (e + 0x36, h16(hit)), (d + 0x7B, b8(0)), (d + 0x72, b8(9))], default={0x122BB8: rnd})
+    for hit in (0x8000, 0):
+        for f6bd in (0, 1, 2):
+            add('stage 145210 s0 held %X %d' % (hit, f6bd), B, 0x145210, [e, d],
+                base + [st(0), (e + 0x36, h16(hit)), (d + 0x7B, b8(1)), (0x8106BD, b8(f6bd))])
+    for d30 in (0, 0x1000):
+        add('stage 145210 s1 %X' % d30, B, 0x145210, [e, d],
+            base + [st(1), (d + 0x30, w32(d30)), (e + 0x36, h16(5))], default={0x122BB8: 0x7FFF8000})
+    add('stage 145210 s2', B, 0x145210, [e, d], base + [st(2)])
+    for d7b, f6bd in ((0, 0), (1, 0), (1, 1), (1, 2)):
+        add('stage 1453C0 s0 %d %d' % (d7b, f6bd), B, 0x1453C0, [e, d],
+            base + [st(0), (d + 0x7B, b8(d7b)), (0x8106BD, b8(f6bd)), (e + 0x70, f32b(0.5)), (e + 0x78, f32b(-0.25))])
+    for d74, d30, e34 in ((0, 0, 1), (2, 0, 1), (1, 0x1000, 1), (0, 0x1000, 0), (2, 0x1000, 0)):
+        add('stage 1453C0 s1 %d %X %d' % (d74, d30, e34), B, 0x1453C0, [e, d],
+            base + [st(1), (d + 0x74, b8(d74)), (d + 0x30, w32(d30)), (e + 0x34, h16(e34)), (d + 0x4C, f32b(0.5))])
+    for d30 in (0, 0x1000):
+        add('stage 1453C0 s2 %X' % d30, B, 0x1453C0, [e, d],
+            base + [st(2), (d + 0x30, w32(d30)), (e + 0x36, h16(5))], default={0x122BB8: 0x12345678})
+    add('stage 1453C0 s3', B, 0x1453C0, [e, d], base + [st(3)])
+    for d7c, d7b, f6bd in ((0, 0, 0), (1, 0, 0), (0, 1, 1), (1, 1, 2), (1, 1, 0)):
+        add('stage 1455A0 s0 %d %d %d' % (d7c, d7b, f6bd), B, 0x1455A0, [e, d],
+            base + [st(0), (d + 0x78, b8(0)), (d + 0x7C, b8(d7c)), (d + 0x7B, b8(d7b)), (0x8106BD, b8(f6bd)),
+                    (e + 0x9A, b8(0x85))])
+    for d30 in (0, 0x1000):
+        add('stage 1455A0 s1 %X' % d30, B, 0x1455A0, [e, d], base + [st(1), (d + 0x78, b8(0)), (d + 0x30, w32(d30))])
+    for d30, d78, r1e in ((0, 0, 0), (0x1000, 1, 0), (0x1000, 0, 0), (0x1000, 0, 1)):
+        add('stage 1455A0 s2 %X %d %d' % (d30, d78, r1e), B, 0x1455A0, [e, d],
+            base + [st(2), (d + 0x30, w32(d30)), (d + 0x78, b8(d78)), (d + 0x54, f32b(0.0)), (e + 0x8C, f32b(2.0))],
+            queues={0x1EFE00: [r1e]})
+    for state in (3, 4):
+        add('stage 1455A0 s%d' % state, B, 0x1455A0, [e, d], base + [st(state), (d + 0x78, b8(0))])
+    for flag in (0, 0x80):
+        for b, tag in around(3.0):
+            add('stage 1455A0 glow up %X %s' % (flag, tag), B, 0x1455A0, [e, d],
+                base + [st(3), (d + 0x78, b8(1)), (d + 0x54, f32b(1.0)), (e + 0x8C, bits32(b)), (e + 0xD, b8(flag | 3))])
+    for b, tag in around(2.0):
+        add('stage 1455A0 glow down %s' % tag, B, 0x1455A0, [e, d],
+            base + [st(3), (d + 0x78, b8(1)), (d + 0x54, f32b(-1.0)), (e + 0x8C, bits32(b))])
+    for b, tag in around(0.0):
+        add('stage 1455A0 glow step %s' % tag, B, 0x1455A0, [e, d],
+            base + [st(3), (d + 0x78, b8(1)), (d + 0x54, bits32(b)), (e + 0x8C, f32b(0.5))])
+    # 001450B0: the stage frame over its stages, clips and random picks
+    for e5 in (0, 1, 2, 3, 0xFF):
+        for low in (9, 8, 7):
+            for rnd in ((0x12345678, -0x2000) if low != 7 else (0,)):
+                add('stage 1450B0 b%X c%d %X' % (e5, low, rnd & MASK), B, 0x1450B0, [e, d],
+                    base + [(e + 5, b8(e5)), st(9), (d + 0x30, w32(low)), (d + 0x78, b8(0)), (e + 0x36, h16(0))],
+                    queues={0x1C64F0: [0x5D]}, default={0x122BB8: rnd})
+    add('stage 1450B0 hit', B, 0x1450B0, [e, d],
+        base + [(e + 5, b8(0)), st(0), (d + 0x30, w32(0)), (e + 0x36, h16(5)), (e + 0x34, h16(100)), (d + 0x72, b8(0)),
+                (d + 0x7B, b8(0))], queues={0x1C64F0: [0x1000]})
+    # every clip-end test with the other bits of d +0x30 set
+    for entry, states in ((0x1434C0, (2,)), (0x143610, (3,)), (0x143AF0, (1, 2, 3, 4)), (0x144040, (2, 3, 6)),
+                          (0x144C20, (1,)), (0x145210, (1,)), (0x1453C0, (1, 2)), (0x1455A0, (1, 2))):
+        for state in states:
+            add('mask %06X s%d' % (entry, state), B, entry, [e, d],
+                base + [st(state), (d + 0x30, w32(0xFFFFEFFF)), (d + 0x74, b8(2)), (e + 0x3C, f32b(100.0)),
+                        (d + 0x20, w32(1)), (d + 0x24, w32(1)), (d + 0x78, b8(0)), clip(5)])
+    for hit in (0x6FFF, -1):
+        add('mask 145210 hit %X' % (hit & 0xFFFF), B, 0x145210, [e, d],
+            base + [st(0), (e + 0x36, h16(hit)), (d + 0x7B, b8(0))])
+    # 00145850: the last frame
+    for value in (0, 0x85, 0xFF):
+        add('stage 145850 %X' % value, B, 0x145850, [e, d], base + [(e + 0x9A, b8(value))])
+
+
 def bound_cases(add):
     """Float compares at their constants: each bound exactly and the next
     float on each side (a bound mutated by one unit in the last place, or a
@@ -2688,9 +3012,7 @@ BY_NAME = {name: address for name, address, _, _ in HOOKS}
 
 # Hooks no passing case can reach, and why (the contract skips them; their
 # wrappers are the same generated code as every other hook's).
-CONTRACT_UNREACHABLE = {
-    'w_0021C040': '00146CE0 calls it only on a path DEAD_WORDS lists (d +0x7B tested zero just before)',
-}
+CONTRACT_UNREACHABLE = {}
 
 
 def hook_sites(results):
@@ -3105,6 +3427,95 @@ DEFAULT_KEEP = frozenset([
     'chase2 1429D0 s5 0 0.5 9 1000 40 0',
     'chase2 1429D0 s5 1 0 0 0 32 2',
     'chase2 1429D0 s5 2 0 0 0 0 0',
+    'a13 8247B0 s1 t49',
+    'actor 142070 r1 b4 11 c8 FFFFE000',
+    'actor 142070 r1 b6 01 c7 0',
+    'actor 142070 r1 b7 10 c9 FFFFE000',
+    'beh3 1434C0 s0',
+    'beh3 1434C0 s1 0 eq',
+    'beh3 1434C0 s2 0 neg',
+    'beh3 1434C0 s2 1000 up',
+    'beh3 1434C0 s3',
+    'beh4 143610 s0 8009 1 1',
+    'beh4 143610 s2 neg 1',
+    'beh4 143610 s2 neg 2',
+    'beh4 143610 s3 1000',
+    'beh4 143610 s4',
+    'beh6 143AF0 s0',
+    'beh6 143AF0 s1 1 up 1000',
+    'beh6 143AF0 s2 end',
+    'beh6 143AF0 s2 lock 0 0 3',
+    'beh6 143AF0 s2 lock 0 1 3',
+    'beh6 143AF0 s2 lock 80 0 3',
+    'beh6 143AF0 s2 lock 80 1 3',
+    'beh6 143AF0 s2 speed eq',
+    'beh6 143AF0 s3 end',
+    'beh6 143AF0 s3 lock 0 0 3',
+    'beh6 143AF0 s3 lock 0 1 3',
+    'beh6 143AF0 s3 lock 80 0 3',
+    'beh6 143AF0 s3 lock 80 1 3',
+    'beh6 143AF0 s4 1000 FFF80000',
+    'beh6 143AF0 s5',
+    'beh7 144C20 s0 bound -0.785398 dn',
+    'beh7 144C20 s0 bound 0.785398 up',
+    'beh7 144C20 s0 zero up',
+    'beh7 144C20 s1 1 8008 1000',
+    'beh7 144C20 s1 zero dn',
+    'beh7 144C20 s2 eq 2 1',
+    'beh7 144C20 s2 up 2 0',
+    'beh7 144C20 s3 -1 -1 0.5',
+    'beh7 144C20 s3 end eq 19 0',
+    'beh7 144C20 s3 end eq 20 1',
+    'beh7 144C20 s3 end up 21 0',
+    'beh7 144C20 s4',
+    'beh8 144040 s0 8005',
+    'beh8 144040 s1 far 1 1 0 1',
+    'beh8 144040 s1 leap 0',
+    'beh8 144040 s1 near up 0',
+    'beh8 144040 s2 47 eq 1000 0',
+    'beh8 144040 s2 47 eq 1000 1',
+    'beh8 144040 s2 bit15',
+    'beh8 144040 s2 grab 0 0 1 3',
+    'beh8 144040 s2 sound 0 up',
+    'beh8 144040 s3 latch 3',
+    'beh8 144040 s3 skip 1 5 1000',
+    'beh8 144040 s3 sound 0 eq',
+    'beh8 144040 s3 hold',
+    'beh8 144040 s5 lift reread 0',
+    'beh8 144040 s5 drop 7FFF eq 0 1',
+    'beh8 144040 s4 0 0 0',
+    'beh8 144040 s4 0 2 5',
+    'beh8 144040 s4 1 0 5',
+    'beh8 144040 s5 74 eq',
+    'beh8 144040 s5 drop 0 eq 0 3',
+    'beh8 144040 s5 drop 0 eq 1 3',
+    'beh8 144040 s5 drop 0 up 1 3',
+    'beh8 144040 s5 lift 1 0',
+    'beh8 144040 s5 lift 1 1',
+    'beh8 144040 s6 2 0',
+    'beh8 144040 s6 2 1000',
+    'beh8 144040 s63',
+    'beh8 144040 sFF',
+    'chase 1459A0 joint C 0',
+    'stage 1450B0 bFF c8 FFFFE000',
+    'stage 1450B0 bFF c9 FFFFE000',
+    'stage 145210 s0 1000 FFFE0000',
+    'stage 145210 s0 9000 0',
+    'stage 145210 s0 held 0 2',
+    'stage 145210 s0 held 8000 1',
+    'stage 145210 s1 1000',
+    'stage 145210 s2',
+    'stage 1453C0 s0 1 1',
+    'stage 1453C0 s1 0 1000 0',
+    'stage 1453C0 s2 1000',
+    'stage 1453C0 s3',
+    'stage 1455A0 glow step eq',
+    'stage 1455A0 glow up 80 up',
+    'stage 1455A0 s0 0 1 1',
+    'stage 1455A0 s0 1 1 2',
+    'stage 1455A0 s1 1000',
+    'stage 1455A0 s2 1000 0 0',
+    'stage 1455A0 s4',
 ])
 SURVIVORS = ('survivor ',)
 
@@ -3135,9 +3546,9 @@ def main():
     NATIVE = build(os.environ.get('EM_LEVEL11_PORT_SOURCE'))
     selected, captured, targeted, total = select_cases(elf)
     CASES[:] = selected
-    only = os.environ.get('EM_LEVEL11_PORT_ONLY')   # debugging: a label prefix
+    only = os.environ.get('EM_LEVEL11_PORT_ONLY')   # debugging: label prefixes, comma-separated
     if only:
-        CASES[:] = selected = [c for c in selected if c[0].startswith(only)]
+        CASES[:] = selected = [c for c in selected if c[0].startswith(tuple(only.split(',')))]
     results = run_cases(selected)
     failures, per_fn, seen, totals = [], {}, set(), [0, 0, 0, 0]
     header_problems, header_count = header_checks(os.environ.get('EM_LEVEL11_PORT_SOURCE'))

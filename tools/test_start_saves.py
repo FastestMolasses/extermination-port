@@ -39,7 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # Start points whose first beats leave from one recorded state (route tables:
 # a01u_00's end, a06_03's end).
-SAME_SOURCE = (('a01u_01', 'a01u_s0'), ('a06_04', 'a06b'))
+SAME_SOURCE = (('a01u_01', 'a01u_s0'), ('a06_04', 'a06b'), ('a13b_02', 'a13c_00'), ('a03c_02', 'a03d_00'))
 sys.path.insert(0, str(ROOT / 'tools'))
 import build_start_saves as B  # noqa: E402
 import test_memcard_host as MH  # noqa: E402

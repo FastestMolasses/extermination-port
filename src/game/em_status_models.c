@@ -780,6 +780,45 @@ static int draw_001CB480(EmStatusModels *m, EmStatusSceneActor *a)
 
 /* ------------------------------------------------------------ loading --- */
 
+/* The menu player in the coat, D_0028A588 (0020E6F0 with D_00810C60 == 1;
+ * tools/export_status_coat.py). Optional: without the files a coat's status
+ * page faults at 001CA6E0, as any model that is not exported. */
+static void load_coat(EmStatusModels *m, const char *directory)
+{
+    char path[1024];
+    Model *coat = &m->model[m->model_count];
+    snprintf(path, sizeof path, "%s/menu_player_coat.emdl", directory);
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    fclose(f);
+    if (em_model_load(&coat->model, path) != 0 || coat->model.bone_count != 22) {
+        fprintf(stderr, "status models: %s is invalid (tools/export_status_coat.py)\n", path);
+        return;
+    }
+    snprintf(path, sizeof path, "%s/menu_player_coat.emsk", directory);
+    f = fopen(path, "rb");
+    uint32_t header[5];
+    int ok = f && fread(header, sizeof header, 1, f) == 1 && !memcmp(header, "EMSK", 4) && header[1] == 1 &&
+             header[2] == 1 && header[3] == 0x0028A588u && header[4] == 21u;
+    for (unsigned n = 0; ok && n < 21u; ++n) {
+        int32_t parent;
+        ok = fread(&parent, 4, 1, f) == 1 && fread(coat->skeleton[n].bind, 64, 1, f) == 1 && parent >= -1 &&
+             parent < (int32_t)n;
+        coat->skeleton[n].parent = (int16_t)parent;
+    }
+    if (f) fclose(f);
+    if (!ok) {
+        em_model_free(&coat->model);
+        fprintf(stderr, "status models: %s is invalid (tools/export_status_coat.py)\n", path);
+        return;
+    }
+    coat->token = 0x0028A588u;
+    coat->owner.bone_count = 21;
+    coat->owner.skeleton = coat->skeleton;
+    coat->owner.skeleton_records = 21;
+    m->model_count++;
+}
+
 static int load_skeletons(EmStatusModels *m, const char *path)
 {
     FILE *f = fopen(path, "rb");
@@ -831,6 +870,7 @@ EmStatusModels *em_status_models_load(const char *directory)
     snprintf(path, sizeof path, "%s/models.emsk", directory);
     if (!load_skeletons(m, path))
         goto fail;
+    load_coat(m, directory);
     snprintf(path, sizeof path, "%s/menu_player.empc", directory);
     if (!em_pose_bank_load(&m->bank, path) || m->bank.bone_count != 21)
         goto fail;

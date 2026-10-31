@@ -1,4 +1,5 @@
 #include "game/em_aim_fire_world_live.h"
+#include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_leaves.h"
 #include "game/em_area00_fx.h"
 #include "game/em_area00_hud.h"
@@ -538,6 +539,21 @@ static int player_chain(void *context,const EmActor *body,EmCollHullChain *out)
     return 0;
 }
 const void *em_aim_fire_world_live_player_body(void) { return &player_body; }
+/* A hull world over the player's body as this frame holds it, for a mover
+ * outside this composition whose 0019AD00 locks against it (001A7280: a
+ * knocked drum, em_area11_boxes). */
+const EmCollHullWorld *em_aim_fire_world_live_hulls(void)
+{
+    static EmCollHullWorld hw;
+    EmAimFireLive *h=em_aim_fire_binding_host();
+    if(!h || !h->player)return NULL;
+    const uint8_t *r=h->player->bytes;
+    memset(&player_body,0,sizeof player_body);
+    player_body.status=r[0];player_body.bones=r[9];
+    player_body.w58=rd32le(r+0x58);player_body.w5C=rd32le(r+0x5C);
+    hw=(EmCollHullWorld){h,player_chain,&player_body};
+    return &hw;
+}
 const uint8_t *em_aim_fire_world_live_player_hull(uint32_t address,uint32_t *size)
 {
     if(!size || player_hull_load()<0 || address<PLAYER_HULL_ADDRESS ||

@@ -121,6 +121,11 @@ int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16]);
  * counted for this frame's page. 0, or -1 (latched). */
 int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
                                   uint32_t f12);
+/* 001F8D30(owner, point, normal, facing, colour, f12, f13, f14) the same way
+ * (001F9140's call: [45]'s thrown piece, the raw float bits). */
+int em_shadow_live_owner_001F8D30(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  const uint32_t facing[4], const uint32_t colour[4], uint32_t f12, uint32_t f13,
+                                  uint32_t f14);
 /* The chain page drew `decal_triangles` fan triangles with the decal's
  * TEX0 this frame (em_chain_page_live): they must be exactly this frame's
  * 0015BF90 fans' plus the other owners' 001F9100 fans (sum of n - 2), else

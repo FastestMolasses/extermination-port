@@ -58,6 +58,10 @@ OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
 A13_ROUTE = 'levels-recordings-20261018-10/s87/route_a13'
 BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
+A13B_ROUTE = 'levels-recordings-20261018-11/s87/route_a13b'
+A13BS_ROUTE = 'levels-recordings-20261018-18/s87/route_a13b'
+A13C_ROUTE = 'levels-recordings-20261018-11/s87/route_a13c'
+A13D_ROUTE = 'levels-recordings-20261018-12/s87/route_a13d'
 A19_ROUTE = 'levels-recordings-20261018-10/s87/route_a19'
 A19B_ROUTE = 'levels-recordings-20261018-13/s87/route_a19b'
 A19C0_ROUTE = 'levels-recordings-20261018-14/s87/route_a19c'
@@ -72,6 +76,9 @@ A08_ROUTE = 'levels-recordings-20261030-1/s87/route_a08'
 A03C_ROUTE = 'levels-recordings-20261030-1/s87/route_a03c'
 A04C_ROUTE = 'levels-recordings-20261030-1/s87/route_a04c'
 A07_ROUTE = 'levels-recordings-20261030-1/s87/route_a07'
+A03D_ROUTE = 'levels-recordings-20261031-1/s87/route_a03d'
+A04D_ROUTE = 'levels-recordings-20261031-1/s87/route_a04d'
+A07B_ROUTE = 'levels-recordings-20261031-1/s87/route_a07b'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -123,6 +130,32 @@ BEATS = {
     'a13_03': ('a13_03', A13_ROUTE, 'a13_03_item27'),
     'a13_04': ('a13_04', A13_ROUTE, 'a13_04_hatch'),
     'a13_05': ('a13_05', A13_ROUTE, 'a13_05_shaft'),
+    # AREA13's second load (TENTH / ELEVENTH / TWELFTH_LEVEL_ROUTE.md, lane M1):
+    # a13b_05 ends in AREA04 entry 7; a13d_07 ends at hatch [63], the beat
+    # before AREA19's entry 10 (a19b is lane J1's).
+    'a13b_00': ('a19_02', 'levels-recordings-20261018-10/s87/route_a13b', 'a13b_00_ladder_up'),
+    'a13b_01': ('a13b_01', A13B_ROUTE, 'a13b_01_door17'),
+    'a13b_02': ('a13b_02', A13B_ROUTE, 'a13b_02_button15'),
+    'a13b_03': ('a13b_03', A13B_ROUTE, 'a13b_03_door8'),
+    'a13b_04': ('a13b_04', A13B_ROUTE, 'a13b_04_lift_call'),
+    'a13b_05': ('a13b_05', A13B_ROUTE, 'a13b_05_lift_ride'),
+    'a13b_s0': ('a13c_00', A13BS_ROUTE, 'a13b_s0_roof_ladder'),
+    'a13c_00': ('a13c_00', A13C_ROUTE, 'a13c_00_recharger'),
+    'a13c_01': ('a13c_01', A13C_ROUTE, 'a13c_01_to_machine'),
+    'a13c_02': ('a13c_02', A13C_ROUTE, 'a13c_02_battery'),
+    'a13c_03': ('a13c_03', A13C_ROUTE, 'a13c_03_blast'),
+    'a13c_04': ('a13c_04', A13C_ROUTE, 'a13c_04_cure'),
+    'a13c_05': ('a13c_05', A13C_ROUTE, 'a13c_05_boom'),
+    'a13c_06': ('a13c_06', A13C_ROUTE, 'a13c_06_south'),
+    'a13d_00': ('a13d_00', A13D_ROUTE, 'a13d_00_stair'),
+    'a13d_01': ('a13d_01', A13D_ROUTE, 'a13d_01_ladder405'),
+    'a13d_02': ('a13d_02', A13D_ROUTE, 'a13d_02_block890'),
+    'a13d_03': ('a13d_03', A13D_ROUTE, 'a13d_03_jump'),
+    'a13d_04': ('a13d_04', A13D_ROUTE, 'a13d_04_ladder426'),
+    'a13d_05': ('a13d_05', A13D_ROUTE, 'a13d_05_ladder432'),
+    'a13d_06': ('a13d_06', A13D_ROUTE, 'a13d_06_door20'),
+    'a13d_07': ('a13d_07', A13D_ROUTE, 'a13d_07_hatch63'),
+    'a19b_00': ('a13d_07', A19B_ROUTE, 'a19b_00_arrival'),
     # AREA19 (lane J1): the entry-9 rooms, entry 10's side and sub 1. The
     # arrival by the hatch [63] (a19b_00) and door [50]'s AREA15 scene are
     # the other lanes'.
@@ -194,12 +227,26 @@ BEATS = {
     'a04c_01': ('a04c_01', A04C_ROUTE, 'a04c_01_door73'),
     'a04c_02': ('a04c_02', A04C_ROUTE, 'a04c_02_lift'),
     'a07_00': ('a07_00', A07_ROUTE, 'a07_00_switch'),
+    'a03d_00': ('a03d_00', A03D_ROUTE, 'a03d_00_seal'),
+    'a03d_01': ('a03d_01', A03D_ROUTE, 'a03d_01_door24'),
+    'a04d_00': ('a04d_00', A04D_ROUTE, 'a04d_00_event'),
+    'a04d_01': ('a04d_01', A04D_ROUTE, 'a04d_01_door73'),
+    'a04d_02': ('a04d_02', A04D_ROUTE, 'a04d_02_lift'),
+    'a07b_00': ('a07b_00', A07B_ROUTE, 'a07b_00_switch'),
+    'a07b_01': ('a07b_01', A07B_ROUTE, 'a07b_01_sub2'),
+    'a07b_02': ('a07b_02', A07B_ROUTE, 'a07b_02_duct'),
+    'a07b_03': ('a07b_03', A07B_ROUTE, 'a07b_03_sub3'),
+    'a07b_04': ('a07b_04', A07B_ROUTE, 'a07b_04_terminal'),
+    'a07b_05': ('a07b_05', A07B_ROUTE, 'a07b_05_back'),
+    'a07b_06': ('a07b_06', A07B_ROUTE, 'a07b_06_duct'),
+    'a07b_07': ('a07b_07', A07B_ROUTE, 'a07b_07_lift'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
           'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
           'a15a': ('a15a_',), 'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',),
           'a13': ('a13_',), 'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',),
-          'a03b': ('a03b_',), 'a08': ('a08_',), 'a03c': ('a03c_',), 'a04c': ('a04c_',), 'a07': ('a07_',)}
+          'a03b': ('a03b_',), 'a08': ('a08_',), 'a03c': ('a03c_',), 'a04c': ('a04c_',), 'a07': ('a07_',),
+          'a03d': ('a03d_',), 'a04d': ('a04d_',), 'a07b': ('a07b_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -221,6 +268,15 @@ def trace(beat):
 # lift replays its door script at a loaded game's arrival (the recording's
 # row 0 is past it, the player locked), so the recorded walk waits for it.
 LEAD = {'a13_00': 210}
+
+
+# Steering only (no pad byte changes): a recorded press made at the very edge of
+# a Use's reach. a13c_01's Cross on door [17] stands 0.1 inside it: a card's
+# player standing 0.2 short of the row misses, so the rows aim further in.
+# a13c_05's walk along [44]'s platform stops pushing a corner the steered walk
+# overruns into the drop west of it: the rows stop 2 units east of the corner.
+PATH_EDIT = {'a13c_01': ((140, 166, 772.5, 1256.0),),
+             'a13c_05': ((846, 934, 811.5, 1129.5),)}
 
 
 def prepare(name, beats):
@@ -249,7 +305,10 @@ def prepare(name, beats):
             if value != sent or (rows and rows[-1][0] == r['f'] + off):
                 rows.append((r['f'] + off, *value))
                 sent = value
-        path += [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
+        rows_path = [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
+        for lo, hi, x, z in PATH_EDIT.get(b, ()):
+            rows_path[lo:hi + 1] = [(x, z, yaw) for _x, _z, yaw in rows_path[lo:hi + 1]]
+        path += rows_path
         marks.append(off + t['frames'])
     last = marks.pop()
     assert rows and len(rows) <= 4096 and all(0 <= f <= last for f, *_ in rows), name
@@ -321,6 +380,8 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    if beats[0].startswith(('a13b_', 'a13c_', 'a13d_')) or beats[-1].startswith(('a13b_', 'a13c_', 'a13d_')):
+        env['EM_START_AT_FINE'] = '2' if beats[0] in ('a13c_04', 'a13c_05') else '1'
     start = time.time()
     ended = False
     with open(log_path, 'w') as log:
@@ -386,6 +447,14 @@ CHAINS = {
     'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
     'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
     'a13': ('area13', ('a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')),
+    # a13b_05's own card has the lift closed (a loaded game): the chain calls it.
+    'a13b': ('a13b_01', ('a13b_01', 'a13b_02', 'a13b_03', 'a13b_04', 'a13b_05')),
+    'a13b_lift': ('a13b_04', ('a13b_04', 'a13b_05')),
+    'a13b_arrival': ('a19_02', ('a19_02', 'a13b_00')),
+    'a13d_hatch': ('a13d_07', ('a13d_07', 'a19b_00')),
+    'a13c': ('a13c_00', ('a13c_00', 'a13c_01', 'a13c_02', 'a13c_03', 'a13c_04', 'a13c_05', 'a13c_06')),
+    'a13d': ('a13d_00', ('a13d_00', 'a13d_01', 'a13d_02', 'a13d_03', 'a13d_04', 'a13d_05', 'a13d_06',
+                         'a13d_07')),
     'a15a': ('area15', ('a15a_00',)),
     'a15': ('a15_00', ('a15_00',)),
     # one run: the event's scripts run on across the forced return
@@ -397,6 +466,9 @@ CHAINS = {
     'a03c': ('a03c_00', ('a03c_00', 'a03c_01', 'a03c_02', 'a03c_03',)),
     'a04c': ('a04c_00', ('a04c_00', 'a04c_01', 'a04c_02',)),
     'a07': ('a07_00', ('a07_00',)),
+    'a03d': ('a03d_00', ('a03d_00', 'a03d_01',)),
+    'a04d': ('a04d_00', ('a04d_00', 'a04d_01', 'a04d_02',)),
+    'a07b': ('a07b_00', ('a07b_00', 'a07b_01', 'a07b_02', 'a07b_03', 'a07b_04', 'a07b_05', 'a07b_06', 'a07b_07',)),
 }
 
 
