@@ -762,6 +762,9 @@ def synthetic_arena():
                                   rec(0x0B, 2, f0c=0.5, w14=0x1000), rec(0x0B, 3, f0c=2., w14=1),
                                   rec(0x0B, 9), rec(0x0B, 0xFFFFFFFF),
                                   rec(0x0B, 2, f0c=1., w14=0x8000), rec(7, 4, END)])
+    # op0B sub 5 (AREA15's script 0x827D70): +0x40 = D_0028A490[rec +0x1C],
+    # 001C63E0 of rec +0x14, st +0x0E = 0.
+    script('owner bone', [rec(7, 0, w14=1), rec(0x0B, 5, w14=2, w1c=0x3C), rec(7, 4, END)])
     script('unported opcode', [rec(7, 0, w14=1), rec(0x13), rec(7, 4, END)])
     script('unadmitted kind', [rec(7, 0, w14=1), rec(0, 8, f0c=3.), rec(7, 4, END)])
     return scripts, bytes(data)
