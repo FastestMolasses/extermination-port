@@ -1,0 +1,51 @@
+/* The sixteenth level's addresses in the shared composition (lane N1;
+ * docs/AREA03X_PORT.md): what the later dispatch (generated from the level
+ * ports' headers) cannot reach. Returns 0 for any other address. */
+static int dispatch_n1(EmArea01Runtime *r, EmArea01Call *c, int *out)
+{
+    (void)r;
+    switch (c->function) {
+    case 0x0011CB90u: /* the SDK's sqrtf kernel, 0011BCF8's and 0011BDD8's */
+        if (c->nf < 1) { *out = fail(r, c->function); return 1; }
+        c->f0 = em_ee_bits(em_sdk_math_original_0011CB90(em_ee_float(c->f[0])));
+        *out = 0;
+        return 1;
+    case 0x0011E080u: /* the SDK's isnanf, 0011E420's */
+        if (c->nf < 1) { *out = fail(r, c->function); return 1; }
+        c->v0 = (uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));
+        *out = 0;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* AREA03's owners no earlier module has (em_level16_boot). Frames from each
+ * entry's first instruction. */
+static int dispatch_a03x(EmArea01Runtime *r, EmArea01Call *c, int *out)
+{
+    const uint32_t fn = c->function;
+    uint32_t frame;
+    switch (fn) {
+    case 0x008235A0u: frame = 0x30u; break;
+    case 0x00823810u: frame = 0x20u; break;
+    case 0x00825200u: frame = 0x40u; break;
+    default: return 0;
+    }
+    if (area_frame(r, c, 1, frame, out) < 0) return 1;
+    EmLevel16BootHooks h;
+    m16x_hooks(r, &h);
+    EmLevel16BootFault f = {0, 0};
+    const uint32_t a0 = (uint32_t)c->a[0];
+    const int x = fn == 0x008235A0u ? em_level16_boot_a03_008235A0(&h, a0, &f)
+                : fn == 0x00823810u ? em_level16_boot_a03_00823810(&h, a0, &f)
+                                    : em_level16_boot_a03_00825200(&h, a0, c->sp, &f);
+    if (x < 0) {
+        fprintf(stderr, "em_area01: AREA03 %08X fault code %d at %08X\n", (unsigned)fn, (int)f.code, (unsigned)f.address);
+        *out = fail(r, f.address ? f.address : fn);
+    } else {
+        *out = 0;
+    }
+    return 1;
+}
+

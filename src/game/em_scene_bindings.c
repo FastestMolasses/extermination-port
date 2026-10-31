@@ -220,8 +220,8 @@ static const char *area02_file(unsigned sub, const char *name)
     snprintf(out, sizeof path[0], AREA02_SCENE_DIR "/sub%u%s%s", sub, name[0] ? "/" : "", name);
     return out;
 }
-/* AREA04 (tools/export_area04_level / _tables / _sfx): sub 0 only (no
- * capture loads sub 1; docs/AREA04_ASSETS.md). */
+/* AREA04 (tools/export_area04_level / _tables / _sfx): sub 0 here; sub 1
+ * lives in the level pack's tree (tools/export_area03x_*, mid_file). */
 #define AREA04_SCENE_DIR "assets/area04/sub0"
 
 /* The middle of the route to the first boss (lane C1): AREA22 (area byte
@@ -229,17 +229,18 @@ static const char *area02_file(unsigned sub, const char *name)
  * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
 static int mid_area(unsigned area, unsigned sub)
 {
-    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 3u) && sub == 0) || (area == 0x0Fu && sub <= 1);
+    return ((area == 0x16u || area == 6u || area == 0x0Du) && sub == 0) || (area == 0x0Fu && sub <= 1) ||
+           (area == 3u && sub <= 2) || (area == 4u && sub == 1);
 }
-/* AREA15 keeps one folder per sub, AREA03's recorded sub lives in the level
- * pack's tree (tools/export_area03_assets.py). */
+/* AREA15 keeps one folder per sub, AREA03's subs and AREA04 sub 1 live in the
+ * level pack's tree (tools/export_area03_assets.py, export_area03x_*). */
 static const char *mid_file(unsigned area, const char *name)
 {
     static char path[4][96];
     static unsigned next;
     char *out = path[next++ & 3u];
-    if (area == 3u)
-        snprintf(out, sizeof path[0], "assets/levels/03/sub0%s%s", name[0] ? "/" : "", name);
+    if (area == 3u || area == 4u)
+        snprintf(out, sizeof path[0], "assets/levels/%02u/sub%u%s%s", area, s_state.d810701, name[0] ? "/" : "", name);
     else
         snprintf(out, sizeof path[0], "assets/area%02u/sub%u%s%s", area, area == 0x0Fu ? s_state.d810701 : 0u,
                  name[0] ? "/" : "", name);
@@ -1097,6 +1098,30 @@ static void log_area02(FILE *f)
  * where the load placed them. Their records (nodes running 0012A5D0, at the
  * same pool addresses in both) take the recording's bytes, but for the pool
  * links and the model and collision pointers a load owns. */
+/* EM_START_AT_TRACE (comparison only, tools/test_area03x_rows.py): one line
+ * per script frame: the creatures' first bytes, positions and rand() word. */
+void em_scene_creature_trace(FILE *f, int t, const float pos[3])
+{
+    if (!s_area01_live.bound || !f) return;
+    fprintf(f, "{\"t\": %d, \"pos\": [%.5f, %.5f, %.5f], \"rand\": %u, \"n\": [", t, pos[0], pos[1], pos[2],
+            em_random_peek());
+    int n = 0;
+    for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
+        const EmActor *a = &s_pool.records[i];
+        if (!a->allocated || (a->callback != 0x0013D2D0u && a->callback != 0x00147390u && a->callback != 0x0012A5D0u))
+            continue;
+        const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
+        uint8_t h[0x10] = {0};
+        float p[3] = {0, 0, 0};
+        if (em_area01_actor_view_snapshot(&s_area01_live.actors, at, sizeof h, h) < 0 ||
+            em_area01_actor_view_snapshot(&s_area01_live.actors, at + 0xB0, sizeof p, p) < 0)
+            continue;
+        fprintf(f, "%s[%u, \"%08x\", %u, %u, %u, %.4f, %.4f, %.4f]", n++ ? ", " : "", (unsigned)i, (unsigned)a->callback,
+                h[4], h[5], h[6], p[0], p[1], p[2]);
+    }
+    fputs("]}\n", f);
+}
+
 int em_scene_restore_bugs(const uint8_t *ram)
 {
     if (!s_area01_live.bound) return -1;
@@ -2799,7 +2824,10 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, "assets/area13/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area15/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area15/sub1") == 0 ||
-           strcmp(g.scene_dir, "assets/levels/03/sub0") == 0;
+           strcmp(g.scene_dir, "assets/levels/03/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/levels/03/sub1") == 0 ||
+           strcmp(g.scene_dir, "assets/levels/03/sub2") == 0 ||
+           strcmp(g.scene_dir, "assets/levels/04/sub1") == 0;
 }
 
 /* A scene with the original's world: its collision world, live camera,
@@ -2924,7 +2952,7 @@ static int state0_001AF8E0(void *ctx)
         if (!ld || em_area11_boxes_bind_world_bank(
                 s_state.d810700 == 0 ? AREA00_SCENE_DIR "/world_models.emwm" :
                 s_state.d810700 == 2 ? area02_file(s_state.d810701, "world_models.emwm") :
-                s_state.d810700 == 4 ? AREA04_SCENE_DIR "/world_models.emwm" :
+                s_state.d810700 == 4 && s_state.d810701 == 0 ? AREA04_SCENE_DIR "/world_models.emwm" :
                 mid_area(s_state.d810700, s_state.d810701) ? mid_file(s_state.d810700, "world_models.emwm") :
                 arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
                                 : EM_AREA11_WORLD_MODELS_PATH,
@@ -3014,7 +3042,7 @@ static int w_001AFCA0(void *ctx)
         if (em_collision_world_load(&g.coll, g.coll_path,
                                     s_state.d810700 == 0 ? AREA00_CELLS_PATH :
                                     s_state.d810700 == 2 ? area02_file(s_state.d810701, "area02_cells.bin") :
-                                    s_state.d810700 == 4 ? AREA04_SCENE_DIR "/area04_cells.bin" :
+                                    s_state.d810700 == 4 && s_state.d810701 == 0 ? AREA04_SCENE_DIR "/area04_cells.bin" :
                                     mid_area(s_state.d810700, s_state.d810701) ? mid_cells(s_state.d810700)
                                                          : AREA01_CELLS_PATH,
                                     EM_COLLISION_WORLD_SDK_PATH) != 0)
@@ -3983,7 +4011,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     if (s_state.d810700 == 3 && fn >= 0x00823500u) {
         switch (fn) {
         case 0x00823930u: case 0x00825290u: case 0x00825430u: case 0x008256E0u: case 0x00825980u:
-        case 0x00825DF0u: case 0x00826340u: case 0x008265D0u:
+        case 0x00825DF0u: case 0x00826340u: case 0x008265D0u: case 0x008235A0u: case 0x00823810u:
             goto bind;
         default:
             return -1;
@@ -4369,7 +4397,7 @@ static int spawn_area01(void)
         return em_scene_fault(&s_state, 0x001B6990u, EM_SCENE_FAULT_BAD_INDEX);
     const char *path = area == 1 ? AREA01_ROSTER_PATH :
                        area == 2 ? area02_file(sub, "roster.emro") :
-                       area == 4 ? AREA04_SCENE_DIR "/roster.emro" :
+                       area == 4 && sub == 0 ? AREA04_SCENE_DIR "/roster.emro" :
                        mid_area(area, sub) ? mid_file(area, "roster.emro") :
                        sub == 0 ? AREA00_SCENE_DIR "/sub0/roster.emro" :
                                   AREA00_SCENE_DIR "/sub1/roster.emro";

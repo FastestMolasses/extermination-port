@@ -80,7 +80,7 @@ ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # (export_area06_sfx.sub_binding) and AREA13 sub 0
 # (export_area13_sfx.target_binding), each its captures' binding; resolved
 # after AREA04, so every earlier scope keeps its samples and indices.
-MID_SCOPES = ((0x16, 0), (6, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (3, 0))
+MID_SCOPES = ((0x16, 0), (6, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (3, 0), (3, 1), (3, 2), (4, 1))
 MID_IDS = AREA00_IDS
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
@@ -314,6 +314,11 @@ def mid_bindings():
         A15.uninstall()
         A03.install()
         result.update(A03.SX.target_binding('area03'))
+        # AREA03 subs 1 and 2, AREA04 sub 1 (the same path, SIXTEENTH_LEVEL_ROUTE.md).
+        import export_area03x_common as A3X
+        for key in ('03_1', '03_2', '04_1'):
+            A3X.install(key)
+            result.update(A3X.SX.target_binding(A3X.KEYS[key]['name']))
         assert sorted(result) == sorted(MID_SCOPES), sorted(result)
         return result
     finally:

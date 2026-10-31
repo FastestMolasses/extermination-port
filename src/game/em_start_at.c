@@ -90,6 +90,21 @@ static const struct {
     {"a15b_03", 0x0F},
     {"a15b_04", 0x0F},
     {"a03_00", 0x03},
+    /* AREA03 subs 1 and 2, AREA04 sub 1 (lane N1) */
+    {"a03b_00", 0x03},
+    {"a03b_01", 0x03},
+    {"a03b_02", 0x03},
+    {"a03b_03", 0x03},
+    {"a03b_04", 0x03},
+    {"a03b_05", 0x03},
+    {"a03b_06", 0x03},
+    {"a03c_00", 0x03},
+    {"a03c_01", 0x03},
+    {"a03c_02", 0x03},
+    {"a03c_03", 0x03},
+    {"a04c_00", 0x04},
+    {"a04c_01", 0x04},
+    {"a04c_02", 0x04},
 };
 
 static struct {
@@ -674,6 +689,16 @@ int em_start_at_pad_frame(unsigned counter, const float pos[3], const float fwd[
         }
     }
     const int t = pad.t;
+    {
+        static FILE *trace;
+        static int opened;
+        if (!opened) {
+            const char *path = getenv("EM_START_AT_TRACE");
+            opened = 1;
+            trace = path ? fopen(path, "w") : NULL;
+        }
+        if (trace) em_scene_creature_trace(trace, t, pos);
+    }
     if (pad.rand_next < pad.rands && t >= pad.rand_at[pad.rand_next].f) {
         em_random_seed(pad.rand_at[pad.rand_next].state);
         printf("startup: EM_START_AT_RANDS: rand() state %08x at script frame %d (comparison only)\n",

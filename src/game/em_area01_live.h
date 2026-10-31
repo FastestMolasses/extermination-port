@@ -66,6 +66,9 @@ typedef struct {
      * (written before every read inside each call; 0x70003A20 is the pose
      * host's). */
     uint32_t scratch_3A24[5];
+    /* 0x70003900..0x70003A23: scratch vectors of the later owners (AREA03's
+     * 0x823930 at 0x70003910), held for one owner's call. */
+    uint32_t scratch_3900[73];
     /* 001CD2B0 writes its integer screen-distance result before the flame
      * caller reads it. This word has no earlier live storage owner. */
     uint32_t d275C00;

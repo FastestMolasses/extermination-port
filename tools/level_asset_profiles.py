@@ -9,7 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SUBS = {'00': (0, 1), '01': (0,), '02': (0, 1), '03': (0,),
         '04': (0,), '06': (0,), '13': (0,), '13x': (0,),
-        '15': (0, 1), '19': (0,), '19x': (0,), '19s1': (1,), '22': (0,)}
+        '15': (0, 1), '19': (0,), '19x': (0,), '19s1': (1,), '22': (0,),
+        '03x': (1, 2), '04x': (1,)}
 _active = None
 
 
@@ -22,6 +23,8 @@ def configure(profile, sub):
     _active = profile
     if profile == '03':
         return area03(sub)
+    if profile in ('03x', '04x'):
+        return importlib.import_module('export_area03x_common').install(f'{profile[:2]}_{sub}')
     module = importlib.import_module('export_area'+profile+'_common')
     if profile == '01':
         return module
@@ -65,4 +68,6 @@ def area03(sub):
 
 
 def output(profile, sub):
+    if profile in ('03x', '04x'):         # export_area03x_split.py places them
+        return ROOT/f'build/area03x/assets/tree/{profile[:2]}_{sub}/sub{sub}'
     return ROOT/'assets/levels'/profile/f'sub{sub}'

@@ -82,7 +82,7 @@ def collect(C, caps, replay=True):
         E.O.block_tex0(image.read(address, 0x40+0x820*blocks), 0, blocks, f'static object {ident}', keys)
     # func_001D5370.c's area/sub arms. Elsewhere this global is stale.
     dynamic = []
-    if (C.AREA, C.SUB) in ((1, 0), (4, 0), (6, 0), (15, 0)):
+    if (C.AREA, C.SUB) in ((1, 0), (3, 1), (4, 0), (4, 1), (6, 0), (15, 0)):
         dynamic = E.L.dynamic_entries(image.read, C.u32(cap.ram, 0x28A5A4))
         for ident, address in dynamic:
             data = image.read(address, 0x860)
@@ -149,6 +149,10 @@ def export(profile, sub, iso=None):
         if pair not in variants:
             variants[pair] = E.O.disc_texels(loader.world(C.AREA, sub, *pair), fixed)
         E.O.cross_check(variants[pair], [capture.gs])
+    # a sub recorded only in another packet (AREA04 sub 1, mode 1): the
+    # (0, 0) decode still names the base file the packet variants read
+    if (0, 0) not in variants:
+        variants[(0, 0)] = E.O.disc_texels(loader.world(C.AREA, sub, 0, 0), fixed)
     out = P.output(profile, sub)
     out.mkdir(parents=True, exist_ok=True)
     for (mode, costume), pixels in variants.items():

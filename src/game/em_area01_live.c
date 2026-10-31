@@ -310,6 +310,9 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return l->active ? em_camera_live_scratch_bytes(a,n) : NULL;
     if((p=em_area11_interaction_host_scan_memory(a,n)))return p;
     if((p=em_effects_live_scratch_3660(a,n)))return p;
+    if(overlaps(a,n,0x70003900u,sizeof l->scratch_3900))
+        return l->active && contains(a,n,0x70003900u,sizeof l->scratch_3900)
+            ? (uint8_t *)l->scratch_3900+a-0x70003900u : NULL;
     if((p=em_area01_state_bytes(l->host.area,a,n)))return p;
     if(contains(a,n,0x00275B44u,4))return write ? NULL : (uint8_t *)l->host.current_actor+a-0x00275B44u;
     if(contains(a,n,0x00275B48u,4))return write ? NULL : (uint8_t *)l->host.current_actor+a-0x00275B48u;

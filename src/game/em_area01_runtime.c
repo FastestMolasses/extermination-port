@@ -125,6 +125,10 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_level15_motion.h"
 #include "game/em_level15_perception.h"
 #include "game/em_level15_support.h"
+#include "game/em_level16_creature.h"
+#include "game/em_level16_beast.h"
+#include "game/em_level16_boot.h"
+#include "game/em_sdk_math_original.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_runtime.h"
@@ -614,10 +618,11 @@ static int dispatch_math02(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 #include "game/em_area01_runtime_boss.inc"
 #include "game/em_area01_runtime_area15.inc"
 #include "game/em_area01_runtime_later.inc"
+#include "game/em_area01_runtime_area03x.inc"
 
 int em_area01_runtime_later(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
-    return r && c && rc && !r->fault && dispatch_later(r, c, rc);
+    return r && c && rc && !r->fault && (dispatch_n1(r, c, rc) || dispatch_later(r, c, rc));
 }
 
 /* The areas whose overlay owners are their own dispatch's (the later areas
@@ -649,6 +654,8 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 0x0F && dispatch_a15(r, c, &rc))
         return rc;
     if (r->area == 3 && dispatch_a03(r, c, &rc))
+        return rc;
+    if (r->area == 3 && dispatch_a03x(r, c, &rc))
         return rc;
     /* The creature family's boot entries and the script actors serve AREA13,
      * AREA15 and AREA03 too (their overlay addresses went to their own dispatch

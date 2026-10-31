@@ -72,10 +72,10 @@ def dynamic_list_problems(caps, rwhere):
     return out
 
 
-def export_dynamic(el, elf, out_root, iso, skip_collision):
+def export_dynamic(el, elf, out_root, iso, skip_collision, name='area15'):
     """export_area13_level.export_target for a load whose nested list
     relocates id 0x45 (module docstring). Returns (image, caps, lmap)."""
-    LV.install('area15')
+    LV.install(name)
     t = A13.current()
     caps = C.captures()
     lmap, info = C.build_load_map(caps[0])
@@ -183,7 +183,7 @@ def export_dynamic(el, elf, out_root, iso, skip_collision):
     background = L.check_background(caps)
     bg = LV.export_background(el, caps, out)
     room = E22.check_ctx_block(caps, elf)
-    LV.install('area15')
+    LV.install(name)
 
     table, count, hulls, cells, cell_rows, calls = LV.check_cells(image, caps, elf)
     (out / f'{t.name}_cells.bin').write_bytes(cells)
