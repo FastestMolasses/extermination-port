@@ -100,6 +100,8 @@ int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route);
  * packet chain. 0, or -1 (latched). em_shadow_live_effect_decals counts
  * the calls since the process start. */
 int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint64_t tex0, uint32_t rgba);
+uint8_t *em_shadow_live_stage_bytes(uint32_t address, uint32_t size);
+int em_shadow_live_001CF470(const uint32_t m[16], int32_t *count);
 uint32_t em_shadow_live_effect_decals(void);
 int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_t size,
                                   const uint8_t *const nodes[], uint32_t node_count);
@@ -119,6 +121,11 @@ int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16]);
  * counted for this frame's page. 0, or -1 (latched). */
 int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
                                   uint32_t f12);
+/* 001F8D30(owner, point, normal, facing, colour, f12, f13, f14) the same way
+ * (001F9140's call: [45]'s thrown piece, the raw float bits). */
+int em_shadow_live_owner_001F8D30(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  const uint32_t facing[4], const uint32_t colour[4], uint32_t f12, uint32_t f13,
+                                  uint32_t f14);
 /* The chain page drew `decal_triangles` fan triangles with the decal's
  * TEX0 this frame (em_chain_page_live): they must be exactly this frame's
  * 0015BF90 fans' plus the other owners' 001F9100 fans (sum of n - 2), else

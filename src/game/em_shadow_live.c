@@ -871,6 +871,29 @@ int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint
 
 uint32_t em_shadow_live_effect_decals(void) { return S.effect_decals; }
 
+/* The clipper buffers D_008112C0..D_00811CBF as original bytes (001CDDC0
+ * stages its triangles there itself; em_level11_port). NULL outside them. */
+uint8_t *em_shadow_live_stage_bytes(uint32_t address, uint32_t size)
+{
+    const uint32_t bytes = (uint32_t)sizeof S.stage;
+    if (address < EM_SHADOW_DECAL_STAGE_ADDRESS || !size || size > bytes ||
+        address - EM_SHADOW_DECAL_STAGE_ADDRESS > bytes - size)
+        return NULL;
+    return (uint8_t *)S.stage + (address - EM_SHADOW_DECAL_STAGE_ADDRESS);
+}
+
+/* 001CF470(D_008112C0, m) over the same buffers (the camera's matrix m read
+ * by the caller). */
+int em_shadow_live_001CF470(const uint32_t m[16], int32_t *count)
+{
+    S.effect_decal.stage = S.stage;
+    S.effect_decal.workers = &S.dbase;
+    if (em_shadow_decal_001CF470(&S.effect_decal, m, count) < 0)
+        return fail(S.effect_decal.fault.address ? S.effect_decal.fault.address : 0x001CF470u,
+                    "001CF470 faulted");
+    return 0;
+}
+
 /* --------------------------------- another owner's 001F9100 decal */
 
 static int od_001CB5F0(void *ctx, uint32_t table, int32_t id, int32_t count, uint8_t **bytes)
@@ -890,8 +913,15 @@ static int ow_submit(void *ctx, int32_t tag, const uint32_t corners[16], uint64_
     return em_shadow_decal_w_001CE300(ctx, tag, corners, tex0, rgba);
 }
 
-int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
-                                  uint32_t f12)
+/* owner_decal's route: 001F9100 with its tables, or 001F8D30 with the
+ * caller's facing and colour (001F9140: [45]'s thrown piece). */
+typedef struct {
+    const uint32_t *facing, *colour;
+    uint32_t f13, f14;
+} OwnerDecal;
+
+static int owner_decal(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4], uint32_t f12,
+                       const OwnerDecal *direct)
 {
     if (S.fault) return -1;
     if (!S.bound) return fail(0x001F9100u, "the shadow is not bound");
@@ -912,7 +942,9 @@ int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[
     S.oroute.scratch = (EmShadowActorRouteScratch){ S.os38A0, NULL, NULL, S.eglobals.spad3600, NULL,
                                                     (const uint32_t *)camera };
     S.opk_count = 0;
-    if (em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12) < 0) {
+    if ((direct ? em_shadow_actor_route_001F8D30(&S.oroute, owner, point, normal, direct->facing, direct->colour,
+                                                 f12, direct->f13, direct->f14)
+                : em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12)) < 0) {
         if (S.odecal.fault.code) return fail(S.odecal.fault.address, "001CE300 (an owner's decal) faulted");
         return fail(S.oroute.fault.address ? S.oroute.fault.address : 0x001F9100u, "001F9100 faulted");
     }
@@ -928,6 +960,20 @@ int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[
         S.owner_triangles += n - 2u;
     }
     return 0;
+}
+
+int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  uint32_t f12)
+{
+    return owner_decal(owner, point, normal, f12, NULL);
+}
+
+int em_shadow_live_owner_001F8D30(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  const uint32_t facing[4], const uint32_t colour[4], uint32_t f12, uint32_t f13,
+                                  uint32_t f14)
+{
+    const OwnerDecal direct = {facing, colour, f13, f14};
+    return owner_decal(owner, point, normal, f12, &direct);
 }
 
 /* ------------------------------------------------------------ the logs */
