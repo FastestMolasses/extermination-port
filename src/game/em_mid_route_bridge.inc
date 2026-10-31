@@ -4249,6 +4249,17 @@ static int m09_w_001C7900(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, int32
     return rc;
 }
 
+static int m09_w_001C9940(void *ctx, uint32_t a0, int32_t n1, uint32_t a2)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001C9940u, .sp = r->sp, .na = 3, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)n1;
+    c.a[2] = (uint64_t)(int64_t)(int32_t)a2;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
 static int m09_w_001CA5E0(void *ctx, uint32_t a0, uint32_t a1, int32_t n2)
 {
     EmArea01Runtime *r = ctx;
@@ -4884,6 +4895,7 @@ static inline void m09_hooks(EmArea01Runtime *r, EmLevel9PortHooks *h)
     h->w_001C68C0 = m09_w_001C68C0;
     h->w_001C6910 = m09_w_001C6910;
     h->w_001C7900 = m09_w_001C7900;
+    h->w_001C9940 = m09_w_001C9940;
     h->w_001CA5E0 = m09_w_001CA5E0;
     h->w_001CA6E0 = m09_w_001CA6E0;
     h->w_001CA6F0 = m09_w_001CA6F0;

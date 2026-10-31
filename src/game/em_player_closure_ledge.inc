@@ -417,3 +417,4 @@ int em_player_closure_live_0021BF90(uint8_t kind)
     LG.hit_kind = kind;
     return em_level12_port_0021BF90(&h, 0x008102B0u, LEDGE_KIND, &f) < 0 ? ledge_report("0021BF90", &f) : 0;
 }
+int32_t *em_player_closure_live_d275B08(void) { return &L.d275B08; }

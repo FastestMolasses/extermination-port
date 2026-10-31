@@ -179,6 +179,7 @@ typedef struct {
     int (*w_001C68C0)(void *ctx, uint32_t a0);
     int (*w_001C6910)(void *ctx, uint32_t a0);
     int (*w_001C7900)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, int32_t n3);
+    int (*w_001C9940)(void *ctx, uint32_t a0, int32_t n1, uint32_t a2);
     int (*w_001CA5E0)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2);
     int (*w_001CA6E0)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001CA6F0)(void *ctx, uint32_t a0, int32_t n1);
@@ -268,6 +269,7 @@ int em_level9_port_0013B5B0(const EmLevel9PortHooks *h, uint32_t self, uint32_t 
 int em_level9_port_0013B790(const EmLevel9PortHooks *h, uint32_t self, uint32_t ctl, EmLevel9PortFault *fault);
 int em_level9_port_0013B9A0(const EmLevel9PortHooks *h, uint32_t self, uint32_t ctl, EmLevel9PortFault *fault);
 int em_level9_port_001F28D0(const EmLevel9PortHooks *h, uint32_t p, uint32_t sp, EmLevel9PortFault *fault);
+int em_level9_port_00188340(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault);
 int em_level9_port_00153F10(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault);
 int em_level9_port_00154040(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault);
 int em_level9_port_00154120(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault);

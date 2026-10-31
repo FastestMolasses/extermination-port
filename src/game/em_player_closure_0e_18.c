@@ -617,6 +617,7 @@ static int x0016BAE0(const Call *c, int arg)
     for (unsigned i = 0; i < 4; ++i) memcpy(n + 0x60 + 4 * i, &one, 4); /* 0016BB4C .. 0016BB58 */
     const uint32_t update = EM_PLAYER_CLOSURE_SPAWN_UPDATE;
     memcpy(n + 0x10, &update, 4);                      /* 0016BB5C */
+    if (c->w->alloc_done) FAULT(c->w->alloc_done(c->w->context, n));
     return 0;
 }
 

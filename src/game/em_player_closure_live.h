@@ -47,6 +47,8 @@ void em_player_closure_live_set_water(int (*water)(void *context, uint32_t funct
                                       EmPlayerLiveActor *actor, uint32_t level), void *context);
 int em_player_closure_live_water_contact(EmPlayerLiveActor *actor);
 /* 00175CF0's surface-0x39 handler over the record (the ledge, AREA19). */
+/* D_00275B08's one storage. */
+int32_t *em_player_closure_live_d275B08(void);
 /* 0021BF90(the player, hit), hit's +3 byte given: the latch's start. */
 int em_player_closure_live_0021BF90(uint8_t kind);
 int em_player_closure_live_surface39(EmPlayerLiveActor *actor, int handler, const EmPlayerProbeHit *hit);

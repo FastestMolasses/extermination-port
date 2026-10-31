@@ -142,6 +142,7 @@ FUNCS = {
     0x13B790: ('em_level9_port_0013B790', 0x210, [U, U], None),
     0x13B9A0: ('em_level9_port_0013B9A0', 0x80, [U, U], None),
     0x1F28D0: ('em_level9_port_001F28D0', 0x2C4, [U, S], None),
+    0x188340: ('em_level9_port_00188340', 0xF0, [U], None),
     0x153F10: ('em_level9_port_00153F10', 0xF0, [U], None),
     0x154040: ('em_level9_port_00154040', 0xE0, [U, U], None),
     0x154120: ('em_level9_port_00154120', 0x340, [U, U], None),
@@ -282,6 +283,7 @@ HOOKS = [
     ('w_001C68C0', 0x1C68C0, [(U, 4)], None),
     ('w_001C6910', 0x1C6910, [(U, 4)], None),
     ('w_001C7900', 0x1C7900, [(U, 4), (U, 5), (I, 6), (I, 7)], None),
+    ('w_001C9940', 0x1C9940, [(U, 4), (I, 5), (U, 6)], None),
     ('w_001CA5E0', 0x1CA5E0, [(U, 4), (U, 5), (I, 6)], None),
     ('w_001CA6E0', 0x1CA6E0, [(U, 4), (U, 5)], None),
     ('w_001CA6F0', 0x1CA6F0, [(U, 4), (I, 5)], None),
@@ -1677,7 +1679,7 @@ def load_captures(elf):
 # the entries that reach a node's +0x4C method (directly or through a
 # translated callee), and 0x827150's step table
 SELF_ENTRIES = {0x823700, 0x823940, 0x823E90, 0x824180, 0x824BB0, 0x8266A0, 0x826850, 0x826FF0, 0x827150,
-                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120, 0x156620, 0x13B350}
+                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120, 0x156620, 0x13B350, 0x188340}
 STEP_TABLE = 0x82D190
 SCRIBBLED_CALLBACKS = set()
 HEAVY = {0x824BB0, 0x827150, 0x1E5AC0, 0x1DE920, 0x1C06E0, 0x1549C0}
@@ -2170,6 +2172,22 @@ def exit_cases(add, rng):
     for link, a83, bd in ((0, 0, 0), (FREE, 1, 1), (0, 1, 0)):
         add('hit 13B9A0 %X %d %d' % (link, a83, bd), B, 0x13B9A0, [f, ctl],
             [(f + 0x20, struct.pack('<I', link)), (ctl + 0x83, b8(a83)), (0x8106BD, b8(bd))])
+    # 00188340, the crawl node: its setup, each type's steps, the free
+    for kind in (0, 1, 2):
+        for st5 in (0, 1, 2):
+            for end in (0, 0x1000):
+                for flag in (0, 1):
+                    for p4 in (2, 0):
+                        add('crawl 188340 %d %d %X %d %d' % (kind, st5, end, flag, p4), B, 0x188340, [f],
+                            [(f + 4, b8(1)), (f + 0xD, b8(kind)), (f + 5, b8(st5)), (0x275B08, struct.pack('<i', flag)),
+                             (0x8102B4, b8(p4))], queues={0x1C64F0: [end]})
+    for kind in (0, 1):
+        for bones, cap in ((3, 21), (30, 21)):
+            add('crawl 188340 setup %d %d' % (kind, bones), B, 0x188340, [f],
+                [(f + 4, b8(0)), (f + 0xD, b8(kind)), (0x275BCC, h16(cap))],
+                queues={0x1C6150: [bones], 0x1AF780: [FREE + 0x100 * k for k in range(40)]})
+    for p4 in (2, 3, 4):
+        add('crawl 188340 s%d' % p4, B, 0x188340, [f], [(f + 4, b8(p4))])
     # 001F28D0, the ring burst: its first tick, an emitting tick, the end, the free
     g = FREE + 0x1000
     bones_base = FREE + 0x2000
@@ -3234,7 +3252,7 @@ DEFAULT_KEEP = frozenset([
     'turret track 10 0 0 -1.2 -0.4 f1',
     'turret track 10 0 0 1.2 -1.2 f0'
 ])
-SURVIVORS = ('survivor ', 'hit 13', 'ring ')
+SURVIVORS = ('survivor ', 'hit 13', 'ring ', 'crawl ')
 
 
 def select_cases(elf):
