@@ -106,14 +106,14 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a04b_04` | AREA04 (the way back) | At the card reader, the creature and bugs at the lift | Past the creature into the lift, down to AREA13 |
 | `boss` | AREA04 (the way back) | In the hall, outside door [45], with the SHOTGUN UNIT fitted and six shells (the room's pickup, taken in the fork recording) | Up the conveyor to the card reader, which wakes the first boss at the lift |
 
-The AREA02 points start beyond what has been proven to match the original
-row by row, so expect rough edges there. The AREA22, AREA01 upper floor and
-AREA06 points (the middle of the route to the first boss) are discovery
-starts: `python3 tools/mid_route_beats.py` reports which beats play
-through (docs/LEVEL8_PORT.md "Start-card runs"). The AREA04 main line
-(`a04_00`..`a04_05`) is proven row by row from New Game by the route smoke
-(docs/FIFTH_LEVEL_ROUTE.md); the `a04b` points are discovery starts
-(docs/EIGHTH_LEVEL_ROUTE.md).
+The route these points sit on is proven row by row from New Game, through the
+first boss fight with the pistol and the lift, up to AREA13's load
+(docs/LEVEL_SMOKE.md). Starting from a point is a different path: a loaded game
+puts creatures, timers and the random numbers where a save does, so a run from
+one plays the same code but can go differently from that route. `python3
+tools/mid_route_beats.py` reports which beats play through from their points
+(docs/LEVEL8_PORT.md "Start-card runs"). AREA13 is not ported yet, so riding the
+lift stops at its load.
 
 ## Status
 
