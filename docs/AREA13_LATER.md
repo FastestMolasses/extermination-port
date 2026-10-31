@@ -104,6 +104,8 @@ play near a beast can reach them.
 - **The menu player in the coat** has no original frame to compare.
 - **Fail-stops**: the four callees above.
 - A tick-logged run and a plain run of a13c_01 once went different ways; the plain
-  run that missed door [17] later hit "exponent-255 word" in a page program after
-  thousands of frames in the east room, seen twice, not traced (EM_VU1P_FAULT_OPERAND,
-  chain page). The game task stops there and mid_route_beats reports a timeout.
+  run that missed door [17] later hit a chain page "VU1 translation fault" with
+  detail 2 after thousands of frames in the east room, seen in several runs, not
+  traced (detail 2 is an exponent-255 operand or an FTOI out of range; they were
+  not told apart). The game task stops there and mid_route_beats reports a timeout.
+  Lane J1's a19b_01 stops on a VU1 fault too; whether they are one cause is not known.
