@@ -136,7 +136,7 @@ WORKER_FIELDS = [
     ('clip_row', ACT_R_FN), ('clip_row_B', ACT_R_FN), ('ledge_3D', ACT_R_FN), ('ledge_3B', ACT_R_FN),
     ('sweep', SWEEP_FN), ('ground', POINT_FN), ('point_test', POINT_FN),
     ('random', R_FN), ('clip_frames', FRAMES_FN), ('to_int', TOINT_FN), ('fade', II_FN),
-    ('fade_end', II_FN), ('camera', I_FN), ('alloc', ALLOC_FN), ('trs', TRS_FN),
+    ('fade_end', II_FN), ('camera', I_FN), ('alloc', ALLOC_FN), ('alloc_done', C.c_void_p), ('trs', TRS_FN),
     ('transform', XFORM_FN), ('vadd', XFORM_FN), ('sine', FLOAT_FN), ('cosine', FLOAT_FN),
     ('wrap', BITS1_FN), ('approach', BITS3_FN),
 ]
@@ -415,6 +415,8 @@ class Native:
         w.set_275B08 = self._keep(SET32_FN(set32_fn))
         w.set_810702 = self._keep(SET8_FN(set8_fn))
         for field, kind in WORKER_FIELDS[7:]:
+            if field == 'alloc_done':   # optional: the live composition's placement
+                continue
             setattr(w, field, self._keep(kind(self._make(field))))
 
     def _keep(self, fn):
@@ -729,6 +731,8 @@ def refusal_checks():
     raw = bytes(range(256)) * 3 + bytes(0x20)
     checks = 0
     for field, _ in WORKER_FIELDS[1:]:
+        if field == 'alloc_done':
+            continue
         for state in ('0E', '13', '14', '18'):
             side = Native(1, **base)
             live = LiveActor(); C.memmove(live.bytes, raw, 0x320); side.live = live
