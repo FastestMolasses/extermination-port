@@ -13,7 +13,28 @@ a beat that passes here ends on its recording's block and position, nothing more
 the recording's rand() word for comparison only, end block and end position).
 No row comparison has been made for AREA19 yet: nothing here is row-exact.
 
-BEAT_TABLE
+| Beat | Status alone from its card |
+|---|---|
+| a19_00, a19_01, a19_02 | ends on the recording's block and position |
+| a19b_01 | stops: ERCPR of zero, frame ~800 (open item) |
+| a19b_02 | no end in 240 s: health 8, infection 100 by frame 300 (the creatures' stream differs; not a stop) |
+| a19c_00 | position right; D_00810ACE (a first bite the recording took a beat later) |
+| a19c_01 | stops: ERCPR of zero, frame ~500 (open item) |
+| a19c_02, a19c_04, a19c_06, a19c_07 | ends on the recording's block and position |
+| a19c_03 | 10.68 off the end position, infection differs |
+| a19c_05 | walks off the y-170 step 1.3 from the recorded path, falls to y 150: the replay's steering, not a stop (no ledge reached) |
+| a19d_00, 02, 05, 06, 08, 09, 10, 16, 17, 18, 19, 20 | ends on the recording's block and position; a19d_20 through door [50] into AREA15 |
+| a19d_01 | no end in 240 s: the ladder at (892, 929.5) is not taken from (887, 930) |
+| a19d_03, a19d_07 | position right; block differs (health, infection and creature counters) |
+| a19d_04 | stops: unbound 00130AB0 |
+| a19d_11 | 41.87 off: the bar hang is not taken |
+| a19d_12, 13, 14 | cards start in mid-air on a bar: the player falls and dies (needs a chain from a19d_11) |
+| a19d_15 | stops: unbound 0021BF90 (it needs 0017C370) |
+
+19 of 34 beats pass alone. The chains stop sooner: a19 passes a19_00 and a19_01 (a19_02's
+infection byte differs), a19b stops at the ERCPR item in a19b_01, a19c at 001F28D0 in
+a19c_01; the a19d chain was not rerun on the final tree. a13_05 ends in AREA19, and a15_00, a15b_00 .. a15b_04 run
+through AREA15's doors into it (all pass).
 
 A card loads a saved progress block, so the creatures' rand() stream is not the
 recording's. Most of the block differences above are that: health and infection
@@ -70,7 +91,7 @@ behaviour defects until a row comparison says so.
 - **ERCPR and ERLENG of zero** (`em_vu1_page_programs.h`): a streak quad whose
   head has w exactly 0 stops the page: "VU1 translation fault ... (2)". It is real:
   the head (1056.25, 160, 920) sits on the camera plane under a fixed camera, and
-  a19b_02 and a19c_01 reach it. The result is not established and is not invented
+  a19b_01 and a19c_01 reach it. The result is not established and is not invented
   here. A measurement on the fork did not start VU1 from a hand-placed program, so
   the question stays open. It needs a measured value.
 - **Not drawn**: 001CB1F0, 001CB130, 001CB060, the tendril field's and the worms'
@@ -79,6 +100,7 @@ behaviour defects until a row comparison says so.
   0x826470, 0x826500, 0x826540; scene 27's ramp (faults at +0x74). Each faults
   when reached.
 - **The player's +4 2 states** 0x0D, 0x0E, 0x15 (00224FE0) have no translation.
+- **Unbound boot owners met**: 00130AB0 (a19d_04), 0021BF90 and its 0017C370 (a19d_15), 001F28D0 (a19c_01 in the a19c chain).
 - **a19d_12 .. a19d_14**: their cards start in mid-air on a bar, so the player falls
   and dies. They need a chain from a19d_11.
 - **a19b_00**, the arrival by the hatch [63], is the AREA13 side's.
