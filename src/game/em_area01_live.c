@@ -272,6 +272,13 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return contains(a,n,D81F970_BASE,D81F970_SIZE) ? s_d81F970+(a-D81F970_BASE) : NULL;
     if(overlaps(a,n,D2668A0_BASE,D2668A0_SIZE))
         return contains(a,n,D2668A0_BASE,D2668A0_SIZE) && d2668A0() ? s_d2668A0+(a-D2668A0_BASE) : NULL;
+    /* D_00275CA0: the car's side AREA03's lift scripts toggle (0x826860, a
+     * boot word the owners 0x825430 / 0x8256E0 read; its ride callback
+     * 0x826270). */
+    if(overlaps(a,n,0x00275CA0u,8)) {
+        static uint32_t d275CA0[2];   /* and D_00275CA4, the ride's second word */
+        return contains(a,n,0x00275CA0u,8) ? (uint8_t *)d275CA0+a-0x00275CA0u : NULL;
+    }
     if(overlaps(a,n,0x00275C00u,4))
         return l->active && contains(a,n,0x00275C00u,4)
             ? (uint8_t *)&l->d275C00+a-0x00275C00u : NULL;
@@ -1300,7 +1307,7 @@ static int worker(void *ctx,EmArea01Call *c)
     case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x001A0B10u: case 0x0019D330u: case 0x001A7280u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
-    case 0x001A5C30u: case 0x0019AD00u: {
+    case 0x001A5C30u: case 0x0019AD00u: case 0x0019AFE0u: case 0x0019B2C0u: {
         /* Native lists need committed actors. The collision adapter then
          * reads vector operands through fresh actor/player byte views. */
         if(em_area01_live_suspend(l)<0)return -1;

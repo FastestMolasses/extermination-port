@@ -102,7 +102,7 @@ static int dispatch_a03(EmArea01Runtime *r, EmArea01Call *c, int *out)
         {0x00823930u, 0x50u, 1}, {0x00825290u, 0x20u, 1}, {0x00826270u, 0u, 0}, {0x00826330u, 0u, 3},
         {0x00826860u, 0u, 0}, {0x00826880u, 0x10u, 1}, {0x008268B0u, 0x10u, 1},
         /* em_area03_arrival's */
-        {0x00824D30u, 0x80u, 3}, {0x00825430u, 0x20u, 1}, {0x008256E0u, 0x20u, 1}, {0x00825980u, 0x20u, 1},
+        {0x00824D30u, 0x80u, 2}, {0x00825430u, 0x20u, 1}, {0x008256E0u, 0x20u, 1}, {0x00825980u, 0x20u, 1},
         {0x00825DF0u, 0x20u, 1}, {0x00826340u, 0x20u, 1}, {0x008265D0u, 0x20u, 1}};
     const uint32_t fn = c->function;
     unsigned k = 0;
@@ -135,7 +135,7 @@ static int dispatch_a03(EmArea01Runtime *r, EmArea01Call *c, int *out)
         a03_hooks(r, &h);
         EmArea03ArrivalFault f = {0, 0};
         switch (fn) {
-        case 0x00824D30u: x = em_area03_arrival_00824D30(&h, a0, a1, a2, &result, &f); break;
+        case 0x00824D30u: x = em_area03_arrival_00824D30(&h, a0, a1, c->sp, &result, &f); break;
         case 0x00825430u: x = em_area03_arrival_00825430(&h, a0, &f); break;
         case 0x008256E0u: x = em_area03_arrival_008256E0(&h, a0, &f); break;
         case 0x00825980u: x = em_area03_arrival_00825980(&h, a0, &f); break;

@@ -58,8 +58,8 @@ typedef struct {
 /* END GENERATED HOOKS */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t self);
 } EmLevel15MotionHooks;
-int em_level15_motion_0013D600(const EmLevel15MotionHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, EmLevel15MotionFault *fault);
-int em_level15_motion_00140C30(const EmLevel15MotionHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, EmLevel15MotionFault *fault);
+int em_level15_motion_0013D600(const EmLevel15MotionHooks *h, uint32_t a0, uint32_t a1, uint32_t sp, EmLevel15MotionFault *fault);
+int em_level15_motion_00140C30(const EmLevel15MotionHooks *h, uint32_t a0, uint32_t a1, uint32_t sp, EmLevel15MotionFault *fault);
 int em_level15_motion_00140F80(const EmLevel15MotionHooks *h, uint32_t a0, uint32_t a1, EmLevel15MotionFault *fault);
 #ifdef __cplusplus
 }

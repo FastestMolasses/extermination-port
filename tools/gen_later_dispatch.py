@@ -29,7 +29,9 @@ OUT = ROOT / 'src/game/em_area01_runtime_later.inc'
 ELF = ROOT.parent / 'Extermination/config/SCUS_971.12'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 # header, hook-table prefix (em_mid_route_bridge.inc), hooks type, fault type
-SOURCES = (('em_level9_port.h', 'm09', 'EmLevel9PortHooks', 'EmLevel9PortFault'),
+SOURCES = (('em_area04_port.h', 'm04', 'EmArea04PortHooks', 'EmArea04PortFault'),
+           ('em_level8_port.h', 'm08', 'EmLevel8PortHooks', 'EmLevel8PortFault'),
+           ('em_level9_port.h', 'm09', 'EmLevel9PortHooks', 'EmLevel9PortFault'),
            ('em_level10_port.h', 'm10', 'EmLevel10PortHooks', 'EmLevel10PortFault'),
            ('em_level11_port.h', 'm11', 'EmLevel11PortHooks', 'EmLevel11PortFault'),
            ('em_level12_port.h', 'm12', 'EmLevel12PortHooks', 'EmLevel12PortFault'),
@@ -40,7 +42,7 @@ SOURCES = (('em_level9_port.h', 'm09', 'EmLevel9PortHooks', 'EmLevel9PortFault')
            ('em_level15_motion.h', 'm15m', 'EmLevel15MotionHooks', 'EmLevel15MotionFault'),
            ('em_level15_perception.h', 'm15p', 'EmLevel15PerceptionHooks', 'EmLevel15PerceptionFault'),
            ('em_level15_support.h', 'm15s', 'EmLevel15SupportHooks', 'EmLevel15SupportFault'))
-PROTO = re.compile(r'^int (em_level\w+?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
+PROTO = re.compile(r'^int (em_(?:level|area04)\w+?_([0-9A-F]{8}))\(([^;]*?)\);', re.M | re.S)
 OVERLAY = 0x823500
 CASTS = {'uint32_t': '(uint32_t)', 'int32_t': '(int32_t)', 'uint64_t': ''}
 
