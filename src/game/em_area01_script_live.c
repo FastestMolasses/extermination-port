@@ -223,6 +223,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
      * (script 0x82E090; em_area01_runtime's dispatch_area19). */
     case 0x00826B30u: case 0x00827540u: case 0x00827B10u: case 0x00827B20u:
         if (s->area!=0x13) return -1;
+        break;
     case 0x00823F60u: /* AREA15's (em_area15_route) */
         if (s->area!=0x0F) return -1;
         break;

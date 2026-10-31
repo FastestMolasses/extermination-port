@@ -485,14 +485,21 @@ def script_events(data, position, limit=0x1000):
       B0 07 a2 a3 prog note  001181B0 volume slide set-up (the SFX track's
                          +0x34 == 1 arm: length a2, target a3), cursor +6
       B0 0A a2 a3 prog note  00118418 pan slide set-up (the same arm), cursor +6
-      B0 60 lo hi 0      00118790 the track's loop to a script offset
+      B0 60 lo hi 0      00118790 the track's loop to a script offset: the
+                         tail restarts it there on the next tick with +0x20 =
+                         -SEQ_TICK, whatever the accumulator was (AREA19's
+                         0x415..0x417, 0x44F jump with one left over). The
+                         target must be on the tick grid: then only the first
+                         wait after it is short, by one tick.
       FF 2F 00           00117C28 end of track (no delta)
     Anything else (other controllers, 0x80/0x90/0xC0/0xE0, tempo) is refused.
     """
     events, running, acc, tick = [], None, 0, 0
     start, end = position, min(position + limit, len(data))
+    first = {}   # event offset -> the accumulator there
     while position < end:
         at = position
+        first.setdefault(at, acc)
         if data[position] & 0x80:
             running = data[position]
             position += 1
@@ -514,11 +521,11 @@ def script_events(data, position, limit=0x1000):
             _, low, high, count = data[position:position + 4]
             if count:
                 raise Unsupported('script', 'a counted B0 60 loop')
-            if acc:
-                raise Unsupported('script', 'a B0 60 loop off the tick grid')
             target = start + (high << 8 | low)
             if not any(e['at'] == target for e in events):
                 raise Unsupported('script', 'a B0 60 target that is no event')
+            if first[target]:
+                raise Unsupported('script', 'a B0 60 target off the tick grid')
             events.append(dict(kind='jump', tick=tick, at=at, target=target))
             return events
         elif running & 0xF0 == 0xB0 and data[position] == 0x41:
