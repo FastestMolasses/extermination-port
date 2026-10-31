@@ -1,11 +1,11 @@
 #include "game/em_area01_audio_services.h"
+#include "game/em_sfx.h"
 #include "game/em_player_misc_workers.h"
 #include "game/em_script_host_workers.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_coll_probe_original.h"
 #include "game/em_effect_original.h"
 #include "game/em_ee_float.h"
-#include "game/em_sfx.h"
 #include "game/em_sfx_bank.h"
 
 #include <string.h>
@@ -140,11 +140,31 @@ static int loop_call(const EmArea01RuntimeHost *h,EmSdkMathContext *sdk,const ui
                                       loop_gain,loop_store,&loop);
 }
 
+/* 001FBE80(actor, voice, range, falloff): func_001FBE80.c (byte-matched): the
+ * voice's gain by distance, its stop when out of range; v0 the voice, or -1. */
+static int voice_update(const EmArea01RuntimeHost *h,EmSdkMathContext *sdk,const uint8_t *mode,EmArea01Call *c)
+{
+    if(!h || !h->bytes || c->na!=2 || c->nf!=2 || !mode || !sdk || !sdk->tables || sdk->fault)return -1;
+    const int32_t voice=(int32_t)(uint32_t)c->a[1];
+    c->v0=(uint64_t)(int64_t)-1;
+    if(voice==-1 || em_sfx_voice_status(voice)!=2)return 0;
+    EmArea01Call g={.function=0x1FBF50,.sp=c->sp,.na=4,.nf=2};
+    g.a[0]=c->a[0];g.a[3]=1;g.f[0]=c->f[0];g.f[1]=c->f[1];
+    uint32_t pos=(uint32_t)g.a[0]+0xB0u;
+    if((pos&15) || overlap(pos,16,0x70003400,64) || overlap(pos,16,0x70003600,32))return -1;
+    int32_t left=0,right=0,result=0;
+    if(positional(h,sdk,mode,&g,&left,&right,&result)<0)return -1;
+    if(result){em_sfx_voice_request(voice,left,right);c->v0=(uint64_t)(int64_t)voice;}
+    else em_sfx_voice_stop(voice);
+    return 0;
+}
+
 int em_area01_audio_services_call(const EmArea01RuntimeHost *h,EmSdkMathContext *sdk,
                                  const uint8_t *mode,EmArea01Call *c)
 {
     if (!c) return -1;
     if(c->function==0x1FC3C0 || c->function==0x1FC520)return loop_call(h,sdk,mode,c);
+    if(c->function==0x1FBE80)return voice_update(h,sdk,mode,c);
     if (c->function!=0x1FBF50 && c->function!=0x1FBD50 && c->function!=0x1B1380) return 1;
     if (!h || !h->bytes || !sdk || !sdk->tables || sdk->fault) return -1;
     Audio a={0};a.host=h;a.sdk=sdk;a.sp=c->sp;

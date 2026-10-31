@@ -591,6 +591,14 @@ static void loop_stop(void *context, int track)
     em_sfx_driver_stop(&s.driver, track, 0, queue_push, NULL);
 }
 
+/* 001FBE80's three steps for an owner keeping its own voice. */
+int em_sfx_voice_status(int track) { return em_sfx_driver_status(&s.driver, track); }
+void em_sfx_voice_request(int track, int32_t left, int32_t right)
+{
+    em_sfx_driver_request(&s.driver, track, left, right);
+}
+void em_sfx_voice_stop(int track) { em_sfx_driver_stop(&s.driver, track, 0, queue_push, NULL); }
+
 static int loop_start(void *context, unsigned id, int32_t left, int32_t right)
 {
     (void)context;
