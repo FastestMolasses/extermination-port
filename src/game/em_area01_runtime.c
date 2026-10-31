@@ -129,6 +129,7 @@ static int spawn02(EmArea01Runtime *r, uint32_t sp, uint32_t fn, uint32_t a0, ui
 #include "game/em_level16_creature.h"
 #include "game/em_level16_beast.h"
 #include "game/em_level16_boot.h"
+#include "game/em_owner_services_original.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_aim_fire_binding.h"
@@ -657,8 +658,9 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     /* 001CB1F0 / 001CB130 / 001CB060: the draw methods of AREA19's tendril
      * field and worms (0x26E310 kinds 10, 9, 8). Their VU1 programs (0x0023D4D0
      * and 001D3F60's) have no translation yet: not drawn (an open item of
-     * docs/LEVEL3_BINDING.md, lane J1). */
-    if (r->area == 0x13 && (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
+     * docs/LEVEL3_BINDING.md, lane J1). AREA03's and AREA04 sub 1's tendrils
+     * 001546C0 the same (docs/AREA03X_PORT.md). */
+    if ((r->area == 0x13 || r->area == 3 || r->area == 4) && (c->function == 0x001CB1F0u || c->function == 0x001CB130u || c->function == 0x001CB060u)) {
         static int noted;
         if (!noted++) fprintf(stderr, "em_area01: %08X: its VU1 program is not translated, the node is not drawn\n",
                               (unsigned)c->function);

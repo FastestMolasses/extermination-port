@@ -160,6 +160,8 @@ int em_pose_host_001C87C0(EmPoseHost *h, const uint8_t *bones, uint32_t bones_si
 int em_pose_host_001C8D50(EmPoseHost *h, const uint8_t *bones, uint32_t bones_size, int nodes,
                           float new_t, float prev_t);
 int em_pose_host_001C8480(EmPoseHost *h, uint32_t bank, int clip);
+int em_pose_host_001C81C0(EmPoseHost *h, uint32_t bank, int clip, int32_t time,
+                          uint8_t *(*out)(void *ctx, uint32_t address, uint32_t size), void *ctx, uint32_t dst);
 int em_pose_host_001C61D0(EmPoseHost *h, uint32_t bank, int clip, int32_t *frames);
 int em_pose_host_001C6120(EmPoseHost *h, uint32_t bank, int clip, uint32_t *header);
 int em_pose_host_001C6DA0(EmPoseHost *h, uint8_t *record, uint32_t size);   /* anim_eval_skeleton */

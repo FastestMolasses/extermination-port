@@ -15,6 +15,18 @@ static int dispatch_n1(EmArea01Runtime *r, EmArea01Call *c, int *out)
         c->v0 = (uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));
         *out = 0;
         return 1;
+    case 0x001C94B0u: { /* build_trs_matrix (em_owner_services_original) */
+        if (c->na < 4) { *out = fail(r, c->function); return 1; }
+        uint8_t *m = bytes(r, (uint32_t)c->a[0], 64, 1);
+        const uint8_t *p = bytes(r, (uint32_t)c->a[1], 16, 0), *q = bytes(r, (uint32_t)c->a[2], 16, 0),
+                      *t = bytes(r, (uint32_t)c->a[3], 16, 0);
+        if (!m || !p || !q || !t) { *out = fail(r, c->function); return 1; }
+        float world[16], pos[4], rot[4], scale[4];
+        memcpy(pos, p, 16); memcpy(rot, q, 16); memcpy(scale, t, 16);
+        *out = em_owner_services_build_trs_matrix(world, pos, rot, scale) < 0 ? fail(r, c->function) : 0;
+        if (*out == 0) memcpy(m, world, 64);
+        return 1;
+    }
     default:
         return 0;
     }

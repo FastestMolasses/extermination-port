@@ -534,6 +534,37 @@ int em_pose_host_001C8D50(EmPoseHost *h, const uint8_t *bones, uint32_t bones_si
     return 0;
 }
 
+/* 001C81C0(bank, clip, time, out): the clip's pose at an integer time as one
+ * matrix per bone (0x40 bytes each): the three key walks through the scratch
+ * channel D_008111F0, 001CA0A0 of its two rotations into 0x70003600, then
+ * 001CA1C0 over the channel's translation. `out` hands the storage of each
+ * matrix. The bone count is the resolved header's halfword. */
+int em_pose_host_001C81C0(EmPoseHost *h, uint32_t bank, int clip, int32_t time,
+                          uint8_t *(*out)(void *ctx, uint32_t address, uint32_t size), void *ctx, uint32_t dst)
+{
+    FAULT(host_ready(h));
+    if (!out) return -1;
+    FAULT(em_pose_host_001C8480(h, bank, clip));
+    EmPoseGlobals *g = h->globals;
+    uint8_t *s = g->d8111F0;
+    uint16_t n;
+    FAULT(load16(h, g->d275BF8, &n));
+    for (int i = 0; i < (int)n; ++i) {
+        FAULT(sample_rotation(h, s, i, time));
+        FAULT(sample_translation(h, s, i, time));
+        FAULT(sample_scale(h, s, i, time));
+        uint32_t a[4], b[4], t[3], m[16];
+        for (int k = 0; k < 4; ++k) { a[k] = rd32(s + 0x30 + 4 * k); b[k] = rd32(s + 0x40 + 4 * k); }
+        em_pose_host_001CA0A0(g->spad3600, a, b, rd32(s + 0x50));
+        for (int k = 0; k < 3; ++k) t[k] = rd32(s + 4 * k);
+        em_pose_host_001CA1C0(m, g->spad3600, t, g->spad3760);
+        uint8_t *to = out(ctx, dst + 0x40u * (uint32_t)i, 0x40);
+        if (!to) return -1;
+        memcpy(to, m, sizeof m);
+    }
+    return 0;
+}
+
 /* ---- anim_clip_init / bone_init_default_2 / request / arbiter --------------------------- */
 
 static int record_ready(const uint8_t *record, uint32_t size)

@@ -69,6 +69,8 @@ typedef struct {
     /* 0x70003900..0x70003A23: scratch vectors of the later owners (AREA03's
      * 0x823930 at 0x70003910), held for one owner's call. */
     uint32_t scratch_3900[73];
+    /* 0x00286340..0x00289B3F: 00148B40's four pose buffers (0xE00 bytes each). */
+    uint8_t pose_buffers[0x3800];
     /* 001CD2B0 writes its integer screen-distance result before the flame
      * caller reads it. This word has no earlier live storage owner. */
     uint32_t d275C00;

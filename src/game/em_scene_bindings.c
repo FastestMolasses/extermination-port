@@ -1109,8 +1109,11 @@ static void log_area02(FILE *f)
 void em_scene_creature_trace(FILE *f, int t, const float pos[3])
 {
     if (!s_area01_live.bound || !f || !pos) return;
-    fprintf(f, "{\"t\": %d, \"pos\": [%.5f, %.5f, %.5f], \"rand\": %u, \"n\": [", t, pos[0], pos[1], pos[2],
-            em_random_peek());
+    float vit[2];
+    memcpy(&vit[0], &s_state.d810858, 4);
+    memcpy(&vit[1], &s_state.d81085C, 4);
+    fprintf(f, "{\"t\": %d, \"pos\": [%.5f, %.5f, %.5f], \"hp\": %.2f, \"inf\": %.2f, \"a\": 0, \"rand\": %u, \"n\": [",
+            t, pos[0], pos[1], pos[2], vit[0], vit[1], em_random_peek());
     int n = 0;
     for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
         const EmActor *a = &s_pool.records[i];
@@ -1136,7 +1139,8 @@ int em_scene_restore_bugs(const uint8_t *ram)
     /* A taken item never allocates its record in a loaded game, so the
      * pool addresses can differ: each record pairs with the image's next
      * record of its behaviour (the pool order is the placement order). */
-    static const uint32_t kinds[] = {0x0012A5D0u, 0x0015AFA0u, 0x001581A0u, 0x00824320u};
+    /* the two creatures of the sixteenth level as the bugs */
+    static const uint32_t kinds[] = {0x0012A5D0u, 0x0015AFA0u, 0x001581A0u, 0x00824320u, 0x0013D2D0u, 0x00147390u};
     for (unsigned k = 0; k < sizeof kinds / sizeof kinds[0]; ++k) {
         uint32_t from = EM_ACTOR_POOL_BASE;
         for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
@@ -1168,15 +1172,16 @@ int em_scene_restore_bugs(const uint8_t *ram)
             static const uint16_t bug[][2] = {{0x00, 0x0C}, {0x20, 0x20}, {0x48, 0x10}, {0x5C, 0x34}, {0xB0, 0x60},
                                               {0x14C, 0x44}, {0x1F0, 0x100}};
             static const uint16_t item[][2] = {{0x2D0, 0x10}};
-            const uint16_t (*spans)[2] = k == 0 ? bug : item;
-            const unsigned n = k == 0 ? sizeof bug / sizeof bug[0] : 1;
+            const int creature = k == 0 || k >= 4;
+            const uint16_t (*spans)[2] = creature ? bug : item;
+            const unsigned n = creature ? sizeof bug / sizeof bug[0] : 1;
             for (unsigned j = 0; j < n; ++j) {
                 uint8_t *to = em_area01_actor_view_bytes(v, at + spans[j][0], spans[j][1], 1);
                 if (!to) return -1;
                 memcpy(to, ram + src + spans[j][0], spans[j][1]);
             }
             if (em_area01_actor_view_commit(v) < 0) return -1;
-            if (k == 0) ++count;
+            if (creature) ++count;
         }
     }
     return count;
@@ -4094,7 +4099,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
      * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
-    if ((s_state.d810700 == 1 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
+    if ((s_state.d810700 == 1 || s_state.d810700 == 4 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 8 ||
          s_state.d810700 == 7 || s_state.d810700 == 0x13) && fn == 0x001F5040u) {
         if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;

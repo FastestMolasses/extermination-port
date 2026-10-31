@@ -69,6 +69,8 @@ int em_area01_model_bind(EmArea01Model *m, EmArea01ActorView *actors,
  * original argument slots. *result receives integer return bits (void:0).
  * Ends an active owner segment, runs the worker, and begins a new one.
  * Failure latches and preserves writes made before the original fault. */
+int em_area01_model_clip_pose(EmArea01Model *m, uint32_t bank, int clip, int32_t time,
+                              uint8_t *(*out)(void *ctx, uint32_t address, uint32_t size), void *ctx, uint32_t dst);
 int em_area01_model_call(EmArea01Model *m, uint32_t function, uint32_t node,
                           uint32_t a1, uint32_t a2, uint32_t a3,
                           float f12, float f13, uint32_t *result);

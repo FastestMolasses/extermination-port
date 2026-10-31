@@ -558,6 +558,19 @@ static int call_fault(EmArea01Model *m,uint32_t address,int resumed)
     return -1;
 }
 
+/* 001C81C0 for 00148B40: its bank is not a record's. */
+int em_area01_model_clip_pose(EmArea01Model *m, uint32_t bank, int clip, int32_t time,
+                              uint8_t *(*out)(void *ctx, uint32_t address, uint32_t size), void *ctx, uint32_t dst)
+{
+    if (!m || pose_bind(m,0)<0 || !m->source.resource_rest) return -1;
+    uint32_t size=0;
+    const uint8_t *bytes=m->source.resource_rest(m->source.ctx,bank,&size);
+    if (!bytes || !size) return -1;
+    EmPoseHost *h=&m->pose;
+    h->region[h->region_count++]=(EmPoseRegion){bank,size,(uint8_t *)(void *)bytes,0};
+    return em_pose_host_001C81C0(h,bank,clip,time,out,ctx,dst);
+}
+
 int em_area01_model_call(EmArea01Model *m,uint32_t fn,uint32_t node,uint32_t a1,uint32_t a2,
                           uint32_t a3,float f12,float f13,uint32_t *result)
 {

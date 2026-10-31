@@ -11,6 +11,7 @@ tools/ee_float_model.py). No shared file is edited.
 Original code executed (from the captured RAM, checked against the ELF):
   0019A570 segment query      001A0B10 / 0019D330 its walkers
   0019A910 camera query       001A1390 / 0019D770 its walkers
+  0019A440 plain query        001A1B80 / 0019DB50 its walkers
   001A50A0 box face  001A5C30 round prim  001A4030 n-gon  0019F1A0 ranks
   0019ED80 grid node test  00102738 / 001028B8 / 001028D0 / 001028E8 /
   00103230 SDK vectors  0011E748 / 0011CB90 / 0011E080 sqrtf  0011DF78 fabsf
@@ -32,6 +33,9 @@ value, and asserts that the original wrote no other scratchpad or RAM byte.
 The EMCL (with the grid node class and the rank section) comes from the
 decomp exporter, run into build/coll_segment_walkers_reference/ with
 --verify-ram against the captured RAM.
+
+Every word of 0019A440, 001A1B80 and 0019DB50 that control flow can reach
+(computed from the ELF: reachable_words) must execute in the default run.
 
 Default run: a covering sample (about 10 s). EM_TEST_FULL=1: every route
 row of every beat and the full random sweeps. EM_TEST_UBSAN=1 builds the
@@ -60,13 +64,17 @@ import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 OUT = ROOT / 'build/coll_segment_walkers_reference'
 ROUTE, BEATS = cp.ROUTE, cp.BEATS
 
-SEG, CAM = 0x19A570, 0x19A910
+SEG, CAM, PLAIN = 0x19A570, 0x19A910, 0x19A440
 CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM = 0x1A0B10, 0x1A1390, 0x19D330, 0x19D770
+CELLS_PLAIN, GRID_PLAIN = 0x1A1B80, 0x19DB50
+SPAN_CHOSEN = 0x19DD58        # 0019DB50: the six-span choice is over, its result not yet used
+PLAIN_CODE = ((PLAIN, 0x124), (CELLS_PLAIN, 0x7F0), (GRID_PLAIN, 0x3C0))
+PLAIN_WORDS = frozenset(a for start, size in PLAIN_CODE for a in range(start, start + size, 4))
 FACE, ROUND, LOCK_SEG, LOCK_CAM = 0x1A50A0, 0x1A5C30, 0x1A6440, 0x1A6AD0
 HEAD = 0x19B6C0
 JUMP_TABLE = 0x26DA80        # 001A50A0's face-code table (7 words)
 MODE_WORD = 0x26C5D0         # D_0026C5D0, the SDK math error mode 0011E748 reads
-CODE = cp.CODE + [(SEG, 0x178), (CAM, 0x16C), (CELLS_SEG, 0x878), (CELLS_CAM, 0x7F0), (GRID_SEG, 0x440),
+CODE = cp.CODE + list(PLAIN_CODE) + [(SEG, 0x178), (CAM, 0x16C), (CELLS_SEG, 0x878), (CELLS_CAM, 0x7F0), (GRID_SEG, 0x440),
                   (GRID_CAM, 0x3D8), (FACE, 0x600), (ROUND, 0x808), (0x1028E8, 0x14), (0x11E748, 0x114),
                   (0x11CB90, 0x138), (0x11E080, 0x24), (0x11DF78, 0x1C), (0x128350, 0x40), (0x1278C0, 0x90),
                   (0x127728, 0x2C), (0x126AB8, 0x12C), (0x1000C0, 0x20), (0x100110, 0x20), (0x1274B0, 0x4C),
@@ -78,9 +86,48 @@ FACE_WORDS = ([0x70003600 + 4 * k for k in range(3)] + [0x70003610 + 4 * k for k
               + [0x70003684, 0x70003688] + [0x700030CC, 0x700030D0])     # the last two: the locks' words
 STATE_SPAN = cp.STATE_SPAN + [(0x70003600, 0x7000360C), (0x70003610, 0x7000361C), (0x70003620, 0x7000362C),
                               (0x70003630, 0x7000363C), (0x70003684, 0x7000368C), (0x700030CC, 0x700030D4)]
-WHICH = {SEG: 0, CAM: 1, CELLS_SEG: 2, CELLS_CAM: 3, GRID_SEG: 4, GRID_CAM: 5, FACE: 6, ROUND: 7}
+WHICH = {SEG: 0, CAM: 1, CELLS_SEG: 2, CELLS_CAM: 3, GRID_SEG: 4, GRID_CAM: 5, FACE: 6, ROUND: 7,
+         PLAIN: 9, CELLS_PLAIN: 10, GRID_PLAIN: 11}
 
 u32, s16, u16, f32 = cp.u32, cp.s16, cp.u16, cp.f32
+
+
+def reachable_words(elf):
+    """The words of PLAIN_CODE that control flow reaches from each entry (the
+    routines have no jump tables). The rest are the words the compiler's
+    delay-slot fill left behind an unconditional branch."""
+    phoff = u32(elf, 28)
+    _, offset, vaddr = struct.unpack_from('<3I', elf, phoff)
+    out = set()
+    for start, size in PLAIN_CODE:
+        heads, todo = set(), [start]
+        while todo:
+            pc = todo.pop()
+            if pc in heads or not start <= pc < start + size:
+                continue
+            heads.add(pc)
+            out.add(pc)
+            w = u32(elf, pc - vaddr + offset)
+            op, rs, rt, funct = w >> 26, w >> 21 & 31, w >> 16 & 31, w & 63
+            target = pc + 4 + ((w & 0xFFFF) - ((w & 0x8000) << 1)) * 4
+            if op == 2:
+                out.add(pc + 4)
+                todo.append((pc & 0xF0000000) | (w & 0x3FFFFFF) << 2)
+            elif op == 3 or (op == 0 and funct == 9):
+                out.add(pc + 4)
+                todo.append(pc + 8)
+            elif op == 0 and funct == 8:
+                assert rs == 31, ('a jump through a register', hex(pc))
+                out.add(pc + 4)
+            elif op == 4 and rs == 0 and rt == 0:
+                out.add(pc + 4)
+                todo.append(target)
+            elif op == 1 or 4 <= op <= 7 or 20 <= op <= 23 or (op == 0x11 and rs == 8):
+                out.add(pc + 4)
+                todo += [target, pc + 8]
+            else:
+                todo.append(pc + 4)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +361,8 @@ static void from_native(Bridge *b, const EmCollProbeState *s, const EmCollSegmen
 
 /* which: 0 0019A570, 1 0019A910, 2 001A0B10, 3 001A1390, 4 0019D330,
  * 5 0019D770, 6 001A50A0, 7 001A5C30, 8 0019B6C0 with this module's
- * 001A50A0 / 001A5C30 bound as its workers. */
+ * 001A50A0 / 001A5C30 bound as its workers, 9 0019A440, 10 001A1B80,
+ * 11 0019DB50. */
 int bridge_run(Bridge *b, int which, BState *st, const float *a, const float *c, uint32_t mask, int32_t id,
                const uint8_t *prim)
 {
@@ -336,9 +384,12 @@ int bridge_run(Bridge *b, int which, BState *st, const float *a, const float *c,
     case 6: r = em_coll_segment_001A50A0(prim, &s, &x); break;
     case 7: r = em_coll_segment_001A5C30(b->seg.math, prim, &s); break;
     case 8: r = em_coll_probe_0019B6C0(&b->world, &b->probe_workers, &s, a, c); break;
+    case 9: r = em_coll_segment_0019A440(&b->seg, a, c, mask); break;
+    case 10: r = em_coll_segment_001A1B80(&b->world, b->seg.math, &s, &x); break;
+    case 11: r = em_coll_segment_0019DB50(&b->grid, &s); break;
     default: return -9;
     }
-    if (r < 0 && (which <= 1 || which == 8) &&
+    if (r < 0 && (which <= 1 || which == 8 || which == 9) &&
         (memcmp(&before, &s, sizeof s) || memcmp(&xbefore, &x, sizeof x))) return -8;
     from_native(b, &s, &x, st);
     return r;
@@ -524,8 +575,14 @@ class LockEE(cp.ProbeEE):
     def __init__(self, elf, ram=None, spad=None):
         super().__init__(elf, ram, spad)
         self.q, self.vacc = 0, [0, 0, 0, 0]
+        self.seen = set()     # the fetched words of the plain query's three routines
 
     macro = MV.FloatEE.macro
+
+    def load(self, address, size=4):
+        if address in PLAIN_WORDS:      # only instruction fetches read these
+            self.seen.add(address)
+        return super().load(address, size)
 
 
 class Pair:
@@ -592,6 +649,9 @@ class Pair:
 
     def camera(self, case, where, a, c, mask):
         return self.both(where, case, CAM, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
+
+    def plain(self, case, where, a, c, mask):
+        return self.both(where, case, PLAIN, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
 
     def head(self, case, where, top, bottom):
         """0019B6C0 unhooked (the original 001A50A0 / 001A5C30 run) against
@@ -685,8 +745,8 @@ def run_rows(item):
     elf, native, emcl = G['elf'], G['native'], G['emcl']
     world = World(beat, elf)
     pair = Pair(elf, native, emcl, world)
-    out = {'seg': [0, 0, 0, 0], 'cam': [0, 0, 0, 0], 'entities': set(), 'locks': 0, 'lock_hits': 0, 'views': 0,
-           'stale_hits': 0}
+    out = {'seg': [0, 0, 0, 0], 'cam': [0, 0, 0, 0], 'plain': [0, 0, 0, 0], 'entities': set(), 'locks': 0,
+           'lock_hits': 0, 'views': 0, 'stale_hits': 0}
     base = Case(world)
     slot = {0: 0, 1: 1, 2: 2, 4: 3}
     for n, (counter, p5, v) in enumerate(rows):
@@ -712,6 +772,17 @@ def run_rows(item):
         out['seg'][slot[r]] += 1
         if s['entity']:
             out['entities'].add(s['entity'])
+        # 0019A440: its callers' mask 6, then mask 7 (bit 0 is ignored).
+        r, s = pair.plain(base, w + ' plain sight', v['cam_tgt'], v['cam_eye'], 6)
+        out['plain'][slot[r]] += 1
+        out['views'] += pair.hit_view(w + ' plain view', s)
+        if s['entity']:
+            out['entities'].add(s['entity'])
+        r, _ = pair.plain(base, w + ' plain down', dy(v['pos'], 3.0), dy(v['pos'], -3.0), 6)
+        out['plain'][slot[r]] += 1
+        r, _ = pair.plain(base, w + ' plain mask 7', v['tgt'], v['pos'], 7)
+        out['plain'][slot[r]] += 1
+        assert not pair.calls, ('0019A440 ran a hull lock', w, pair.calls)
     polys = [q for a in GH.class2_entries(pair.ram) for q in GH.chain_polys(pair.ram, a)]
     if polys:
         rng = random.Random(len(rows) * 7 + len(polys))
@@ -725,6 +796,9 @@ def run_rows(item):
             out['cam'][slot[r]] += 1
             out['locks'] += len(pair.calls)
             out['lock_hits'] += sum(1 for _, v0 in pair.calls if v0)
+            r, _ = pair.plain(base, f'class-2 chain #{k}', a, c, 7)
+            out['plain'][slot[r]] += 1
+            assert not pair.calls, ('0019A440 ran a hull lock', k, pair.calls)
             # Stale words the lock replaces: a nonzero 0x700030CC / 0x700030D0
             # and a grid-node record in 0x700031D0. Mask 1 runs the lock
             # alone and mask 3 adds the cells pass, so an accepted record
@@ -742,6 +816,9 @@ def run_rows(item):
                 out['cam'][slot[r]] += 1
                 out['locks'] += len(pair.calls)
                 out['stale_hits'] += sum(1 for _, v0 in pair.calls if v0)
+                r, _ = pair.plain(stale, f'class-2 chain #{k} stale mask {m}', a, c, m)
+                out['plain'][slot[r]] += 1
+    out['seen'] = pair.ee.seen
     return out
 
 
@@ -786,7 +863,7 @@ def ee_state_from_spad(world):
 
 
 def run_units(item):
-    """001A50A0 and 001A5C30 on their own, and the four walkers on staged
+    """001A50A0 and 001A5C30 on their own, and the six walkers on staged
     segments."""
     beat, count, seed = item
     elf, native, emcl = G['elf'], G['native'], G['emcl']
@@ -888,10 +965,10 @@ def run_units(item):
         word = u32(ram, table + 4 + 4 * uid) if uid < world.count else 0
         if word:
             owner_hulls.append(table + word)
-    walkers = (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM)
-    for k in range(count):
-        entry = walkers[k % 4]
-        if owner_hulls and entry in (CELLS_SEG, CELLS_CAM) and k % 8 < 6:
+    walkers = (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM, CELLS_PLAIN, GRID_PLAIN)
+    for k in range(count + count // 2):
+        entry = walkers[k % 6]
+        if owner_hulls and entry in (CELLS_SEG, CELLS_CAM, CELLS_PLAIN) and k % 8 < 6:
             hull = rng.choice(owner_hulls)
             lo, hi = struct.unpack_from('<3f', ram, hull), struct.unpack_from('<3f', ram, hull + 0xC)
             pt = [rng.uniform(lo[j], hi[j]) for j in range(3)]
@@ -909,6 +986,7 @@ def run_units(item):
         r, _ = pair.both(f'walker {entry:#x}', case, entry, ())
         key = (hex(entry), r)
         out['walkers'][key] = out['walkers'].get(key, 0) + 1
+    out['seen'] = pair.ee.seen
     return out
 
 
@@ -943,8 +1021,8 @@ def run_synthetic(item):
                       min(v[2] for v in verts), max(v[2] for v in verts)))
     kinds_pool = (0x00, 0x04, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x59, 0x5A, 0x5B, 0x77)
     attr_pool = (0x05, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x59, 0x5A, 0x77)
-    out = {'static': 0, 'static_hit': 0, 'prims': 0, 'seg': [0, 0, 0, 0], 'cam': [0, 0, 0, 0], 'walkers': {},
-           'head': [0, 0, 0], 'self_skip': 0, 'face_calls': 0, 'round_calls': 0}
+    out = {'static': 0, 'static_hit': 0, 'prims': 0, 'seg': [0, 0, 0, 0], 'cam': [0, 0, 0, 0], 'plain': [0, 0, 0, 0],
+           'walkers': {}, 'head': [0, 0, 0], 'self_skip': 0, 'face_calls': 0, 'round_calls': 0}
     slot = {0: 0, 1: 1, 2: 2, 4: 3}
     for k in range(count):
         saved = []
@@ -1027,9 +1105,9 @@ def run_synthetic(item):
             out['self_skip'] += 1
         case = Case(world, rng, words)
         a32, e32 = tuple(f32(x) for x in a), tuple(f32(x) for x in e)
-        for entry in (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM):
+        for entry in (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM, CELLS_PLAIN, GRID_PLAIN):
             r, st = pair.both(f'synthetic {k} {entry:#x}', case, entry, ())
-            if r and entry in (CELLS_SEG, CELLS_CAM) and st['entity'] == 0:
+            if r and entry in (CELLS_SEG, CELLS_CAM, CELLS_PLAIN) and st['entity'] == 0:
                 out['static_hit'] += 1
             key = (hex(entry), r)
             out['walkers'][key] = out['walkers'].get(key, 0) + 1
@@ -1037,6 +1115,8 @@ def run_synthetic(item):
         out['seg'][slot[r]] += 1
         r, _ = pair.camera(case, f'synthetic {k} camera', a32, e32, rng.choice((6, 6, 2, 4)))
         out['cam'][slot[r]] += 1
+        r, _ = pair.plain(case, f'synthetic {k} plain', a32, e32, rng.choice((6, 6, 2, 4, 7)))
+        out['plain'][slot[r]] += 1
         # The probe module's 0019B6C0 with this module bound as its pass-2
         # workers: owners of kind 0x5A+ reach 001A50A0 / 001A5C30.
         for o in owners:
@@ -1055,14 +1135,91 @@ def run_synthetic(item):
         for address, data in reversed(saved):
             mem[address:address + len(data)] = data
     pair.rebind()
+    out['seen'] = pair.ee.seen
+    return out
+
+
+def ngon_prim(centre, half, down, wide=False):
+    """A 0x1000 prim: the square of side 2 * half around `centre` in the plane
+    y = centre.y, facing a segment that falls (`down`) or rises."""
+    x, y, z = centre
+    up = 1.0 if down else -1.0
+    corners = ((x + half, y, z + half), (x - half, y, z + half), (x - half, y, z - half), (x + half, y, z - half))
+    edges = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))
+    body = struct.pack('<HBB4f', 0x1000 | (0x800 if wide else 0), 4, 0, 0.0, up, 0.0, up * y)
+    body += b''.join(struct.pack('<3f', *v) for v in corners + edges)
+    return body + bytes((0x24 + 0x30 * 4 if wide else 0x14 + 0x18 * 4) - len(body))
+
+
+def run_plain_words(item):
+    """001A1B80's prim dispatch and box updates, word by word: every prim form
+    (0x8000, 0x4000 and 0x1000 narrow and wide, 0x2000) as a miss and then as
+    the hit, in pass 1 and pass 2, on the eight diagonal directions. One hull
+    far from the level, the other owners off."""
+    beat = item
+    elf, native = G['elf'], G['native']
+    world = World(beat, elf)
+    pair = Pair(elf, native, G['emcl'], world)
+    mem, table = pair.ram, world.table
+    owners = world.owners()
+    crate = next(a for a in owners if (u16(mem, a + 0xE) >> 8) in (7, 8, 9, 10))
+    word = u32(mem, table + 4 + 4 * (u16(mem, crate + 0xE) >> 8))
+    hull = table + word
+    for a in owners:
+        if a != crate:
+            mem[a] = 0
+    c = (1000.0, 5.0, 1000.0)
+    away = (1030.0, 5.0, 1030.0)
+    mem[hull:hull + 0x18] = struct.pack('<6f', 900.0, -100.0, 900.0, 1100.0, 100.0, 1100.0)
+    misses = (filler_prim(False), filler_prim(True), round_prim(away, 3.0, 3.0), round_prim(away, 3.0, 3.0, True),
+              box_prim(2, (1030.0, -1.0, 1024.0), (12.0, 12.0, 12.0)))
+    out = {'hits': 0, 'cases': 0}
+    for static in (True, False):
+        mem[crate + 0x54] = 0x5A if static else 4
+        mem[world.kind_view + 8] = 0x10
+        struct.pack_into('<I', mem, table + 4, (0x80000000 | word) if static else 0)
+        for sign in range(8):
+            d = [8.0 if sign >> k & 1 else -8.0 for k in range(3)]
+            a, e = tuple(c[k] + d[k] for k in range(3)), tuple(c[k] - d[k] for k in range(3))
+            down, rising_x = d[1] > 0, d[0] > 0
+            face = 2 if not rising_x else 1      # the side the segment crosses from
+            hits = (round_prim(c, 3.0, 3.0), round_prim(c, 3.0, 3.0, True),
+                    box_prim(face, (1000.0, -1.0, 994.0), (12.0, 12.0, 12.0)),
+                    ngon_prim(c, 6.0, down), ngon_prim(c, 6.0, down, True))
+            for hit in hits:
+                prims = b''.join(misses) + ngon_prim(away, 3.0, down) + ngon_prim(away, 3.0, down, True) + hit
+                assert hull + 0x1C + len(prims) <= table + world.size, 'the prims leave the directory image'
+                struct.pack_into('<h', mem, hull + 0x18, len(misses) + 3)
+                mem[hull + 0x1C:hull + 0x1C + len(prims)] = prims
+                pair.rebind()
+                r, st = pair.both(f'words static {static} sign {sign} prim {hits.index(hit)}',
+                                  Case(world, None, seg_words(a, e)), CELLS_PLAIN, ())
+                assert r == 1 and st['entity'] == (0 if static else crate), ('the last prim must hit', r, st['entity'])
+                out['hits'] += r
+                out['cases'] += 1
+    # Pass 2's class gate, then pass 1 ending by the count with every word
+    # static (the last prim list stands; pass 2 then skips the uid >= count).
+    cls = mem[crate + 2]
+    mem[crate + 2] = cls & 0xE0 | 5
+    pair.rebind()
+    r, _ = pair.both('words class 5', Case(world, None, seg_words(a, e)), CELLS_PLAIN, ())
+    assert r == 0, ('a class 5 owner must be skipped', r)
+    mem[crate + 2] = cls
+    struct.pack_into('<I', mem, table + 4, 0x80000000 | word)
+    struct.pack_into('<h', mem, table, 1)
+    pair.rebind()
+    r, st = pair.both('words count 1', Case(world, None, seg_words(a, e)), CELLS_PLAIN, (),
+                      stage=[(0x7000324C, struct.pack('<h', 1))])
+    assert r == 1 and st['entity'] == 0, ('the one static cell must hit', r, st['entity'])
+    out['seen'] = pair.ee.seen
     return out
 
 
 def run_boundaries(item):
     """Deterministic cases on every gate: static kinds 0x4F..0x5A x the query
-    class -1/0/1/2 x flags 0x80/0xA0/0xC0 on both cell walkers' pass 1, owner
-    kinds 0x4F..0x52 on both pass 2s, grid attributes 0x4F..0x5A on both grid
-    walkers, the repeated hit store after a hit (0x8000 prims), the hull
+    class -1/0/1/2 x flags 0x80/0xA0/0xC0 on the cell walkers' pass 1, owner
+    kinds 0x4F..0x52, 0x59, 0x5A on their pass 2s, grid attributes 0x4F..0x5A
+    on the grid walkers, the repeated hit store after a hit (0x8000 prims), the hull
     locks' arguments (records with and without the z mask byte), and the
     fail-stops."""
     beat = item
@@ -1072,8 +1229,9 @@ def run_boundaries(item):
     mem = pair.ram
     table = world.table
     out = {'static': 0, 'owner': 0, 'attr': 0, 'hits': 0, 'repeat': 0, 'faults': 0, 'threshold': [], 'stop': 0,
-           'reclamp': 0, 'plane': 0, 'mask': 0}
+           'reclamp': 0, 'plane': 0, 'mask': 0, 'plain_gate': {}, 'plain_mask': {}, 'no_span': 0}
     owners = world.owners()
+    cell_entries = (CELLS_SEG, CELLS_CAM, CELLS_PLAIN)
     crate = next(a for a in owners if (u16(mem, a + 0xE) >> 8) in (7, 8, 9, 10))
     uid = u16(mem, crate + 0xE) >> 8
     word = u32(mem, table + 4 + 4 * uid)
@@ -1094,21 +1252,25 @@ def run_boundaries(item):
             pair.rebind()
             for q in (0xFFFF, 0, 1, 2):
                 c = Case(world, None, {**seg_words(top, bottom), 0x7000324E: q})
-                for entry in (CELLS_SEG, CELLS_CAM):
+                for entry in cell_entries:
                     r, _ = pair.both(f'static {flag:#x} kind {kind:#x} class {q:#x} {entry:#x}', c, entry, ())
                     out['static'] += 1
                     out['hits'] += r
+                    if entry == CELLS_PLAIN:
+                        out['plain_gate'][('static', flag, kind, q)] = r
     mem[table + 4:table + 8] = saved_word0
     mem[world.kind_view + 8] = saved_view
     # Owner kinds on both pass 2s.
-    for kind in (0x4F, 0x50, 0x51, 0x52):
+    for kind in (0x4F, 0x50, 0x51, 0x52, 0x59, 0x5A):
         mem[crate + 0x54] = kind
         pair.rebind()
         c = Case(world, None, seg_words(top, bottom))
-        for entry in (CELLS_SEG, CELLS_CAM):
+        for entry in cell_entries:
             r, _ = pair.both(f'owner kind {kind:#x} {entry:#x}', c, entry, ())
             out['owner'] += 1
             out['hits'] += r
+            if entry == CELLS_PLAIN:
+                out['plain_gate'][('owner', kind)] = r
     # 0x8000 prims around a hit: before it they are skipped (their bytes
     # would hit as a round prim), after it in pass 2 they repeat the hit
     # stores. Pass 2 (the crate as owner) and pass 1 (a static cell over the
@@ -1124,7 +1286,7 @@ def run_boundaries(item):
             struct.pack_into('<I', mem, table + 4, 0x80000000 | word)
             mem[world.kind_view + 8] = 0x10
         pair.rebind()
-        for entry in (CELLS_SEG, CELLS_CAM):
+        for entry in cell_entries:
             r, st = pair.both(f'repeat {entry:#x} static {static}', Case(world, None, seg_words(top, bottom)),
                               entry, ())
             assert r == 1 and st['entity'] == (0 if static else crate), ('the round prim must hit', r, st['entity'])
@@ -1142,7 +1304,7 @@ def run_boundaries(item):
     mem[world.kind_view + 0x28 * free + 8] = 0x10
     mem[crate + 0x54] = 0x5A
     pair.rebind()
-    for entry in (CELLS_SEG, CELLS_CAM):
+    for entry in cell_entries:
         r, _ = pair.both(f'stop word {entry:#x}', Case(world, None, seg_words(top, bottom)), entry, ())
         assert r == 0, ('pass 1 must stop at word 0', r)
         out['stop'] += 1
@@ -1170,7 +1332,7 @@ def run_boundaries(item):
                 struct.pack_into('<I', mem, table + 4 + 4 * i, 0x80000000 | (h - table))
                 mem[world.kind_view + 0x28 * i + 8] = 0x10
         pair.rebind()
-        for entry in (CELLS_SEG, CELLS_CAM):
+        for entry in cell_entries:
             r, st = pair.both(f're-clamp {entry:#x} static {static}', Case(world, None, far), entry, ())
             assert r == 1 and number(st['end'][0]) == 1005.0, ('the first hull must clamp the end', r, st['end'])
             assert number(st['face'][0]) != 1020.0, 'the second hull was tested'
@@ -1209,12 +1371,20 @@ def run_boundaries(item):
         native.bridge_set_attr(pair.b, ground, attr)
         for q in (0xFFFF, 0, 1, 2):
             c = Case(world, None, {**seg_words(a, e), 0x7000324E: q})
-            for entry in (GRID_SEG, GRID_CAM):
+            for entry in (GRID_SEG, GRID_CAM, GRID_PLAIN):
                 r, _ = pair.both(f'attr {attr:#x} class {q:#x} {entry:#x}', c, entry, ())
                 out['attr'] += 1
                 out['hits'] += r
+                if entry == GRID_PLAIN:
+                    out['plain_gate'][('attr', attr, q)] = r
     mem[at] = 5
     pair.rebind()
+    # 0019A440's mode byte: only bits 1 and 2 of the low byte count, on the
+    # ground node's segment (a hit of the grid pass).
+    for mask in (0, 1, 2, 3, 4, 5, 6, 7, 0xF8, 0x100, 0x104, 0xFFFFFF00, 0xFFFFFF06):
+        r, _ = pair.plain(Case(world, None, seg_words(a, e)), f'plain mask {mask:#x}', a, e, mask)
+        assert not pair.calls, ('0019A440 ran a hull lock', mask, pair.calls)
+        out['plain_mask'][mask] = r
     # 001A5C30's vertical test at the 1e-5 thresholds (bit exact). dx or dz
     # of the float just below / above the double 1e-5 decides the vertical
     # branch: a segment wholly below the cap misses there, while the
@@ -1252,6 +1422,9 @@ def run_boundaries(item):
         saved_patch = [(a, bytes(mem[a:a + len(d)])) for a, d in patch]
         for a, d in patch: mem[a:a + len(d)] = d
         pair.rebind()
+        for m in (1, 7):
+            r, _ = pair.plain(Case(world, None, seg_words(ma, me)), f'no lock {rec_masks} 0019A440 mask {m}', ma, me, m)
+            assert not pair.calls, ('0019A440 ran a hull lock', rec_masks, pair.calls)
         r, _ = pair.camera(Case(world, None, seg_words(ma, me)), f'lock argument {rec_masks} 0019A910', ma, me, 1)
         assert pair.calls == [(LOCK_CAM, full)] and r == full, ('0019A910: 001A6AD0 argument 0x40', rec_masks,
                                                                 pair.calls, r)
@@ -1282,12 +1455,14 @@ def run_boundaries(item):
         r = native.bridge_run(pair.b, which, C.byref(st), fvec(top), fvec(bottom), m, 0, None)
         assert r == -1, ('a lock meeting an unresolvable chain must fault', which, r)
         out['faults'] += 1
+    r = native.bridge_run(pair.b, 9, C.byref(st), fvec(top), fvec(bottom), 7, 0, None)
+    assert r >= 0, ('0019A440 needs no chain', r)
     for a, d in saved_patch: mem[a:a + len(d)] = d
     pair.rebind()
     struct.pack_into('<I', mem, table + 4, 0x80000000 | word)
     pair.rebind()
     native.bridge_static_kinds(pair.b, None, 0)
-    for which in (0, 1):
+    for which in (0, 1, 9):
         r = native.bridge_run(pair.b, which, C.byref(st), fvec(top), fvec(bottom), 2, 0, None)
         assert r == -1, ('a static cell without its kind view must fault', which, r)
         out['faults'] += 1
@@ -1297,12 +1472,50 @@ def run_boundaries(item):
     mem[hull + 0x1C:hull + 0x1C + len(prims)] = prims
     pair.rebind()
     native.bridge_no_math(pair.b, 1)
-    r = native.bridge_run(pair.b, 0, C.byref(st), fvec(top), fvec(bottom), 2, 0, None)
-    assert r == -1, ('a round prim without 0011E748 must fault', r)
-    out['faults'] += 1
+    for which in (0, 9):
+        r = native.bridge_run(pair.b, which, C.byref(st), fvec(top), fvec(bottom), 2, 0, None)
+        assert r == -1, ('a round prim without 0011E748 must fault', which, r)
+        out['faults'] += 1
     native.bridge_no_math(pair.b, 0)
     mem[hull + 0x18:hull + 0x1C + len(prims)] = old
     mem[crate + 0x54] = saved_kind
+    pair.rebind()
+    # The no-span path: a segment across the whole grid leaves every span at
+    # the node count, so 0019DB50 would walk the registers its caller left
+    # (s1, s2, s4 at the end of the choice below, as 0019D770). The native
+    # walker faults there, and 0019A440 then leaves its state alone.
+    ring = [v for i in range(world.node_count) for v in cp.node_ring(world, mem, i)[1]]
+    wide_lo = tuple(f32(min(v[k] for v in ring) - 1.0) for k in range(3))
+    wide_hi = tuple(f32(max(v[k] for v in ring) + 1.0) for k in range(3))
+    wide = Case(world, None, seg_words(wide_lo, wide_hi))
+    for which in (9, 11):
+        st = wide.native(world)
+        r = native.bridge_run(pair.b, which, C.byref(st), fvec(wide_lo), fvec(wide_hi), 4, 0, None)
+        assert r == -1, ('the no-span path must fault', which, r)
+        out['no_span'] += 1
+
+    class SpanStop(Exception):
+        pass
+
+    def stop(e):
+        chosen.append(tuple(e.r[i] & 0xFFFFFFFF for i in (17, 18, 20)))
+        raise SpanStop
+
+    chosen, poison = [], (0x12345678, 0x23456789, 0x3456789A)
+    ee = pair.ee
+    ee.spad[:] = pair.spad0
+    wide.load(ee)
+    ee.r[29] = 0x7F080000
+    for i, value in zip((17, 18, 20), poison):
+        ee.r[i] = value
+    ee.hooks[SPAN_CHOSEN] = stop
+    try:
+        ee.call(GRID_PLAIN)
+    except SpanStop:
+        pass
+    del ee.hooks[SPAN_CHOSEN]
+    assert chosen == [poison], ('the whole-grid segment must leave the caller registers', chosen)
+    out['seen'] = pair.ee.seen
     return out
 
 
@@ -1312,7 +1525,7 @@ def run_boundaries(item):
 def run_item(item):
     kind, arg = item
     return {'rows': run_rows, 'capture': run_capture, 'units': run_units, 'synth': run_synthetic,
-            'bounds': run_boundaries}[kind](arg)
+            'bounds': run_boundaries, 'words': run_plain_words}[kind](arg)
 
 
 def area01_span_domain(elf):
@@ -1451,20 +1664,23 @@ def main():
     items = ([('rows', x) for x in row_items] + [('capture', b) for b in BEATS]
              + [('units', ('06_hill_slide', unit_count, 41)), ('units', ('08_truck_crossing', unit_count, 42))]
              + [('synth', ('05_boxes', synth_count, 51)), ('synth', ('08_truck_crossing', synth_count, 52))]
-             + [('bounds', '05_boxes')])
+             + [('bounds', '05_boxes'), ('words', '05_boxes')])
     results = reference_mode.parallel_map(run_item, items,
                                           cost=lambda it: {'units': 4, 'synth': 4, 'bounds': 5}.get(it[0], 1))
     seg, cam, entities, locks, views = [0] * 4, [0] * 4, set(), 0, 0
+    plain, seen = [0] * 4, set()
     lock_hits = stale_hits = 0
     captures = {}
     units = {'face': {}, 'round': {}, 'walkers': {}}
-    synth = {'static': 0, 'static_hit': 0, 'prims': 0, 'seg': [0] * 4, 'cam': [0] * 4, 'walkers': {},
+    synth = {'static': 0, 'static_hit': 0, 'prims': 0, 'seg': [0] * 4, 'cam': [0] * 4, 'plain': [0] * 4, 'walkers': {},
              'head': [0, 0, 0], 'self_skip': 0, 'face_calls': 0, 'round_calls': 0}
     bounds = None
     for (kind, arg), res in zip(items, results):
+        seen |= res.pop('seen', set())
         if kind == 'rows':
             seg = [a + b for a, b in zip(seg, res['seg'])]
             cam = [a + b for a, b in zip(cam, res['cam'])]
+            plain = [a + b for a, b in zip(plain, res['plain'])]
             entities |= res['entities']
             locks += res['locks']
             lock_hits += res['lock_hits']
@@ -1476,10 +1692,12 @@ def main():
             for key in units:
                 for k, v in res[key].items():
                     units[key][k] = units[key].get(k, 0) + v
+        elif kind == 'words':
+            words = res
         elif kind == 'synth':
             for key in ('static', 'static_hit', 'prims', 'self_skip', 'face_calls', 'round_calls'):
                 synth[key] += res[key]
-            for key in ('seg', 'cam', 'head'):
+            for key in ('seg', 'cam', 'plain', 'head'):
                 synth[key] = [a + b for a, b in zip(synth[key], res[key])]
             for k, v in res['walkers'].items():
                 synth['walkers'][k] = synth['walkers'].get(k, 0) + v
@@ -1487,6 +1705,7 @@ def main():
             bounds = res
     # Coverage the default run must reach.
     assert seg[0] and seg[3] and cam[0] and cam[3] and locks, (seg, cam, locks)
+    assert plain[0] and plain[2] and plain[3] and not plain[1], plain
     assert lock_hits, 'no hull lock accepted a record of a real class-2 chain'
     assert stale_hits, 'no hull lock accepted a record over stale 0x700030CC / D0 / 31D0 words'
     assert views, 'no hit view compared'
@@ -1495,11 +1714,24 @@ def main():
     round_classes = {k[2] for k in units['round'] if k[1] == 1}
     assert round_classes == {0x2000, 0x4000, 0x8000}, units['round']
     walker_hits = {k[0] for k, v in list(units['walkers'].items()) + list(synth['walkers'].items()) if k[1] == 1}
-    assert walker_hits == {hex(CELLS_SEG), hex(CELLS_CAM), hex(GRID_SEG), hex(GRID_CAM)}, (units, synth)
+    assert walker_hits == {hex(e) for e in (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM, CELLS_PLAIN, GRID_PLAIN)}, \
+        (units, synth)
     assert synth['prims'] and synth['self_skip'] and synth['head'][1] and synth['static_hit'], synth
     assert synth['face_calls'] and synth['round_calls'], ('the probe module never reached the bound workers', synth)
-    assert bounds['faults'] == 5 and bounds['repeat'] == 4 and bounds['hits'], bounds
-    assert bounds['stop'] == 2 and bounds['reclamp'] == 4 and bounds['plane'] == 6 and bounds['mask'] == 10, bounds
+    assert bounds['faults'] == 7 and bounds['repeat'] == 6 and bounds['hits'] and bounds['no_span'] == 2, bounds
+    assert bounds['stop'] == 3 and bounds['reclamp'] == 6 and bounds['plane'] == 6 and bounds['mask'] == 10, bounds
+    # The new walkers' gates sit exactly at 0x5A, whatever the query class.
+    gate = bounds.pop('plain_gate')
+    for q in (0xFFFF, 0, 1, 2):
+        assert gate[('static', 0x80000000, 0x59, q)] == 1 and gate[('static', 0x80000000, 0x5A, q)] == 0, gate
+        assert gate[('static', 0xA0000000, 0x59, q)] == 0 and gate[('static', 0xC0000000, 0x59, q)] == 0, gate
+        assert gate[('attr', 0x59, q)] == 1 and gate[('attr', 0x5A, q)] == 0, gate
+    assert gate[('owner', 0x59)] == 1 and gate[('owner', 0x5A)] == 0, gate
+    modes = bounds.pop('plain_mask')
+    assert modes[6] == modes[4] == modes[0xFFFFFF06] == modes[0x104] == modes[5] == 4 and \
+        modes[0] == modes[1] == modes[0xF8] == modes[0x100] == modes[0xFFFFFF00] == 0, modes
+    reach = reachable_words(G['elf'])
+    assert not reach - seen, ('reachable words not executed', sorted(hex(a) for a in reach - seen))
     # Each threshold must change the outcome between its two sides (else the
     # cases would not pin it).
     outcome = {(lane, step): (r, p) for lane, step, r, p in bounds['threshold']}
@@ -1511,13 +1743,16 @@ def main():
     bounds['threshold'] = len(bounds['threshold'])
     elapsed = time.time() - t0
     reference_mode.banner(
-        reference_mode.part(picked_rows, total_rows, 'route rows (7 queries each)'),
+        reference_mode.part(picked_rows, total_rows, 'route rows (10 queries each)'),
         f'{len(captures)} capture re-runs', f'{2 * unit_count} x 3 unit cases (001A50A0, 001A5C30, walkers)',
-        f'{2 * synth_count} synthetic-world cases (4 walkers + 2 queries + 0019B6C0 each)')
+        f'{2 * synth_count} synthetic-world cases (6 walkers + 3 queries + 0019B6C0 each)')
     print(f'exporter: {verified} RAM images verified byte for byte ({installed})')
     print(f'route: 0019A570 none/lock/cells/grid {seg}, 0019A910 {cam}, owners hit '
           f'{sorted(hex(x) for x in entities)}, {locks} hull lock calls ({lock_hits} accepted, '
           f'{stale_hits} more over stale words), {views} hit views')
+    print(f'plain query 0019A440: route none/-/cells/grid {plain}; {len(reach)} of {len(reach)} reachable words '
+          f'executed ({len(PLAIN_WORDS - reach)} of {len(PLAIN_WORDS)} are dead: '
+          f'{sorted(hex(a) for a in PLAIN_WORDS - reach)}); word cases {words}')
     lids = sum(1 for c in captures.values() if c['lid'])
     print(f'captures: the ceiling test reproduces the captured scratchpad on all {len(captures)} beats '
           f'({sum(1 for c in captures.values() if c["hit"])} hits, 0x70003A3C checked on {lids})')

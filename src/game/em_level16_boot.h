@@ -27,11 +27,10 @@ typedef struct {
     int (*w_00102C58)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00103230)(void *ctx, uint32_t a0, uint32_t a1, float a2);
     int (*w_0011E420)(void *ctx, float a0, float *result);
+    int (*w_001281C0)(void *ctx, float a0, int32_t *result);
     int (*w_0017C370)(void *ctx, uint32_t a0);
     int (*w_0019A570)(void *ctx, uint32_t a0, uint32_t a1, int32_t a2, int32_t a3, int32_t *result);
     int (*w_0019AA80)(void *ctx, uint32_t a0, uint32_t a1, int32_t a2, int32_t *result);
-    int (*w_0019DB50)(void *ctx, int32_t *result);
-    int (*w_001A1B80)(void *ctx, int32_t *result);
     int (*w_001AFA90)(void *ctx, int32_t a0, uint32_t *result);
     int (*w_001AFC10)(void *ctx, uint32_t a0);
     int (*w_001B0FD0)(void *ctx, uint32_t a0, int32_t *result);
@@ -57,13 +56,13 @@ typedef struct {
     int (*w_001C64F0)(void *ctx, uint32_t a0, float a1, int32_t *result);
     int (*w_001C67E0)(void *ctx, uint32_t a0, int32_t a1, float a2, float a3);
     int (*w_001C68C0)(void *ctx, uint32_t a0);
+    int (*w_001C94B0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
     int (*w_001CA6F0)(void *ctx, uint32_t a0, int32_t a1);
-    int (*w_001CAF60)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001E2BA0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, float a3);
     int (*w_001EFD90)(void *ctx, int32_t a0, uint32_t a1, uint32_t a2);
     int (*w_001F1110)(void *ctx, uint32_t a0, int32_t a1);
     int (*w_001F1180)(void *ctx, uint32_t a0);
-    int (*w_001F4F40)(void *ctx, int32_t a0, int32_t *result);
+    int (*w_001F4F40)(void *ctx, int32_t a0, uint32_t *result);
     int (*w_001FAE70)(void *ctx, int32_t a0);
     int (*w_001FB9F0)(void *ctx, int32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t *result);
     int (*w_0021BB00)(void *ctx, uint32_t a0, int32_t *result);
@@ -81,6 +80,9 @@ int em_level16_boot_a03_00825200(const EmLevel16BootHooks *h, uint32_t a0, uint3
 int em_level16_boot_a04_00824EF0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t sp, EmLevel16BootFault *fault);
 int em_level16_boot_a04_00825310(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault);
 int em_level16_boot_00158430(const EmLevel16BootHooks *h, uint32_t a0, EmLevel16BootFault *fault);
+int em_level16_boot_001BD460(const EmLevel16BootHooks *h, uint32_t a0, int32_t *result, EmLevel16BootFault *fault);
+int em_level16_boot_001C82A0(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault);
+int em_level16_boot_001B3C30(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, uint32_t a2, float a3, float a4, uint32_t sp, EmLevel16BootFault *fault);
 int em_level16_boot_0021C040(const EmLevel16BootHooks *h, uint32_t a0, uint32_t a1, EmLevel16BootFault *fault);
 #ifdef __cplusplus
 }

@@ -315,6 +315,9 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return l->active ? em_camera_live_scratch_bytes(a,n) : NULL;
     if((p=em_area11_interaction_host_scan_memory(a,n)))return p;
     if((p=em_effects_live_scratch_3660(a,n)))return p;
+    if(overlaps(a,n,0x00286340u,sizeof l->pose_buffers))
+        return l->active && contains(a,n,0x00286340u,sizeof l->pose_buffers)
+            ? l->pose_buffers+a-0x00286340u : NULL;
     if(overlaps(a,n,0x70003900u,sizeof l->scratch_3900))
         return l->active && contains(a,n,0x70003900u,sizeof l->scratch_3900)
             ? (uint8_t *)l->scratch_3900+a-0x70003900u : NULL;
@@ -1420,6 +1423,7 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     case 0x0019AA80u: /* the AREA01 revisit's 0x8282F0 probe */
     case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
+    case 0x0019A440u:
     case 0x001A0B10u: case 0x0019D330u: case 0x001A7280u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
     case 0x001A5C30u: case 0x0019AD00u: case 0x0019AFE0u: case 0x0019B2C0u: {
@@ -1433,6 +1437,11 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_collision_view_begin(&l->collision)<0)return fail(l,l->collision.fault_address);
         return rc;
     }
+    case 0x001C81C0u:
+        /* 001C81C0(bank, clip, time, out): 00148B40's whole-clip pose. */
+        if(c->na<4)return -1;
+        return em_area01_model_clip_pose(&l->model,(uint32_t)c->a[0],(int)(int32_t)c->a[1],(int32_t)c->a[2],
+                                         write_bytes,l,(uint32_t)c->a[3]);
     case 0x001AEBA0u:
         /* 001AEBA0(step) (byte-matched C): the screen fade (the lift [51]'s
          * sub-state 5, 001BD560, before its area change). */

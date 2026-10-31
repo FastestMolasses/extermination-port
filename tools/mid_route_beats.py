@@ -295,6 +295,10 @@ def source_rand(beat):
 # anchor EM_START_AT_RESTORE gives them the source state's records and clock
 # at script frame 0 (docs/STARTUP.md; comparison only).
 RESTORE = {'a08_01', 'a08_02', 'a08_03'}
+# The same anchor for the creatures of the sixteenth and seventeenth levels'
+# single beats; the steering stays (a card's camera is not the recording's).
+RESTORE_STEERED = {'a03b_01', 'a03b_02', 'a03b_03', 'a03b_04', 'a03b_05', 'a03c_01', 'a03c_02', 'a03c_03', 'a03d_00',
+                   'a03d_01', 'a04c_01', 'a04c_02', 'a04d_01', 'a04d_02'}
 
 
 def restore_anchor(beat):
@@ -410,6 +414,8 @@ def run(name, card, beats, timeout):
     if beats[0] in RESTORE:
         env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
         del env['EM_START_AT_PATH']    # with the anchor the recorded pad alone keeps the route
+    elif beats[0] in RESTORE_STEERED:
+        env['EM_START_AT_RESTORE'] = restore_anchor(beats[0])
     start = time.time()
     ended = False
     with open(log_path, 'w') as log:

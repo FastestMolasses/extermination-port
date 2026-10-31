@@ -17,15 +17,14 @@ HOOKS = {
     0x00102C58: ('uuu', None), 0x00103230: ('uuf', None), 0x0011E420: ('f', 'f'), 0x001B1380: ('uuf', 'i'),
     0x001B15D0: ('uu', 'f'), 0x001B2B10: ('uuu', None), 0x001B39F0: ('uuu', 'i'), 0x0021BB00: ('u', 'i'),
     0x0021BC40: ('u', 'i'), 0x0017C370: ('u', None), 0x0021BE40: ('uu', 'i'), 0x0019AA80: ('uui', 'i'),
-    0x0019A570: ('uuii', 'i'), 0x001EFD90: ('iuu', None), 0x001E2BA0: ('uuuf', None), 0x001F4F40: ('i', 'i'),
-    0x001CAF60: ('uu', None), 0x001A1B80: ('', 'i'), 0x0019DB50: ('', 'i'),
+    0x0019A570: ('uuii', 'i'), 0x001EFD90: ('iuu', None), 0x001E2BA0: ('uuuf', None), 0x001F4F40: ('i', 'u'),
     0x001AFA90: ('i', 'u'), 0x00102958: ('uu', None), 0x001B0FD0: ('u', 'i'), 0x001C6380: ('u', None),
     0x001BA1A0: ('uu', None), 0x001BA1F0: ('u', 'i'), 0x001C47A0: ('ii', None), 0x001C4760: ('ii', None),
     0x001B17A0: ('u', 'i'), 0x001AFC10: ('u', None), 0x001B1020: ('uiii', 'i'), 0x001F1110: ('ui', None),
     0x001F1180: ('u', None), 0x001B1190: ('i', None),
     0x001BA1C0: ('ui', 'i'), 0x001B10B0: ('uii', 'i'), 0x001C63E0: ('ui', None), 0x001CA6F0: ('ui', None),
     0x001BA8E0: ('ui', None), 0x001C68C0: ('u', None), 0x001BA540: ('u', None), 0x001B1EA0: ('iuui', 'i'),
-    0x001FB9F0: ('iiii', 'i'), 0x001C67E0: ('uiff', None), 0x001FAE70: ('i', None), 0x001BA580: ('ui', None), 0x001C64F0: ('uf', 'i'),
+    0x001FB9F0: ('iiii', 'i'), 0x001C94B0: ('uuuu', None), 0x001281C0: ('f', 'i'), 0x001C67E0: ('uiff', None), 0x001FAE70: ('i', None), 0x001BA580: ('ui', None), 0x001C64F0: ('uf', 'i'),
 }
 TYPES = {'u': 'uint32_t', 'i': 'int32_t', 'f': 'float', 'q': 'uint64_t'}
 

@@ -309,8 +309,8 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
     EmActorCollisionQuery query={0};uint8_t *feet_out=NULL;
     EmCollMoveActor mover;memset(&mover,0,sizeof mover);uint8_t *mover_x=NULL,*mover_z=NULL;
     switch(c->function){
-    case 0x19A570:case 0x19A910:case 0x19B6C0:
-        if(c->na<(c->function==0x19A570?4u:c->function==0x19A910?3u:2u)||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
+    case 0x19A570:case 0x19A910:case 0x19A440:case 0x19B6C0:
+        if(c->na<(c->function==0x19A570?4u:c->function==0x19B6C0?2u:3u)||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
         break;
     case 0x19AB20:{
         uint32_t self;
@@ -391,6 +391,7 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
         r=em_coll_segment_0019AA80(s,seg->face,&hw,a,b,(uint32_t)c->a[0],player);
         break;}
     case 0x19A910:r=em_coll_segment_0019A910(seg,a,b,(uint32_t)c->a[2]);break;
+    case 0x19A440:r=em_coll_segment_0019A440(seg,a,b,(uint32_t)c->a[2]);break;
     case 0x19B6C0:{EmCollProbeWorkers w={(void *)seg,em_coll_segment_face_worker,em_coll_segment_round_worker};r=em_coll_probe_0019B6C0(seg->world,&w,s,a,b);break;}
     case 0x19AB20:{EmActorCollisionHit hit;r=em_actor_collision_ground_state_0019AB20(seg->world->cells,&query,a,b,(uint32_t)c->a[3],&hit,s);if(r>=0&&feet_out)memcpy(feet_out,&feet,4);break;}
     case 0x19AD00:{

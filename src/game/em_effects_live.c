@@ -358,7 +358,7 @@ static int load(void)
 
 int em_boot_constants_select(unsigned area)
 {
-    BC.active = area == 0x13 || area == 0x0F || area == 3 || area == 8 || area == 7;
+    BC.active = area == 0x13 || area == 0x0F || area == 3 || area == 4 || area == 8 || area == 7;
     return BC.active ? load() : 0;
 }
 
@@ -964,6 +964,26 @@ static int handler_001EDE40(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* The handler 001ED450 (the blast reaction's effect 0x80000023, the twin of
+ * 001EDE40 over the same three rows). */
+static int handler_001ED450(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(0x001ED450u, "001ED450 without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    SkidCall c = {node, work, at, at + 0x1F0u};
+    EmLevel14PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &c;
+    h.bytes = death_bytes;
+    h.w_001CFB50 = death_001CFB50;
+    h.w_001CFBE0 = skid_001CFBE0;
+    EmLevel14PortFault fault = {0, 0};
+    if (em_level14_port_001ED450(&h, at + 0xD0u, (uint32_t)depth, &fault) < 0)
+        return fail(fault.address ? fault.address : 0x001ED450u, "001ED450 faulted (em_level14_port)");
+    return 0;
+}
+
 /* The handler 001EF1C0 (the critical hit's effect 0x80000076), the same
  * shape with other rows (em_level14_port). */
 static int handler_001EF1C0(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
@@ -1514,6 +1534,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
     if (handler == 0x001ED100u) return handler_001ED100(node, depth, work);
     if (handler == 0x001EDE40u) return handler_001EDE40(node, depth, work);
+    if (handler == 0x001ED450u) return handler_001ED450(node, depth, work);
     if (handler == 0x001EF1C0u) return handler_001EF1C0(node, depth, work);
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
     if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);

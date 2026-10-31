@@ -228,6 +228,7 @@ int em_level14_port_001AA410(const H14 *h, uint32_t object, float *result, F14 *
 int em_level14_port_001B2D00(const H14 *h, uint32_t a0, uint32_t a1, int32_t *result, F14 *fault);
 int em_level14_port_001B4CF0(const H14 *h, uint32_t p, F14 *fault);
 int em_level14_port_001EDE40(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault);
+int em_level14_port_001ED450(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault);
 int em_level14_port_001EF1C0(const H14 *h, uint32_t a0, uint32_t a1, F14 *fault);
 int em_level14_port_001F6BA0(const H14 *h, F14 *fault);
 
