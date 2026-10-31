@@ -2279,6 +2279,10 @@ test-player-spawn-rotation-reference:
 test-player-stage-position-reference:
 	python3 tools/test_player_stage_position_reference.py
 
+.PHONY: test-area19-state-reference
+test-area19-state-reference:
+	python3 tools/test_area19_state_reference.py
+
 .PHONY: test-area15-area03-state-reference
 test-area15-area03-state-reference:
 	python3 tools/test_area15_area03_state_reference.py
