@@ -317,6 +317,102 @@ static inline int l15c_c_001C67E0(L15C *o, uint32_t a0, int32_t a1, uint32_t a2,
     return 0;
 }
 
+static inline int l15c_c_0013D600(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_0013D600) return l15c_latch(o, 0x0013D600u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_0013D600(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x0013D600u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_00140760(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_00140760) return l15c_latch(o, 0x00140760u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_00140760(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x00140760u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001408D0(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001408D0) return l15c_latch(o, 0x001408D0u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001408D0(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x001408D0u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_00140A90(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_00140A90) return l15c_latch(o, 0x00140A90u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_00140A90(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x00140A90u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_00140C30(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_00140C30) return l15c_latch(o, 0x00140C30u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_00140C30(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x00140C30u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_00140F80(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_00140F80) return l15c_latch(o, 0x00140F80u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_00140F80(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x00140F80u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001418F0(L15C *o, uint32_t a0, uint32_t a1)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001418F0) return l15c_latch(o, 0x001418F0u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001418F0(o->h->ctx, a0, a1) < 0) return l15c_latch(o, 0x001418F0u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001AFC10(L15C *o, uint32_t a0)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001AFC10) return l15c_latch(o, 0x001AFC10u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001AFC10(o->h->ctx, a0) < 0) return l15c_latch(o, 0x001AFC10u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001B0D80(L15C *o, uint32_t a0, int32_t *result)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001B0D80) return l15c_latch(o, 0x001B0D80u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001B0D80(o->h->ctx, a0, result) < 0) return l15c_latch(o, 0x001B0D80u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001B1190(L15C *o, int32_t a0)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001B1190) return l15c_latch(o, 0x001B1190u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001B1190(o->h->ctx, a0) < 0) return l15c_latch(o, 0x001B1190u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001B2140(L15C *o, uint32_t a0, int32_t *result)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001B2140) return l15c_latch(o, 0x001B2140u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001B2140(o->h->ctx, a0, result) < 0) return l15c_latch(o, 0x001B2140u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int l15c_c_001B5360(L15C *o, uint32_t a0)
+{
+    if (l15c_failed(o)) return -1;
+    if (!o->h->w_001B5360) return l15c_latch(o, 0x001B5360u, EM_LEVEL15_CREATURES_FAULT_NULL_WORKER);
+    if (o->h->w_001B5360(o->h->ctx, a0) < 0) return l15c_latch(o, 0x001B5360u, EM_LEVEL15_CREATURES_FAULT_WORKER_FAILED);
+    return 0;
+}
+
 static inline int l15c_c_001C68C0(L15C *o, uint32_t a0)
 {
     if (l15c_failed(o)) return -1;

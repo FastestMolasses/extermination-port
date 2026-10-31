@@ -88,7 +88,7 @@ All fields are little-endian. The layout is:
    identity), u16 0. The scope is (-1,-1) for group-1 records from the
    global tables; otherwise it is the (area, sub) the id was resolved for.
    The states are:
-   - **1 (audible):** 1 to 40 operations, ending with exactly one END.
+   - **1 (audible):** 1 to 32 operations, ending with exactly one END.
    - **2 (absent):** `001FB9F0`/`00119EA0` return -1.
    - **3 (unsupported):** carries a reason code.
 4. **Operation (32 bytes):** u16 tick, u8 kind (1 key-on, 2 key-off,

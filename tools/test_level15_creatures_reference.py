@@ -16,6 +16,12 @@ FUNCS={
     0x0013D490:('em_level15_creatures_0013D490',0x170,[U, U],None),
     0x00141A30:('em_level15_creatures_00141A30',0x258,[U, U],I),
     0x00153B50:('em_level15_creatures_00153B50',0x34C,[U, U],None),
+    # AREA03 sub 0's creature (lane K1): the byte-matched decomp C
+    0x0013D2D0:('em_level15_creatures_0013D2D0',0x1C0,[U],None),
+    0x0013D850:('em_level15_creatures_0013D850',0x130,[U, U],None),
+    0x00140690:('em_level15_creatures_00140690',0xD0,[U, U],None),
+    0x00140C00:('em_level15_creatures_00140C00',0x30,[U, U],None),
+    0x00141C90:('em_level15_creatures_00141C90',0x90,[U, U],None),
 }
 OVERLAY_OF={}
 OVERLAY_FILES={4:ROOT.parent/'Extermination/extract/OVERLAY/AREA03.BIN'}
@@ -27,13 +33,25 @@ HOOKS=[
     ('w_00131ED0',0x00131ED0,[('u', 4)],None),
     ('w_00131F20',0x00131F20,[('u', 4), ('u', 5), ('u', 6)],None),
     ('w_00132490',0x00132490,[('u', 4), ('u', 5)],None),
+    ('w_0013D600',0x0013D600,[('u', 4), ('u', 5)],None),
+    ('w_00140760',0x00140760,[('u', 4), ('u', 5)],None),
+    ('w_001408D0',0x001408D0,[('u', 4), ('u', 5)],None),
+    ('w_00140A90',0x00140A90,[('u', 4), ('u', 5)],None),
+    ('w_00140C30',0x00140C30,[('u', 4), ('u', 5)],None),
+    ('w_00140F80',0x00140F80,[('u', 4), ('u', 5)],None),
+    ('w_001418F0',0x001418F0,[('u', 4), ('u', 5)],None),
     ('w_0019AB20',0x0019AB20,[('u', 4), ('u', 5), ('u', 6), ('u', 7)],'i'),
+    ('w_001AFC10',0x001AFC10,[('u', 4)],None),
+    ('w_001B0D80',0x001B0D80,[('u', 4)],'i'),
     ('w_001B10B0',0x001B10B0,[('u', 4), ('i', 5), ('i', 6)],'i'),
+    ('w_001B1190',0x001B1190,[('i', 4)],None),
     ('w_001B13F0',0x001B13F0,[('f', 12), ('u', 4), ('u', 5)],'i'),
     ('w_001B1560',0x001B1560,[('u', 4), ('u', 5), ('f', 12)],'i'),
     ('w_001B17A0',0x001B17A0,[('u', 4)],'i'),
+    ('w_001B2140',0x001B2140,[('u', 4)],'i'),
     ('w_001B3250',0x001B3250,[('u', 4), ('u', 5), ('f', 12)],'i'),
     ('w_001B4CF0',0x001B4CF0,[('u', 4)],None),
+    ('w_001B5360',0x001B5360,[('u', 4)],None),
     ('w_001C63E0',0x001C63E0,[('u', 4), ('i', 5)],None),
     ('w_001C64F0',0x001C64F0,[('u', 4), ('f', 12)],'i'),
     ('w_001C67E0',0x001C67E0,[('u', 4), ('i', 5), ('f', 12), ('f', 13)],None),
@@ -64,10 +82,10 @@ def configure():
     O.Hooks=type('Hooks',(C.Structure,),{'_fields_':
         [('ctx',C.c_void_p),('bytes',O.BYTES_FN)]+
         [(name,O.hook_proto(args,res)) for name,_,args,res in HOOKS]+[('w_callback',O.CALLBACK_FN)]})
-    O.SELF_ENTRIES={0x153B50};O.HEAVY=set()
+    O.SELF_ENTRIES={0x153B50,0x13D2D0,0x140690};O.HEAVY=set()
     O.RETURN_SITES=O.RETURN_SITES_FULL=(0x141A30,)
     O.CONTRACT_UNREACHABLE={};O.LOCAL_STORES=set()
-    O.DEFAULT_ARGS={e:[A,B] for e in FUNCS}
+    O.DEFAULT_ARGS={e:[A] if e==0x13D2D0 else [A,B] for e in FUNCS}
     O.image_for=lambda _:O.CAPTURES[BEAT][0]
     O.CAPTURES.clear();O.CAPTURES.update(O.load_captures(O.read_elf()))
     O.JUMP_TABLES={};O.TABLE_BYTES=frozenset()
@@ -119,6 +137,31 @@ def cases():
         {0x1EFE00:[O.Scribble(0,[(A+0x34,h(1)),(A+0x36,h(0xA001))])]})
     add('damage/worker/death',0x141A30,[(A+0x34,h(1)),(A+0x36,h(1))],
         {0x1B4CF0:[O.Scribble(0,[(B+0x80,b(2)),(A+0x36,h(0))])]})
+    # AREA03 sub 0's creature
+    def add1(label,patches=(),queues=None):
+        spad=[(a,v) for a,v in patches if a>=0x70000000]
+        ram=[(a,v) for a,v in patches if a<0x70000000]
+        out.append((label,BEAT,0x13D2D0,(A,),common+ram,spad,O.Script(queues),set()))
+    for mode in (0,1,2,3,4,5):
+        for state in (0,1,2,3,4):
+            for live in (0,1):
+                add1(f'tick/{mode}/{state}/{live}',[(0x70003B8D,b(mode)),(A+4,b(state)),(A+0x4C,w(0x1C6960)),
+                     (A+0x1F0+0x70,h(2)),(A+0x1F0+0x76,h(3)),(A+0x1F0+0x8B,b(4)),(A+0x1F0+0x87,b(5)),
+                     (A+0x1F0+0x72,h(6)),(A+0x1F0+0x88,b(7)),(A+0x1F0+0x8E,b(live))],{0x1B2140:[live]})
+    add1('tick/zero',[(0x70003B8D,b(0)),(A+4,b(1))])
+    for state in (0,1,2,3):
+        for w56,limit,flag,w70 in ((0,0,0,0),(0,0,0,1),(5,10.,0,0),(5,1.,0,0),(5,1.,1,0),(5,10.,1,1)):
+            for st30 in (0,0x1000):
+                add(f'idle/{state}/{w56}/{limit}/{flag}/{w70}/{st30}',0x13D850,
+                    [(A+6,b(state)),(A+0x56,h(w56)),(B+0x5C,f(limit)),(A+0xA,b(flag)),(B+0x70,h(w70)),(B+0x30,w(st30))])
+    for state in (0,1,2,3):
+        add(f'motion/{state}',0x140690,[(A+5,b(state)),(A+0x4C,w(0x1C6960)),(B+0x40,f(2.))],{0x1C64F0:[0x1234]})
+    add('remove',0x140C00,[(A+0x9A,b(7))])
+    for d,w76,w70,w54,s80,st4,st5 in ((0x80,0,1,1,2,1,0),(0,1,1,1,2,1,0),(0,0,0,1,2,1,0),(0,0,1,0,2,1,0),
+                                      (0,0,1,1,0,1,0),(0,0,1,1,2,2,0),(0,0,1,1,2,1,7),(0,0,1,1,2,1,5),
+                                      (0,0,1,1,2,1,6),(0,0,1,1,2,1,0x80),(0,0,1,1,3,1,1)):
+        add(f'guard/{d}/{w76}/{w70}/{w54}/{s80}/{st4}/{st5}',0x141C90,
+            [(A+0xD,b(d)),(B+0x76,h(w76)),(B+0x70,h(w70)),(A+0x54,h(w54)),(B+0x80,b(s80)),(A+4,b(st4)),(A+5,b(st5))])
     for worker in (0x11E2A8,0x11DE90,0x19AB20):
         add(f'hurt/worker/{worker:x}',0x153B50,[(A+5,b(2))],
             {worker:[O.Scribble(O.fbits(0.5) if worker!=0x19AB20 else 1,

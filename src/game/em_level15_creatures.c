@@ -155,6 +155,130 @@ static uint32_t e00153B50(L15C *o, uint32_t self, uint32_t work)
     C(001B17A0,self,&r); if (r) (void)l15c_method(o,self); return 0;
 }
 
+/* AREA03 sub 0's creature: the per-frame update, by the scene byte 3B8D. */
+static uint32_t e00140690(L15C *o, uint32_t e, uint32_t st)
+{
+    int32_t r=0;
+    switch (B(e+5)) {
+    case 0: C(00140760,e,st); break;
+    case 1: C(001408D0,e,st); break;
+    case 2: C(00140A90,e,st); break;
+    default: break;
+    }
+    C(00140C30,e,st); C(00140F80,e,st);
+    C(001C64F0,e,R(st+0x40),&r); W(st+0x30,(uint32_t)r);
+    C(00131ED0,e); C(001C68C0,e); C(001B17A0,e,&r);
+    (void)l15c_method(o,e);
+    return 0;
+}
+static uint32_t e00140C00(L15C *o, uint32_t obj)
+{
+    C(001B1190,(int32_t)B(obj+0x9A)); C(001AFC10,obj); return 0;
+}
+static uint32_t e0013D2D0(L15C *o, uint32_t e)
+{
+    const uint32_t st=e+0x1F0;
+    int32_t r=0;
+    uint32_t v;
+    switch (B(0x70003B8Du)) {
+    case 1:
+        C(001B2140,e,&r);
+        if (!r || !B(e+4)) return 0;
+        (void)l15c_method(o,e);
+        return 0;
+    case 2: case 3: return 0;
+    default: break;
+    }
+    WH(e+0x52,0); WB(e+0x5E,1);
+    switch (B(e+4)) {
+    case 0: (void)e0013D490(o,e,st); break;
+    case 1: C(0013D600,e,st); break;
+    case 2: (void)e00140690(o,e,st); break;
+    case 3: (void)e00140C00(o,e); return 0;
+    default: break;
+    }
+    if (l15c_failed(o)) return 0;
+    if ((v=H(st+0x70))) WH(st+0x70,v-1);
+    if ((v=H(st+0x76))) WH(st+0x76,v-1);
+    if ((v=B(st+0x8B))) WB(st+0x8B,v-1);
+    if ((v=B(st+0x87))) WB(st+0x87,v-1);
+    if ((v=H(st+0x72))) WH(st+0x72,v-1);
+    if ((v=B(st+0x88))) WB(st+0x88,v-1);
+    WH(e+0x54,0);
+    if (B(st+0x8E)) C(001B5360,e);
+    C(001B0D80,e,&r);
+    return 0;
+}
+static uint32_t e0013D850(L15C *o, uint32_t self, uint32_t st)
+{
+    const uint32_t sub=B(self+6);
+    uint32_t v;
+    switch (sub) {
+    case 0:
+        WB(self+6,sub+1); W(st+0x40,F(1.0f)); W(st+0x48,0); W(st+0x50,0); W(st+0x4C,0);
+        C(001C67E0,self,0,F(5.0f),0);
+        break;
+    case 1:
+        v=(uint32_t)SH(self+0x56);
+        if (v) {
+            if (em_ee_c_le_bits(R(st+0x5C),em_ee_cvt_s_w_bits(v)) || (B(self+0xA)&1)) WH(self+0x56,0);
+        } else {
+            C(001418F0,self,st);
+            if (H(st+0x70)) {
+                WB(self+6,B(self+6)+1);
+                C(001C67E0,self,1,0,0);
+            }
+        }
+        break;
+    case 2:
+        if (R(st+0x30)&0x1000) { WB(self+5,4); WB(self+6,0); }
+        break;
+    default: break;
+    }
+    return 0;
+}
+static uint32_t e00141C90(L15C *o, uint32_t e, uint32_t s)
+{
+    if (B(e+0xD)&0x80) return 0;
+    if (H(s+0x76)) return 0;
+    if (!H(s+0x70)) return 0;
+    if (!H(e+0x54)) return 0;
+    if (!(B(s+0x80)&2)) return 0;
+    if (B(e+4)!=1) return 0;
+    const uint32_t v=B(e+5);
+    if (v>=7 || v==5) return 0;
+    WB(e+5,10); WB(e+6,0);
+    return 0;
+}
+
+#define ENTRY2(name) \
+int em_level15_creatures_##name(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault) \
+{ \
+    L15C o; \
+    if (l15c_begin(&o, h, fault)) return -1; \
+    (void)e##name(&o, a0, a1); \
+    return l15c_end(&o); \
+}
+ENTRY2(0013D850)
+ENTRY2(00140690)
+ENTRY2(00141C90)
+#undef ENTRY2
+int em_level15_creatures_0013D2D0(const EmLevel15CreaturesHooks *h, uint32_t a0, EmLevel15CreaturesFault *fault)
+{
+    L15C o;
+    if (l15c_begin(&o, h, fault)) return -1;
+    (void)e0013D2D0(&o, a0);
+    return l15c_end(&o);
+}
+int em_level15_creatures_00140C00(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault)
+{
+    L15C o;
+    (void)a1;   /* 0013D2D0 leaves st in a1; the original never reads it */
+    if (l15c_begin(&o, h, fault)) return -1;
+    (void)e00140C00(&o, a0);
+    return l15c_end(&o);
+}
+
 int em_level15_creatures_0012F6C0(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault)
 {
     L15C o;

@@ -62,6 +62,10 @@ A19B_ROUTE = 'levels-recordings-20261018-13/s87/route_a19b'
 A19C0_ROUTE = 'levels-recordings-20261018-14/s87/route_a19c'
 A19C_ROUTE = 'levels-recordings-20261018-17/s87/route_a19c'
 A19D_ROUTE = 'levels-recordings-20261018-19/s87/route_a19d'
+A15_ROUTE = 'levels-recordings-20261018-19/s87/route_a15'
+A15B_ROUTE = 'levels-recordings-20261018-19/s87/route_a15b'
+A15C_ROUTE = 'levels-recordings-20261018-25/s87/route_a15b'
+A03_ROUTE = 'levels-recordings-20261018-26/s87/route_a03'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -143,9 +147,21 @@ BEATS = {
     'a19d_18': ('a19d_18', A19D_ROUTE, 'a19d_18_seal'),
     'a19d_19': ('a19d_19', A19D_ROUTE, 'a19d_19_flights'),
     'a19d_20': ('a19d_20', A19D_ROUTE, 'a19d_20_door50'),
+    # AREA15 (FOURTEENTH / FIFTEENTH_LEVEL_ROUTE.md): sub 0's way out, sub 1's
+    # event, the forced return, the two scripts, the bed, door [14].
+    'a15a_00': ('area15', 'area15_arrival_20261030/s87/route_a15a', 'a15a_00_arrival'),
+    'a15_00': ('a15_00', A15_ROUTE, 'a15_00_door14'),
+    'a15b_00': ('a15b_00', A15B_ROUTE, 'a15b_00_event'),
+    'a15b_01': ('a15b_01', A15B_ROUTE, 'a15b_01_return'),
+    'a15b_02': ('a15b_02', A15B_ROUTE, 'a15b_02_scripts'),
+    'a15b_03': ('a15b_03', A15C_ROUTE, 'a15b_03_bed'),
+    'a15b_04': ('a15b_04', A15C_ROUTE, 'a15b_04_door14'),
+    # AREA03 sub 0's lift (the last recorded beat).
+    'a03_00': ('a03_00', A03_ROUTE, 'a03_00_elevator'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
           'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
+          'a15a': ('a15a_',), 'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',),
           'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
@@ -320,6 +336,12 @@ CHAINS = {
     'a19b': ('a19b_01', ('a19b_01', 'a19b_02')),
     'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
     'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
+    'a15a': ('area15', ('a15a_00',)),
+    'a15': ('a15_00', ('a15_00',)),
+    # one run: the event's scripts run on across the forced return
+    'a15b': ('a15b_00', ('a15b_00', 'a15b_01', 'a15b_02', 'a15b_03', 'a15b_04')),
+    'a15c': ('a15b_03', ('a15b_03', 'a15b_04')),
+    'a03': ('a03_00', ('a03_00',)),
 }
 
 

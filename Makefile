@@ -26,6 +26,9 @@ BIN     := build/extermination
 # The reference tests build their libraries with -O2: change them with it.
 CFLAGS  := -O2 -ffp-contract=off -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
+           src/game/em_area15_route.c \
+           src/game/em_area03_route_misc.c src/game/em_area03_route_turret.c \
+           src/game/em_area03_arrival_actors.c src/game/em_area03_arrival_probe.c \
            src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_level14_port_creature.c src/game/em_level10_port_boot.c src/game/em_level11_port_boot.c src/game/em_level12_port_boot.c src/game/em_level13_port_boot.c src/game/em_level15_creatures.c src/game/em_level15_fountain.c src/game/em_level15_motion.c src/game/em_level15_perception.c src/game/em_level15_particles.c src/game/em_level15_support.c src/game/em_level9_port_anim.c src/game/em_level9_port_area13.c src/game/em_level9_port_exit.c src/game/em_level9_port_turret.c src/game/em_level11_port_area13.c src/game/em_level11_port_creature.c src/game/em_level12_port_creature.c src/game/em_level13_port_creature.c src/game/em_level14_port_area15.c src/game/em_level10_port_area19.c src/game/em_level12_port_area19.c src/game/em_level13_port_area19.c src/game/em_level14_port_area19.c src/game/em_area19_route_flame.c src/game/em_area19_route_turret.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_movie_field.c src/game/em_movie_sound.c \
@@ -2275,6 +2278,10 @@ test-player-spawn-rotation-reference:
 	python3 tools/test_player_spawn_rotation_reference.py
 test-player-stage-position-reference:
 	python3 tools/test_player_stage_position_reference.py
+
+.PHONY: test-area15-area03-state-reference
+test-area15-area03-state-reference:
+	python3 tools/test_area15_area03_state_reference.py
 
 .PHONY: test-area03-arrival-reference
 test-area03-arrival-reference:

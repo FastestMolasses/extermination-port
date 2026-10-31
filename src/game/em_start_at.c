@@ -75,6 +75,15 @@ static const struct {
     {"a04b_03", 0x04},
     {"a04b_04", 0x04},
     {"boss", 0x04},
+    /* AREA15 and AREA03 (lane K1) */
+    {"area15", 0x0F},
+    {"a15_00", 0x0F},
+    {"a15b_00", 0x0F},
+    {"a15b_01", 0x0F},
+    {"a15b_02", 0x0F},
+    {"a15b_03", 0x0F},
+    {"a15b_04", 0x0F},
+    {"a03_00", 0x03},
     /* AREA19 (lane J1; area byte 0x13) */
     {"area19", 0x13},
     {"a19_01", 0x13},

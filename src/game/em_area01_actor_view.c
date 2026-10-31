@@ -120,6 +120,12 @@ uint8_t *em_area01_actor_view_bytes(EmArea01ActorView *v, uint32_t address, uint
         static uint8_t free_status;
         return &free_status;
     }
+    /* A read of a record freed in this window, inside the header words
+     * 001AFC10 cleared (AREA15's 0x824510 reads its +0xD after 0x824560 may
+     * have freed it): what the free left. */
+    static const uint8_t cleared[0x10];
+    if (!write && !a->allocated && offset + size <= sizeof cleared)
+        return (uint8_t *)(uintptr_t)cleared + offset;
     /* The bytes 001AFC10 leaves in a freed record keep their last values: a
      * tracker's stale pointer reads them (AREA19's 0x827DD0, whose target
      * +0x204 died: its +0xB0, before the tracker drops the pointer). */

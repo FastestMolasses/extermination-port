@@ -26,7 +26,10 @@ LO, HI = 0x23D000, 0x275B00            # the end of the text to the file's end
 MIN_RUN = 16
 GROUPS = ('levels-recordings-20261018-10/s87/route_a19', 'levels-recordings-20261018-13/s87/route_a19b',
           'levels-recordings-20261018-14/s87/route_a19c', 'levels-recordings-20261018-17/s87/route_a19c',
-          'levels-recordings-20261018-19/s87/route_a19d')
+          'levels-recordings-20261018-19/s87/route_a19d',
+          # AREA15 and AREA03 (lane K1)
+          'levels-recordings-20261018-19/s87/route_a15', 'levels-recordings-20261018-19/s87/route_a15b',
+          'levels-recordings-20261018-25/s87/route_a15b', 'levels-recordings-20261018-26/s87/route_a03')
 
 
 def main():

@@ -48,6 +48,9 @@ PAIRS = {(0, 1): 0x3E, (0, 2): 0x3F, (1, 0): 0x40, (1, 1): 0x3E, (1, 2): 0x3F, (
 FORK_ROUTES = {'06': ('s87/route_a06', 's87/route_a06b'), '22': ('s87/route_a22', 's87/route_a22b', 's87/route_a01v'),
                '01': ('s87/route_a01', 's87/route_a01u', 's87/route_a01v'), '04': ('s87/route_a04',),
                '00': ('s87/route_a00',), '02': ('s87/route_a02',),
+               '15': ('levels-recordings-20261018-19/s87/route_a15', 'levels-recordings-20261018-19/s87/route_a15b',
+                      'levels-recordings-20261018-25/s87/route_a15b'),
+               '03': ('levels-recordings-20261018-26/s87/route_a03',),
                '19': ('levels-recordings-20261018-10/s87/route_a19', 'levels-recordings-20261018-13/s87/route_a19b',
                       'levels-recordings-20261018-14/s87/route_a19c', 'levels-recordings-20261018-17/s87/route_a19c'),
                '19s1': ('levels-recordings-20261018-17/s87/route_a19c', 'levels-recordings-20261018-19/s87/route_a19d')}

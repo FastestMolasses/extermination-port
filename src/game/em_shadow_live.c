@@ -65,12 +65,9 @@ static struct {
     unsigned receiver_area, receiver_subarea;
     int receiver_selected;
     EmModel proxy, proxy_29;               /* D_0028A490[0x28] (the player), [0x29] (Roger) */
-    EmModel proxy_2a;                      /* D_0028A490[0x2A] (AREA04's NPC [2]), loaded at first use */
-    int proxy_2a_tried;
-    EmModel proxy_34;                      /* D_0028A490[0x34] (event [3]'s script actor), loaded at first use */
-    int proxy_34_tried;
-    EmModel proxy_30;                      /* D_0028A490[0x30] (AREA19's script actor), loaded at first use */
-    int proxy_30_tried;
+    /* D_0028A490[0x2A .. 0x34] (the NPCs and script actors), loaded at first use */
+    EmModel proxy_npc[EM_SHADOW_LIVE_KIND_NPC_LAST - EM_SHADOW_LIVE_KIND_NPC_FIRST + 1];
+    uint8_t proxy_npc_tried[EM_SHADOW_LIVE_KIND_NPC_LAST - EM_SHADOW_LIVE_KIND_NPC_FIRST + 1];
     uint8_t *elf;                               /* the D_0025DAE0 window, placed */
     EmShadowActorRouteTables route_tables;
     /* D_00817FF0 (BSS: zero at boot; never reset). */
@@ -211,6 +208,9 @@ int em_shadow_live_select_area(unsigned area, unsigned subarea)
     /* --profile 19 / 19s1 */
     if (area == 0x13 && subarea == 0) path = "assets/levels/19/sub0/shadow_receivers.emsr";
     if (area == 0x13 && subarea == 1) path = "assets/levels/19s1/sub1/shadow_receivers.emsr";
+    if (area == 0x0F && subarea == 0) path = "assets/levels/15/sub0/shadow_receivers.emsr";
+    if (area == 0x0F && subarea == 1) path = "assets/levels/15/sub1/shadow_receivers.emsr";
+    if (area == 3 && subarea == 0) path = "assets/levels/03/sub0/shadow_receivers.emsr";
     if (!path || S.fault) return -1;
     for (u32 k = 0; k < S.pass_count; ++k)
         if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;
@@ -342,50 +342,25 @@ static const EmModel *proxy_of(int32_t kind)
 {
     if (kind == EM_SHADOW_ORIGINAL_KIND_PLAYER) return &S.proxy;
     if (kind == EM_SHADOW_LIVE_KIND_ROGER) return &S.proxy_29;
-    if (kind == EM_SHADOW_LIVE_KIND_2A) {
-        /* AREA04's NPC [2] (0x824320, +0x96 = 0x2A, 20 nodes): the chunk03
-         * file id 0x2A (export_shadow_proxy.py --kind 0x2A), loaded the
+    if (kind >= EM_SHADOW_LIVE_KIND_NPC_FIRST && kind <= EM_SHADOW_LIVE_KIND_NPC_LAST) {
+        /* The NPCs' and script actors' kinds (AREA04's NPC [2] 0x2A, its event
+         * [3] script actor 0x34, AREA15's 0x2A .. 0x2F): the chunk03 file id
+         * of the kind (../Extermination/tools/export_shadow_proxy.py --kind;
+         * the area's RAM holds that file at D_0028A490[kind]), loaded the
          * first time an actor of that kind draws its silhouette. */
-        if (!S.proxy_2a_tried) {
-            S.proxy_2a_tried = 1;
-            if (em_model_load(&S.proxy_2a, EM_SHADOW_LIVE_PROXY_2A_PATH) != 0 || !S.proxy_2a.verts ||
-                !S.proxy_2a.indices || S.proxy_2a.index_count % 3) {
+        const unsigned k = (unsigned)kind - EM_SHADOW_LIVE_KIND_NPC_FIRST;
+        if (!S.proxy_npc_tried[k]) {
+            char path[64];
+            snprintf(path, sizeof path, "assets/npc%02x_shadow.emdl", (unsigned)kind);
+            S.proxy_npc_tried[k] = 1;
+            if (em_model_load(&S.proxy_npc[k], path) != 0 || !S.proxy_npc[k].verts ||
+                !S.proxy_npc[k].indices || S.proxy_npc[k].index_count % 3) {
                 fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
-                                "export_shadow_proxy.py --kind 0x2A)\n", EM_SHADOW_LIVE_PROXY_2A_PATH);
-                memset(&S.proxy_2a, 0, sizeof S.proxy_2a);
+                                "export_shadow_proxy.py --kind 0x%X)\n", path, (unsigned)kind);
+                memset(&S.proxy_npc[k], 0, sizeof S.proxy_npc[k]);
             }
         }
-        return S.proxy_2a.verts ? &S.proxy_2a : NULL;
-    }
-    if (kind == EM_SHADOW_LIVE_KIND_34) {
-        /* The 19-node script actor (+0x96 = 0x34) that AREA04's event [3]
-         * script 0x828450 places (a04b_03): the chunk03 file id 0x34
-         * (export_shadow_proxy.py --kind 0x34; the a04b_03 end RAM's
-         * D_0028A490[0x34] holds that file), loaded at first use. */
-        if (!S.proxy_34_tried) {
-            S.proxy_34_tried = 1;
-            if (em_model_load(&S.proxy_34, EM_SHADOW_LIVE_PROXY_34_PATH) != 0 || !S.proxy_34.verts ||
-                !S.proxy_34.indices || S.proxy_34.index_count % 3) {
-                fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
-                                "export_shadow_proxy.py --kind 0x34)\n", EM_SHADOW_LIVE_PROXY_34_PATH);
-                memset(&S.proxy_34, 0, sizeof S.proxy_34);
-            }
-        }
-        return S.proxy_34.verts ? &S.proxy_34 : NULL;
-    }
-    if (kind == EM_SHADOW_LIVE_KIND_30) {
-        /* The 19-node script actor (+0x96 = 0x30) of AREA19's scripts
-         * (a19c_01): the chunk03 file id 0x30, loaded at first use. */
-        if (!S.proxy_30_tried) {
-            S.proxy_30_tried = 1;
-            if (em_model_load(&S.proxy_30, EM_SHADOW_LIVE_PROXY_30_PATH) != 0 || !S.proxy_30.verts ||
-                !S.proxy_30.indices || S.proxy_30.index_count % 3) {
-                fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
-                                "export_shadow_proxy.py --kind 0x30)\n", EM_SHADOW_LIVE_PROXY_30_PATH);
-                memset(&S.proxy_30, 0, sizeof S.proxy_30);
-            }
-        }
-        return S.proxy_30.verts ? &S.proxy_30 : NULL;
+        return S.proxy_npc[k].verts ? &S.proxy_npc[k] : NULL;
     }
     return NULL;
 }
@@ -734,15 +709,12 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
 {
     if (S.fault) return -1;
     if (!S.bound) return fail(0x001DA6A0u, "the shadow is not bound");
-    /* 21 nodes (the player, Roger), AREA04's 20-node kind 0x2A actor or its
-     * 19-node kind 0x34 script actor. */
+    /* 21 nodes (the player, Roger), or the 19 / 20 of an NPC or script actor. */
     const uint32_t kind = bytes && size >= 0x100u ? rd32(bytes + 0x94) >> 16 : 0;
     if (!bytes || size < 0x100u || !nodes || !node_count || node_count > NODES ||
-        (node_count != NODES && !(node_count == 20u && kind == EM_SHADOW_LIVE_KIND_2A) &&
-         !(node_count == 19u && (kind == EM_SHADOW_LIVE_KIND_34 || kind == EM_SHADOW_LIVE_KIND_30)))) {
-        fprintf(stderr, "shadow: actor %08X kind %X nodes %u\n", (unsigned)record, (unsigned)kind, (unsigned)node_count);
+        (node_count != NODES && !(node_count >= 19u && kind >= EM_SHADOW_LIVE_KIND_NPC_FIRST &&
+                                  kind <= EM_SHADOW_LIVE_KIND_NPC_LAST)))
         return fail(0x001DA6A0u, "an actor record or its node records are not mapped");
-    }
     for (unsigned i = 0; i < NODES; ++i) {
         if (i < node_count && !nodes[i]) return fail(0x001DA6A0u, "an actor node record is not mapped");
         S.nodes[i] = i < node_count ? nodes[i] : NULL;

@@ -32,10 +32,12 @@ static int supported(void)
      * export_player_texture_variants.py); AREA11 has none: the player's
      * infection cannot reach it. */
     if ((S.mode || S.costume) && !((S.area == 0x16u || S.area == 6u || S.area == 1u || S.area == 4u ||
-                                    S.area == 0u || S.area == 2u || S.area == 0x13u) && S.mode <= 2u && S.costume <= 2u))
+                                    S.area == 0u || S.area == 2u || S.area == 0x0Fu || S.area == 3u ||
+                                    S.area == 0x13u) && S.mode <= 2u && S.costume <= 2u))
         return 0;
-    return ((S.area == 0u || S.area == 2u || S.area == 0x13u) && S.subarea <= 1u) ||
-           (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u));
+    return ((S.area == 0u || S.area == 2u || S.area == 0x0Fu || S.area == 0x13u) && S.subarea <= 1u) ||
+           (S.subarea == 0u && (S.area == 11u || S.area == 1u || S.area == 4u || S.area == 0x16u || S.area == 6u ||
+                                S.area == 3u));
 }
 
 static int fail(const char *what, const char *path)

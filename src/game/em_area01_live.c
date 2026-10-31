@@ -287,6 +287,13 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return contains(a,n,D81F970_BASE,D81F970_SIZE) ? s_d81F970+(a-D81F970_BASE) : NULL;
     if(overlaps(a,n,D2668A0_BASE,D2668A0_SIZE))
         return contains(a,n,D2668A0_BASE,D2668A0_SIZE) && d2668A0() ? s_d2668A0+(a-D2668A0_BASE) : NULL;
+    /* D_00275CA0: the car's side AREA03's lift scripts toggle (0x826860, a
+     * boot word the owners 0x825430 / 0x8256E0 read; its ride callback
+     * 0x826270). */
+    if(overlaps(a,n,0x00275CA0u,8)) {
+        static uint32_t d275CA0[2];   /* and D_00275CA4, the ride's second word */
+        return contains(a,n,0x00275CA0u,8) ? (uint8_t *)d275CA0+a-0x00275CA0u : NULL;
+    }
     if(overlaps(a,n,0x00275C00u,4))
         return l->active && contains(a,n,0x00275C00u,4)
             ? (uint8_t *)&l->d275C00+a-0x00275C00u : NULL;
@@ -504,6 +511,7 @@ static int model_function(uint32_t fn)
     case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
     case 0x001C63D0u: /* 001BE6C0 (AREA01's way back, a01v) */
     case 0x001C9940u: /* 001C6910's tail (em_level12_port) */
+    case 0x001CA5F0u: /* AREA15's 0x826850 */
         return 1;
     default:return 0;
     }
@@ -1177,6 +1185,17 @@ static int worker(void *ctx,EmArea01Call *c)
         if(a && em_area11_boxes_owner_view(a)) {
             if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
             int rc=em_area11_boxes_owner_001CA5E0(a,c->a[1],c->function==0x001CA6E0u ? 0u : c->a[2]);
+            if(em_area01_live_resume(l)<0)return -1;
+            c->v0=0;return rc<0 ? -1 : 0;
+        }
+    }
+    if(c->function==0x001CA5F0u && c->na>=2) {
+        /* 001CA5F0(owner, kind) on a typed shared owner (AREA15's 0x826850,
+         * state 0): +0x4C, as above. */
+        EmActor *a=actor(l,c->a[0]);
+        if(a && em_area11_boxes_owner_view(a)) {
+            if(em_area01_actor_view_touch(&l->actors,c->a[0])<0 || em_area01_live_suspend(l)<0)return -1;
+            int rc=em_area11_boxes_owner_001CA5F0(a,c->a[1]);
             if(em_area01_live_resume(l)<0)return -1;
             c->v0=0;return rc<0 ? -1 : 0;
         }

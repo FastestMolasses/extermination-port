@@ -126,9 +126,11 @@ static int rv_001BAC00(EmArea01Runtime *r, EmArea01Call *c)
     const uint8_t *self14 = bytes(r, owner + 0x14u, 4, 0);
     /* The placement lists and their records lie in the overlay's data
      * (AREA01's 0x828A00..0x82CD00; AREA04's 0x826600..0x82C900, its
-     * arrival script 0x8275A0's op14; AREA19's 0x829E00..0x82F880). */
-    const uint32_t lo = r->area == 4 ? 0x00826600u : r->area == 0x13 ? 0x00829E00u : 0x00828A00u,
-                   hi = r->area == 4 ? 0x0082C900u : r->area == 0x13 ? 0x0082F880u : 0x0082CD00u;
+     * arrival script 0x8275A0's op14). */
+    uint32_t lo = r->area == 4 ? 0x00826600u : 0x00828A00u, hi = r->area == 4 ? 0x0082C900u : 0x0082CD00u;
+    if (r->area == 0x0F) { lo = 0x00826980u; hi = 0x00829F00u; }   /* AREA15's data */
+    if (r->area == 3) { lo = 0x00826900u; hi = 0x00829100u; }      /* AREA03's */
+    if (r->area == 0x13) { lo = 0x00829E00u; hi = 0x0082F880u; }   /* AREA19's */
     const uint8_t *data = bytes(r, lo, hi - lo, 0);
     if (!rec || !self14 || !data) return fail(r, c->function);
     uint8_t record_bytes[0x18];
@@ -544,7 +546,9 @@ static int rv_ring_001F4010(EmArea01Runtime *r, EmArea01Call *c)
 /* Returns 1 when `function` is one of these entries (*rc set), else 0. */
 static int dispatch_revisit(EmArea01Runtime *r, EmArea01Call *c, int *rc)
 {
-    if (r->area != 1) return 0;
+    /* The boot workers below serve the later areas too (AREA15's sub 1 event
+     * and creature); the overlay entries are AREA01's alone. */
+    if (r->area != 1 && !((r->area == 0x0F || r->area == 3) && c->function < 0x00823500u)) return 0;
     const uint32_t a0 = (uint32_t)c->a[0], a1 = (uint32_t)c->a[1];
     int32_t result = 0;
     switch (c->function) {

@@ -23,13 +23,25 @@ typedef struct {
     int (*w_00131ED0)(void *ctx, uint32_t a0);
     int (*w_00131F20)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00132490)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_0013D600)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_00140760)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001408D0)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_00140A90)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_00140C30)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_00140F80)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001418F0)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_0019AB20)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, int32_t *result);
+    int (*w_001AFC10)(void *ctx, uint32_t a0);
+    int (*w_001B0D80)(void *ctx, uint32_t a0, int32_t *result);
     int (*w_001B10B0)(void *ctx, uint32_t a0, int32_t a1, int32_t a2, int32_t *result);
+    int (*w_001B1190)(void *ctx, int32_t a0);
     int (*w_001B13F0)(void *ctx, float a0, uint32_t a1, uint32_t a2, int32_t *result);
     int (*w_001B1560)(void *ctx, uint32_t a0, uint32_t a1, float a2, int32_t *result);
     int (*w_001B17A0)(void *ctx, uint32_t a0, int32_t *result);
+    int (*w_001B2140)(void *ctx, uint32_t a0, int32_t *result);
     int (*w_001B3250)(void *ctx, uint32_t a0, uint32_t a1, float a2, int32_t *result);
     int (*w_001B4CF0)(void *ctx, uint32_t a0);
+    int (*w_001B5360)(void *ctx, uint32_t a0);
     int (*w_001C63E0)(void *ctx, uint32_t a0, int32_t a1);
     int (*w_001C64F0)(void *ctx, uint32_t a0, float a1, int32_t *result);
     int (*w_001C67E0)(void *ctx, uint32_t a0, int32_t a1, float a2, float a3);
@@ -44,6 +56,12 @@ int em_level15_creatures_0012F6C0(const EmLevel15CreaturesHooks *h, uint32_t a0,
 int em_level15_creatures_0013D490(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault);
 int em_level15_creatures_00141A30(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, int32_t *result, EmLevel15CreaturesFault *fault);
 int em_level15_creatures_00153B50(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault);
+/* AREA03 sub 0's creature (byte-matched decomp C). */
+int em_level15_creatures_0013D2D0(const EmLevel15CreaturesHooks *h, uint32_t a0, EmLevel15CreaturesFault *fault);
+int em_level15_creatures_0013D850(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault);
+int em_level15_creatures_00140690(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault);
+int em_level15_creatures_00140C00(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault);
+int em_level15_creatures_00141C90(const EmLevel15CreaturesHooks *h, uint32_t a0, uint32_t a1, EmLevel15CreaturesFault *fault);
 #ifdef __cplusplus
 }
 #endif

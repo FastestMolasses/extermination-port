@@ -5,7 +5,7 @@ only: five exporters (`tools/export_area15_common.py`, `_level.py`,
 `_tables.py`, `_sfx.py`, `_split.py`), one checker
 (`tools/test_area15_assets_reference.py`) and this document. It changes no
 port source, no tracked port file, no earlier exporter or checker and no
-decomp file, and nothing it adds is wired into the game. Every exported
+decomp file. Lane K1 wired these exports into the game (docs/AREA15_PORT.md). Every exported
 byte comes from the user's own disc files and ELF and is written into the
 ignored `assets/area15/` (and the ignored scratch `build/area15/`). Nothing
 was run in PCSX2.

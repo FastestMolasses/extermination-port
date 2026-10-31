@@ -35,7 +35,7 @@ D_00810813 = 1 the director's beat 0 waits for.
 - Translated here (decomp C, checked against the original instructions by the
   oracle): 001B8FC0 op00 kinds 0–7, 9, 10 (sine ease on kind 1); 001B94F0 op01
   kinds 0–7, 9, 10; 001B9BA0 op02; 001B9C10 op04; 001BA080 op06; 001B99F0 op09
-  (record callback); 001B9A00 op0A subs 0–7; 001B8020 op0B subs 0–4, 6 and every
+  (record callback); 001B9A00 op0A subs 0–7; 001B8020 op0B subs 0–6 and every
   value outside 0..6 (sub 6's 001FBD50 cue falls into sub 0's clip init; census
   L18; since 2026-10-19 subs 2 and 3, the AREA00 owner 00823580's records
   008285E0 / 00828660: st +0x0E = 001C64F0(owner, rec +0x0C) through the new
@@ -55,7 +55,7 @@ D_00810813 = 1 the director's beat 0 waits for.
 - **Not admitted (fault):** opcodes 03, 05, 08, 0E, 11–13, 17, 19, 1A; op00/op01
   kind 8 (settle/orbit: 0018C6A0/0018C4B0/0011DE90; `em_pickup_camera_settle`
   is the module to delegate op00 kind 8 to when a script needs it); op0A sub8
-  (001798D0); op0B sub 5 (bone_init_default_2); out-of-range kinds. Of the AREA11
+  (001798D0); out-of-range kinds. Of the AREA11
   first-visit scripts only the pickup grab programs use them (op0E sub1 and
   op00 kind 8; the battery runs 0x266620, section 2). Those programs stay on
   `em_pickup_program`, which translates both. op14 (001BAC00 spawn) is used only

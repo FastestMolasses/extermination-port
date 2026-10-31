@@ -240,6 +240,13 @@ from New Game:
   row 0): the native stream leaves a01_s5 at another state, and the burn's
   reaction draws rand() & 1 for its clip.
 
+**2026-10-30, lane K1 (branch `area15`): AREA15 and AREA03 from start cards.**
+AREA15 subs 0 / 1 and AREA03 sub 0 run in the shared composition: state, owners,
+scripts, assets, start points `area15`, `a15_00`, `a15b_00` .. `a15b_04`,
+`a03_00`. a15a_00, a15b_00..03 and a03_00 end on their recordings' blocks; a15_00
+and a15b_04 stop at AREA19's load. Evidence, shared changes and open items:
+docs/AREA15_PORT.md.
+
 **2026-10-30, lane B1 (branch `a02-exit`): a02_05 row-exact, door [25]
 into AREA04 to control.** From New Game the whole-run checker passes 50
 live phases through a02_05 (`--run --until a02_05`; `a02_05: PASS 1726

@@ -127,6 +127,8 @@ int em_rcl_bound(void);
  * read-only view at its original address. 0, or -1 (missing or malformed:
  * reported). */
 int em_rcl_static_world_load(const char *path);
+/* The .data block alone, once (an area's background in a loaded game). */
+int em_rcl_static_world_block_load(const char *path);
 int em_rcl_static_world_loaded(void);
 /* The static-object bank of an area whose bank is not the export's: `size`
  * bytes at the original `address` (D_0028A5A0's), as the area load

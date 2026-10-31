@@ -233,6 +233,13 @@ def verify_surface(data, paths):
     return owners
 
 
+# AREA15 / AREA03 (lane K1): the areas' rows of the registries D_0024A850
+# (halfwords), D_0024D7C0, D_0024D820 and AREA15's per-sub words they name
+# (the list pointers D_002759E8..F7, the pairs D_002759F8 / D_00275A00).
+AREA15_WINDOWS = ((0x0024A86E, 2), (0x0024D7FC, 4), (0x0024D85C, 4), (0x002759E8, 0x20),
+                  (0x0024A856, 2), (0x0024D7CC, 4), (0x0024D82C, 4))
+
+
 def blocks(elf):
     if hashlib.sha256(elf).hexdigest() != E.ELF_SHA256:
         raise ValueError('Not the pinned SCUS-97112 boot ELF')
@@ -240,7 +247,7 @@ def blocks(elf):
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
                *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS, *MID_WINDOWS,
-               *AREA19_WINDOWS)
+               *AREA15_WINDOWS, *AREA19_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -316,7 +323,7 @@ def verify_preserved(previous, data):
     if len(previous) < 16:
         raise ValueError('Truncated existing effect export')
     magic, version, count, _ = struct.unpack_from('<4s3I', previous)
-    if magic != b'EMET' or version != 1 or not 0 < count <= 128 or 16 + 16 * count > len(previous):
+    if magic != b'EMET' or version != 1 or not 0 < count <= 192 or 16 + 16 * count > len(previous):
         raise ValueError('Invalid existing effect export')
     expected, seen = dict(data), set()
     for index in range(count):
@@ -356,6 +363,25 @@ def verify_mid_windows(wanted, decomp):
     return seen
 
 
+def verify_area15_windows(wanted, decomp):
+    """The AREA15 / AREA03 windows equal the bytes of their areas' fork snapshots."""
+    root = decomp / 'build/fork_refs'
+    paths = []
+    for group in ('levels-recordings-20261018-19/s87/route_a15', 'levels-recordings-20261018-19/s87/route_a15b',
+                  'levels-recordings-20261018-25/s87/route_a15b', 'levels-recordings-20261018-26/s87/route_a03'):
+        paths += sorted((root / group).glob('*/eeMemory.bin'))
+    seen = 0
+    for path in paths:
+        ram = path.read_bytes()
+        for address, size in AREA15_WINDOWS:
+            if ram[address:address + size] != bytes(wanted[address]):
+                raise ValueError(f'{path.parent.name}: AREA15 window {address:#x} differs from the ELF')
+        seen += 1
+    if not seen:
+        raise ValueError('no AREA15 capture')
+    return seen
+
+
 def verify_area19_windows(wanted, decomp):
     """AREA19's windows equal every AREA19 fork snapshot's bytes."""
     root = decomp / 'build/fork_refs'
@@ -389,6 +415,7 @@ def main():
     count = verify_windows(data, paths)
     verify_area02_windows(dict(data), args.decomp)
     verify_mid_windows(dict(data), args.decomp)
+    verify_area15_windows(dict(data), args.decomp)
     verify_area19_windows(dict(data), args.decomp)
     output = args.out.absolute()
     if output.is_symlink() or any(parent.is_symlink() for parent in output.parents):

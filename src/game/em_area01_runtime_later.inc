@@ -654,6 +654,17 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         has = 1;
         break;
     }
+    case 0x0013D2D0u: {
+        EmLevel15CreaturesHooks h;
+        EmLevel15CreaturesFault f = {0, 0};
+        if (c->na < 1u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        m15_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_level15_creatures_0013D2D0(&h, (uint32_t)c->a[0], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
     case 0x0013D490u: {
         EmLevel15CreaturesHooks h;
         EmLevel15CreaturesFault f = {0, 0};
@@ -668,10 +679,43 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
     case 0x0013D600u: {
         EmLevel15MotionHooks h;
         EmLevel15MotionFault f = {0, 0};
-        if (c->na < 3u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
         m15m_hooks(r, &h);
         r->sp = c->sp - 0x30u - EIGHTH_NEST;
-        rc = em_level15_motion_0013D600(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], &f);
+        rc = em_level15_motion_0013D600(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], c->sp, &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
+    case 0x0013D850u: {
+        EmLevel15CreaturesHooks h;
+        EmLevel15CreaturesFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        m15_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_level15_creatures_0013D850(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
+    case 0x00140690u: {
+        EmLevel15CreaturesHooks h;
+        EmLevel15CreaturesFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x30u + EIGHTH_NEST) goto refused;
+        m15_hooks(r, &h);
+        r->sp = c->sp - 0x30u - EIGHTH_NEST;
+        rc = em_level15_creatures_00140690(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
+        where = f.address;
+        code = f.code;
+        break;
+    }
+    case 0x00140C00u: {
+        EmLevel15CreaturesHooks h;
+        EmLevel15CreaturesFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x20u + EIGHTH_NEST) goto refused;
+        m15_hooks(r, &h);
+        r->sp = c->sp - 0x20u - EIGHTH_NEST;
+        rc = em_level15_creatures_00140C00(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
         where = f.address;
         code = f.code;
         break;
@@ -679,10 +723,10 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
     case 0x00140C30u: {
         EmLevel15MotionHooks h;
         EmLevel15MotionFault f = {0, 0};
-        if (c->na < 3u || c->nf < 0u || c->sp < 0x70u + EIGHTH_NEST) goto refused;
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x70u + EIGHTH_NEST) goto refused;
         m15m_hooks(r, &h);
         r->sp = c->sp - 0x70u - EIGHTH_NEST;
-        rc = em_level15_motion_00140C30(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2], &f);
+        rc = em_level15_motion_00140C30(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], c->sp, &f);
         where = f.address;
         code = f.code;
         break;
@@ -719,6 +763,17 @@ static int dispatch_later(EmArea01Runtime *r, EmArea01Call *c, int *out)
         where = f.address;
         code = f.code;
         has = 1;
+        break;
+    }
+    case 0x00141C90u: {
+        EmLevel15CreaturesHooks h;
+        EmLevel15CreaturesFault f = {0, 0};
+        if (c->na < 2u || c->nf < 0u || c->sp < 0x0u + EIGHTH_NEST) goto refused;
+        m15_hooks(r, &h);
+        r->sp = c->sp - 0x0u - EIGHTH_NEST;
+        rc = em_level15_creatures_00141C90(&h, (uint32_t)c->a[0], (uint32_t)c->a[1], &f);
+        where = f.address;
+        code = f.code;
         break;
     }
     case 0x00141D20u: {

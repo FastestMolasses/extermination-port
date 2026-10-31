@@ -69,6 +69,10 @@ In-game text (messages, captions, page entries) is described, never
 quoted. Positions are world units; yaw is the player's +0xC4 (X = sin, Z =
 cos).
 
+**Native status (lane K1, 2026-10-30).** a15b_00..03 and a03_00 play from their
+start cards and end on these recordings' blocks; a15b_04 plays to door [14],
+the a19e beats are lane J1's. docs/AREA15_PORT.md has the table and the rows.
+
 ## 1. Tool, outputs and conventions
 
 ```sh
