@@ -138,6 +138,17 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a15b_03` | AREA15 sub 0 | After the two conversations | The slider and the bed |
 | `a15b_04` | AREA15 sub 0 | At the bed | The slider and door [14] to the stair tower (AREA19's load) |
 | `a03_00` | AREA03 sub 0 | Entry 1, through AREA19's door [25] | The lift's outer button, the car, the ride down |
+| `a03b_00` | AREA03 sub 0 | At the lift's foot | Past the creatures round the beam, door [13] to sub 1 |
+| `a03b_01`, `a03b_02` | AREA03 sub 1 | Entry 1, then room A | The ducts west and east, to [22]'s room |
+| `a03b_03` | AREA03 sub 1 | [22]'s room | g[3], [22]'s long script, items 0x2A and 0x12 |
+| `a03b_04`, `a03b_05` | AREA03 sub 1 | [22]'s room | Back through the ducts, the curtains, the slider to sub 2 |
+| `a03b_06` | AREA03 sub 2 | Entry 0 | The lift's buttons, the ride to AREA08's load |
+| `a03c_00` | AREA03 sub 2 | Entry 1, at the lift | The slider to sub 1 |
+| `a03c_01` | AREA03 sub 1 | Entry 6 | The curtains, door [26], the duct to the mouth |
+| `a03c_02`, `a03c_03` | AREA03 sub 1 | The mouth | The seal [23], door [24] to AREA04 sub 1 (first line) |
+| `a03d_00`, `a03d_01` | AREA03 sub 1 | The mouth | The seal, door [24]: the line that goes on to AREA07 |
+| `a04c_00` .. `a04c_02` | AREA04 sub 1 | Entry 2, on the balcony | The event, item 0x1E, the north room, the lift (first line) |
+| `a04d_00` .. `a04d_02` | AREA04 sub 1 | Entry 2, on the balcony | The same, with item 0x1E kept: the lift to AREA07 |
 | `area19`, `a19_01`, `a19_02` | AREA19 sub 0 | The foot of the ladder under AREA13's hatch, then the room behind door [32] | The duct, the pickup, the duct back |
 | `a19b_01`, `a19b_02` | AREA19 sub 0 | Entry 10's side | The ledge, the ladder |
 | `a19c_00` .. `a19c_07` | AREA19 sub 0, then sub 1 | Where each beat of the way to door [52] starts | The bars, the slide, the walkway, door [27], the ladder, door [52] |

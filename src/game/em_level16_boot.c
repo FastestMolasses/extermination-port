@@ -8,7 +8,18 @@
 #define WB(a,v) l16b_w8(o,(a),(v))
 #define WH(a,v) l16b_w16(o,(a),(v))
 #define F(v) l16b_bits(v)
+#define NEG(v) em_ee_neg_bits(v)
 #define C(fn,...) do { if (l16b_c_##fn(o, __VA_ARGS__)) return 0; } while (0)
+
+/* The originals' struct copies move doublewords. */
+static uint64_t l16b_u64(L16B *o, uint32_t a)
+{
+    uint64_t v;
+    memcpy(&v, l16b_at(o, a, 8), 8);
+    return v;
+}
+
+static void l16b_w64(L16B *o, uint32_t a, uint64_t v) { memcpy(l16b_at(o, a, 8), &v, 8); }
 
 /* The turn toward a target direction: the angle between the actor's forward
  * and the flattened direction decides 001B1380 at the actor, or 001B39F0 from
@@ -129,11 +140,11 @@ static int32_t e001BD460(L16B *o, uint32_t rec)
     }
     table = R(0x275B40);
     f14 = R(rec + 0x14);
-    W(R(table + 4) + 0x7C, f14 ^ 0x80000000u);
+    W(R(table + 4) + 0x7C, NEG(f14));
     table = R(0x275B40);
     f10 = R(rec + 0x10);
     f14 = R(rec + 0x14);
-    W(R(table + 8) + 0x7C, L16B_SUB(f10 ^ 0x80000000u, f14));
+    W(R(table + 8) + 0x7C, L16B_SUB(NEG(f10), f14));
     table = R(0x275B40);
     f10 = R(rec + 0x10);
     f14 = R(rec + 0x14);
@@ -265,11 +276,11 @@ int em_level16_boot_001B3C30(const EmLevel16BootHooks *h, uint32_t a0, uint32_t 
 /* The seal (AREA03's [23]): the lock bit by the area byte, cut by any hit. */
 static uint32_t e00158430(L16B *o, uint32_t self)
 {
-    const uint32_t bit = 0x810841u + B(0x810700);
     int32_t r = 0;
     switch (B(self + 4)) {
-    case 0:
-        if (B(bit) & ((1u << l16b_u16(o, self + 0x2E)) & 0xFF)) {
+    case 0: {
+        const uint32_t area = B(0x810700), bit = l16b_u16(o, self + 0x2E);
+        if (B(0x810841u + area) & ((1u << bit) & 0xFF)) {
             WB(self + 4, 3);
             break;
         }
@@ -280,11 +291,13 @@ static uint32_t e00158430(L16B *o, uint32_t self)
             C(001F1110, self, 2);
         }
         break;
+    }
     case 1:
         if (SH(self + 0x36)) {
             WB(self, 2);
             WB(self + 4, 2);
-            WB(0x810841u + B(0x810700), B(0x810841u + B(0x810700)) | (1u << B(self + 0x2E)));
+            const uint32_t at = 0x810841u + B(0x810700), bit = B(self + 0x2E);
+            WB(at, B(at) | (1u << bit));
             WB(0x810845, B(0x810845) | 4);
             C(001FB9F0, 0x3F1, 0x1000, 0x1000, 0x1000, &r);
         }
@@ -398,7 +411,7 @@ static uint32_t a03_823810(L16B *o, uint32_t self)
             }
             break;
         case 1:
-            if (B(0x810781) == 0xFF) WB(self + 4, B(self + 4) + 1);
+            if (B(0x810781) == 0xFF) WB(self + 4, state + 1);
             break;
         default:
             break;
@@ -424,7 +437,9 @@ static uint32_t a03_825200(L16B *o, uint32_t src, uint32_t sp)
     const uint32_t v = sp - 0x10u;
     C(001AFA90, 0xC, &n);
     if (n) {
-        W(v, R(0x8282C0)); W(v + 4, R(0x8282C4)); W(v + 8, R(0x8282C8)); W(v + 0xC, R(0x8282CC));
+        const uint64_t lo = l16b_u64(o, 0x8282C0), hi = l16b_u64(o, 0x8282C8);
+        l16b_w64(o, v, lo);
+        l16b_w64(o, v + 8, hi);
         C(00102948, n + 0xB0, src + 0x30);
         C(00102958, n + 0xD0, src);
         C(001026A0, n + 0x100, n + 0xD0, v);
@@ -440,7 +455,9 @@ static uint32_t a04_825040(L16B *o, uint32_t self, uint32_t sp)
 {
     const uint32_t area = sp - 0x40u, blk = self + 0x1F0;
     int32_t r = 0;
-    for (uint32_t k = 0; k < 0x40; k += 4) W(area + k, R(0x829530 + k));
+    uint64_t polygon[8];
+    for (uint32_t k = 0; k < 8; ++k) polygon[k] = l16b_u64(o, 0x829530 + k * 8);
+    for (uint32_t k = 0; k < 8; ++k) l16b_w64(o, area + k * 8, polygon[k]);
     switch (B(self + 5)) {
     case 0:
         C(001B1EA0, 0, 0x810350, area, 4, &r);
@@ -547,8 +564,9 @@ static uint32_t a04_824EF0(L16B *o, uint32_t self, uint32_t sp)
 static int32_t a04_825280(L16B *o)
 {
     if (L16B_LT(R(0x810350), F(552.0f))) return 1;
-    if (L16B_LT(F(279.0f), R(0x810358))) return 1;
-    if (L16B_LT(R(0x810358), F(235.0f))) return 1;
+    const uint32_t z = R(0x810358);
+    if (L16B_LT(F(279.0f), z)) return 1;
+    if (L16B_LT(z, F(235.0f))) return 1;
     return 0;
 }
 
@@ -568,19 +586,20 @@ static uint32_t a04_825310(L16B *o, uint32_t self)
         case 0:
             C(001BA1C0, self, 0x31, &r);
             if (r) {
-                if (B(room) == 0 && B(0x70003B8D) != 4 && !(B(seen) & 1)) {
+                const uint32_t where = B(room);
+                if (where == 0 && B(0x70003B8D) != 4 && !(B(seen) & 1)) {
                     C(001BA1A0, blk, 0x829570);
                     WB(self + 5, 1);
                     WB(seen, B(seen) | 1);
                     return 0;
                 }
-                if (B(room) == 2 && B(0x70003B8D) != 4 && !(B(seen) & 2)) {
+                if (where == 2 && B(0x70003B8D) != 4 && !(B(seen) & 2)) {
                     C(001BA1A0, blk, 0x829930);
                     WB(self + 5, 1);
                     WB(seen, B(seen) | 2);
                     return 0;
                 }
-                if (B(room) == 7 && a04_825280(o) && !(B(seen) & 4)) {
+                if (where == 7 && a04_825280(o) && !(B(seen) & 4)) {
                     C(001BA1A0, blk, 0x829CF0);
                     WB(self + 5, 1);
                     WB(seen, B(seen) | 4);

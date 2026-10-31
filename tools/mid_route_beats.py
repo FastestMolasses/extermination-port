@@ -339,8 +339,8 @@ def source_rand(beat):
 RESTORE = {'a08_01', 'a08_02', 'a08_03'}
 # The same anchor for the creatures of the sixteenth and seventeenth levels'
 # single beats; the steering stays (a card's camera is not the recording's).
-RESTORE_STEERED = {'a03b_01', 'a03b_02', 'a03b_03', 'a03b_04', 'a03b_05', 'a03c_01', 'a03c_02', 'a03c_03', 'a03d_00',
-                   'a03d_01', 'a04c_01', 'a04c_02', 'a04d_01', 'a04d_02'}
+RESTORE_STEERED = {'a03b_02', 'a03b_03', 'a03b_04', 'a03b_05', 'a03c_02', 'a03c_03', 'a03d_00', 'a04c_01', 'a04c_02',
+                   'a04d_01', 'a04d_02'}
 
 
 def restore_anchor(beat):

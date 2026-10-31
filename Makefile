@@ -2291,6 +2291,14 @@ test-area19-state-reference:
 test-area15-area03-state-reference:
 	python3 tools/test_area15_area03_state_reference.py
 
+.PHONY: test-level16-creature-reference test-level16-beast-reference test-level16-boot-reference
+test-level16-creature-reference:
+	python3 tools/test_level16_creature_reference.py
+test-level16-beast-reference:
+	python3 tools/test_level16_beast_reference.py
+test-level16-boot-reference:
+	python3 tools/test_level16_boot_reference.py
+
 .PHONY: test-area03-arrival-reference
 test-area03-arrival-reference:
 	python3 tools/test_area03_arrival_reference.py
