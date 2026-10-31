@@ -373,6 +373,8 @@ def main():
                     help='collect AREA15\'s treatment pickup before the bed if the earlier recovery consumed it')
     ap.add_argument('--medical-route', type=Path,
                     help='private JSON with collision-planned approach points for the treatment pickup')
+    ap.add_argument('--append', action='store_true',
+                    help='add beats to an existing --out-root: a later beat resumes from an earlier beat of the same root')
     ap.add_argument('--owner-binding', action='append', default=[], metavar='SAMPLER=ANCHOR_BEAT[:INHERIT_SAMPLER]',
                     help='match sampler owners to a recorded fork anchor by unique original placement identity')
     args = ap.parse_args()
@@ -390,7 +392,7 @@ def main():
         medical_identity = {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest()}
     out = private_root(decomp, args.out_root)
     sources = [private_root(decomp, p) for p in args.source_root]
-    out.mkdir(parents=True, exist_ok=False)
+    out.mkdir(parents=True, exist_ok=args.append)
     shutil.copyfile(Path(__file__), out / 'run.py')
     sys.path.insert(0, str(decomp / 'tools'))
     import route_capture as rc
@@ -462,7 +464,9 @@ def main():
         install_idle_wait(rc, waits)
     if args.hang_state_wait:
         install_hang_wait(rc)
-    status = {'state': 'running', 'results': [], 'planned': names,
+    earlier = out / 'progress.json'
+    earlier_results = json.loads(earlier.read_text())['results'] if args.append and earlier.exists() else []
+    status = {'state': 'running', 'results': earlier_results, 'planned': names,
               'idle_state_wait': args.idle_state_wait, 'hang_state_wait': args.hang_state_wait,
               'collect_medical_item': args.collect_medical_item, 'medical_route': medical_identity,
               'source_beats': args.source_beat}
@@ -513,7 +517,7 @@ def main():
                                             'owner_bindings': bindings}
             return meta
 
-        with (out / (name + '.log')).open('x') as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+        with (out / (name + '.log')).open('a' if args.append else 'x') as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
             try:
                 # This returns only after closing the capture session and
                 # checking the saved state in a second owned session.
