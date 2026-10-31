@@ -358,6 +358,10 @@ def raw_rows(traces, lead):
     return ','.join(f'{a}-{b}' for a, b in out[:16])
 
 
+BEAT_MODE = {'a08_02': 'steer', 'a08_03': 'steer', 'a08_04': 'steer', 'a08_06': 'steer', 'a07_00': 'steer',
+             'a07b_00': 'both', 'a07b_03': 'both', 'a07b_07': 'both'}
+
+
 def restore_anchor(beat):
     t = json.loads((beat_dir(beat) / 'trace.json').read_text())
     folder = Path(t['source_state']).resolve().parent
@@ -421,9 +425,10 @@ def run(name, card, beats, timeout):
     raw = raw_rows(traces, LEAD.get(beats[0], 0))
     if raw:
         env['EM_START_AT_RAW'] = raw
-    # EM_MID_ROUTE_MODE: anchor (default: the source's bugs, the rand() table, the
-    # pad alone), both (the anchors and the steering), steer (the steering alone).
-    mode = os.environ.get('EM_MID_ROUTE_MODE', 'anchor')
+    # EM_MID_ROUTE_MODE: anchor (the source's bugs, the rand() table, the pad
+    # alone), both (the anchors and the steering), steer (the steering alone).
+    # Default: BEAT_MODE, each beat's furthest run (docs/AREA08_PORT.md).
+    mode = os.environ.get('EM_MID_ROUTE_MODE') or BEAT_MODE.get(beats[0], 'anchor')
     rands = ROOT / 'build/beat_rands' / f'{beats[0]}.txt'
     if beats[0] in RESTORE and mode != 'steer':
         if len(beats) == 1 and rands.exists():

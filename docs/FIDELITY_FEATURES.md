@@ -2914,6 +2914,23 @@ shooting and knifing anywhere also run without a fault.
   unmeasured VU1 result or an unbound owner each; the tendril field and the worms
   are not drawn.
 
+### AREA08 and AREA07 from their start cards
+
+- What: AREA08 subs 0, 2 and 3 (door [17], the magazine room, the switch, the
+  sliders, the ceilings over the floor that hurts, the flame columns, terminal
+  [2]); AREA07 subs 0, 2 and 3 (door [35], slider [33], switches, the turret, the
+  crawl, terminal [7] with flag 0x25, the way back to the lift).
+- How: the overlays' owners run in the shared composition from translations and the
+  byte-matched C (docs/AREA08_PORT.md).
+- Evidence: original-instruction oracles for the owners
+  (test_area08_route_reference.py, test_area07_route_reference.py,
+  test_area07_probe_reference.py, with the shadow, owner-service and collision
+  oracles they extend); `mid_route_beats.py --single`: the table in
+  docs/AREA08_PORT.md.
+- Status: **PARTIAL**. From cards, nothing row-exact from New Game; a card reloads
+  the bugs, so bites, health and infection differ. AREA08's boxes (001CB1F0) and
+  the infected menu player's glow are not drawn.
+
 ### AREA13's later story from its start cards
 
 - What: the return up AREA19's ladder through hatch [62], the recharger [60], the

@@ -225,7 +225,7 @@ Live bindings are in `em_status_models.c` (section 7).
 | `w_0020EC80`, `w_001AFF90` | publish, free | the translations |
 | `w_001D2040` | GS state packet channel 0 | only (0, 1) before and (0, 0) after a draw |
 | `w_00122BB8` | rand | the **shared** LCG `em_random_next()` (low 31 bits). A value < 0 faults (BAD_RESULT). |
-| `w_001CD520` | the glow sprite | not translated: faults (reached only when D_008104E4 == 1) |
+| `w_001CD520` | the glow sprite | **stand-in: not drawn**, logged once (reached only when D_008104E4 == 1; 001F4BF0's rand draw stays and nothing reads the result) |
 | `w_001FFCD0`, `w_00200360` | loader states 1 and 2 | not bound in the live loader (fault): 001FFCD0 is translated (`em_status_scene_area_001FFCD0`), blocked on 001FB370 (MODULE_LOADER.md section 5); 00200360 is untranslated |
 | `w_00200780`, `w_00200730` | start a read, poll (0 busy, 1 done, other error) | bound: `em_module_loader` (00200780 / 00200730 over the host drive) |
 | `w_00200830` | per-section DMA | bound: `em_module_loader` (00200830; the status runtime is the DMA consumer of module 0x21's chunk) |
