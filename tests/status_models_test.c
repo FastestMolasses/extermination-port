@@ -235,13 +235,12 @@ int main(int argc, char **argv)
         CHECK(record_matches(&pool->record[i], POOL + STRIDE * i));
     em_status_models_free(m, NULL);
 
-    /* A glyph the export does not hold faults (CA6 = 4 adds 0x15 -> 'm'). */
+    /* CA6 = 4 adds 0x15 -> 'm': glyph model 0x6D is in the export. */
     m = em_status_models_load(argv[1]);
     EmStatusModelsInputs other = in;
     other.ca[2] = 4;
     CHECK(m && em_status_models_configure(m) == 1 &&
-          em_status_models_event(m, EM_STATUS_HUB_BUILD_MODELS, 0, &other) == -1);
-    CHECK(em_status_models_fault(m)->address == 0x001C6120u);
+          em_status_models_event(m, EM_STATUS_HUB_BUILD_MODELS, 0, &other) == 1);
     em_status_models_free(m, NULL);
 
     /* D_008104E4 == 1: variant 1's model D_0028A590 binds, and 0020EC80

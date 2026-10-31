@@ -489,7 +489,7 @@ static int w_001026D0(void *ctx, uint32_t out, uint32_t a, uint32_t b)
 }
 
 /* 001026A0(out, m, v): out = v x m. The 'm' marker's vector D_0024A340 is
- * not exported (its glyph model 0x6D is not either). */
+ * not exported. */
 static int w_001026A0(void *ctx, uint32_t out, uint32_t mat, uint32_t v)
 {
     EmStatusModels *m = ctx;
