@@ -17,7 +17,7 @@ steered, and no group here ran from New Game.
 | a03b_00 | no fault, door [13] reached, end position good | end block: health 5 for 65, infection 50 for 30 (steered back into the steam, below) |
 | a03b_01 | fails | the crawl overshoots the junction (557, 735.5) and ends at (582.9, 55, 735.5); health 25 for 45. a03b_02 and a03c_01 cross the same ducts |
 | a03b_02 .. a03b_05 | **pass** | [22]'s script 0x827170, flag 0x29, items, the ducts, the curtains, the slider |
-| a03b_06 | plays to the load | stops at `assets/area08`'s scene (lane P1's assets, absent here) |
+| a03b_06 | **passes** (the lift, AREA08's load, with lane P1's assets) | |
 | a03c_00 | **passes** (chain and card) | |
 | a03c_01 | end position good | end block: health 70 for 90 (a leap the recording does not take) |
 | a03c_02 | not passed | the creatures kill the player: superseded by a03d_00 |
@@ -26,10 +26,10 @@ steered, and no group here ran from New Game.
 | a03d_01 | **passes** from its card (door [24], AREA04 sub 1's load); the chain a03d, which runs on from a03d_00, fails it: the player is bitten at the door and door [24] is not opened | |
 | a04c_00 | fail-stop | see "the held face" |
 | a04c_01 | not passed | the creatures kill the player: superseded by a04d_01 |
-| a04c_02 | plays to the load | stops at `assets/area07`'s scene |
+| a04c_02 | not re-run since AREA07's assets came in | it played to the load before |
 | a04d_00 | **passes** (chain and card) | 0x825040's polygon, script 0x829020 (8,155 frames), the items |
 | a04d_01 | end position good | end block: health 52 for 60, infection 100 for 85 (the 00147390 creatures' contacts) |
-| a04d_02 | plays to the load | stops at `assets/area07`'s scene |
+| a04d_02 | **passes** (the lift, AREA07's load) | |
 
 ## How the beats are run
 
