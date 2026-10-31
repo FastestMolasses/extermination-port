@@ -136,6 +136,11 @@ FUNCS = {
     0x1386E0: ('em_level9_port_001386E0', 0x214, [U, U], None),
     0x154460: ('em_level9_port_00154460', 0x144, [U], I),
     0x1546C0: ('em_level9_port_001546C0', 0x7C, [U], None),
+    0x13B350: ('em_level9_port_0013B350', 0xD0, [U, U], None),
+    0x13B420: ('em_level9_port_0013B420', 0x190, [U, U], None),
+    0x13B5B0: ('em_level9_port_0013B5B0', 0x1E0, [U, U], None),
+    0x13B790: ('em_level9_port_0013B790', 0x210, [U, U], None),
+    0x13B9A0: ('em_level9_port_0013B9A0', 0x80, [U, U], None),
     0x153F10: ('em_level9_port_00153F10', 0xF0, [U], None),
     0x154040: ('em_level9_port_00154040', 0xE0, [U, U], None),
     0x154120: ('em_level9_port_00154120', 0x340, [U, U], None),
@@ -196,6 +201,7 @@ HOOKS = [
     ('w_0011DF78', 0x11DF78, [(F, 12)], F),
     ('w_0011E2A8', 0x11E2A8, [(F, 12)], F),
     ('w_0011E520', 0x11E520, [(F, 12)], F),
+    ('w_0011E620', 0x11E620, [(F, 12), (F, 13)], F),
     ('w_0011E748', 0x11E748, [(F, 12)], F),
     ('w_00122BB8', 0x122BB8, [], I),
     ('w_001281C0', 0x1281C0, [(F, 12)], I),
@@ -252,7 +258,9 @@ HOOKS = [
     ('w_001B1D20', 0x1B1D20, [(U, 4)], None),
     ('w_001B1EA0', 0x1B1EA0, [(I, 4), (U, 5), (U, 6), (I, 7)], I),
     ('w_001B2140', 0x1B2140, [(U, 4)], I),
+    ('w_001B2B10', 0x1B2B10, [(U, 4), (U, 5), (U, 6)], None),
     ('w_001B4810', 0x1B4810, [(U, 4)], None),
+    ('w_001B4CF0', 0x1B4CF0, [(U, 4)], None),
     ('w_001B5360', 0x1B5360, [(U, 4)], None),
     ('w_001BA1A0', 0x1BA1A0, [(U, 4), (U, 5)], None),
     ('w_001BA1C0', 0x1BA1C0, [(U, 4), (I, 5)], I),
@@ -311,6 +319,7 @@ HOOKS = [
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], I),
     ('w_001FC580', 0x1FC580, [(U, 4), (I, 5)], None),
     ('w_0021B9A0', 0x21B9A0, [(I, 4), (F, 12), (F, 13)], None),
+    ('w_0021C040', 0x21C040, [(U, 4), (U, 5)], None),
     ('w_00823830', 0x823830, [(U, 4)], None),
     ('w_00824160', 0x824160, [(U, 4)], None),
     ('w_00824390', 0x824390, [(U, 4)], None),
@@ -327,7 +336,7 @@ BY_ADDRESS = {address: (name, args, result) for name, address, args, result in H
 # poisoned (Oracle.rehearse).
 RUN = {0x1026A0, 0x102738, 0x102760, 0x102798, 0x1028B8, 0x1028D0, 0x102900, 0x102918, 0x102948, 0x102958,
        0x1029C0, 0x102A60, 0x102B08, 0x102BB0, 0x1031E0, 0x103230, 0x11DBB8, 0x11DE90, 0x11DF78, 0x11E2A8,
-       0x11E520, 0x11E748, 0x1281C0, 0x128250, 0x1B1240, 0x1B12B0, 0x1B1470, 0x1C6160}
+       0x11E520, 0x11E620, 0x11E748, 0x1281C0, 0x128250, 0x1B1240, 0x1B12B0, 0x1B1470, 0x1C6160}
 
 # Jump tables (runtime address of the jump -> (table, words)): 001386E0's
 # sub-states 0..5, 001C06E0's attack steps 0..5, AREA13 0x824180's steps
@@ -716,6 +725,8 @@ class Oracle:
         self.script, self.run_set = script, run_set
         ee.save, ee.write, ee.load = self.save, self.write, self.load
         for address in BY_ADDRESS:
+            if address == entry:   # a hook of the callers: here it is the entry
+                continue
             ee.hooks[address] = self.handler(address)
         for callback in args[1]:
             assert callback not in ee.hooks, hex(callback)
@@ -1664,7 +1675,7 @@ def load_captures(elf):
 # the entries that reach a node's +0x4C method (directly or through a
 # translated callee), and 0x827150's step table
 SELF_ENTRIES = {0x823700, 0x823940, 0x823E90, 0x824180, 0x824BB0, 0x8266A0, 0x826850, 0x826FF0, 0x827150,
-                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120, 0x156620}
+                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120, 0x156620, 0x13B350}
 STEP_TABLE = 0x82D190
 SCRIBBLED_CALLBACKS = set()
 HEAVY = {0x824BB0, 0x827150, 0x1E5AC0, 0x1DE920, 0x1C06E0, 0x1549C0}
@@ -2133,6 +2144,30 @@ def exit_cases(add, rng):
     for state in (0, 1, 2, 3, 4):
         add('exit 1546C0 s%d' % state, B, 0x1546C0, [f], [(f + 4, b8(state)), (f + 5, b8(4))],
             queues={0x1C6150: [5], 0x1AF780: [FREE + 0x100 * i for i in range(12)]})
+    # 0013B350, the hit creature: its three steps, the free 0013B9A0.
+    ctl = f + 0x1F0
+    for state in (0, 1, 2, 3):
+        add('hit 13B350 %d' % state, B, 0x13B350, [f, ctl], [(f + 5, b8(state))])
+    for hit, link, a83, bd, a85, hp in ((0, 0, 0, 0, 1, 50), (0x8005, FREE, 1, 1, 0, 3), (0x4003, 0, 1, 0, 0, 3),
+                                        (0x0002, FREE, 0, 0, 1, 2), (0x7FFF, 0, 0, 0, 0, 5000)):
+        add('hit 13B420 %X %X %d %d %d %d' % (hit, link, a83, bd, a85, hp), B, 0x13B420, [f, ctl],
+            [(f + 0x36, h16(hit)), (f + 0x20, struct.pack('<I', link)), (ctl + 0x83, b8(a83)), (0x8106BD, b8(bd)),
+             (ctl + 0x85, b8(a85)), (f + 0x34, h16(hp)), (f + 5, b8(0)), (f + 0x70, fw(1.0, 0.0, -2.0))])
+    for step in (0, 1, 2):
+        for rnd in (0, 0x60000):
+            for t44, flag, hit in ((-1.0, 0, 0), (1.0, 0x1000, 0x5000), (0.0, 0x1000, 0x20), (-1.0, 0x1000, 0x1000)):
+                add('hit 13B5B0 %d %X %g %X %X' % (step, rnd, t44, flag, hit), B, 0x13B5B0, [f, ctl],
+                    [(f + 6, b8(step)), (ctl + 0x44, fw(t44)), (ctl + 0x70, struct.pack('<I', flag)),
+                     (f + 0x36, h16(hit))], queues={0x122BB8: [rnd]})
+    for step in (0, 1, 2, 3, 4):
+        for a81, cnt, flag, e, v4c in ((0, 2, 0, 1, -1.0), (2, 1, 0x1000, 0, -1.0), (0, 1, 0x1000, 1, -3.5),
+                                       (2, 5, 0, 0, -5.0)):
+            add('hit 13B790 %d %d %d %X %d %g' % (step, a81, cnt, flag, e, v4c), B, 0x13B790, [f, ctl],
+                [(f + 6, b8(step)), (ctl + 0x81, b8(a81)), (ctl + 0x20, h16(cnt)),
+                 (ctl + 0x70, struct.pack('<I', flag)), (ctl + 0x4C, fw(v4c))], queues={0x1EFE00: [e]})
+    for link, a83, bd in ((0, 0, 0), (FREE, 1, 1), (0, 1, 0)):
+        add('hit 13B9A0 %X %d %d' % (link, a83, bd), B, 0x13B9A0, [f, ctl],
+            [(f + 0x20, struct.pack('<I', link)), (ctl + 0x83, b8(a83)), (0x8106BD, b8(bd))])
     # 00153F10, the worm: spawn, its four run steps, the three death steps.
     add('exit 154040 spawn', B, 0x154040, [f, f + 0x1F0], [(f + 4, b8(0))], queues={0x1B10B0: [0]})
     add('exit 154040 no bones', B, 0x154040, [f, f + 0x1F0], [(f + 4, b8(0))], queues={0x1B10B0: [1]})
@@ -3185,7 +3220,7 @@ DEFAULT_KEEP = frozenset([
     'turret track 10 0 0 -1.2 -0.4 f1',
     'turret track 10 0 0 1.2 -1.2 f0'
 ])
-SURVIVORS = ('survivor ',)
+SURVIVORS = ('survivor ', 'hit 13')
 
 
 def select_cases(elf):

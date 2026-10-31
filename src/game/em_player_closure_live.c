@@ -2732,6 +2732,17 @@ static int m2_0021E650(void *c, EmPlayerLiveActor *a)
     MISC_OUT(); return r;
 }
 
+/* 002236F0's 001026A0(p + 0xB0, p + 0xD0, v). */
+static int w_m2_001026A0(void *c, EmPlayerLiveActor *a, const uint32_t v[4])
+{
+    (void)c;
+    uint32_t m[16], out[4];
+    memcpy(m, a->bytes + 0xD0, sizeof m);
+    if (em_player_helper_apply(m, v, out) < 0) return -1;
+    memcpy(a->bytes + 0xB0, out, sizeof out);
+    return 0;
+}
+
 static void bind_major2(void)
 {
     EmPlayerMajor2Workers *w = &L.m2_w;
@@ -2744,6 +2755,7 @@ static void bind_major2(void)
     w->w0021C350 = w_0021C350; w->w0021C190 = w_0021C190; w->w0017FC80 = w_clip_FC80;
     w->w0017FF80 = w_clip_FF80; w->random = w_random; w->w00188550 = w_00188550;
     w->w001885B0 = x_001885B0; w->root_node = w_root_node;
+    w->w00188610 = x_00188610; w->w001026A0 = w_m2_001026A0;
     L.m2_scene.d8106F1 = em_scene_req_at(scene(), 0x008106F1u);
     L.m2_scene.d810707 = em_scene_progress_at(scene(), 0x00810707u, 1);
     L.m2 = (EmPlayerMajor2){ &L.m2_w, &L.m2_scene };
@@ -3566,6 +3578,7 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
         { 0x05, em_player_major2_00222580, "00222580" },
         { 0x06, em_player_major2_00222AD0, "00222AD0" },
         { 0x07, em_player_major2_002230A0, "002230A0" },
+        { 0x09, em_player_major2_002236F0, "002236F0" },
         { 0x16, em_player_major2_00225570, "00225570" },
         { 0x19, em_player_major2_002255C0, "002255C0" },
     };

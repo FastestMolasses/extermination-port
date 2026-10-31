@@ -633,6 +633,142 @@ int em_player_major2_002230A0(void *context, EmPlayerLiveActor *a)
     return 0;
 }
 
+/* ---- 002236F0: +4 2 / +5 9 ------------------------------------------- */
+
+static int exit_002236F0(EmPlayerLiveActor *a, const Workers *w, int keep_1F1)
+{
+    int clip;
+    set8(a, 4, 1);
+    set8(a, 5, 0x1B);
+    set8(a, 6, 0xA);
+    set8(a, 7, 0);
+    set8(a, 0x1F0, 0x2F);
+    if (keep_1F1) set8(a, 0x1F1, 1);
+    em_live_set_u16(a, 0x20E, 0x3C);
+    CALL(w->w00188610(w->context, a, &clip));
+    CALL(w->request(w->context, a, clip, 0, 16.0f));
+    return 0;
+}
+
+int em_player_major2_002236F0(void *context, EmPlayerLiveActor *a)
+{
+    const Workers *w;
+    EmPlayerMajor2Scene *scene;
+    if (context_of(context, a, &w, &scene) < 0) return -1;
+    if (!w->cue || !w->random || !w->sound || !w->w0021C350 || !w->w0021C270 || !w->request ||
+        !w->w00188610 || !w->w001026A0 || !w->root_node || !w->translate || !w->drop || !w->floor ||
+        !w->land_sound || !w->w0021D250 || !w->w0021D2E0 || !w->w0021C120 || !w->w0021C190)
+        return -1;
+    void *c = w->context;
+    const uint8_t st = u8(a, 6);
+    switch (st) {
+    case 0: {
+        CALL(w->cue(c, 0, 0xC0, 5, 1));
+        set8(a, 6, u8(a, 6) + 1);
+        set8(a, 7, 0);
+        uint32_t value;
+        CALL(w->random(c, &value));
+        int alt = (int)(value & 1);
+        if (u8(a, 0xF) & 2) {
+            alt = 1;
+            set8(a, 0xF, 0);
+        }
+        CALL(hit_cues(a, w));
+        if (f_le(a, 0x220, 0.0f)) {
+            set8(a, 6, 0xA);
+            set32(a, 0x21C, 0);
+            set32(a, 0x2E4, 0);
+            return 0;
+        }
+        if (!f_lt(a, 0x228, 100.0f) && *scene->d8106F1 != 0) {
+            set8(a, 6, 0x14);
+            alt = 0;
+        }
+        CALL(w->request(c, a, alt == 0 ? 0x14F : 0x150, 0, 8.0f));
+        return 0;
+    }
+    case 1:
+        if (u32(a, 0x200) & 0x1000) return exit_002236F0(a, w, 1);
+        return 0;
+    case 0xA:
+        set8(a, 6, st + 1);
+        CALL(w->request(c, a, 0x151, 0, 8.0f));
+        return 0;
+    case 0xB:
+        if (!(u32(a, 0x200) & 0x8000)) set8(a, 6, st + 1);
+        return 0;
+    case 0xC: {
+        if (u32(a, 0x200) & 0x1000) {
+            static const uint32_t point[4] = {0, 0xC0800000u, 0x40A00000u, 0x3F800000u};
+            set8(a, 6, st + 1);
+            CALL(w->w001026A0(c, a, point));
+            set32(a, 0xB4, em_ee_add_bits(u32(a, 0xB4), 0xBE4CCCCDu));   /* -0.2 */
+            CALL(w->request(c, a, 0x72, 0, 1.0f));
+            set8(a, 0x1F0, 0xD);
+            return 0;
+        }
+        uint32_t node;
+        CALL(w->root_node(c, 8, &node));
+        set32(a, 0x38, em_ee_sub_bits(node, u32(a, 0x21C)));
+        CALL(w->root_node(c, 8, &node));
+        set32(a, 0x21C, node);
+        CALL(w->translate(c, a, 1));
+        CALL(w->root_node(c, 4, &node));
+        set32(a, 0x2EC, em_ee_sub_bits(node, u32(a, 0x2E4)));
+        CALL(w->root_node(c, 4, &node));
+        set32(a, 0x2E4, node);
+        set32(a, 0xB4, em_ee_add_bits(u32(a, 0xB4), u32(a, 0x2EC)));
+        return 0;
+    }
+    case 0xD: {
+        int floor;
+        CALL(w->drop(c, a));
+        CALL(w->floor(c, a, 1, &floor));
+        if (floor != 0) {
+            CALL(w->land_sound(c, a, 1));
+            CALL(w->sound(c, a, 0x156, 0, 300.0f));
+            if (u8(a, 0xF) == 0x63 || u8(a, 0x234) == 1) {
+                set8(a, 4, 2);
+                set8(a, 5, 3);
+                set8(a, 6, 0);
+                set8(a, 0x1F0, 0x3F);
+                return 0;
+            }
+            CALL(w->request(c, a, 0x2B, 0, 1.0f));
+            set8(a, 6, u8(a, 6) + 1);
+            set8(a, 7, 0);
+            set8(a, 0x1F0, 0x40);
+            CALL(w->cue(c, 1, 0xEE, 0x3C, 1));
+            return 0;
+        }
+        if (u8(a, 0x23A) == 0x5D) CALL(w->w0021D250(c, a, 0));
+        return 0;
+    }
+    case 0xE:
+        CALL(w->w0021D2E0(c, a, 0x78, 0));
+        return 0;
+    case 0x14:
+        if (f_le(a, 0x3C, 21.0f)) {
+            set8(a, 6, st + 1);
+            CALL(w->w0021C120(c, a));
+        }
+        return 0;
+    case 0x15: {
+        int done;
+        CALL(w->w0021C190(c, a, &done));
+        if (done != 0) set8(a, 6, u8(a, 6) + 1);
+        else set32(a, 0x204, 0x3DCCCCCDu);
+        return 0;
+    }
+    case 0x16:
+        if (u32(a, 0x200) & 0x1000) return exit_002236F0(a, w, 0);
+        set32(a, 0x204, 0x3E800000u);
+        return 0;
+    default:
+        return 0;
+    }
+}
+
 /* ---- 00225570: +4 2 / +5 0x16 ------------------------------------------ */
 
 int em_player_major2_00225570(void *context, EmPlayerLiveActor *a)
