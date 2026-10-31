@@ -2875,6 +2875,31 @@ shooting and knifing anywhere also run without a fault.
 
 ---
 
+**AREA13: the lift's load, the lobby, the cold outside, the hatch and the shaft**
+
+- What: the lift's load into AREA13 and control in the car; the lobby, door
+  [8] and [3]'s long camera scene with its document page; button [16] of door
+  [14] and the way outside, with the wind, the weather strips and the player's
+  breath; one point of health lost to the cold every 360 frames; door [17] and
+  [4]'s scene with the cold-weather item; pickup g[5]; the ledge climb and the
+  hatch [62]; the ladder down to the request of AREA19.
+- How: AREA13 in the shared composition; its overlay owners and boot routines
+  are translations checked against the original instructions
+  (test_level9_port_reference.py, test_level11_port_reference.py,
+  test_area13_route_reference.py, test_area13_state_reference.py); the wind's
+  script (pan slides, its loop) in lockstep with the original
+  (test_area11_sfx_reference.py pass V, past the first jump);
+  LEVEL3_BINDING.md "2026-10-30, lane H1".
+- Evidence: from New Game the route smoke
+  (`tools/test_level_smoke_area01r.py --run --until a13_05`) compares every
+  row of the fork recordings a04b_04 and a13_00 .. a13_05 (to the row before
+  AREA19's load): player, camera, task, request, message, fade, health,
+  progress bytes, locks, weapon bytes and 23 owners, and each beat's end
+  progress block: equal.
+- Status: **VERIFIED** for the recorded route. Not compared: pixels (the
+  weather strips, the sky, the fade) and sound beyond the lockstep; door [20],
+  hole [6] / hatch [63], [44]'s event and AREA19 are not reached.
+
 ### AREA15 and AREA03 from their start cards
 
 - What: AREA15 sub 0's arrival and the long conversation, sub 1's event, the

@@ -505,6 +505,10 @@ def export_target(target, el, elf, out_root, iso, skip_collision):
         coll = dict(files=files, grid_header=hex(grid_hdr), log=log.strip().splitlines(),
                     sha256=C.sha((out / f'{t.name}.emcl').read_bytes()))
         print(f'{rel}/{t.name}.emcl: {files}; ' + ' '.join(x for x in log.splitlines() if x.startswith('wrote')))
+        if bg:                       # the scene manifest's line em_scene.c reads (BACKGROUND.md)
+            manifest = out / 'scene.txt'
+            lines = [x for x in manifest.read_text().splitlines() if not x.startswith('background ')]
+            manifest.write_text('\n'.join(lines + [f'background {el.BG_ASSET}']) + '\n')
     (out / 'cells.json').write_text(json.dumps(dict(cells=cells_report, collision=coll), indent=1,
                                                default=str) + '\n')
 

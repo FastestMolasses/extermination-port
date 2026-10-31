@@ -56,6 +56,7 @@ BLOCK, SIZE = 0x810700, 0x640
 OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
+A13_ROUTE = 'levels-recordings-20261018-10/s87/route_a13'
 BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
 A19_ROUTE = 'levels-recordings-20261018-10/s87/route_a19'
 A19B_ROUTE = 'levels-recordings-20261018-13/s87/route_a19b'
@@ -110,6 +111,13 @@ BEATS = {
     'a04b_g3': ('boss', BOSS_ROUTE, 'a04b_g3_fight'),
     'a04b_g4': ('boss', BOSS_ROUTE, 'a04b_g4_drop'),
     'a04b_g5': ('boss', BOSS_ROUTE, 'a04b_g5_lift'),
+    # AREA13 (NINTH_LEVEL_ROUTE.md): a13_05 ends in AREA19 (no host yet).
+    'a13_00': ('area13', A13_ROUTE, 'a13_00_door8'),
+    'a13_01': ('a13_01', A13_ROUTE, 'a13_01_door14'),
+    'a13_02': ('a13_02', A13_ROUTE, 'a13_02_door17'),
+    'a13_03': ('a13_03', A13_ROUTE, 'a13_03_item27'),
+    'a13_04': ('a13_04', A13_ROUTE, 'a13_04_hatch'),
+    'a13_05': ('a13_05', A13_ROUTE, 'a13_05_shaft'),
     # AREA19 (lane J1): the entry-9 rooms, entry 10's side and sub 1. The
     # arrival by the hatch [63] (a19b_00) and door [50]'s AREA15 scene are
     # the other lanes'.
@@ -162,7 +170,7 @@ BEATS = {
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
           'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
           'a15a': ('a15a_',), 'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',),
-          'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',)}
+          'a13': ('a13_',), 'a19': ('a19_',), 'a19b': ('a19b_',), 'a19c': ('a19c_',), 'a19d': ('a19d_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -180,6 +188,12 @@ def trace(beat):
     return t
 
 
+# Neutral frames before a beat's first row in a run from a card: AREA13's
+# lift replays its door script at a loaded game's arrival (the recording's
+# row 0 is past it, the player locked), so the recorded walk waits for it.
+LEAD = {'a13_00': 210}
+
+
 def prepare(name, beats):
     """The chain's EMA1 pad (each beat's recorded commands, placed at its
     first counter relative to the chain's first beat), its path (the
@@ -190,8 +204,14 @@ def prepare(name, beats):
     pads = OUT / 'pads'
     pads.mkdir(parents=True, exist_ok=True)
     rows, sent, path, marks = [], None, [], []
+    lead = LEAD.get(beats[0], 0)
+    if lead:
+        r0 = traces[0]['rows'][0]
+        path = [(r0['pos'][0], r0['pos'][2], r0['yaw'])] * lead
+        rows.append((0, 0, 127, 127))
+        sent = (0, 127, 127)
     for b, t in zip(beats, traces):
-        off = t['first_counter'] - base
+        off = t['first_counter'] - base + lead
         assert off >= len(path), (b, 'beats overlap', off, len(path))
         while len(path) < off:
             path.append(path[-1])
@@ -336,6 +356,7 @@ CHAINS = {
     'a19b': ('a19b_01', ('a19b_01', 'a19b_02')),
     'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
     'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
+    'a13': ('area13', ('a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')),
     'a15a': ('area15', ('a15a_00',)),
     'a15': ('a15_00', ('a15_00',)),
     # one run: the event's scripts run on across the forced return

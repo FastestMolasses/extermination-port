@@ -58,11 +58,15 @@ def main():
     b=A.DECOMP/'build/fork_refs/levels-recordings-20261018-10/s87/route_a04b'
     cases.append((len(caps)+2,A.Capture(b/'a04b_01_npc'),5,None,None))
     cases.append((len(caps)+3,A.Capture(b/'a04b_03_reader'),6,None,None))
+    # AREA13's scene 7 ([3]'s script 0x82A360, the a13_00 end), its subtitle
+    # track D_0026ACB0.
+    cases.append((len(caps)+4,A.Capture(A.DECOMP/'build/fork_refs/levels-recordings-20261018-10/s87/route_a13/a13_00_door8'),
+                  7,None,None))
     # Every scene id 0022EC30's table knows, over a blank track: its bindings,
     # 0022EEF0's scene script and the event tracks they walk (the original
     # boot data), each at its own time stamps.
     for scene in range(38):
-        if scene!=35:cases.append((len(caps)+4+scene,a04e,scene,'blank',None))
+        if scene!=35:cases.append((len(caps)+5+scene,a04e,scene,'blank',None))
     for ci,cap,scene,row,clip in cases:
         o=FallEE(elf);o.mem[:]=cap.ram;o.spad[:]=cap.spad
         for a,size in ((0x26AAE0,0x360),(0x26C598,52)):o.write(a,read(a,size))

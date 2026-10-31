@@ -105,6 +105,12 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a04b_03` | AREA04 (the way back) | In the hall, outside door [45] | Up the conveyor to the card reader at the lift; the first boss arrives |
 | `a04b_04` | AREA04 (the way back) | At the card reader, the creature and bugs at the lift | Past the creature into the lift, down to AREA13 |
 | `boss` | AREA04 (the way back) | In the hall, outside door [45], with the SHOTGUN UNIT fitted and six shells (the room's pickup, taken in the fork recording) | Up the conveyor to the card reader, which wakes the first boss at the lift |
+| `area13` | AREA13 | The lift's arrival (entry 0), in the car | Out of the car, the lobby, door [8] and the scene behind it |
+| `a13_01` | AREA13 | Behind door [8] (entry 2), after the scene | The button [16] of door [14], the way outside |
+| `a13_02` | AREA13 | Outside (entry 8), in the cold | Round the building to door [17], the scene and the coat |
+| `a13_03` | AREA13 | The east room (entry 4), after the scene | The pickup g[5] |
+| `a13_04` | AREA13 | The east room, with the pickup's item | Over the grating step to hatch [62] |
+| `a13_05` | AREA13 | At the open hatch [62] | The ladder down, which falls into AREA19 |
 | `area15` | AREA15 sub 0 | Entry 0, the arrival through door [50] | The long conversation in the medical room |
 | `a15_00` | AREA15 sub 0 | After that conversation | The slider and door [14] to the stair tower (AREA19's load) |
 | `a15b_00` | AREA15 sub 1 | Entry 0, through door [51] | Up the stairs to the mezzanine: the event, then the forced return |
@@ -114,13 +120,13 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a03_00` | AREA03 sub 0 | Entry 1, through AREA19's door [25] | The lift's outer button, the car, the ride down |
 
 The route these points sit on is proven row by row from New Game, through the
-first boss fight with the pistol and the lift, up to AREA13's load
-(docs/LEVEL_SMOKE.md). Starting from a point is a different path: a loaded game
+first boss fight with the pistol and the lift, through AREA13 to the ladder down
+into AREA19 (docs/LEVEL_SMOKE.md). Starting from a point is a different path: a loaded game
 puts creatures, timers and the random numbers where a save does, so a run from
 one plays the same code but can go differently from that route. `python3
 tools/mid_route_beats.py` reports which beats play through from their points
-(docs/LEVEL8_PORT.md "Start-card runs"). AREA13 is not ported yet, so riding the
-lift stops at its load.
+(docs/LEVEL8_PORT.md "Start-card runs"). AREA19 is not ported yet, so the ladder
+at `a13_05` stops at its load.
 
 ## Status
 

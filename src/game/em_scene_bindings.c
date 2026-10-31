@@ -230,7 +230,8 @@ static const char *area02_file(unsigned sub, const char *name)
  * _tables / _sfx, export_area06_*): assets/area<NN>/sub0/. */
 static int mid_area(unsigned area, unsigned sub)
 {
-    return ((area == 0x16u || area == 6u || area == 3u) && sub == 0) || ((area == 0x0Fu || area == 0x13u) && sub <= 1);
+    return ((area == 0x16u || area == 6u || area == 0x0Du || area == 3u) && sub == 0) ||
+           ((area == 0x0Fu || area == 0x13u) && sub <= 1);
 }
 /* AREA15 keeps one folder per sub, AREA03's recorded sub lives in the level
  * pack's tree (tools/export_area03_assets.py). */
@@ -932,7 +933,7 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
     }
     fputc(']', f);
     const int later = !strcmp(key, "a22") || !strcmp(key, "a01u") || !strcmp(key, "a06") || !strcmp(key, "a01v") ||
-                      !strcmp(key, "a22b") || !strcmp(key, "a04r");
+                      !strcmp(key, "a22b") || !strcmp(key, "a04r") || !strcmp(key, "a13");
     if (!strcmp(key, "a01r") || !strcmp(key, "a02") || !strcmp(key, "a04") || later) {
         /* D_00810760..63 (the bridge's event 8 and its neighbours), the
          * revisit rows' story760; reserved bytes log 001AF2C0's reset 0. */
@@ -984,7 +985,32 @@ static void log_area_owners(FILE *f, const char *key, const uint32_t *nodes, uns
         const uint8_t *cca = em_scene_progress_at(&s_state, 0x00810CCAu, 1);
         fprintf(f, ", \"cca\": %u", cca ? *cca : 0u);
     }
-    if (!strcmp(key, "a04r")) {
+    if (!strcmp(key, "a13")) {
+        /* The a13 rows (NINTH_LEVEL_ROUTE.md section 1). */
+        static const struct { const char *name; uint32_t at; unsigned size; } spans[] = {
+            {"s770", 0x00810770u, 8}, {"s7f0", 0x008107F0u, 8}, {"s798", 0x00810798u, 4}, {"s818", 0x00810818u, 4},
+            {"l84e", 0x0081084Eu, 1}, {"cc0", 0x00810CC0u, 16}, {"c61", 0x00810839u, 1}};
+        for (unsigned i = 0; i < sizeof spans / sizeof spans[0]; ++i) {
+            uint8_t bytes[16];
+            for (unsigned k = 0; k < spans[i].size; ++k) {
+                const uint8_t *p = em_scene_progress_at(&s_state, spans[i].at + k, 1);
+                bytes[k] = p ? *p : 0;
+            }
+            fprintf(f, ", \"%s\": ", spans[i].name);
+            log_hex(f, bytes, spans[i].size);
+        }
+        static const struct { const char *name; uint32_t at; } counts[] = {
+            {"c8b", 0x00810C8Bu}, {"c82", 0x00810C82u}, {"c7e", 0x00810C7Eu}, {"c86", 0x00810C86u}};
+        for (unsigned i = 0; i < sizeof counts / sizeof counts[0]; ++i) {
+            const uint8_t *p = em_scene_progress_at(&s_state, counts[i].at, 1);
+            fprintf(f, ", \"%s\": %u", counts[i].name, p ? *p : 0u);
+        }
+        const EmPlayerLiveActor *player = player_states_actor_mut();
+        int32_t event = 0;
+        if (player) memcpy(&event, player->bytes + 0x230, 4);
+        fprintf(f, ", \"event230\": %d", (int)event);
+    }
+    if (!strcmp(key, "a04r") || !strcmp(key, "a13")) {
         /* The a04b rows (EIGHTH_LEVEL_ROUTE.md section 1): s76c
          * (D_0081076C..6F, flag 0x14). */
         uint8_t bytes[4];
@@ -1253,7 +1279,8 @@ static void log_area22b(FILE *f)
  * fight's bugs). */
 static void log_area04b(FILE *f)
 {
-    if (!route_way_back() || s_state.d810700 != 4)
+    /* on through the lift's AREA13 load (a04b_04, a04b_s7) */
+    if (!route_way_back() || (s_state.d810700 != 4 && s_state.d810700 != 0x0D))
         return;
     static const uint32_t nodes[] = {0x7AA2A0, 0x7AA590, 0x7AA880, 0x7B0970, 0x7B20F0, 0x7B26D0, 0x7B2FA0,
                                      0x7B3290, 0x7B3870, 0x7B3B60, 0x7B4140, 0x7B3E50, 0x7B4720, 0x7B6A60,
@@ -1262,13 +1289,24 @@ static void log_area04b(FILE *f)
     log_area_owners(f, "a04r", nodes, sizeof nodes / sizeof nodes[0]);
 }
 
+/* A13_OWNERS in AREA13 (NINTH_LEVEL_ROUTE.md section 1.1). */
+static void log_area13(FILE *f)
+{
+    if (s_state.d810700 != 0x0D)
+        return;
+    static const uint32_t nodes[] = {0x7AAB70, 0x7AAE60, 0x7AB150, 0x7AB440, 0x7AB730, 0x7ABA20, 0x7AC000, 0x7AC8D0,
+                                     0x7ACBC0, 0x7ACEB0, 0x7AD1A0, 0x7AD490, 0x7ADD60, 0x7B23E0, 0x7B52E0, 0x7B55D0,
+                                     0x7A64F0, 0x7A6DC0, 0x7A9FB0, 0x7AA2A0, 0x7AA590, 0x7AA880, 0x7A93F0};
+    log_area_owners(f, "a13", nodes, sizeof nodes / sizeof nodes[0]);
+}
+
 /* From AREA22 on the whole progress block D_00810700..D_00810D3F, one
  * storage byte for byte: the checker compares it with each beat's end RAM
  * (level_smoke_area01r.check_block_end). */
 static void log_route_block(FILE *f)
 {
     if (s_state.d810700 != 0x16 && s_state.d810700 != 6 && !(s_state.d810700 == 1 && s_state.d810702 >= 6) &&
-        !(s_state.d810700 == 4 && route_way_back()))
+        s_state.d810700 != 0x0D && !(s_state.d810700 == 4 && route_way_back()))
         return;
     uint8_t block[0x640];
     for (uint32_t k = 0; k < sizeof block; ++k) {
@@ -1770,6 +1808,7 @@ static void log_tick_end(int rc)
         log_area01v(f);
         log_area22b(f);
         log_area04b(f);
+        log_area13(f);
         log_route_block(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
@@ -2572,6 +2611,9 @@ static uint8_t *camera_memory(void *ctx, uint32_t address, uint32_t size, int wr
 {
     (void)ctx;
     uint8_t *p = em_equipment_live_field(address, size, write);
+    /* The overlay's data (AREA13's area quads for 0x823FE0), read only. */
+    if (!p && !write && address >= 0x00823500u && em_module_loader_live())
+        return (uint8_t *)(uintptr_t)em_module_loader_memory(em_module_loader_live(), address, size);
     if (p || write || !em_aim_fire_tables_contains(address, size)) return p;
     const uint8_t *t = em_aim_fire_tables_bytes(address, size);
     if (!t && em_aim_fire_tables_load() == 0) t = em_aim_fire_tables_bytes(address, size);
@@ -2629,9 +2671,14 @@ static uint32_t camera_grid_node(void *ctx, uint32_t node)
     if (!seg || !seg->world || !seg->world->grid || node >= seg->world->grid->count) return 0;
     return em_scene_bindings_grid_node_address(node);
 }
+static int camera_request_area(void *ctx, int32_t a, int32_t b, int32_t c)
+{
+    (void)ctx;
+    return em_scene_request_area_change_001B0C60(a, b, c);
+}
 static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera_euler, camera_pad_config,
                                          NULL, camera_timeline,
-                                         camera_memory, camera_place, camera_grid_node, NULL};
+                                         camera_memory, camera_place, camera_grid_node, NULL, camera_request_area};
 
 /* ------------------------------------------ the render context (L32 / L30)
  *
@@ -2762,6 +2809,7 @@ static int arrival_scene(void)
            strcmp(g.scene_dir, AREA04_SCENE_DIR) == 0 ||
            strcmp(g.scene_dir, "assets/area22/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area06/sub0") == 0 ||
+           strcmp(g.scene_dir, "assets/area13/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area15/sub0") == 0 ||
            strcmp(g.scene_dir, "assets/area15/sub1") == 0 ||
            strcmp(g.scene_dir, "assets/levels/03/sub0") == 0 ||
@@ -3165,11 +3213,11 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     0x19/0x1A
  *   +0x60..+0x6C, +0x80..+0x8C     the record image (spawn_commit; 001CAA00
  *                     of the player reads +0x80, em_player_draw_live)
- *   +0x0E, +0x230     written, no port storage and no port reader
- *   +0x1C, +0x304     no port object at these offsets (0): the stores through
- *                     them and 001EFE00 (reached only with D_008106C8 & 4 and
- *                     & 0x60, i.e. AREA11 after event 0x30) have no worker:
- *                     reaching them faults
+ *   +0x0E, +0x230     the live record
+ *   +0x1C, +0x304     the live record's words; 001EFE00 (D_008106C8 & 4 and
+ *                     & 0x60: AREA13's outdoor entries, AREA11 after event
+ *                     0x30) is em_effects_live_001EFE00, the object stores
+ *                     em_scene_bindings_pool_set_u4
  *   0015C1F0          em_player_misc_0015C1F0 over the record image (the
  *                     model bind: 001CA6E0, 001C6150 over the player model
  *                     export; 00200890 the boundary)
@@ -3216,8 +3264,11 @@ static void spawn_commit(const EmSpawnIo *io)
     /* 001B07C0's +0x0E (the spawn record's +0x14, cleared for a loaded
      * game), which 0015C420 switches on at the next stage
      * (player_states_entry_stance). */
-    if (rec)
+    if (rec) {
         em_live_set_u8(rec, 0x0E, io->player.b00E);
+        em_live_set_u32(rec, 0x304, io->player.w304);
+        em_live_set_u32(rec, 0x230, io->player.w230);
+    }
     if (rec && io->player.b004 != 0) {
         /* The walk-out branch is 001B07C0's only +4/+5/+6 store (the image
          * starts zeroed): 5 / 1 / 0. */
@@ -3294,7 +3345,12 @@ static int c1f0_bone_count(void *ctx, uint32_t model, uint8_t *count)
 static int c1f0_00200890(void *ctx)
 {
     (void)ctx;
-    return 0;   /* the boundary (see above) */
+    /* A room move's 001B07C0 can change D_00810C60 (AREA13's outdoor entries
+     * with the coat): the packet goes up as at a rebind. An area load sends
+     * it from the loader's state 7 (the boundary, see above). */
+    if (s_entry_state == 4)
+        return em_scene_bindings_00200890();
+    return 0;
 }
 
 static int spawn_w_0015C1F0(void *ctx, uint32_t player)
@@ -3304,6 +3360,13 @@ static int spawn_w_0015C1F0(void *ctx, uint32_t player)
     EmPlayerLiveActor *p = player_states_actor_mut();
     if (player != D_PLAYER || !s_spawn_io || !p)
         return -1;
+    /* 001B07C0 stores D_00810C60 before this call: 00200890 reads it for
+     * the texture packet (AREA13's coat at an outdoor entry). */
+    {
+        uint8_t status, primary, secondary;
+        em_pickup_equipment_read(&status, &primary, &secondary);
+        em_pickup_equipment_write(s_spawn_io->d810C60, primary, secondary);
+    }
     static uint32_t table[EM_AREA11_ROGER_TABLE_WORDS];   /* D_0028A490 (the Roger export's words) */
     for (uint32_t i = 0; i < sizeof table / sizeof table[0]; ++i)
         if (em_area11_roger_table_word(0x0028A490u + 4u * i, &table[i]) < 0)
@@ -3366,6 +3429,25 @@ static int spawn_w_001B0460(void *ctx, int a0)
     return em_camera_live_001B0460(a0, &room) < 0 ? -1 : 0;
 }
 
+/* 001EFE00(0x80000018, D_008102B0) (the flag bits 0x60 with 4: AREA13's
+ * outdoor entries): the effect at the placed player, em_effect_original's
+ * over the binder, as em_player_stage_live's. */
+static int spawn_w_001EFE00(void *ctx, uint32_t a0, uint32_t a1, uint32_t *result)
+{
+    (void)ctx;
+    const EmPlayerLiveActor *rec = player_states_actor_mut();
+    if (!s_spawn_io || !rec || a1 != D_PLAYER)
+        return -1;
+    return em_effects_live_001EFE00(a0, s_spawn_io->player.f0B0, s_spawn_io->player.f0C0, em_live_u32(rec, 0x14),
+                                    result);
+}
+/* *(object + 4) = value: an effect node (+0x304, +0x1C) in the pool. */
+static int spawn_s_object_04(void *ctx, uint32_t object, uint8_t value)
+{
+    (void)ctx;
+    return em_scene_bindings_pool_set_u4(object, value);
+}
+
 static int w_001B07C0(void *ctx, int a0)
 {
     (void)ctx;
@@ -3426,7 +3508,12 @@ static int w_001B07C0(void *ctx, int a0)
     io.player.f22C = g.pd_pend_inf;
     io.player.b234 = (uint8_t)g.pd_infected;
     io.player.b235 = (uint8_t)g.pd_low;
-    EmSpawnWorkers w = {NULL, NULL, NULL, spawn_w_0015C1F0, spawn_w_001B0460};
+    EmPlayerLiveActor *rec = player_states_actor_mut();
+    if (rec) {
+        io.player.w01C = em_live_u32(rec, 0x1C);
+        io.player.w304 = em_live_u32(rec, 0x304);
+    }
+    EmSpawnWorkers w = {NULL, spawn_w_001EFE00, spawn_s_object_04, spawn_w_0015C1F0, spawn_w_001B0460};
     bind_trace(EM_SPAWN_FN_001B07C0, EM_SPAWN_FN_001B0250,
                EM_SPAWN_TABLE_ADDRESS + 4u * io.d810700, 4u * io.d810701, 0, 0);
     s_spawn_io = &io;
@@ -3844,8 +3931,8 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
             return -1;
         }
     }
-    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0F ||
-         s_state.d810700 == 3 || s_state.d810700 == 0x13) && fn == 0x001E4CE0u)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0D ||
+         s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 0x13) && fn == 0x001E4CE0u)
         goto bind;
     /* The creature's death effect (001B4CF0's 001EFD90: em_level11_port). */
     if (s_state.d810700 == 4 && (fn == 0x001F4840u || fn == 0x001F88C0u || fn == 0x001F7E40u))
@@ -3884,6 +3971,18 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
     }
     if (s_state.d810700 == 0x16 && fn >= 0x00823500u)
         return -1;
+    /* AREA13's placements and spawns (em_area01_runtime dispatch_a13). */
+    if (s_state.d810700 == 0x0D && fn >= 0x00823500u) {
+        switch (fn) {
+        case 0x00823580u: case 0x00823700u: case 0x00823A40u: case 0x00823BC0u: case 0x00823E90u:
+        case 0x00824A80u: case 0x00824BB0u: case 0x008266A0u: case 0x00826610u: case 0x00826850u:
+        case 0x00826FF0u: case 0x00827150u: case 0x00828500u: case 0x00828C60u: case 0x00828E10u:
+        case 0x00828F40u: case 0x008292A0u: case 0x008293A0u: case 0x008299E0u: case 0x00829AA0u:
+            goto bind;
+        default:
+            return -1;
+        }
+    }
     /* AREA15's and AREA03's owners (em_area01_runtime dispatch_a15 /
      * dispatch_a03): their placements' and groups' behaviours. */
     if (s_state.d810700 == 0x0F && fn >= 0x00823500u) {
@@ -3932,7 +4031,10 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * 0021AE90 (effect 0x80000044; em_area06_port through em_area01_runtime
      * dispatch_a06). The infection node 001F8350 (effect 0x80000048,
      * 0021C190's when the player turns) in any area the runtime runs. */
-    if ((s_state.d810700 == 6 || s_state.d810700 == 0x13) && (fn == 0x00219870u || fn == 0x0021AE90u))
+    if ((s_state.d810700 == 6 || s_state.d810700 == 0x0D || s_state.d810700 == 0x13) &&
+        (fn == 0x00219870u || fn == 0x0021AE90u))
+        goto bind;
+    if (s_state.d810700 == 0x0D && fn == 0x001E7050u)  /* the breath, effect 0x80000018 */
         goto bind;
     if (fn == 0x001F8350u)
         goto bind;
@@ -3992,8 +4094,8 @@ static int area00_spawned_fallback(EmActor *a)
     /* AREA02: any boot owner the area runtime runs too, e.g. the car's
      * 001EFD20 spawns (0x8242F0 past x 140): the burst emitter 001E4CE0
      * (em_area02_misc, area 2) and 001E3D90 (em_area01_sys). */
-    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x16 ||
-         s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 0x13) && a)
+    if ((s_state.d810700 == 2 || s_state.d810700 == 4 || s_state.d810700 == 6 || s_state.d810700 == 0x0D ||
+         s_state.d810700 == 0x16 || s_state.d810700 == 0x0F || s_state.d810700 == 3 || s_state.d810700 == 0x13) && a)
         return area01_rebind(NULL, a, a->callback) == 0 ? 1 : 0;
     if ((s_state.d810700 != 0 && s_state.d810700 != 2) || !a || a->callback < 0x00823500u)
         return 0;
@@ -4122,6 +4224,8 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 6u, 0x00826000u, 0x00828F00u);
     if (s_state.d810700 == 0x16 && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 0x13u, 0x00823600u, 0x00823E00u);
+    if (s_state.d810700 == 0x0D && call->function == 0x001B6660u)
+        return area_spawn_deferred(call, 0x0Au, 0x00829D00u, 0x0082E280u);
     if (s_state.d810700 == 0x0F && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 0x0Cu, 0x00826980u, 0x00829F00u);
     if (s_state.d810700 == 3 && call->function == 0x001B6660u)
@@ -4957,6 +5061,10 @@ static const uint8_t *closure_spawn_read(uint32_t address, uint32_t size)
 static int ambient_0011A070(void *ctx, int32_t handle)
 {
     (void)ctx;
+    /* 0011A070: an index of 0x30 or more returns at once (a loop 001FB9F0
+     * refused left the handle -1: AREA13's 0x44F, leaving a room). */
+    if ((handle & 0x7FFF) >= 0x30)
+        return 0;
     return em_sfx_stop_track(handle & 0x7FFF, (handle & 0x8000) != 0);
 }
 
@@ -4966,7 +5074,11 @@ static int ambient_001FB9F0(void *ctx, int32_t id, int32_t a1, int32_t a2, int32
     (void)a1;
     bind_trace(0x001FC280u, 0x001FB9F0u, (uint32_t)id, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3);
     *ret = em_sfx_submit_001FB9F0_track((unsigned)id, a2, a3);
-    if (em_sfx_cue_state((unsigned)id) != 1) {
+    /* An id whose remap row is 0xFF is the original's own silence (001FB9F0
+     * returns -1: AREA13's indoor rooms keep 0x44F with D_00282164 = -1 in
+     * every capture); only an id the registry does not hold faults. */
+    const int cue = em_sfx_cue_state((unsigned)id);
+    if (cue != 1 && cue != 2) {
         fprintf(stderr, "em_scene: 001FC280: the area loop 0x%X has no exported sound in the "
                         "area %u/%u scope (tools/export_sfx_registry.py)\n",
                 (unsigned)id, (unsigned)s_state.d810700, (unsigned)s_state.d810701);

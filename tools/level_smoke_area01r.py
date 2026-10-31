@@ -44,7 +44,7 @@ A22B_ROUTE_DIR = refs.capture('s87/route_a22b')
 BED_ROOT = refs.capture('levels-recordings-20261018-10/s87')
 # The pistol fight continues a04b_03's end (EIGHTH_LEVEL_ROUTE.md section 8).
 BOSS_ROUTE_DIR = refs.capture('boss_fight_20261030/s87/route_a04b')
-BED = os.environ.get('EM_LEVEL_SMOKE_UNTIL', '').startswith('a04b_')
+BED = os.environ.get('EM_LEVEL_SMOKE_UNTIL', '').startswith(('a04b_', 'a13_'))
 MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a01r_02': 'a01r_02_bridge',
               'a01r_03': 'a01r_03_door16', 'a02_00': 'a02_00_duct', 'a02_01': 'a02_01_switch',
               'a02_02': 'a02_02_ladder_escape', 'a02_03': 'a02_03_over_wreck', 'a02_04': 'a02_04_panel',
@@ -57,27 +57,29 @@ MAIN_BEATS = {'a01r_00': 'a01r_00_to_train_room', 'a01r_01': 'a01r_01_event', 'a
               'a06_03': 'a06_03_room_out', 'a06b_00': 'a06b_00_trigger_jump', 'a06b_01': 'a06b_01_door1',
               'a01v_00': 'a01v_00_catwalk_east', 'a01v_01': 'a01v_01_gap_jump', 'a01v_02': 'a01v_02_door18',
               'a22b_00': 'a22b_00_to_door7', 'a22b_01': 'a22b_01_door6', 'a04b_00': 'a04b_00_door45',
-              'a04b_01': 'a04b_01_npc', 'a04b_02': 'a04b_02_door45_out', 'a04b_03': 'a04b_03_reader'}
+              'a04b_01': 'a04b_01_npc', 'a04b_02': 'a04b_02_door45_out', 'a04b_03': 'a04b_03_reader',
+              # the route's lift past the live creature, AREA13's load (NINTH_LEVEL_ROUTE.md)
+              'a04b_04': 'a04b_04_lift', 'a13_00': 'a13_00_door8', 'a13_01': 'a13_01_door14',
+              'a13_02': 'a13_02_door17', 'a13_03': 'a13_03_item27', 'a13_04': 'a13_04_hatch',
+              'a13_05': 'a13_05_shaft'}
 SIDE_BEATS = {'a01r_s0': 'a01r_s0_pickup', 'a01r_s1': 'a01r_s1_door14_locked', 'a02_s0': 'a02_s0_mts_bed',
               # HEALING's item 0x20 from the menu (tools/capture_heal_beats.py)
               'a01r_s2': 'a01r_s2_menu_cure_none', 'a02_s1': 'a02_s1_menu_cure',
               # the beam's collapse, away from the story (SEVENTH_LEVEL_ROUTE.md)
               'a06_04': 'a06_04_beam_collapse', 'a06_05': 'a06_05_door3_locked',
-              # from a04b_03's end: the route's own lift ride past the live
-              # creature, and the pistol recording: the fight, the drop, the lift
-              'a04b_04': 'a04b_04_lift', 'a04b_s5': 'a04b_s5_fight', 'a04b_s6': 'a04b_s6_drop',
-              'a04b_s7': 'a04b_s7_lift'}
+              # from a04b_03's end, the pistol recording: the fight, the drop, the lift
+              'a04b_s5': 'a04b_s5_fight', 'a04b_s6': 'a04b_s6_drop', 'a04b_s7': 'a04b_s7_lift'}
 # A side that starts from another side's end (Phase.from_side).
 FROM_SIDE = {'a06_05': 'a06_04', 'a04b_s6': 'a04b_s5', 'a04b_s7': 'a04b_s6'}
-# AREA13 is not hosted yet: these beats' rows end before the load starts.
-ROW_LIMIT = {'a04b_04': 1436, 'a04b_s7': 1763}
+# AREA19 is not hosted yet: a13_05's rows end before its load starts.
+ROW_LIMIT = {'a13_05': 175}
 # em_level_smoke_test.c's phase order: each side right after its source.
 ROUTE_PHASES = ('a01r_00', 'a01r_01', 'a01r_s0', 'a01r_02', 'a01r_s1', 'a01r_s2', 'a01r_03', 'a02_s0', 'a02_s1',
                 'a02_00', 'a02_01', 'a02_02', 'a02_03', 'a02_04', 'a02_05', 'a04_00', 'a04_01', 'a04_02', 'a04_03',
                 'a04_04', 'a04_05', 'a22_00', 'a22_01', 'a22_02', 'a01u_00', 'a01u_01', 'a01u_02', 'a06_00',
                 'a06_01', 'a06_02', 'a06_03', 'a06_04', 'a06_05', 'a06b_00', 'a06b_01', 'a01v_00', 'a01v_01',
-                'a01v_02', 'a22b_00', 'a22b_01', 'a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_04',
-                'a04b_s5', 'a04b_s6', 'a04b_s7')
+                'a01v_02', 'a22b_00', 'a22b_01', 'a04b_00', 'a04b_01', 'a04b_02', 'a04b_03', 'a04b_s5', 'a04b_s6',
+                'a04b_s7', 'a04b_04', 'a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')
 # The phases the bed branch's recordings replace, and its own sides.
 BED_PHASES = tuple(p for p in ROUTE_PHASES if (p not in SIDE_BEATS and not p.startswith('a01r_')) or
                    p.startswith('a04b_'))
@@ -92,7 +94,8 @@ SOURCES = {'a01r_00': 'a00_10', 'a01r_01': 'a01r_00', 'a01r_02': 'a01r_01', 'a01
            'a06b_00': 'a06_03', 'a06b_01': 'a06b_00', 'a01v_00': 'a06b_01', 'a01v_01': 'a01v_00',
            'a01v_02': 'a01v_01', 'a22b_00': 'a01v_02', 'a22b_01': 'a22b_00', 'a04b_00': 'a22b_01',
            'a04b_01': 'a04b_00', 'a04b_02': 'a04b_01', 'a04b_03': 'a04b_02', 'a04b_04': 'a04b_03',
-           'a04b_s5': 'a04b_03', 'a04b_s6': 'a04b_s5', 'a04b_s7': 'a04b_s6'}
+           'a04b_s5': 'a04b_03', 'a04b_s6': 'a04b_s5', 'a04b_s7': 'a04b_s6', 'a13_00': 'a04b_04',
+           'a13_01': 'a13_00', 'a13_02': 'a13_01', 'a13_03': 'a13_02', 'a13_04': 'a13_03', 'a13_05': 'a13_04'}
 # FOURTH_LEVEL_ROUTE.md section 1.1 (measured in the a00_10 end snapshot;
 # route_capture checks every one against each beat's saved RAM).
 OWNERS = dict(shaft_door_r12=0x7ADD60, r13_158D30=0x7AE050, door_r14=0x7AE340, door_r15=0x7AE630,
@@ -151,13 +154,22 @@ A04B_OWNERS = dict(npc_r2=0x7AA2A0, r3_8246B0=0x7AA590, r4_824DC0=0x7AA880, door
 # The pistol recording's rows add the creature and the four bugs event [3]
 # spawns (tools/capture_boss_fight.py: this branch's nodes).
 A04S_OWNERS = dict(A04B_OWNERS, creature=0x7C2660, bug_a=0x7C2080, bug_b=0x7C2370, bug_c=0x7C3800, bug_d=0x7C3AF0)
+# NINTH_LEVEL_ROUTE.md section 1.1, A13_OWNERS (the a04b_04 arrival's load); the
+# tick log's "a13" observation (em_scene_bindings.c log_area13).
+A13_OWNERS = dict(r3_823700=0x7AAB70, r4_823A40=0x7AAE60, hole_r5=0x7AB150, hole_r6=0x7AB440, r7_824A80=0x7AB730,
+                  door8_r8=0x7ABA20, lift_r10=0x7AC000, button_r13=0x7AC8D0, door14_r14=0x7ACBC0,
+                  button_r15=0x7ACEB0, button_r16=0x7AD1A0, door17_r17=0x7AD490, door20_r20=0x7ADD60,
+                  r44_823E90=0x7B23E0, hatch_r62=0x7B52E0, hatch_r63=0x7B55D0, pick_g5=0x7A64F0, pick_g8=0x7A6DC0,
+                  bug_g25=0x7A9FB0, bug_g26=0x7AA2A0, bug_g27=0x7AA590, bug_g28=0x7AA880, c_g21=0x7A93F0)
 # The tick log's keys that carry AREA04's extra bytes (compare_route_row);
 # AREA22 on adds D_00810768..6B, D_00810857 and the counts of items 0x23 / 0x24.
-LATER_KEYS = ('a22', 'a01u', 'a06', 'a01v', 'a22b', 'a04r')
+LATER_KEYS = ('a22', 'a01u', 'a06', 'a01v', 'a22b', 'a04r', 'a13')
 
 
 def owners_of(phase):
     """The recorded owner table and the tick log's observation key."""
+    if phase.startswith('a13_'):
+        return A13_OWNERS, 'a13'
     if phase.startswith('a04b_s'):
         return A04S_OWNERS, 'a04r'
     if phase.startswith('a04b_'):
@@ -203,7 +215,7 @@ def revisit_path(until):
     while side in FROM_SIDE:
         side = FROM_SIDE[side]
         chain.add(side)
-    if until.startswith('a04b_'):       # the bed branch leaves the main line at a02_s0
+    if until.startswith(('a04b_', 'a13_')):     # the bed branch leaves the main line at a02_s0
         chain.add('a02_s0')
     return tuple(p for p in ROUTE_PHASES[:ROUTE_PHASES.index(until) + 1] if p not in SIDE_BEATS or p in chain)
 
@@ -318,7 +330,7 @@ def checked_phases():
     """The phases with a recording in the selected branch: a04b_* only on
     the bed branch, whose a02_00 follows a02_s0 and which has no beam
     collapse."""
-    return tuple(p for p in ROUTE_PHASES if (BED or not p.startswith('a04b_')) and
+    return tuple(p for p in ROUTE_PHASES if (BED or not p.startswith(('a04b_', 'a13_'))) and
                  not (BED and p in ('a06_04', 'a06_05')))
 
 
@@ -448,6 +460,13 @@ def compare_route_row(smoke, ticks, i, row, phase):
         # (the recorder's lock span ends before it); check_block_end has it.
         got.update(s76c=observed.get('s76c'))
         want.update(s76c=row['s76c'])
+    if key == 'a13':
+        # NINTH_LEVEL_ROUTE.md section 1: flags and counters 0x18..0x1F and
+        # 0x42, AREA13's lock byte, items 0x1A / 0x1E / 0x22 / 0x27,
+        # D_00810CC0..CF, counter 0x61, the player's event code +0x230.
+        names = ('s76c', 's770', 's7f0', 's798', 's818', 'l84e', 'c8b', 'c82', 'c7e', 'c86', 'cc0', 'c61', 'event230')
+        got.update({n: observed.get(n) for n in names})
+        want.update({n: row[n] for n in names})
     for name, address in owners.items():
         value = observed['owners'].get(str(address))
         assert value is not None, (phase, row['f'], name, 'missing canonical owner')

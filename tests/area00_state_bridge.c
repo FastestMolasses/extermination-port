@@ -2,6 +2,9 @@
 #include "../src/game/em_module_loader.c"
 #include "game/em_area01_state.h"
 
+/* em_module_loader.c's attachment scope call: no sound in this fixture. */
+void em_sfx_set_attachment(int attachment) { (void)attachment; }
+
 static EmModuleLoader loader;
 static EmArea01State state;
 static uint32_t stores[32][2], count;

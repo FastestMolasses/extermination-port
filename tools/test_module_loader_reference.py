@@ -266,7 +266,7 @@ def build():
     OUT.mkdir(parents=True, exist_ok=True)
     lib_path = OUT / 'module_loader.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-Isrc', 'src/game/em_module_loader.c',
+                    '-shared', '-fPIC', '-Isrc', 'src/game/em_module_loader.c', 'tests/module_loader_sfx_stub.c',
                     'src/game/em_status_scene_original.c', 'src/game/em_task.c',
                     '-o', str(lib_path)], cwd=ROOT, check=True)
     lib = C.CDLL(str(lib_path))
@@ -1527,10 +1527,10 @@ def check_faults(lib, pack):
     lib.em_task_init()
     ml = lib.em_module_loader_open(str(pack).encode())
     lib.em_module_loader_bind_live(ml)
-    # Header of module 7: not in the default pack (index sectors 4, 5 and 6
-    # are AREA00's, AREA01's and AREA02's headers, area + 4, which the pack
-    # holds).
-    assert lib.em_module_loader_request_001FF080(ml, 0, 0x07) == 0
+    # Header of module 9: not in the default pack (index sectors 4 .. 7 are
+    # AREA00's .. AREA03's headers, area + 4, which the pack holds; AREA05 is
+    # not bound).
+    assert lib.em_module_loader_request_001FF080(ml, 0, 0x09) == 0
     lib.em_task_dispatch()
     fault = Fault()
     assert lib.em_module_loader_failed(ml, C.byref(fault)) and fault.address == 0x112440 and fault.code == 4
@@ -1615,7 +1615,7 @@ int main(int argc, char **argv)
     if (argc < 3) return 2;
     int host = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x21, 100);
     int measured = load(argv[1], EM_MODULE_LOADER_DRIVE_MEASURED, 0x21, 100);
-    int missing = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x07, 100);   /* not in the pack (AREA03's header) */
+    int missing = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x09, 100);   /* not in the pack (AREA05's header) */
     int full = load(argv[2], EM_MODULE_LOADER_DRIVE_HOST, 0x03, 100);
     printf("%d %d %d %d %d\n", host, measured, missing, full, sent);
     return 0;
@@ -1632,7 +1632,8 @@ def check_sanitized(pack, full_pack):
     src.write_text(ASAN_DRIVER)
     subprocess.run(['cc', '-std=c11', '-g', '-O1', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
                     '-fno-sanitize-recover=all', '-Isrc', str(src), 'src/game/em_module_loader.c',
-                    'src/game/em_status_scene_original.c', 'src/game/em_task.c', '-o', str(exe)],
+                    'tests/module_loader_sfx_stub.c', 'src/game/em_status_scene_original.c', 'src/game/em_task.c',
+                    '-o', str(exe)],
                    cwd=ROOT, check=True)
     out = subprocess.run([str(exe), str(pack), str(full_pack)], check=True, capture_output=True,
                          text=True).stdout.split()

@@ -112,6 +112,7 @@ AREA02_LIGHT_WINDOWS = ((AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS * 0x40 + 4),)
 # groups the table names live in the AREA22 overlay's data). AREA06's
 # table 0x826A60 is in its overlay's data (the loader's).
 AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS = 0x00269D40, 9
+AREA13_LIGHT_TABLE, AREA13_LIGHT_RECORDS = 0x0026A540, 1
 MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4), (0x00275A84, 8),
                # 001C1A80 (the model-0x52 owners of AREA22 / AREA06): its
                # 0x28 seven-float sampler rows D_0024F8F0 (001D0D40 / 001D0D60)
@@ -143,6 +144,14 @@ MID_WINDOWS = ((0x0024A85C, 2), (0x0024A87C, 2), (0x0024D838, 4), (0x0024D878, 4
                # 0021A180's 001CFBE0 source block D_002668A0 (the strip owner
                # 00219870's; the port's mutable copy starts from these bytes)
                (0x002668A0, 0x90),
+               # AREA13: D_0024D7C0[0x0D] (0x8293A0's record); one window
+               # from the descriptors D_002759B8 / D_002759C0 (00183EF0 reads
+               # the Use descriptors [44] 0x823E90 and [58] 0x826FF0 publish;
+               # a candidate's floats may cross into the next word) through
+               # the sub table D_002759D0
+               (0x0024D7F4, 4), (0x002759B8, 0x1C),
+               # AREA13's 0022DCD0 light list D_0026A540, then the word -1
+               (AREA13_LIGHT_TABLE, AREA13_LIGHT_RECORDS * 0x40 + 4),
                # AREA06's effect handlers' 001CFBE0 sources: 001ECA20's
                # D_00256DC0 / D_00256E50 and 001EBE10's D_002564C0
                (0x00256DC0, 0x120), (0x002564C0, 0x90),
@@ -233,6 +242,11 @@ def verify_surface(data, paths):
     return owners
 
 
+# AREA13's outdoor strips (001E5AC0): the descriptors D_00254F30 / D_00254FC0
+# (their +0x20..+0x4F edited at run time: only the ELF's bytes here) and the
+# row tables D_00255050 / D_002550E0, through D_002551BF.
+# The breath 001E7050's 001CFBE0 source D_00255320.
+AREA13_DATA_WINDOWS = ((0x00254F30, 0x290), (0x00255320, 0x90))
 # AREA15 / AREA03 (lane K1): the areas' rows of the registries D_0024A850
 # (halfwords), D_0024D7C0, D_0024D820 and AREA15's per-sub words they name
 # (the list pointers D_002759E8..F7, the pairs D_002759F8 / D_00275A00).
@@ -247,7 +261,7 @@ def blocks(elf):
     windows = (*common, *AREA00_WINDOWS, *LIGHT_WINDOWS, *FIELD_WINDOWS, *CLASS2_WINDOWS, *FOOTSTEP_WINDOWS,
                *BOX_BREAK_WINDOWS, *HAZARD_WINDOWS, *HAZARD_EFFECT_WINDOWS, *CREATURE_EFFECT_WINDOWS,
                *REVISIT_EFFECT_WINDOWS, *AREA02_LIGHT_WINDOWS, *AREA02_EFFECT_WINDOWS, *MID_WINDOWS,
-               *AREA15_WINDOWS, *AREA19_WINDOWS)
+               *AREA13_DATA_WINDOWS, *AREA15_WINDOWS, *AREA19_WINDOWS)
     ordered = sorted(windows)
     if any(a + n > b for (a, n), (b, _) in zip(ordered, ordered[1:])):
         raise ValueError('AREA00 window overlaps an existing effect export')
@@ -258,7 +272,8 @@ def verify_light_table(data):
     """The 0022DCD0 lists (AREA00, AREA02 sub 0, AREA06): their records,
     then the word -1."""
     for base, records in ((LIGHT_TABLE, LIGHT_RECORDS), (AREA02_LIGHT_TABLE, AREA02_LIGHT_RECORDS),
-                          (AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS), (AREA19_LIGHT_TABLE, AREA19_LIGHT_RECORDS)):
+                          (AREA06_LIGHT_TABLE, AREA06_LIGHT_RECORDS), (AREA13_LIGHT_TABLE, AREA13_LIGHT_RECORDS),
+                          (AREA19_LIGHT_TABLE, AREA19_LIGHT_RECORDS)):
         table = data[base]
         for index in range(records):
             if struct.unpack_from('<i', table, index * 0x40)[0] == -1:

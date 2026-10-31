@@ -52,6 +52,9 @@ route's manifest: its first beat's source state):
   boss             the source state of a04b_g2 in the fight's own recording
                    (tools/capture_boss_fight.py: the SHOTGUN UNIT fitted, six
                    shells, in the hall outside door [45])
+  area13, a13_01 .. a13_05
+                   AREA13 (the fork continuation's route_a13): the lift's
+                   arrival, then the source state of each later beat
   a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01
                    the source state of that route beat: a loaded game
                    placed where the beat starts (the cutscene skip runs,
@@ -189,6 +192,15 @@ START_POINTS = {
     # The first boss (tools/capture_boss_fight.py): the shotgun chain's
     # reader beat, door [45] behind the player and the SHOTGUN UNIT fitted.
     'boss': {'route': 'boss_fight_20261030/s87/route_a04b', 'first': 'a04b_g2_', 'area': 4},
+    # AREA13 (NINTH_LEVEL_ROUTE.md, the fork continuation): area13 is the
+    # lift's arrival (a04b_04's end, entry 0), each later one the end of the
+    # previous beat.
+    'area13': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_00_', 'area': 0x0D},
+    'a13_01': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_01_', 'area': 0x0D},
+    'a13_02': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_02_', 'area': 0x0D},
+    'a13_03': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_03_', 'area': 0x0D},
+    'a13_04': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_04_', 'area': 0x0D},
+    'a13_05': {'route': 'levels-recordings-20261018-10/s87/route_a13', 'first': 'a13_05_', 'area': 0x0D},
     # AREA15 (FOURTEENTH_LEVEL_ROUTE.md, FIFTEENTH_LEVEL_ROUTE.md): the end of
     # a19d_20 (sub 0, after [0]'s scene) and a15_01 (door [51], sub 1 entry
     # 0), each later beat's source state. AREA03: a19e_07's end (door [25]).

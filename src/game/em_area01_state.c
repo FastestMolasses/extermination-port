@@ -1,6 +1,7 @@
 #include "game/em_area01_state.h"
 #include "game/em_area22_port.h"
 #include "game/em_area06_port.h"
+#include "game/em_level10_port.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -51,6 +52,7 @@ static const MidOverlay k_mid[] = {
     {0x16u, 0x13u, 0xC0u, EM_AREA01_STATE_A22_DATA_SIZE, EM_AREA01_STATE_A22_BSS, EM_AREA01_STATE_A22_BSS_SIZE},
     {0x06u, 0x06u, 0x2AC0u, EM_AREA01_STATE_A06_DATA_SIZE, EM_AREA01_STATE_A06_BSS, EM_AREA01_STATE_A06_BSS_SIZE},
     {0x13u, 0x10u, 0x68C0u, EM_AREA01_STATE_A19_DATA_SIZE, EM_AREA01_STATE_A19_BSS, EM_AREA01_STATE_A19_BSS_SIZE},
+    {0x0Du, 0x0Au, 0x67C0u, EM_AREA01_STATE_A13_DATA_SIZE, EM_AREA01_STATE_A13_BSS, EM_AREA01_STATE_A13_BSS_SIZE},
     {0x0Fu, 0x0Cu, 0x3440u, EM_AREA01_STATE_A15_DATA_SIZE, EM_AREA01_STATE_A15_BSS, EM_AREA01_STATE_A15_BSS_SIZE},
     {0x03u, 0x04u, 0x33C0u, EM_AREA01_STATE_A03_DATA_SIZE, EM_AREA01_STATE_A03_BSS, EM_AREA01_STATE_A03_BSS_SIZE},
 };
@@ -224,6 +226,25 @@ int em_area01_state_008250C0(EmArea01State *s)
     return 0;
 }
 
+/* AREA13's init, runtime 0x8236E0 (key 0xD00): em_level10_port_008236E0, its
+ * one translation (byte-matched C, func_overlay_AREA13_008236A0.c,
+ * test_level10_port_reference; the original over the captures in
+ * test_area13_state_reference), over this provider's view: D_00275C28 =
+ * 0x20, C1C = the BSS 0x82E280, C2C = 0, C24 = 0; D_00275C20 and C18 keep
+ * 001E7780's zeros. */
+int em_area01_state_008236E0(EmArea01State *s)
+{
+    if (!s || s->fault) return -1;
+    if (s->area != 0x0D) return fail(s, 0x008236E0u);
+    EmLevel10PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = s;
+    h.bytes = a22_view;
+    EmLevel10PortFault f = {0, 0};
+    if (em_level10_port_008236E0(&h, &f) < 0) return fail(s, f.address ? f.address : 0x008236E0u);
+    return 0;
+}
+
 /* AREA15's and AREA03's init at 0x823580 (byte-identical C,
  * overlay_AREA15_func_00823540.c / overlay_AREA03_func_00823540.c: keys
  * 0xF00, 0xF01, 0x300, 0x301): four stores, C1C = the overlay's BSS;
@@ -269,6 +290,8 @@ int em_area01_state_001E7780(EmArea01State *s, uint8_t area, uint8_t sub)
         if (em_area01_state_00824290(s) < 0) return -1;
     } else if (area == 0x13 && sub <= 1) {
         if (em_area01_state_008250C0(s) < 0) return -1;
+    } else if (area == 0x0D && sub == 0) {
+        if (em_area01_state_008236E0(s) < 0) return -1;
     } else if ((area == 0x0F || area == 3) && sub <= 1) {
         if (mid_init(s, mid_overlay(area)) < 0) return -1;
     }

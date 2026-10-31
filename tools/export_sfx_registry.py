@@ -76,10 +76,11 @@ AREA04_IDS = AREA00_IDS
 ATTACHMENT_SCOPES = tuple((32 + i, 0) for i in range(4))
 ATTACHMENT_IDS = tuple(range(0x5DC, 0x5E2))
 # The middle of the route to the first boss (lane C1): AREA22 sub 0
-# (export_area22_sfx.scope_binding) and AREA06 sub 0
-# (export_area06_sfx.sub_binding), each its captures' binding; resolved
+# (export_area22_sfx.scope_binding), AREA06 sub 0
+# (export_area06_sfx.sub_binding) and AREA13 sub 0
+# (export_area13_sfx.target_binding), each its captures' binding; resolved
 # after AREA04, so every earlier scope keeps its samples and indices.
-MID_SCOPES = ((0x16, 0), (6, 0), (0x0F, 0), (0x0F, 1), (3, 0))
+MID_SCOPES = ((0x16, 0), (6, 0), (0x0D, 0), (0x0F, 0), (0x0F, 1), (3, 0))
 MID_IDS = AREA00_IDS
 # AREA19 sub 0 and sub 1 (lane J1): the capture-checked bindings
 # export_area19_sfx.py / export_area19s1_sfx.py recorded in each sub's
@@ -285,9 +286,12 @@ def area04_bindings():
             setattr(C, name, value)
 
 
+_A13_CAPTURE_PATHS = []
+
+
 def mid_bindings():
-    """AREA22's and AREA06's sub-0 bindings; restores the shared AREA01
-    exporter configuration afterwards, as area02_bindings does."""
+    """AREA22's, AREA06's and AREA13's sub-0 bindings; restores the shared
+    AREA01 exporter configuration afterwards, as area02_bindings does."""
     import export_area01_common as C
     names = ('OVERLAY_PATH', 'OVERLAY_SIZE', 'OVERLAY_ID', 'AREA', 'SUB',
              'OUT', 'SCRATCH', 'ROUTE_A01', 'ARRIVAL', 'captures', 'build_load_map')
@@ -296,6 +300,9 @@ def mid_bindings():
         # AREA06's helper first: it needs AREA01's nested load-map builder,
         # which AREA22's configure replaces (export_area06_common's guard)
         import export_area06_common  # noqa: F401
+        import export_area13_common as A13
+        if not _A13_CAPTURE_PATHS:               # export_area15_common's import replaces it
+            _A13_CAPTURE_PATHS.append(A13.capture_paths)
         import export_area15_common as A15   # the same guard (export_area13_common's)
         import export_area03_common as A03
         for name, value in saved.items():    # their imports configure C
@@ -304,6 +311,9 @@ def mid_bindings():
         result = dict(S22.scope_binding()[0])
         import export_area06_sfx as S6
         result.update(S6.sub_binding(0)[0])
+        a15_capture_paths, A13.capture_paths = A13.capture_paths, _A13_CAPTURE_PATHS[0]
+        result.update(A15.SX.target_binding('area13'))
+        A13.capture_paths = a15_capture_paths
         # AREA15's two subs and AREA03's (export_area13_sfx's target path).
         for sub in (0, 1):
             A15.install(sub)

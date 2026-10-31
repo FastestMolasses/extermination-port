@@ -105,6 +105,11 @@ static uint8_t *d2668A0(void)
 #define D81F970_BASE 0x0081F970u
 #define D81F970_SIZE 0x500u
 static uint8_t s_d81F970[D81F970_SIZE];
+/* D_00275CA8: the word AREA13's [45] 0x827150 publishes its block in each
+ * frame and its step functions read (only AREA13's overlay names it). Boot
+ * BSS, zero until then and never reset. */
+#define D275CA8_BASE 0x00275CA8u
+static uint32_t s_d275CA8;
 static EmActor *actor(EmArea01Live *l,uint32_t a)
 {
     if(a<EM_ACTOR_POOL_BASE)return NULL;
@@ -271,6 +276,8 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         uint8_t *stage=em_shadow_live_stage_bytes();
         return stage && contains(a,n,0x008112C0u,0xA00u) ? stage+(a-0x008112C0u) : NULL;
     }
+    if(overlaps(a,n,D275CA8_BASE,4))
+        return contains(a,n,D275CA8_BASE,4) ? (uint8_t *)&s_d275CA8+(a-D275CA8_BASE) : NULL;
     if(overlaps(a,n,D822CF0_BASE,D822CF0_SIZE))
         return contains(a,n,D822CF0_BASE,D822CF0_SIZE) ? s_d822CF0+(a-D822CF0_BASE) : NULL;
     if(overlaps(a,n,D81F970_BASE,D81F970_SIZE))
@@ -495,6 +502,21 @@ static int model_external(void *ctx,uint32_t fn,uint32_t node,uint32_t arg)
     if(fn==0x001AFC10u) {
         EmActor *a=actor(l,node);
         return a ? em_actor_pool_free_001AFC10(l->host.pool,l->host.scene,a) : -1;
+    }
+    if(fn==0x001BA7F0u) {
+        /* 001BA580's branch for the scene body 0x61 in AREA13: the runtime's
+         * translation over the actor view this call had suspended. */
+        const uint32_t parent=l->runtime.sp ? l->runtime.sp : LOCAL_BASE+sizeof l->locals-16;
+        EmArea01Call c={.function=fn,.sp=parent-0x100u,.a={node},.na=1};
+        if(parent<LOCAL_BASE+0x200u)return -1;
+        em_camera_live_adopt_view();
+        if(em_area01_actor_view_begin(&l->actors)<0 || player_begin(l)<0 ||
+           em_area01_collision_view_begin(&l->collision)<0)return -1;
+        int rc=em_area01_runtime_call(&l->runtime,&c);
+        if(em_area01_collision_view_commit(&l->collision)<0 || em_area01_player_view_commit(&l->player)<0 ||
+           em_area01_actor_view_commit(&l->actors)<0)return -1;
+        em_camera_live_view_publish();
+        return rc;
     }
     EmArea01Call c={.function=fn,.a={node,arg},.na=2};
     return l->host.worker ? l->host.worker(l->host.ctx,&c) : -1;
@@ -1226,6 +1248,40 @@ static int worker(void *ctx,EmArea01Call *c)
         if(player_begin(l)<0 || em_area01_collision_view_begin(&l->collision)<0)return -1;
         c->v0=0;return rc;
     }
+    if(c->function==0x001CA7B0u) {
+        /* 001CA7B0(position, f12): em_owner_draw_live's cull flags over the
+         * position as it stands (AREA13's [45] 0x827150 and [11]'s). */
+        if(c->na<1 || c->nf<1)return -1;
+        const uint8_t *p=bytes(l,(uint32_t)c->a[0],16,0);
+        if(!p)return worker_result(l,-1,(uint32_t)c->a[0]);
+        uint32_t position[4];int32_t flags=0;memcpy(position,p,16);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_owner_draw_live_001CA7B0(position,c->f[0],&flags);
+        if(em_area01_live_resume(l)<0)return -1;
+        c->v0=(uint64_t)(int64_t)flags;
+        return worker_result(l,rc,rc<0 ? 0x001CA7B0u : 0);
+    }
+    if(c->function==0x001C7900u) {
+        /* 001C7900(m, token, 0x3F5, 0): the colour and node CNTs on channel
+         * 0 (em_owner_draw_live), as 001F3E30's (AREA13's [45] markers). */
+        if(c->na<4)return -1;
+        const uint8_t *m=bytes(l,(uint32_t)c->a[0],64,0),*t=bytes(l,(uint32_t)c->a[1],16,0);
+        if(!m || !t)return worker_result(l,-1,(uint32_t)c->a[0]);
+        uint32_t matrix[16];uint8_t token[16];memcpy(matrix,m,64);memcpy(token,t,16);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_owner_draw_live_001C7900(matrix,(uint32_t)c->a[1],token,(int32_t)c->a[2],(int32_t)c->a[3]);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,rc<0 ? 0x001C7900u : 0);
+    }
+    if(c->function==0x001CA940u) {
+        /* 001CA940(flags, model): the model's REFs, the unit kept with the
+         * frame's units (em_owner_draw_live), a world-bank model here. */
+        if(c->na<2)return -1;
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_owner_draw_live_001CA940_library((int32_t)c->a[0],(uint32_t)c->a[1]);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,rc<0 ? 0x001CA940u : 0);
+    }
     EmSdkMathContext *sdk=em_collision_world_sdk();float out;
     switch(c->function) {
     case 0x00121A28u: {
@@ -1315,7 +1371,7 @@ static int worker(void *ctx,EmArea01Call *c)
         const uint8_t *context=em_rcl_bytes(EM_RCL_CONTEXT,EM_RCL_CONTEXT_SIZE);
         return context ? em_sul_0021BAB0(context,EM_RCL_CONTEXT_SIZE,&c->v0) : -1;
     }
-    case 0x001AEDE0u: case 0x001AEE10u: case 0x001B1E20u:
+    case 0x001AEDB0u: case 0x001AEDE0u: case 0x001AEE10u: case 0x001B1E20u:
     case 0x001B0250u: case 0x0021B9A0u: case 0x001D2830u:
     case 0x001DD980u: case 0x001D25F0u: case 0x001FB9F0u:
     case 0x001FAD70u: case 0x001FA790u: case 0x001FABB0u:
@@ -1338,6 +1394,7 @@ static int worker(void *ctx,EmArea01Call *c)
         case 0x001AEDE0u: case 0x001AEE10u:
             em_frame_fade_start_colour(c->function==0x001AEDE0u ? 1 : -1,
                                       (int16_t)c->a[0],(uint8_t)c->a[1]);break;
+        case 0x001AEDB0u:em_frame_fade_full((uint8_t)c->a[0]);break; /* [3]'s scene (AREA13) */
         case 0x001B1E20u:rc=em_pad_actuator_001B1E20((int32_t)c->a[0],(int64_t)c->a[1]);break;
         case 0x001B0250u:rc=em_scene_bindings_001B0250();break;
         case 0x0021B9A0u:rc=em_rcl_0021B9A0((int32_t)c->a[0],c->f[0],c->f[1]);break;

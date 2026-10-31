@@ -44,8 +44,14 @@ a04b_03` (78 live phases, about 17.5 minutes; drive tables `build/drive_replay_b
 anchors `build/rand_replay_bed/route_bed_20261030/route.txt`): a run `--until
 a04b_*` plays the bed a02_s0 and compares a02_00 on with the fork continuation,
 the only recording of AREA04's second visit (LEVEL3_BINDING.md "2026-10-30, lane
-E1"). On it the sides a04b_04 (the route's lift) and a04b_s5, a04b_s6, a04b_s7
-(the pistol fight, the drop, the lift) go on to the row before AREA13's load. Each run writes about 3 to 4 GB of tick log. a22_02, a01u_02, a06b_01,
+E1"). On it the sides a04b_s5, a04b_s6, a04b_s7 (the pistol fight, the drop, the
+lift) and the main phase a04b_04 (the route's lift) go through AREA13's load:
+both lifts are return phases (AREA13 entry 0's state 0, 331 rows after it), and
+lane H1 carried the line on through a13_00 .. a13_05, to the row before AREA19's
+load (`--until a13_05`, a bed branch run; anchors
+`build/rand_replay_bed/route_a13_20261030/route.txt`, whose entry13 is
+a04b_04's; a run --until a04b_s7 takes `route_a13s_20261030/route.txt`, the
+pistol recording's entry13; LEVEL3_BINDING.md "2026-10-30, lane H1"). Each run writes about 3 to 4 GB of tick log. a22_02, a01u_02, a06b_01,
 a01v_02 and a22b_01 are return phases; from AREA22 on each beat's end also
 compares the whole progress block with its end RAM (`check_block_end`).
 Since lane B2

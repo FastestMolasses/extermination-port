@@ -26,8 +26,7 @@
  * lives below it at the original's offsets.
  *
  * Calls between the translations here are direct (no hook). Every other
- * callee is a hook named by original address (boot functions and the
- * AREA13 overlay's own 0x824060 at its runtime address); pointer arguments
+ * callee is a hook named by original address (boot functions); pointer arguments
  * are original addresses; a hook returns >= 0 on success and its original
  * result (when used) in *result (float results as the float whose bits are
  * the original's; 64-bit results whole). The indirect call through a
@@ -44,7 +43,7 @@
  * entry, a NULL hook table, a NULL fault pointer and (entries with a
  * result) a NULL result pointer return -1 at once.
  *
- * Unbound: nothing in the port calls these entries (level side track;
+ * AREA13's entries run in the shared runtime (em_area01_runtime_area13.inc;
  * docs/LEVEL11_PORT.md "Binding"). stdint only; EE float model.
  */
 #ifndef EM_LEVEL11_PORT_H
@@ -180,7 +179,6 @@ typedef struct {
     int (*w_001FAE70)(void *ctx, int32_t n0);
     int (*w_001FBD50)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3, int32_t *result);
     int (*w_0021C040)(void *ctx, uint32_t a0, uint32_t a1);
-    int (*w_00824060)(void *ctx, int32_t *result);
 /* END GENERATED HOOKS */
 
     /* an indirect call through a function word read from memory */
@@ -188,7 +186,11 @@ typedef struct {
 } EmLevel11PortHooks;
 
 /* ---- AREA13 overlay (runtime addresses; OVERLAY/AREA13.BIN, id 10) ---- */
+int em_level11_port_00824060(const EmLevel11PortHooks *h, int32_t *result, EmLevel11PortFault *fault);
 int em_level11_port_008240E0(const EmLevel11PortHooks *h, int32_t *result, EmLevel11PortFault *fault);
+int em_level11_port_00824160(const EmLevel11PortHooks *h, EmLevel11PortFault *fault);
+int em_level11_port_008247B0(const EmLevel11PortHooks *h, uint32_t a0, uint32_t self, uint32_t blk,
+                             int32_t *result, EmLevel11PortFault *fault);
 int em_level11_port_00824390(const EmLevel11PortHooks *h, uint32_t self, EmLevel11PortFault *fault);
 int em_level11_port_00824520(const EmLevel11PortHooks *h, uint32_t self, EmLevel11PortFault *fault);
 int em_level11_port_008246D0(const EmLevel11PortHooks *h, uint32_t a0, uint32_t self, uint32_t blk,

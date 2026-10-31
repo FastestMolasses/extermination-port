@@ -84,6 +84,9 @@ says what stopped the exploration (six 0013D2D0 creatures, two rounds held).
   has no live chain page: the node is not drawn while D_008107FB >= 3 and the
   log says so once. em_level15_support translates it with its oracle; it needs
   001D2090, 001D6930, 001D6BA0, 001D6580 on the live channel.
+- **The snow of AREA15 sub 1**: 001E55F0's state runs (em_snow_runtime_tick_outdoor,
+  since the merge with lane H1), its 001E67C0 branch does not draw: the snow config
+  is AREA11's scene file. The log says so once; only the picture depends on it.
 - **Doors into AREA19** (a15_00, a15b_04, and a19e into AREA03) wait for lane J1.
 - **a03_00's walk** and the a15b_03 / a15b_04 walks are steered: row-exact
   needs the New Game chain.

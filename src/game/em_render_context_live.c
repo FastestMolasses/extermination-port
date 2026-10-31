@@ -1130,7 +1130,7 @@ static int l9_001CB760(void *ctx, uint32_t table, uint32_t id, uint32_t address,
 {
     (void)ctx;
     (void)unread;   /* 001CB760 does not read a3 */
-    return em_packet_chain_w_001CB760(&R.pc, table, (int32_t)id, address);
+    return f_001CB760(&R.pc, table, (int32_t)id, address);
 }
 static int l9_001D1F20(void *ctx, int32_t chan) { return v_001D1F20(ctx, chan); }
 static int l9_001D1FF0(void *ctx, int32_t chan, int32_t a1) { return v_001D1FF0(ctx, chan, a1); }

@@ -2026,7 +2026,14 @@ static int free_self_001AFC10(EmActor *actor)
  * the actor (the 001C1DC0 of 0x1AE040 state 4 has spawned its successor). */
 static int tick_weather(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    int released = em_snow_runtime_tick_actor(
+    /* Outside AREA11: D_008106C8's flags (001B0070), em_snow_runtime's
+     * 001E5AC0 branch (AREA13's outdoor entries). */
+    int released = s_scene->d810700 != 0x0B
+        ? em_snow_runtime_tick_outdoor(&node->weather, em_scene_bindings_pool_address(actor),
+                                       em_scene_req_u32(s_scene, EM_SCENE_REQ_C8), s_scene->d810700, s_scene->d810701,
+                                       world->cutscene ? 1u : 0u, s_scene->req[EM_SCENE_REQ_B8],
+                                       (unsigned)(int)em_frame_transition()->substate, &s_scene->req[0x0F])
+        : em_snow_runtime_tick_actor(
         &node->weather, world->cutscene ? s_walk_eye : g.cam.eye, world->cutscene ? 1u : 0u,
         s_scene->req[EM_SCENE_REQ_B8], (unsigned)(int)em_frame_transition()->substate);
     if (released < 0)

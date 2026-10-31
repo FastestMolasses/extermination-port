@@ -75,6 +75,12 @@ static const struct {
     {"a04b_03", 0x04},
     {"a04b_04", 0x04},
     {"boss", 0x04},
+    {"area13", 0x0D},
+    {"a13_01", 0x0D},
+    {"a13_02", 0x0D},
+    {"a13_03", 0x0D},
+    {"a13_04", 0x0D},
+    {"a13_05", 0x0D},
     /* AREA15 and AREA03 (lane K1) */
     {"area15", 0x0F},
     {"a15_00", 0x0F},
@@ -508,7 +514,8 @@ int em_start_at_check(void)
         return refuse("an unknown start point (area01, area00, area01-revisit, area02, a02_01 .. a02_05, "
                              "a01_03, a01_05, a01_s7, a01_07, a00_01, a00_04, a01r_01, area22, a22_01, "
                              "a22_02, a01u, a01u_01, a01u_02, a01u_s0, area06, a06_01 .. a06_05, a06b, "
-                             "a06b_01, a01v, a01v_01, a01v_02, a22b, a22b_01)", NULL);
+                             "a06b_01, a01v, a01v_01, a01v_02, a22b, a22b_01, a04_00 .. a04_05, a04b_00 .. "
+                             "a04b_04, boss, area13, a13_01 .. a13_05)", NULL);
     }
     const char *ng = getenv("EM_NEW_GAME");
     if (ng && ng[0] && strcmp(ng, "0") != 0)

@@ -61,7 +61,7 @@ static struct {
     uint32_t replay_n;
     /* its anchors: a compared phase and the recording's counter at its row 0;
      * the recording's counter minus the run's, from the last anchor reached */
-    struct { char phase[24]; uint32_t counter; } anchor[64];
+    struct { char phase[24]; uint32_t counter; } anchor[96];
     uint32_t anchor_n;
     int anchored;
     uint32_t offset;

@@ -638,6 +638,8 @@ def _sfx_cost(tagged):
 # the car's 0x8B4 in AREA02 sub 0, 0x89E / 0x8A0 in AREA00 subs 0 and 1.
 SLIDE_CAPTURES={(2,0):'s87/route_a02/a02_01_switch',(0,0):'s87/route_a00/a00_05_ferry_deck',
                 (0,1):'s87/route_a00/a00_08_switch',
+                # AREA13's outdoor loop 0x44E, the same script over AREA13's banks
+                (13,0):'levels-recordings-20261018-10/s87/route_a13/a13_01_door14',
                 # AREA15 sub 1's area loop 0x44E: the pan slides and its B0 60 loop
                 (15,1):'levels-recordings-20261018-19/s87/route_a15/a15_01_door51',
                 # AREA19 sub 0's area loop 0x44F: a B0 60 target off the tick grid
@@ -671,7 +673,7 @@ def slide_oracle(elf,lib,report,path):
     entries=[(e['id'],tuple(e['scope'])) for e in report['entries'] if e['state']==X.STATE_AUDIBLE and
              any(ev.get('op')==X.OP_VOLUME for ev in e['events'])]
     ids=(0x44E,0x4E3,0x58A,0x58E,0x592,0x596,0x59A)
-    pinned=[(0x89E,(0,0)),(0x8A0,(0,0)),(0x89E,(0,1)),(0x8A0,(0,1)),(0x8B4,(2,0))]+[(i,(15,1)) for i in ids]
+    pinned=[(0x89E,(0,0)),(0x8A0,(0,0)),(0x89E,(0,1)),(0x8A0,(0,1)),(0x8B4,(2,0))]+[(i,(15,1)) for i in ids]+[(0x44E,(13,0))]
     assert set(pinned)<=set(entries),entries
     entries=pinned   # the scopes with a capture here (SLIDE_CAPTURES)
     pairs=((0x1000,0x1000),(0x800,-0x400))

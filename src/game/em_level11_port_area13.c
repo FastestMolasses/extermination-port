@@ -77,6 +77,39 @@ int em_level11_port_008240E0(const EmLevel11PortHooks *h, int32_t *result, EmLev
 }
 
 /* ------------------------------------------------------------------------
+ * 0x824060: the shape of 0x8240E0 with the area 0x82E180 (0x824390's second
+ * walkway test). */
+int32_t l11_00824060(L11 *o)
+{
+    if (l11_u8(o, D_00810774) == 0xFFu) return 0;
+    int32_t r = 0;
+    if (l11_c_001B1EA0(o, 0, D_00810350, 0x0082E180u, 4, &r)) return 0;
+    if (r == 0) return 0;
+    if (L11_LE(l11_u32(o, D_00810354), 0x43520000u)) return 0; /* 210.0 */
+    return 1;
+}
+
+int em_level11_port_00824060(const EmLevel11PortHooks *h, int32_t *result, EmLevel11PortFault *fault)
+{
+    L11 o;
+    if (!result || l11_begin(&o, h, fault)) return -1;
+    int32_t r = l11_00824060(&o);
+    if (l11_end(&o)) return -1;
+    *result = r;
+    return 0;
+}
+
+/* ------------------------------------------------------------------------
+ * 0x824160: [44]'s stage 0: D_008107F4 += 1 (the AREA13 load's first frame). */
+int em_level11_port_00824160(const EmLevel11PortHooks *h, EmLevel11PortFault *fault)
+{
+    L11 o;
+    if (l11_begin(&o, h, fault)) return -1;
+    l11_w8(&o, D_008107F4, (uint8_t)(l11_u8(&o, D_008107F4) + 1u));
+    return l11_end(&o);
+}
+
+/* ------------------------------------------------------------------------
  * 0x8249F0: walks up to 12 objects of the +0x18 chain from self's +0x18 and
  * sets the halfword +0x36 = 1 on each one whose +2 & 0x1F is 4, +3 is 0xA
  * and +0xB4 is not below 215. Returns 1. */
@@ -136,7 +169,8 @@ int em_level11_port_00824390(const EmLevel11PortHooks *h, uint32_t self, EmLevel
                 l11_w8(&o, self + 5, 2);
                 l11_w8(&o, self + 6, 1);
             } else {
-                if (l11_failed(&o) || l11_c_00824060(&o, &r)) break;
+                r = l11_00824060(&o);
+                if (l11_failed(&o)) break;
                 if (r != 0) {
                     l11_c_001BA1A0(&o, talk, 0x0082B810u);
                     l11_w8(&o, self + 5, 2);
@@ -234,6 +268,42 @@ int em_level11_port_00824520(const EmLevel11PortHooks *h, uint32_t self, EmLevel
     l11_c_001B17A0(&o, self, &r);
     l11_method(&o, self);
     return l11_end(&o);
+}
+
+/* ------------------------------------------------------------------------
+ * 0x8247B0: script 0x82B810's callback (a0, self, blk): 0x8246D0 with the
+ * player's x and z -= 0.7 per call. */
+int em_level11_port_008247B0(const EmLevel11PortHooks *h, uint32_t a0, uint32_t self, uint32_t blk,
+                             int32_t *result, EmLevel11PortFault *fault)
+{
+    L11 o;
+    (void)a0;
+    if (!result || l11_begin(&o, h, fault)) return -1;
+    int32_t ret = 0;
+    switch (l11_u8(&o, self + 4)) {
+    case 0:
+        l11_w32(&o, blk + 0x10, F_ZERO);
+        l11_w8(&o, self + 4, 1);
+        break;
+    case 1: {
+        l11_w32(&o, blk + 0x10, L11_ADD(l11_u32(&o, blk + 0x10), F_ONE));
+        l11_w32(&o, D_00810350, L11_SUB(l11_u32(&o, D_00810350), 0x3F333333u)); /* 0.7 */
+        uint32_t s = 0;
+        if (l11_c_0011DE90(&o, L11_MUL(0x3D0EFA35u, l11_u32(&o, blk + 0x10)), &s)) break; /* 0.034906585 */
+        l11_w32(&o, D_00810354, L11_ADD(l11_u32(&o, D_00810354), L11_MUL(0x3E4CCCCDu, s))); /* 0.2 */
+        l11_w32(&o, D_00810358, L11_SUB(l11_u32(&o, D_00810358), 0x3F333333u)); /* 0.7 */
+        if (!L11_LE(l11_u32(&o, blk + 0x10), 0x42480000u)) { /* 50.0 */
+            l11_w32(&o, blk + 0x10, F_ZERO);
+            ret = 1;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    if (l11_end(&o)) return -1;
+    *result = ret;
+    return 0;
 }
 
 /* ------------------------------------------------------------------------

@@ -597,9 +597,6 @@ static const Phase k_phases[] = {
     {"a04b_03", "a04b_03_reader", 0,
      "reader [50], event [3], the creature at the lift, bed branch", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
-    {"a04b_04", "a04b_04_lift (side, from a04b_03_reader)", 0,
-     "the route's own lift ride past the live creature, to the AREA13 request", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
-     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
     {"a04b_s5", "a04b_s5_fight (side, from a04b_03_reader)", 0,
      "the pistol fight: the creature dies", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 1, 0, 1},
@@ -607,8 +604,29 @@ static const Phase k_phases[] = {
      "the drop: the dog tag", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 1, 1, 1},
     {"a04b_s7", "a04b_s7_lift (side, from a04b_s6_drop)", 0,
-     "the ride, to the AREA13 request", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     "the ride, AREA13's load, its arrival", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
      a01_route_begin, a01_route_frame, 0, 1, 1, 1},
+    {"a04b_04", "a04b_04_lift", 0,
+     "the route's own lift ride past the live creature, AREA13's load, its arrival", "EIGHTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a13_00", "a13_00_door8", 0,
+     "out of the car, the lobby, door [8] (entry 2), [3]'s scene", "NINTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a13_01", "a13_01_door14", 0,
+     "the button [16] of door [14], the way outside (entry 8)", "NINTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a13_02", "a13_02_door17", 0,
+     "outdoors, the cold's health loss, door [17] (entry 4), [4]'s scene, item 0x1A", "NINTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a13_03", "a13_03_item27", 0,
+     "the pickup g[5], item 0x27", "NINTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a13_04", "a13_04_hatch", 0,
+     "the ledge climb, the hatch [62]", "NINTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a13_05", "a13_05_shaft", 0,
+     "the ladder down, y 143.1, 00193EB0's request of AREA19 (rows to its load)", "NINTH_LEVEL_ROUTE.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -673,7 +691,8 @@ static int side_played(int i)
 {
     /* The second visit to AREA04 is recorded only on the fork continuation
      * that leaves the main line at the bed (a02_s0): such a run plays it. */
-    if (!strncmp(k_phases[t.until].name, "a04b_", 5) && !strcmp(k_phases[i].name, "a02_s0"))
+    if ((!strncmp(k_phases[t.until].name, "a04b_", 5) || !strncmp(k_phases[t.until].name, "a13_", 4)) &&
+        !strcmp(k_phases[i].name, "a02_s0"))
         return 1;
     for (int j = t.until;; j -= k_phases[j].from_side) {
         if (i == j)
@@ -5443,7 +5462,8 @@ static void a01_route_begin(void)
                       !strncmp(k_phases[t.current].name,"a04_",4) || !strncmp(k_phases[t.current].name,"a22_",4) ||
                       !strncmp(k_phases[t.current].name,"a01u_",5) || !strncmp(k_phases[t.current].name,"a06_",4) ||
                       !strncmp(k_phases[t.current].name,"a06b_",5) || !strncmp(k_phases[t.current].name,"a01v_",5) ||
-                      !strncmp(k_phases[t.current].name,"a22b_",5) || !strncmp(k_phases[t.current].name,"a04b_",5);
+                      !strncmp(k_phases[t.current].name,"a22b_",5) || !strncmp(k_phases[t.current].name,"a04b_",5) ||
+                      !strncmp(k_phases[t.current].name,"a13_",4);
     const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : revisit ? "EM_LEVEL4_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
     s_a00_return_frame=-1;
     char path[1024];
@@ -5564,7 +5584,8 @@ static int a01_route_frame(void)
               !strcmp(k_phases[t.current].name,"a02_05") || !strcmp(k_phases[t.current].name,"a04_05") ||
               !strcmp(k_phases[t.current].name,"a22_02") || !strcmp(k_phases[t.current].name,"a01u_02") ||
               !strcmp(k_phases[t.current].name,"a06b_01") || !strcmp(k_phases[t.current].name,"a01v_02") ||
-              !strcmp(k_phases[t.current].name,"a22b_01")) {
+              !strcmp(k_phases[t.current].name,"a22b_01") || !strcmp(k_phases[t.current].name,"a04b_04") ||
+              !strcmp(k_phases[t.current].name,"a04b_s7")) {
         /* The return's only variable duration is its asynchronous loader.
          * The checker compares every gameplay row, every emitted loader
          * row and the fixed suffix after the destination's state 0
@@ -5587,6 +5608,7 @@ static int a01_route_frame(void)
         const int to01v=!strcmp(k_phases[t.current].name,"a06b_01");
         const int to22b=!strcmp(k_phases[t.current].name,"a01v_02");
         const int to04b=!strcmp(k_phases[t.current].name,"a22b_01");
+        const int to13=!strcmp(k_phases[t.current].name,"a04b_04") || !strcmp(k_phases[t.current].name,"a04b_s7");
         /* A version 2 pad names the arrival row: the recording's own rows
          * after state 0 (the bed branch's a02_00 has 168, the canonical 143). */
         const int after=s_a01_arrival_row>0 ? s_a01_last_frame-s_a01_arrival_row :
@@ -5601,6 +5623,7 @@ static int a01_route_frame(void)
             to01v ? s->d810700==1 && s->d810701==0 && s->d810702==7 :
             to22b ? s->d810700==0x16 && s->d810701==0 && s->d810702==5 :
             to04b ? s->d810700==4 && s->d810701==0 && s->d810702==1 :
+            to13 ? s->d810700==0x0D && s->d810701==0 && s->d810702==0 :
                     s->d810700==1 && s->d810701==0 && s->d810702==0) &&
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
@@ -5609,7 +5632,7 @@ static int a01_route_frame(void)
                     k_phases[t.current].name,em_frame_counter(),to02 ? "AREA02 sub 1" : to020 ? "AREA02 sub 0" :
                     to04 ? "AREA04 entry 0" : to22 ? "AREA22 entry 0" : to01u ? "AREA01 entry 6" :
                     to06 ? "AREA06 entry 0" : to01v ? "AREA01 entry 7" : to22b ? "AREA22 entry 5" :
-                    to04b ? "AREA04 entry 1" : "AREA01 return");
+                    to04b ? "AREA04 entry 1" : to13 ? "AREA13 entry 0" : "AREA01 return");
         }
         if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
             pad_apply(0,0,0);

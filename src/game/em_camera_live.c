@@ -21,6 +21,7 @@
 #include "game/em_level13_port.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_camera_aim.h"
+#include "game/em_level9_port.h"
 #include "game/em_camera_area11_specials.h"
 #include "game/em_camera_commit_original.h"
 #include "game/em_camera_leftovers.h"
@@ -1361,9 +1362,51 @@ static int lw_001B0C60(void *ctx, int a0, int a1, int a2)
 {
     return later_001B0C60(ctx, a0, a1, a2);
 }
-static int sp_001B0C60(void *ctx, int32_t a0, int32_t a1, int32_t a2)
+/* 0x823FE0 (AREA13's area test, 00195130's area-0xD case while D_00810702
+ * >= 8): em_level9_port's translation over the aim camera's map, its
+ * 001B1EA0 the director's (the one translation of the winding test, as
+ * em_area01_shared_services serves it). */
+static int a13c_atan2(void *ctx, float y, float x, float *out)
 {
-    return later_001B0C60(ctx, a0, a1, a2);
+    EmSdkMathContext *sdk = ctx;
+    *out = em_sdk_math_original_float_0011E620(sdk, y, x);
+    return sdk->fault ? -1 : 0;
+}
+static int a13c_001B1EA0(void *c, int32_t mode, uint32_t point, uint32_t quad, int32_t count, int32_t *result)
+{
+    (void)c;
+    /* the point is the player's +0xA0; the area lies in the overlay's data
+     * (the host's memory view) */
+    const float *p = (const float *)(const void *)aim_map(NULL, point, 12, 0);
+    const float (*q)[4] = (const float (*)[4])(const void *)aim_map(NULL, quad, 16u * (uint32_t)count, 0);
+    if (!p || !q) return -1;
+    return em_director_original_001B1EA0_bound(mode, p, q, count, a13c_atan2, em_collision_world_sdk(), result);
+}
+static int sp_00823FE0(void *ctx, uint8_t *cam, int32_t *result)
+{
+    (void)ctx;
+    if (cam != C.cam.rec.bytes) return -1;
+    EmLevel9PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.bytes = a06c_bytes;
+    h.w_001B1EA0 = a13c_001B1EA0;
+    EmLevel9PortFault f = {0, 0};
+    int32_t r = 0;
+    const int rc = em_level9_port_00823FE0(&h, &r, &f);
+    if (rc < 0) {
+        fprintf(stderr, "em_camera_live: 0x823FE0 fault code %d at %08X\n", (int)f.code, (unsigned)f.address);
+        return -1;
+    }
+    if (result) *result = r;
+    return 0;
+}
+
+/* 001B0C60(area, sub, entry): the request 00193EB0's region events store
+ * (AREA13's falls into AREA19); the scene's one translation. */
+static int sp_001B0C60(void *ctx, int32_t a, int32_t b, int32_t c)
+{
+    (void)ctx;
+    return C.host.request_area ? C.host.request_area(C.host.context, a, b, c) : -1;
 }
 
 static int aim_run(uint32_t fn, int32_t a2)
@@ -1799,11 +1842,12 @@ static void bind_worlds(void)
     k->w_00198440 = sp_00198440;
     k->w_001912B0 = sp_001912B0;
     k->w_001B0300 = sp_001B0300;
-    /* 001944B0: AREA06's states 29..37 (em_area06_port, sp_001944B0). The
-     * other areas' arms (00194DB0, 00230230, 0x823FE0, 001AEDE0, 001B0C60)
-     * stay NULL: the readiness check requires them only where they are
-     * reachable, so reaching one faults. */
+    /* 001944B0: AREA06's states 29..37 (em_area06_port, sp_001944B0);
+     * 0x823FE0: AREA13's area test. The other areas' arms (00194DB0,
+     * 00230230, 001AEDE0) stay NULL: the readiness check requires
+     * them only where they are reachable, so reaching one faults. */
     k->w_001944B0 = sp_001944B0;
+    k->w_00823FE0 = sp_00823FE0;
     k->w_001B0C60 = sp_001B0C60;
 
     C.cw = (EmCameraCommitWorkers){ NULL, w_sqrt, w_atan2, w_heading, w_lookat };

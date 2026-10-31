@@ -904,12 +904,6 @@ static inline int l11_c_0021C040(L11 *o, uint32_t a0, uint32_t a1)
     return o->h->w_0021C040(o->h->ctx, a0, a1) < 0 ? l11_latch(o, 0x0021C040u, EM_LEVEL11_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
-static inline int l11_c_00824060(L11 *o, int32_t *result)
-{
-    if (l11_failed(o)) return -1;
-    if (!o->h->w_00824060) return l11_latch(o, 0x00824060u, EM_LEVEL11_PORT_FAULT_NULL_WORKER);
-    return o->h->w_00824060(o->h->ctx, result) < 0 ? l11_latch(o, 0x00824060u, EM_LEVEL11_PORT_FAULT_WORKER_FAILED) : 0;
-}
 /* END GENERATED WRAPPERS */
 
 
@@ -919,6 +913,7 @@ static inline int l11_c_00824060(L11 *o, int32_t *result)
 #define F_ONE  0x3F800000u
 
 /* Translations called by other translations (direct calls, no hook). */
+int32_t l11_00824060(L11 *o);
 int32_t l11_008240E0(L11 *o);
 int32_t l11_008249F0(L11 *o, uint32_t self);
 void l11_001F9140(L11 *o, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t f12, uint32_t sp);
