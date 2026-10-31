@@ -17,7 +17,31 @@ beats keep the default, so their results do not move.
 
 ## Beats
 
-@@TABLE@@
+| Beat | Card | Status (final tree unless noted) | Rows (position, heading, action) |
+|---|---|---|---|
+| a13b_00 (the ladder up, AREA13 entry 6) | chain `a13b_arrival`, card `a19_02` | **passes** (136 s; a loaded run timed out at 200 s) | not compared |
+| a13b_01 (ledge climb, door [17]) | `a13b_01` | **passes** | door transit 337..548: 212 of 212 |
+| a13b_02 (button [15]) | `a13b_02` | **passes** | not compared |
+| a13b_03 (door [8]) | `a13b_03` | **passes** | not compared |
+| a13b_04 (the lift's button [12]) | `a13b_04` | **passes**; bites vary by run (chain `a13b`: 4.04 from the end, one infection word) | not compared |
+| a13b_05 (the car, the lift, AREA04 entry 7) | chain `a13b_lift` | **fails on the final steering**: the walk stops short of the inner button (no fault). An earlier steering of this tree took the lift to AREA04 entry 7 with the end position in range and only the health and infection bytes different. Its own card has the lift closed | not compared |
+| a13b_s0 (roof ladder, side) | `a13c_00` | ends on the recorded block, 9.70 from the recorded end (a railing corner); passed once on an earlier steering | not compared |
+| a13c_00 (door [17], recharger [60]) | `a13c_00` | **passes** (charge 12) | script, prompt, charge 507..800: 294 of 294 |
+| a13c_01 (roof ladder, walkway) | `a13c_01` | **passes** (with a path edit, below) | not compared |
+| a13c_02 ([44], the battery page) | `a13c_02` | **passes** | 6..1176: 1,170 of 1,171, 1,170 consecutive |
+| a13c_03 (the blast, [45]) | `a13c_03` | **passes** | scene 464..1283: 817 of 820, 817 consecutive; the player stands still for most of it |
+| a13c_04 (g[3], the cure) | `a13c_04` | block equal (health 100, infection 0), 5.21 from the recorded end: the hit's slide comes at another time. **Fails the 4-unit rule** | not compared |
+| a13c_05 (the boom, [7]'s scene) | `a13c_05` | **passes** (path edit, EM_START_AT_FINE=2) | 1140..1813: 0 identical, the player stands 0.3 from the recorded trigger spot; [7]'s script ran to its end |
+| a13c_06 (the south region) | `a13c_06` | **passes** | not compared |
+| a13d_00 .. a13d_05 | their cards | **pass** | not compared (steered) |
+| a13d_06 (door [20]) | `a13d_06` | **passes** | 331..542: 212 of 212 |
+| a13d_07 (hatch [63]) | `a13d_07` | **passes** | 114..543: 424 of 430, 424 consecutive |
+| a19b_00 (the ladder, AREA19 entry 10) | chain `a13d_hatch` | **passes** | not compared |
+
+Whole groups in one run: `a13d` from a13d_00: all eight pass. `a13c` from a13c_00: 00..02 pass, a13c_03 differs by one health byte, then the walk leaves the route at a13c_04 (no fault). `a13b` from a13b_01: 01..03 pass.
+
+Identical rows prove less where the player stands in a script: only position,
+heading and action are compared.
 
 ## What runs where
 
@@ -58,7 +82,10 @@ beats keep the default, so their results do not move.
 
 ## Stand-ins
 
-None in the game path. EM_START_AT_FINE is test steering, comparison only.
+None in the game path. EM_START_AT_FINE and mid_route_beats' PATH_EDIT are test
+steering, comparison only: PATH_EDIT moves the steered target at two presses
+(a13c_01's door [17], whose recorded spot is at the edge of the Use's reach, and
+a13c_05's corner on [44]'s platform); no pad byte changes.
 
 ## Fail-stops that remain
 
@@ -70,4 +97,13 @@ play near a beast can reach them.
 
 ## Open items
 
-@@OPEN@@
+- **a13b_05** and **a13b_s0**: steering misses (above). No fault.
+- **a13c_04**: the end position, 5.21.
+- **Row-exact**: nothing here runs from New Game. It waits for a chain lane; AREA19's
+  host is on main, so the route can now cross a19_00 .. a19_02 into a13b_00.
+- **The menu player in the coat** has no original frame to compare.
+- **Fail-stops**: the four callees above.
+- A tick-logged run and a plain run of a13c_01 once went different ways; the plain
+  run that missed door [17] later hit "exponent-255 word" in a page program after
+  thousands of frames in the east room, seen twice, not traced (EM_VU1P_FAULT_OPERAND,
+  chain page). The game task stops there and mid_route_beats reports a timeout.
