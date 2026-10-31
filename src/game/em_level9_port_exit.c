@@ -851,3 +851,199 @@ int em_level9_port_00196CE0(const EmLevel9PortHooks *h, uint32_t self, uint32_t 
     l9_c_0018C0C0(&o, self);
     return l9_end(&o);
 }
+
+/* ------------------------------------------------------------------------
+ * 00153F10 (self): the generators' kind-0xD worm (0015A200's other brain;
+ * byte-matched C). ent = self +0x1F0. By self +4:
+ *   0: 00154040: 001B10B0(self, 0x14, 0x13) == 0: 001C63E0(self, 1), +0x4C =
+ *      001CB130 (001CA5F0 kind 9), +0x58 = spec D_0028A4D8, the halfword ent
+ *      = 1, +4 = +0 = 1, +0x30 = D_00275448, +0x34 = 10, +0xC4 =
+ *      001B1240(self +0xB0, the player's x, z), +0x80.. = 0.5, 0.875, 1, 1,
+ *      sound 0x430.
+ *   1: with 0x70003B8D 0 or 4, 00154120: ent +2 = 001C64F0(self, 1.0); by
+ *      self +5: 0: the two-node hit 0019AA80(mask 0x20) on a player in state
+ *      1: mode 2, timer 5, state | 2, the direction into the record's +0x70; on the
+ *      clip's end 00153ED0(0), +5 += 1, +0x28 = 0x78. 1: +0x28 counts down,
+ *      at zero +5 += 1 and 00153ED0(2); +0xC4 turns toward the player at
+ *      0.0698. 2: on the clip's end 00153ED0(3), +5 += 1, +0xC4 faces the
+ *      player, sound 0x431. 3: the hit (a state of exactly 1 takes the
+ *      timer 15 and the direction): +4 = 2, +5 = 0; else 0019A570 (6, 0):
+ *      +4 = 2, +5 = 0; else on the clip's end +4 = 3, +5 = 0. Then
+ *      001C68C0(self), 001B17A0(self), the +0x4C method.
+ *   2: by +5: 0: sound 0x434, 001EFE00(0x80000052, self), the +0x4C method,
+ *      +5 += 1; 1: +5 += 1; 2: +4 = 3, +5 = 0.
+ *   3: 001AFC10(self).
+ * ---------------------------------------------------------------------- */
+
+static void l9_00153ED0(L9 *o, uint32_t self, uint32_t ent, int32_t clip)
+{
+    if (l9_s16(o, ent) != (int16_t)clip) {
+        l9_w16(o, ent, (uint32_t)clip);
+        l9_c_001C67E0(o, self, clip, 0, 0);
+    }
+}
+
+static void worm_rings(L9 *o, uint32_t *a, uint32_t *b)
+{
+    const uint32_t table = l9_u32(o, 0x00275B40u);
+    *a = l9_u32(o, table + 0x34) + 0xC0;
+    *b = l9_u32(o, table + 0x40) + 0xC0;
+}
+
+static void worm_hit(L9 *o, uint32_t timer, int table_first)
+{
+    uint32_t table = table_first ? l9_u32(o, 0x00275B40u) : 0;
+    l9_w8(o, PLAYER + 0x0F, 2);
+    l9_w32(o, PLAYER + 0x224, timer);
+    const uint32_t state = l9_u8(o, PLAYER) | 2u;
+    if (!table_first) table = l9_u32(o, 0x00275B40u);
+    l9_w8(o, PLAYER, state);
+    const uint32_t a = l9_u32(o, table + 0x34) + 0xC0;
+    const uint32_t b = l9_u32(o, table + 0x40) + 0xC0;
+    if (l9_c_001028D0(o, 0x700038A0u, b, a)) return;
+    l9_c_00102760(o, PLAYER + 0x70, 0x700038A0u);
+}
+
+static void l9_00154120(L9 *o, uint32_t self, uint32_t ent)
+{
+    int32_t v = 0, hit = 0;
+    uint32_t a = 0, b = 0;
+    if (l9_c_001C64F0(o, self, 0x3F800000u, &v)) return;
+    l9_w16(o, ent + 2, (uint32_t)v);
+    const uint32_t st = l9_u8(o, self + 5);
+    if (st == 0) {
+        worm_rings(o, &a, &b);
+        if (l9_c_0019AA80(o, a, b, 0x20, &hit)) return;
+        if (hit != 0 && l9_u8(o, PLAYER) == 1u) worm_hit(o, 0x40A00000u, 1);
+        if (l9_failed(o)) return;
+        if (l9_u16(o, ent + 2) & 0x1000u) {
+            l9_00153ED0(o, self, ent, 0);
+            l9_w8(o, self + 5, l9_u8(o, self + 5) + 1u);
+            l9_w16(o, self + 0x28, 0x78);
+        }
+    } else if (st == 1) {
+        const int32_t t = l9_s16(o, self + 0x28) - 1;
+        l9_w16(o, self + 0x28, (uint32_t)t);
+        if ((int16_t)t == 0) {
+            l9_w8(o, self + 5, l9_u8(o, self + 5) + 1u);
+            l9_00153ED0(o, self, ent, 2);
+        }
+        if (l9_c_001B1240(o, self + 0xB0, l9_u32(o, PLAYER + 0xA0), l9_u32(o, PLAYER + 0xA8), &a)) return;
+        if (l9_c_001B12B0(o, a, l9_u32(o, self + 0xC4), 0x3D8EFA35u, &b)) return;
+        l9_w32(o, self + 0xC4, b);
+    } else if (st == 2) {
+        if (l9_u16(o, ent + 2) & 0x1000u) {
+            l9_00153ED0(o, self, ent, 3);
+            l9_w8(o, self + 5, l9_u8(o, self + 5) + 1u);
+            if (l9_c_001B1240(o, self + 0xB0, l9_u32(o, PLAYER + 0xA0), l9_u32(o, PLAYER + 0xA8), &a)) return;
+            l9_w32(o, self + 0xC4, a);
+            if (l9_c_001FBD50(o, self, 0x431, 0, F_300, &v)) return;
+        }
+    } else if (st == 3) {
+        worm_rings(o, &a, &b);
+        if (l9_c_0019AA80(o, a, b, 0x20, &hit)) return;
+        if (hit != 0) {
+            l9_w8(o, self + 4, 2);
+            l9_w8(o, self + 5, 0);
+            if (l9_u8(o, PLAYER) == 1u) worm_hit(o, 0x41700000u, 0);
+        } else {
+            worm_rings(o, &a, &b);
+            if (l9_c_0019A570(o, a, b, 6, 0, &hit)) return;
+            if (hit != 0) {
+                l9_w8(o, self + 4, 2);
+                l9_w8(o, self + 5, 0);
+            } else if (l9_u16(o, ent + 2) & 0x1000u) {
+                l9_w8(o, self + 4, 3);
+                l9_w8(o, self + 5, 0);
+            }
+        }
+    }
+    if (l9_failed(o)) return;
+    if (l9_c_001C68C0(o, self)) return;
+    if (l9_c_001B17A0(o, self, &v)) return;
+    l9_callback(o, l9_u32(o, self + 0x4C), self);
+}
+
+int em_level9_port_00154120(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault)
+{
+    L9 o;
+    if (l9_begin(&o, h, fault)) return -1;
+    l9_00154120(&o, self, ent);
+    return l9_end(&o);
+}
+
+static void l9_00154040(L9 *o, uint32_t self, uint32_t ent)
+{
+    int32_t r = 0;
+    uint32_t y = 0;
+    if (l9_c_001B10B0(o, self, 0x14, 0x13, &r) || r != 0) return;
+    if (l9_c_001C63E0(o, self, 1)) return;
+    (void)l9_u32(o, 0x0026E334u); /* 001CA5F0's jump table, kind 9 */
+    l9_w32(o, self + 0x4C, 0x001CB130u);
+    l9_w32(o, self + 0x58, l9_u32(o, 0x0028A4D8u));
+    l9_w16(o, ent, 1);
+    l9_w8(o, self + 4, 1);
+    l9_w8(o, self + 0, 1);
+    l9_w32(o, self + 0x30, 0x00275448u);
+    l9_w16(o, self + 0x34, 0xA);
+    if (l9_c_001B1240(o, self + 0xB0, l9_u32(o, PLAYER + 0xA0), l9_u32(o, PLAYER + 0xA8), &y)) return;
+    l9_w32(o, self + 0xC4, y);
+    l9_w32(o, self + 0x80, 0x3F000000u);
+    l9_w32(o, self + 0x84, 0x3F600000u);
+    l9_w32(o, self + 0x88, 0x3F800000u);
+    l9_w32(o, self + 0x8C, 0x3F800000u);
+    l9_c_001FBD50(o, self, 0x430, 0, F_300, &r);
+}
+
+int em_level9_port_00154040(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault)
+{
+    L9 o;
+    if (l9_begin(&o, h, fault)) return -1;
+    l9_00154040(&o, self, ent);
+    return l9_end(&o);
+}
+
+int em_level9_port_00153F10(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault)
+{
+    L9 o;
+    if (l9_begin(&o, h, fault)) return -1;
+    const uint32_t ent = self + 0x1F0;
+    int32_t r = 0;
+    switch (l9_u8(&o, self + 4)) {
+    case 0:
+        l9_00154040(&o, self, ent);
+        break;
+    case 1: {
+        const uint32_t m = l9_u8(&o, 0x70003B8Du);
+        if (m == 0 || m == 4) l9_00154120(&o, self, ent);
+        break;
+    }
+    case 2: {
+        const uint32_t step = l9_u8(&o, self + 5);
+        switch (step) {
+        case 0:
+            if (l9_c_001FBD50(&o, self, 0x434, 0, F_300, &r)) break;
+            if (l9_c_001EFE00(&o, (int32_t)0x80000052u, self, &r)) break;
+            if (l9_callback(&o, l9_u32(&o, self + 0x4C), self)) break;
+            l9_w8(&o, self + 5, l9_u8(&o, self + 5) + 1u);
+            break;
+        case 1:
+            l9_w8(&o, self + 5, step + 1u);
+            break;
+        case 2:
+            l9_w8(&o, self + 4, 3);
+            l9_w8(&o, self + 5, 0);
+            break;
+        default:
+            break;
+        }
+        break;
+    }
+    case 3:
+        l9_c_001AFC10(&o, self);
+        break;
+    default:
+        break;
+    }
+    return l9_end(&o);
+}

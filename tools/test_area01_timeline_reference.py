@@ -123,7 +123,7 @@ def main():
         call=Call(function=fn,sp=STACK_TOP,na=1);call.a[0]=CAM;fault=C.c_uint32()
         assert n.em_area01_timeline_call(C.byref(rejected_host),C.byref(call),C.byref(fault))<0
         assert fault.value==want,(hex(fault.value),hex(want))
-    struct.pack_into('<h',ram,CAM+0x6E,7);rejected(0x22EC30,CAM+0x6E)   # a scene with an event track not bound here
+    struct.pack_into('<h',ram,CAM+0x6E,38);rejected(0x22EC30,CAM+0x6E)   # outside 0022EC30's table
     struct.pack_into('<h',ram,CAM+0x6E,35);rejected(0x22EC30,0x21BAB0)
     struct.pack_into('<I',ram,CAM+0x74,bits(0.))
     struct.pack_into('<I',ram,CAM+0x7C,0x26AC10);rejected(0x22EEF0,CAM+0x7C)

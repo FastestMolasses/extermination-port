@@ -183,7 +183,8 @@ static struct {
     Slot major4[EM_PLAYER_MAJOR4_COUNT];
     /* 00183250 (0015B610's +5 = 1) and its workers over the record. */
     EmPlayerArrivalWorkers arrival;
-    Slot major5_00183250;
+    Slot major5_00183250, major5_001833F0, major5_00183440;
+    EmPlayerMajor5ClimbWorkers major5_climb;
     /* 001837B0 (0015B530's +5 = 1) and its workers over the record. */
     EmPlayerStateOneWorkers state_one;
     /* 001838B0 (+5 = 0xC) and 00183910 (+5 = 0x17) and their workers. */
@@ -3587,6 +3588,15 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     slot(&L.major5_00183250, em_player_00183250, &L.arrival, NULL, NULL, NULL, "00183250");
     major5->routine[EM_PLAYER_MAJOR5_00183250] = slot_run;
     major5->routine_context[EM_PLAYER_MAJOR5_00183250] = &L.major5_00183250;
+    /* +5 = 2 / 3 (the climb out at a load, AREA19's ladders to sub 1):
+     * em_player_floor's translations over the ladder climb state's slot. */
+    L.major5_climb = (EmPlayerMajor5ClimbWorkers){&L.state[0x0C], slot_run, &scene()->spad3B8D};
+    slot(&L.major5_001833F0, em_player_001833F0, &L.major5_climb, NULL, NULL, NULL, "001833F0");
+    major5->routine[EM_PLAYER_MAJOR5_001833F0] = slot_run;
+    major5->routine_context[EM_PLAYER_MAJOR5_001833F0] = &L.major5_001833F0;
+    slot(&L.major5_00183440, em_player_00183440, &L.major5_climb, NULL, NULL, NULL, "00183440");
+    major5->routine[EM_PLAYER_MAJOR5_00183440] = slot_run;
+    major5->routine_context[EM_PLAYER_MAJOR5_00183440] = &L.major5_00183440;
 
     /* 0015B530's 001837B0 (+5 = 1): 0017B5C0 / 0017C030 on the
      * locomotion host, 0017BC40 the record-level motor, 00178B90 / 00175900 /

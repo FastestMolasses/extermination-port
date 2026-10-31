@@ -251,6 +251,9 @@ int em_level9_port_00138540(const EmLevel9PortHooks *h, uint32_t p, uint32_t q, 
 int em_level9_port_001386E0(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault);
 int em_level9_port_00154460(const EmLevel9PortHooks *h, uint32_t self, int32_t *result, EmLevel9PortFault *fault);
 int em_level9_port_001546C0(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault);
+int em_level9_port_00153F10(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault);
+int em_level9_port_00154040(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault);
+int em_level9_port_00154120(const EmLevel9PortHooks *h, uint32_t self, uint32_t ent, EmLevel9PortFault *fault);
 int em_level9_port_00154740(const EmLevel9PortHooks *h, uint32_t self, uint32_t scr, EmLevel9PortFault *fault);
 int em_level9_port_001549C0(const EmLevel9PortHooks *h, uint32_t self, uint32_t scr, EmLevel9PortFault *fault);
 int em_level9_port_0015A200(const EmLevel9PortHooks *h, uint32_t parent, int32_t kind, int32_t pair,

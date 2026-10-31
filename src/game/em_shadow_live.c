@@ -69,6 +69,8 @@ static struct {
     int proxy_2a_tried;
     EmModel proxy_34;                      /* D_0028A490[0x34] (event [3]'s script actor), loaded at first use */
     int proxy_34_tried;
+    EmModel proxy_30;                      /* D_0028A490[0x30] (AREA19's script actor), loaded at first use */
+    int proxy_30_tried;
     uint8_t *elf;                               /* the D_0025DAE0 window, placed */
     EmShadowActorRouteTables route_tables;
     /* D_00817FF0 (BSS: zero at boot; never reset). */
@@ -370,6 +372,20 @@ static const EmModel *proxy_of(int32_t kind)
             }
         }
         return S.proxy_34.verts ? &S.proxy_34 : NULL;
+    }
+    if (kind == EM_SHADOW_LIVE_KIND_30) {
+        /* The 19-node script actor (+0x96 = 0x30) of AREA19's scripts
+         * (a19c_01): the chunk03 file id 0x30, loaded at first use. */
+        if (!S.proxy_30_tried) {
+            S.proxy_30_tried = 1;
+            if (em_model_load(&S.proxy_30, EM_SHADOW_LIVE_PROXY_30_PATH) != 0 || !S.proxy_30.verts ||
+                !S.proxy_30.indices || S.proxy_30.index_count % 3) {
+                fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
+                                "export_shadow_proxy.py --kind 0x30)\n", EM_SHADOW_LIVE_PROXY_30_PATH);
+                memset(&S.proxy_30, 0, sizeof S.proxy_30);
+            }
+        }
+        return S.proxy_30.verts ? &S.proxy_30 : NULL;
     }
     return NULL;
 }
@@ -723,7 +739,7 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
     const uint32_t kind = bytes && size >= 0x100u ? rd32(bytes + 0x94) >> 16 : 0;
     if (!bytes || size < 0x100u || !nodes || !node_count || node_count > NODES ||
         (node_count != NODES && !(node_count == 20u && kind == EM_SHADOW_LIVE_KIND_2A) &&
-         !(node_count == 19u && kind == EM_SHADOW_LIVE_KIND_34))) {
+         !(node_count == 19u && (kind == EM_SHADOW_LIVE_KIND_34 || kind == EM_SHADOW_LIVE_KIND_30)))) {
         fprintf(stderr, "shadow: actor %08X kind %X nodes %u\n", (unsigned)record, (unsigned)kind, (unsigned)node_count);
         return fail(0x001DA6A0u, "an actor record or its node records are not mapped");
     }

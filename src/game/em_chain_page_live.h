@@ -44,7 +44,7 @@ extern "C" {
 #endif
 
 #define EM_CHAIN_PAGE_LIVE_TEXTURES "assets/scene_snow/page_textures.emot"
-#define EM_CHAIN_PAGE_LIVE_PRIMS 8192u
+#define EM_CHAIN_PAGE_LIVE_PRIMS 32768u
 
 /* Register the delivered world's shared texture catalog with `gfx`
  * (em_world_textures_live). 0, or -1 (missing or malformed: reported). */

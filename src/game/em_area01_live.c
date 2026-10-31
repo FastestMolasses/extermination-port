@@ -1081,6 +1081,18 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,fault);
     }
     if(c->function==0x001F02C0u)return fx_001F02C0(l,c);
+    if(c->function==0x001F0460u) {
+        /* 001F0460(n, src): a ring decal slot (AREA19's 0x827B60 falling
+         * pieces), em_effects_live's translation. */
+        const uint8_t *q=c->na>=2 ? bytes(l,(uint32_t)c->a[1]&~15u,64,0) : NULL;
+        if(!q)return worker_result(l,-1,c->function);
+        float m[16];
+        memcpy(m,q,sizeof m);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=em_effects_live_001F0460((int32_t)c->a[0],m);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,c->function);
+    }
     if(c->function==0x001F6B30u) {
         if(em_area01_live_suspend(l)<0)return -1;
         int rc=em_effects_live_001F6B30(em_scene_state());

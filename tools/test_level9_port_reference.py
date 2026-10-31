@@ -136,6 +136,9 @@ FUNCS = {
     0x1386E0: ('em_level9_port_001386E0', 0x214, [U, U], None),
     0x154460: ('em_level9_port_00154460', 0x144, [U], I),
     0x1546C0: ('em_level9_port_001546C0', 0x7C, [U], None),
+    0x153F10: ('em_level9_port_00153F10', 0xF0, [U], None),
+    0x154040: ('em_level9_port_00154040', 0xE0, [U, U], None),
+    0x154120: ('em_level9_port_00154120', 0x340, [U, U], None),
     0x154740: ('em_level9_port_00154740', 0x274, [U, U], None),
     0x1549C0: ('em_level9_port_001549C0', 0x540, [U, U], None),
     0x15A200: ('em_level9_port_0015A200', 0xB8, [U, I, I], I),
@@ -1655,7 +1658,7 @@ def load_captures(elf):
 # the entries that reach a node's +0x4C method (directly or through a
 # translated callee), and 0x827150's step table
 SELF_ENTRIES = {0x823700, 0x823940, 0x823E90, 0x824180, 0x824BB0, 0x8266A0, 0x826850, 0x826FF0, 0x827150,
-                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0}
+                0x8292A0, 0x8293A0, 0x1383C0, 0x1386E0, 0x1C06E0, 0x1C1030, 0x1C4BA0, 0x153F10, 0x154120}
 STEP_TABLE = 0x82D190
 SCRIBBLED_CALLBACKS = set()
 HEAVY = {0x824BB0, 0x827150, 0x1E5AC0, 0x1DE920, 0x1C06E0, 0x1549C0}
@@ -2124,6 +2127,24 @@ def exit_cases(add, rng):
     for state in (0, 1, 2, 3, 4):
         add('exit 1546C0 s%d' % state, B, 0x1546C0, [f], [(f + 4, b8(state)), (f + 5, b8(4))],
             queues={0x1C6150: [5], 0x1AF780: [FREE + 0x100 * i for i in range(12)]})
+    # 00153F10, the worm: spawn, its four run steps, the three death steps.
+    add('exit 154040 spawn', B, 0x154040, [f, f + 0x1F0], [(f + 4, b8(0))], queues={0x1B10B0: [0]})
+    add('exit 154040 no bones', B, 0x154040, [f, f + 0x1F0], [(f + 4, b8(0))], queues={0x1B10B0: [1]})
+    for state in (1, 2):
+        for step in (0, 1, 2, 3):
+            for hit in (0, 1):
+                for ended in (0, 0x1000):
+                    for count in (2, 1):
+                        for near in (0, 1):
+                            add('exit 154120 %d %d %d %X %d %d' % (state, step, hit, ended, count, near), B, 0x154120,
+                                [f, f + 0x1F0],
+                                [(PLAYER, b8(state)), (f + 5, b8(step)), (f + 0x28, h16(count))],
+                                queues={0x1C64F0: [ended], 0x19AA80: [hit], 0x19A570: [near]})
+    add('exit 154120 step4', B, 0x154120, [f, f + 0x1F0], [(f + 5, b8(4))], queues={0x1C64F0: [0]})
+    for state, step in ((0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (2, 3), (3, 0), (4, 0)):
+        for mode in (0, 3, 4):
+            add('exit 153F10 %d %d m%d' % (state, step, mode), B, 0x153F10, [f],
+                [(f + 4, b8(state)), (f + 5, b8(step)), (B8D, b8(mode))], queues={0x1B10B0: [1]})
     for count, limit in ((5, 20), (12, 12), (13, 12), (0, 3)):
         for area, sub in ((0x13, 0), (0x13, 9), (0xD, 0)):
             add('exit 154740 %d %d %X %d' % (count, limit, area, sub), B, 0x154740, [f, scr],
@@ -2796,6 +2817,32 @@ PINNED_RANDOM = ()
 # with the capture cases the default run reaches every word the whole set
 # reaches (greedy, cheapest first); SURVIVORS are the mutation sweep's cases.
 DEFAULT_KEEP = frozenset([
+    'exit 154120 step4',
+    'exit 154120 1 0 0 0 2 0',
+    'exit 154120 1 0 1 0 2 0',
+    'exit 154120 1 0 0 1000 2 0',
+    'exit 154120 1 0 1 1000 2 0',
+    'exit 154120 1 1 0 0 2 0',
+    'exit 154120 1 1 0 0 1 0',
+    'exit 154120 1 2 0 0 2 0',
+    'exit 154120 1 2 0 1000 2 0',
+    'exit 154120 1 3 1 0 2 0',
+    'exit 154120 2 3 1 0 2 0',
+    'exit 154120 1 3 0 0 2 1',
+    'exit 154120 1 3 0 1000 2 0',
+    'exit 154120 1 3 0 0 2 0',
+    'exit 153F10 0 0 m0',
+    'exit 153F10 1 0 m0',
+    'exit 153F10 2 0 m0',
+    'exit 153F10 2 1 m0',
+    'exit 153F10 2 2 m0',
+    'exit 153F10 2 3 m0',
+    'exit 153F10 3 0 m0',
+    'exit 153F10 4 0 m0',
+    'exit 153F10 1 0 m3',
+    'exit 153F10 1 0 m4',
+    'exit 154040 spawn',
+    'exit 154040 no bones',
     'a13 823700 s0 r0 c0',
     'a13 823700 s1 r0 c2',
     'a13 823700 s1 r1 c0',
