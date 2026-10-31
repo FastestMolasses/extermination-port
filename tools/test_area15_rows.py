@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('EM_MID_ROUTE_BIN', str(ROOT / 'build/extermination'))).resolve()
 END = re.compile(r'block at the pad end|the pack does not hold lsn|FAULT at')
 # chain: the area-sub the alignment waits for (a row's first three area bytes)
-ANCHORS = {'a15b': (15, 0, 0), 'a03': (3, 0, 1), 'a15c': (15, 0, 0)}
+ANCHORS = {'a15a': (15, 0, 0), 'a15b': (15, 0, 0), 'a03': (3, 0, 1), 'a15c': (15, 0, 0)}
 
 
 def f32(word):

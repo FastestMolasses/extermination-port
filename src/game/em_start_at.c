@@ -76,6 +76,7 @@ static const struct {
     {"a04b_04", 0x04},
     {"boss", 0x04},
     /* AREA15 and AREA03 (lane K1) */
+    {"area15", 0x0F},
     {"a15_00", 0x0F},
     {"a15b_00", 0x0F},
     {"a15b_01", 0x0F},

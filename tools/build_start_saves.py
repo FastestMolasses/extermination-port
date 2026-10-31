@@ -181,6 +181,9 @@ START_POINTS = {
     # AREA15 (FOURTEENTH_LEVEL_ROUTE.md, FIFTEENTH_LEVEL_ROUTE.md): the end of
     # a19d_20 (sub 0, after [0]'s scene) and a15_01 (door [51], sub 1 entry
     # 0), each later beat's source state. AREA03: a19e_07's end (door [25]).
+    # area15: AREA15 sub 0 entry 0, before [0]'s long scene (the fork's snapshot
+    # inside a19d_20, tools/capture_area15_arrival.py).
+    'area15': {'route': 'area15_arrival_20261030/s87/route_a15a', 'first': 'a15a_00_', 'area': 0x0F},
     'a15_00': {'route': 'levels-recordings-20261018-19/s87/route_a15', 'first': 'a15_00_', 'area': 0x0F},
     'a15b_00': {'route': 'levels-recordings-20261018-19/s87/route_a15b', 'first': 'a15b_00_', 'area': 0x0F},
     'a15b_01': {'route': 'levels-recordings-20261018-19/s87/route_a15b', 'first': 'a15b_01_', 'area': 0x0F},
