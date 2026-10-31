@@ -58,6 +58,10 @@ OWNED = set(range(0x10, 0x30)) | set(range(0x50, 0x54)) | {0x0F, 0x63F}
 A04B_ROUTE = 'levels-recordings-20261018-10/s87/route_a04b'
 A13_ROUTE = 'levels-recordings-20261018-10/s87/route_a13'
 BOSS_ROUTE = 'boss_fight_20261030/s87/route_a04b'
+A13B_ROUTE = 'levels-recordings-20261018-11/s87/route_a13b'
+A13BS_ROUTE = 'levels-recordings-20261018-18/s87/route_a13b'
+A13C_ROUTE = 'levels-recordings-20261018-11/s87/route_a13c'
+A13D_ROUTE = 'levels-recordings-20261018-12/s87/route_a13d'
 A19_ROUTE = 'levels-recordings-20261018-10/s87/route_a19'
 A19B_ROUTE = 'levels-recordings-20261018-13/s87/route_a19b'
 A19C0_ROUTE = 'levels-recordings-20261018-14/s87/route_a19c'
@@ -126,6 +130,32 @@ BEATS = {
     'a13_03': ('a13_03', A13_ROUTE, 'a13_03_item27'),
     'a13_04': ('a13_04', A13_ROUTE, 'a13_04_hatch'),
     'a13_05': ('a13_05', A13_ROUTE, 'a13_05_shaft'),
+    # AREA13's second load (TENTH / ELEVENTH / TWELFTH_LEVEL_ROUTE.md, lane M1):
+    # a13b_05 ends in AREA04 entry 7; a13d_07 ends at hatch [63], the beat
+    # before AREA19's entry 10 (a19b is lane J1's).
+    'a13b_00': ('a19_02', 'levels-recordings-20261018-10/s87/route_a13b', 'a13b_00_ladder_up'),
+    'a13b_01': ('a13b_01', A13B_ROUTE, 'a13b_01_door17'),
+    'a13b_02': ('a13b_02', A13B_ROUTE, 'a13b_02_button15'),
+    'a13b_03': ('a13b_03', A13B_ROUTE, 'a13b_03_door8'),
+    'a13b_04': ('a13b_04', A13B_ROUTE, 'a13b_04_lift_call'),
+    'a13b_05': ('a13b_05', A13B_ROUTE, 'a13b_05_lift_ride'),
+    'a13b_s0': ('a13c_00', A13BS_ROUTE, 'a13b_s0_roof_ladder'),
+    'a13c_00': ('a13c_00', A13C_ROUTE, 'a13c_00_recharger'),
+    'a13c_01': ('a13c_01', A13C_ROUTE, 'a13c_01_to_machine'),
+    'a13c_02': ('a13c_02', A13C_ROUTE, 'a13c_02_battery'),
+    'a13c_03': ('a13c_03', A13C_ROUTE, 'a13c_03_blast'),
+    'a13c_04': ('a13c_04', A13C_ROUTE, 'a13c_04_cure'),
+    'a13c_05': ('a13c_05', A13C_ROUTE, 'a13c_05_boom'),
+    'a13c_06': ('a13c_06', A13C_ROUTE, 'a13c_06_south'),
+    'a13d_00': ('a13d_00', A13D_ROUTE, 'a13d_00_stair'),
+    'a13d_01': ('a13d_01', A13D_ROUTE, 'a13d_01_ladder405'),
+    'a13d_02': ('a13d_02', A13D_ROUTE, 'a13d_02_block890'),
+    'a13d_03': ('a13d_03', A13D_ROUTE, 'a13d_03_jump'),
+    'a13d_04': ('a13d_04', A13D_ROUTE, 'a13d_04_ladder426'),
+    'a13d_05': ('a13d_05', A13D_ROUTE, 'a13d_05_ladder432'),
+    'a13d_06': ('a13d_06', A13D_ROUTE, 'a13d_06_door20'),
+    'a13d_07': ('a13d_07', A13D_ROUTE, 'a13d_07_hatch63'),
+    'a19b_00': ('a13d_07', A19B_ROUTE, 'a19b_00_arrival'),
     # AREA19 (lane J1): the entry-9 rooms, entry 10's side and sub 1. The
     # arrival by the hatch [63] (a19b_00) and door [50]'s AREA15 scene are
     # the other lanes'.
@@ -240,6 +270,15 @@ def trace(beat):
 LEAD = {'a13_00': 210, 'a08_00': 195, 'a07_00': 195, 'a07b_00': 195}
 
 
+# Steering only (no pad byte changes): a recorded press made at the very edge of
+# a Use's reach. a13c_01's Cross on door [17] stands 0.1 inside it: a card's
+# player standing 0.2 short of the row misses, so the rows aim further in.
+# a13c_05's walk along [44]'s platform stops pushing a corner the steered walk
+# overruns into the drop west of it: the rows stop 2 units east of the corner.
+PATH_EDIT = {'a13c_01': ((140, 166, 772.5, 1256.0),),
+             'a13c_05': ((846, 934, 811.5, 1129.5),)}
+
+
 def prepare(name, beats):
     """The chain's EMA1 pad (each beat's recorded commands, placed at its
     first counter relative to the chain's first beat), its path (the
@@ -268,7 +307,10 @@ def prepare(name, beats):
             if value != sent or (rows and rows[-1][0] == r['f'] + off):
                 rows.append((r['f'] + off, *value))
                 sent = value
-        path += [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
+        rows_path = [(r['pos'][0], r['pos'][2], r['yaw']) for r in t['rows']]
+        for lo, hi, x, z in PATH_EDIT.get(b, ()):
+            rows_path[lo:hi + 1] = [(x, z, yaw) for _x, _z, yaw in rows_path[lo:hi + 1]]
+        path += rows_path
         marks.append(off + t['frames'])
     last = marks.pop()
     assert rows and len(rows) <= 4096 and all(0 <= f <= last for f, *_ in rows), name
@@ -374,6 +416,8 @@ def run(name, card, beats, timeout):
                EM_START_AT_FADE=str(row0_fade(beats[0])))
     if marks:
         env['EM_START_AT_MARKS'] = ','.join(map(str, marks))
+    if beats[0].startswith(('a13b_', 'a13c_', 'a13d_')) or beats[-1].startswith(('a13b_', 'a13c_', 'a13d_')):
+        env['EM_START_AT_FINE'] = '2' if beats[0] in ('a13c_04', 'a13c_05') else '1'
     raw = raw_rows(traces, LEAD.get(beats[0], 0))
     if raw:
         env['EM_START_AT_RAW'] = raw
@@ -452,6 +496,14 @@ CHAINS = {
     'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
     'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
     'a13': ('area13', ('a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')),
+    # a13b_05's own card has the lift closed (a loaded game): the chain calls it.
+    'a13b': ('a13b_01', ('a13b_01', 'a13b_02', 'a13b_03', 'a13b_04', 'a13b_05')),
+    'a13b_lift': ('a13b_04', ('a13b_04', 'a13b_05')),
+    'a13b_arrival': ('a19_02', ('a19_02', 'a13b_00')),
+    'a13d_hatch': ('a13d_07', ('a13d_07', 'a19b_00')),
+    'a13c': ('a13c_00', ('a13c_00', 'a13c_01', 'a13c_02', 'a13c_03', 'a13c_04', 'a13c_05', 'a13c_06')),
+    'a13d': ('a13d_00', ('a13d_00', 'a13d_01', 'a13d_02', 'a13d_03', 'a13d_04', 'a13d_05', 'a13d_06',
+                         'a13d_07')),
     'a15a': ('area15', ('a15a_00',)),
     'a15': ('a15_00', ('a15_00',)),
     # one run: the event's scripts run on across the forced return

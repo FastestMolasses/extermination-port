@@ -19,6 +19,7 @@
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
+#include "game/em_aim_fire_world_live.h"
 #include "game/em_crate_original.h"
 #include "game/em_drum_original.h"
 #include "game/em_frame.h"
@@ -844,11 +845,20 @@ static int h_sweep(void *c, const float p[3], uint32_t mode)
 {
     Box *b = c;
     if (!b || !b->drum || !b->actor) return report("0019AD00 outside a drum");
-    if (b->actor->status != b->drum_state.status)
-        return report("0019AD00: the drum's +0x00 changed before the query (the record view is stale)");
+    /* The tick's own stores to +0x00 (the knocked drum's 1 at 00156AC8, 2 at
+     * 001566BC) come before this call in the original: the query reads them. */
+    b->actor->status = b->drum_state.status;
     EmCollMoveOwner o = {em_collision_world_move(), em_collision_world_move_scratch(), b->actor,
                          b->drum_state.position};
     if (!o.world || !o.scratch) return unbound("0019AD00 (the drum's flight sweep) without the area's collision world");
+    /* A drum with +0x00 bit 0 locks against the player's hull (001A7280). */
+    EmCollMoveWorld world;
+    if ((mode & 1u) && (b->actor->status & 1u) && (b->actor->cls & 0x1Fu)) {
+        world = *o.world;
+        world.hulls = em_aim_fire_world_live_hulls();
+        if (!world.hulls) return unbound("0019AD00's 001A7280 without the player's hull");
+        o.world = &world;
+    }
     const int r = em_coll_move_owner_move(&o, p, mode);
     return r < 0 ? report("0019AD00 faulted (em_coll_move_original)") : r;
 }

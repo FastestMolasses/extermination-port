@@ -920,8 +920,15 @@ static int ow_submit(void *ctx, int32_t tag, const uint32_t corners[16], uint64_
     return em_shadow_decal_w_001CE300(ctx, tag, corners, tex0, rgba);
 }
 
-static int owner_decal(int second, const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
-                       uint32_t f12)
+/* owner_decal's route: 001F9100 with its tables, or 001F8D30 with the
+ * caller's facing and colour (001F9140: [45]'s thrown piece). */
+typedef struct {
+    const uint32_t *facing, *colour;
+    uint32_t f13, f14;
+} OwnerDecal;
+
+static int owner_decal(int second, const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4], uint32_t f12,
+                       const OwnerDecal *direct)
 {
     if (S.fault) return -1;
     if (!S.bound) return fail(0x001F9100u, "the shadow is not bound");
@@ -942,7 +949,9 @@ static int owner_decal(int second, const uint32_t owner[4], const uint32_t point
     S.oroute.scratch = (EmShadowActorRouteScratch){ S.os38A0, NULL, NULL, S.eglobals.spad3600, NULL,
                                                     (const uint32_t *)camera };
     S.opk_count = 0;
-    if ((second ? em_shadow_actor_route_001F9180(&S.oroute, owner, point, normal, f12)
+    if ((direct ? em_shadow_actor_route_001F8D30(&S.oroute, owner, point, normal, direct->facing, direct->colour,
+                                                 f12, direct->f13, direct->f14)
+                : second ? em_shadow_actor_route_001F9180(&S.oroute, owner, point, normal, f12)
                 : em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12)) < 0) {
         if (S.odecal.fault.code) return fail(S.odecal.fault.address, "001CE300 (an owner's decal) faulted");
         return fail(S.oroute.fault.address ? S.oroute.fault.address : 0x001F9100u, "001F9100 faulted");
@@ -964,13 +973,21 @@ static int owner_decal(int second, const uint32_t owner[4], const uint32_t point
 int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
                                   uint32_t f12)
 {
-    return owner_decal(0, owner, point, normal, f12);
+    return owner_decal(0, owner, point, normal, f12, NULL);
 }
 
 int em_shadow_live_owner_001F9180(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
                                   uint32_t f12)
 {
-    return owner_decal(1, owner, point, normal, f12);
+    return owner_decal(1, owner, point, normal, f12, NULL);
+}
+
+int em_shadow_live_owner_001F8D30(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  const uint32_t facing[4], const uint32_t colour[4], uint32_t f12, uint32_t f13,
+                                  uint32_t f14)
+{
+    const OwnerDecal direct = {facing, colour, f13, f14};
+    return owner_decal(0, owner, point, normal, f12, &direct);
 }
 
 /* ------------------------------------------------------------ the logs */

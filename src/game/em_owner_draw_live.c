@@ -241,9 +241,9 @@ static int w_001CB3C0(void *ctx, EmOwnerServicesOwner *owner)
     EmFaceAttach *f = &L.face;
     EmAnimRest *r = &L.rest;
     if (em_face_attach_001CB3C0(f, L.record) < 0) {
-        fprintf(stderr, "em_owner_draw_live: 001CB3C0 faulted: %08X/%d (anim rest %08X/%d, light %08X/%d)\n",
-                (unsigned)f->fault.address, (int)f->fault.code, (unsigned)r->fault.address, (int)r->fault.code,
-                (unsigned)L.light.fault.address, (int)L.light.fault.code);
+        fprintf(stderr, "em_owner_draw_live: 001CB3C0 of %08X faulted: %08X/%d (anim rest %08X/%d, light %08X/%d)\n",
+                (unsigned)L.record, (unsigned)f->fault.address, (int)f->fault.code, (unsigned)r->fault.address,
+                (int)r->fault.code, (unsigned)L.light.fault.address, (int)L.light.fault.code);
         return -1;
     }
     return 0;

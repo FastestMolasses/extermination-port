@@ -311,7 +311,7 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
             ? (uint8_t *)(void *)&fade->substate+a-0x0028A9A0u : NULL;
     }
     if((p=em_camera_live_bytes(a,n)))return l->active ? p : NULL;
-    if(overlaps(a,n,0x700038A0u,0x60u))
+    if(overlaps(a,n,0x700038A0u,0x80u))   /* to 0x7000391F: 0x824BB0's 0x70003910 */
         return l->active ? em_camera_live_scratch_bytes(a,n) : NULL;
     if((p=em_area11_interaction_host_scan_memory(a,n)))return p;
     if((p=em_effects_live_scratch_3660(a,n)))return p;
@@ -732,6 +732,22 @@ static int owner_001F9100(EmArea01Live *l,EmArea01Call *c)
     if(em_area01_live_resume(l)<0)return -1;
     return worker_result(l,rc,rc<0 ? em_shadow_live_fault() : 0);
 }
+/* 001F8D30(owner, point, normal, facing, colour; f12, f13, f14): five
+ * quadwords and the three raw floats. */
+static int owner_001F8D30(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<5 || c->nf<3)return worker_result(l,-1,c->function);
+    uint32_t q[5][4];
+    for(unsigned i=0;i<5;++i) {
+        const uint8_t *p=bytes(l,(uint32_t)c->a[i]&~15u,16,0);
+        if(!p)return worker_result(l,-1,(uint32_t)c->a[i]);
+        memcpy(q[i],p,16);
+    }
+    if(em_area01_live_suspend(l)<0)return -1;
+    int rc=em_shadow_live_owner_001F8D30(q[0],q[1],q[2],q[3],q[4],c->f[0],c->f[1],c->f[2]);
+    if(em_area01_live_resume(l)<0)return -1;
+    return worker_result(l,rc,rc<0 ? em_shadow_live_fault() : 0);
+}
 /* 001C9D50(out, a, b, f12) from 00128C10's pose blend (em_area01_math_actor):
  * em_anim_runtime_rest's translation, over the composition's scratch views
  * 0x700034C0..0x700034EF and 0x70003760..0x7000378B; the output words the
@@ -1065,6 +1081,13 @@ static int worker(void *ctx,EmArea01Call *c)
         if(em_area01_live_resume(l)<0)return -1;
         return worker_result(l,rc,em_effects_live_fault());
     }
+    if(c->function==0x001575B0u) {
+        /* 001575B0 (byte-matched): 001FB9F0(0x3EF, 0x1000, 0x1000, 0x1000),
+         * 1. The recharger's script 0x247420 callback. */
+        EmArea01Call sub={.function=0x001FB9F0u,.sp=c->sp,.na=4,.a={0x3EFu,0x1000u,0x1000u,0x1000u}};
+        if(worker(l,&sub)<0)return -1;
+        c->v0=1;return 0;
+    }
     if(c->function==0x00182BF0u || c->function==0x001B11E0u ||
        c->function==0x001B1EA0u || c->function==0x001C4760u || c->function==0x00157F60u) {
         const EmArea01RuntimeHost host={l,bytes,nested};
@@ -1164,6 +1187,7 @@ static int worker(void *ctx,EmArea01Call *c)
     if(low_entry_handles(c->function))return low_entry(l,c);
     if(c->function==0x001027E0u)return sdk_001027E0(l,c);
     if(c->function==0x001F9100u || c->function==0x001F9180u)return owner_001F9100(l,c);
+    if(c->function==0x001F8D30u)return owner_001F8D30(l,c);
     if(c->function==0x001C9D50u)return rest_001C9D50(l,c);
     if(c->function==0x001C9E40u)return rest_001C9E40(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);
@@ -1603,6 +1627,19 @@ static int worker(void *ctx,EmArea01Call *c)
     case 0x0011DF78u:
         if(c->nf<1)return -1;
         c->f0=em_ee_bits(em_sdk_math_original_0011DF78(em_ee_float(c->f[0])));return 0;
+    case 0x00102850u: { /* 00102850(out, v, s): v * (1 / s), [45]'s step 4 */
+        uint32_t v[4],out_q[4];
+        EmRvrFault rf;
+        memset(&rf,0,sizeof rf);
+        const uint8_t *from=bytes(l,(uint32_t)c->a[1]&~15u,16,0);
+        if(c->na<2 || c->nf<1 || !from)return -1;
+        memcpy(v,from,16);
+        if(em_rvr_00102850(out_q,v,c->f[0],&rf)<0)return -1;
+        uint8_t *to=bytes(l,(uint32_t)c->a[0]&~15u,16,1);
+        if(!to)return -1;
+        memcpy(to,out_q,16);
+        return 0;
+    }
     case 0x0011E080u:
         if(c->nf<1)return -1;
         c->v0=(uint64_t)(int64_t)em_sdk_math_original_0011E080(em_ee_float(c->f[0]));return 0;
