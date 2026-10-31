@@ -326,6 +326,8 @@ void em_sfx_mix_counters(uint64_t *overruns, uint64_t *underruns, uint64_t *bad_
 /* Current scope: 0 unavailable, 1 audible asset loaded, 2 intentional
  * original FF remap (accepted as silence, does not allocate a voice). */
 int em_sfx_cue_state(unsigned id);
+/* The words D_00281B6C..D_00281CEF (em_sfx.c), or NULL outside them. */
+uint8_t *em_sfx_track_words(uint32_t address, uint32_t size);
 int em_sfx_absent_cues(void);
 int em_sfx_unsupported_cues(void); /* UNSUPPORTED registry plays refused */
 int em_sfx_unscoped_cues(void);    /* area-dependent plays whose scope

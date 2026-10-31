@@ -23,6 +23,7 @@ FUNCS = {
     0x00130AB0: ('em_area08_route_00130AB0', 0x754, [U, U, S], None),
     0x0015A750: ('em_area08_route_0015A750', 0x3A0, [U, S], None),
     0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
+    0x001BD460: ('em_area08_route_001BD460', 0x100, [U], I),
     0x00157360: ('em_area08_route_00157360', 0x248, [U, U, U], I),
     0x0015A070: ('em_area08_route_0015A070', 0x170, [U], None),
     0x00823580: ('em_area08_route_00823580', 0x54, [U], I),
@@ -271,6 +272,11 @@ def cases(oid):
             for done in (0, 0x1000):
                 add(f'fall12D/{step}/{anim}/{done}', 0x12DD70, [(A+7, b(step)), (P+0xE4, w(anim)), (P+0xF4, h(done)),
                                                                 (A+0xC0, f(0.5))], O.Script({0x1B12B0: [O.fb(0.6)]}))
+    # 0x1BD460
+    for a in (0.0, 0.1, 0.2, 1.0, 2.2, 2.3, 5.0):
+        for c in (0.0, 0.1, 0.2, 1.0, 5.0):
+            add(f'close/{a}/{c}', 0x1BD460, [(A+0x10, f(c)), (A+0x14, f(a)), (0x275B40, w(V)), (V+4, w(P)), (V+8, w(P+0x100)),
+                                             (V+0xC, w(P+0x200)), (V+0x10, w(V+0x200))])
     # 0x1BD370
     for a in (1.0, 2.8, 2.9, 3.0, 4.9, 5.0):
         for c in (0.0, 4.7, 4.8, 4.9, 5.0):

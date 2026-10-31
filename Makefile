@@ -2287,6 +2287,14 @@ test-player-stage-position-reference:
 test-area19-state-reference:
 	python3 tools/test_area19_state_reference.py
 
+.PHONY: test-area08-route-reference test-area07-route-reference test-area07-probe-reference
+test-area08-route-reference:
+	python3 tools/test_area08_route_reference.py
+test-area07-route-reference:
+	python3 tools/test_area07_route_reference.py
+test-area07-probe-reference:
+	python3 tools/test_area07_probe_reference.py
+
 .PHONY: test-area15-area03-state-reference
 test-area15-area03-state-reference:
 	python3 tools/test_area15_area03_state_reference.py

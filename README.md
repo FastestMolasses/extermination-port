@@ -118,6 +118,9 @@ disc's recordings: run `make start-saves` once first (they land in
 | `a15b_03` | AREA15 sub 0 | After the two conversations | The slider and the bed |
 | `a15b_04` | AREA15 sub 0 | At the bed | The slider and door [14] to the stair tower (AREA19's load) |
 | `a03_00` | AREA03 sub 0 | Entry 1, through AREA19's door [25] | The lift's outer button, the car, the ride down |
+| `a08_00` .. `a08_06` | AREA08 subs 0, 2, 3 | Where each beat starts, from the lift's arrival | Door [17], the magazine room, the switch, slider [19], the ceilings over the live floor, the terminal, the lift back (AREA03's load) |
+| `a07_00` | AREA07 sub 0 | The lift's arrival, first recording | Door [35], slider [33], switch [28] |
+| `a07b_00` .. `a07b_07` | AREA07 subs 0, 2, 3 | Where each beat starts, second recording | The switch, the way to sub 2, the crawl, the north arm, the terminal (flag 0x25), the way back, the lift to AREA04 |
 | `area19`, `a19_01`, `a19_02` | AREA19 sub 0 | The foot of the ladder under AREA13's hatch, then the room behind door [32] | The duct, the pickup, the duct back |
 | `a19b_01`, `a19b_02` | AREA19 sub 0 | Entry 10's side | The ledge, the ladder |
 | `a19c_00` .. `a19c_07` | AREA19 sub 0, then sub 1 | Where each beat of the way to door [52] starts | The bars, the slide, the walkway, door [27], the ladder, door [52] |

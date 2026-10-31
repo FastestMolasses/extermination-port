@@ -646,6 +646,20 @@ int em_sfx_loop_service_bound(int32_t handle,unsigned id,int32_t frame,int16_t o
  * or not. The hard stop's command 3 (ADSR 0) reaches the SPU2 model at
  * once and its key-off with the next tick: both reach the IOP in the
  * tick's one exchange, and the SPU2 model renders only after the tick. */
+/* D_00281B70 / D_00281C30 for an owner that keeps its own looping voice
+ * (AREA08 sub 3's flames, 0x824BC0): the two word tables as the original lays
+ * them out; the word before them takes that owner's refused-voice store. */
+uint8_t *em_sfx_track_words(uint32_t address, uint32_t size)
+{
+    static int32_t before;
+    if (address == 0x00281B6Cu && size == 4) return (uint8_t *)&before;
+    if (address >= 0x00281B70u && address + size <= 0x00281B70u + sizeof s.requested)
+        return (uint8_t *)s.requested + (address - 0x00281B70u);
+    if (address >= 0x00281C30u && address + size <= 0x00281C30u + sizeof s.snapshot)
+        return (uint8_t *)s.snapshot + (address - 0x00281C30u);
+    return NULL;
+}
+
 int em_sfx_stop_track(int track, int hard)
 {
     if (track < 0 || track >= EM_SFX_TRACKS) return -1;

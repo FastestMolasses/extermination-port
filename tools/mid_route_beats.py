@@ -301,7 +301,7 @@ def restore_anchor(beat):
     t = json.loads((beat_dir(beat) / 'trace.json').read_text())
     folder = Path(t['source_state']).resolve().parent
     clock = int.from_bytes((folder / 'scratchpad.bin').read_bytes()[0x3B68:0x3B6C], 'little')
-    return f'{folder / "eeMemory.bin"}:0:{clock:x}'
+    return f'{folder / "eeMemory.bin"}:1:{clock:x}'
 
 
 def row0_fade(beat):

@@ -1112,8 +1112,11 @@ int em_scene_restore_bugs(const uint8_t *ram)
     /* A taken item never allocates its record in a loaded game, so the
      * pool addresses can differ: each record pairs with the image's next
      * record of its behaviour (the pool order is the placement order). */
-    static const uint32_t kinds[] = {0x0012A5D0u, 0x0015AFA0u, 0x001581A0u, 0x00824320u};
-    for (unsigned k = 0; k < sizeof kinds / sizeof kinds[0]; ++k) {
+    /* AREA08's and AREA07's creatures and nests too: the bugs they spawn run
+     * on their timers (lane P1's beats from cards). */
+    static const uint32_t kinds[] = {0x0012A5D0u, 0x0015AFA0u, 0x001581A0u, 0x00824320u, 0x0012E3A0u, 0x001383C0u};
+    const unsigned kinds_n = s_state.d810700 == 8 || s_state.d810700 == 7 ? 6u : 4u;
+    for (unsigned k = 0; k < kinds_n; ++k) {
         uint32_t from = EM_ACTOR_POOL_BASE;
         for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
             const EmActor *a = &s_pool.records[i];
@@ -1144,8 +1147,8 @@ int em_scene_restore_bugs(const uint8_t *ram)
             static const uint16_t bug[][2] = {{0x00, 0x0C}, {0x20, 0x20}, {0x48, 0x10}, {0x5C, 0x34}, {0xB0, 0x60},
                                               {0x14C, 0x44}, {0x1F0, 0x100}};
             static const uint16_t item[][2] = {{0x2D0, 0x10}};
-            const uint16_t (*spans)[2] = k == 0 ? bug : item;
-            const unsigned n = k == 0 ? sizeof bug / sizeof bug[0] : 1;
+            const uint16_t (*spans)[2] = k == 0 || k >= 4 ? bug : item;
+            const unsigned n = k == 0 || k >= 4 ? sizeof bug / sizeof bug[0] : 1;
             for (unsigned j = 0; j < n; ++j) {
                 uint8_t *to = em_area01_actor_view_bytes(v, at + spans[j][0], spans[j][1], 1);
                 if (!to) return -1;
@@ -1198,6 +1201,31 @@ static void log_area04(FILE *f)
         const EmActor *a = &s_pool.records[i];
         if (!a->allocated || a->callback != 0x0012A5D0u)
             continue;
+        const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
+        uint8_t raw[0xC0];
+        if (!s_area01_live.bound || em_area01_actor_view_snapshot(&s_area01_live.actors, at, sizeof raw, raw) != 0)
+            continue;
+        fprintf(f, "%s[%u, ", first ? "" : ", ", (unsigned)at);
+        log_hex(f, raw, 16);
+        fputs(", ", f);
+        log_hex(f, raw + 0xB0, 12);
+        fputc(']', f);
+        first = 0;
+    }
+    fputc(']', f);
+}
+
+/* EM_LOG_BUGS=1: AREA08's and AREA07's bugs in the tick log (test logging). */
+static void log_bugs(FILE *f)
+{
+    static int on = -1;
+    if (on < 0) on = getenv("EM_LOG_BUGS") != NULL;
+    if (!on || (s_state.d810700 != 8 && s_state.d810700 != 7)) return;
+    fputs(", \"bugs\": [", f);
+    int first = 1;
+    for (uint32_t i = 0; i < EM_ACTOR_POOL_CAPACITY; ++i) {
+        const EmActor *a = &s_pool.records[i];
+        if (!a->allocated || a->callback != 0x0012A5D0u) continue;
         const uint32_t at = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
         uint8_t raw[0xC0];
         if (!s_area01_live.bound || em_area01_actor_view_snapshot(&s_area01_live.actors, at, sizeof raw, raw) != 0)
@@ -1803,6 +1831,7 @@ static void log_tick_end(int rc)
         log_area01r(f);
         log_area02(f);
         log_area04(f);
+        log_bugs(f);
         log_area22(f);
         log_area01u(f);
         log_area06(f);

@@ -29,6 +29,13 @@ import mid_route_beats as m  # noqa: E402
 
 STATE_BLOCK = 0x24295C        # D_0024295C; the state word is at +0x58
 OUT = ROOT / 'build/beat_rands'
+BUGS = False                  # --bugs: the bugs' header and position per row, a diagnosis of a run from a card
+
+
+def bug_nodes(path):
+    """The pool's 0012A5D0 nodes in a snapshot."""
+    ram = path.read_bytes()
+    return [a for a in range(0x7A5640, 0x7C8000, 0x2F0) if ram[a] and struct.unpack_from('<I', ram, a + 0x10)[0] == 0x12A5D0]
 
 
 def record(beat):
@@ -41,11 +48,16 @@ def record(beat):
     for i in t['inputs']:
         inputs.setdefault(i['f'], []).append(i)
     states = []
+    bugs = {}
+    nodes = sorted(set(bug_nodes(m.beat_dir(beat) / 'eeMemory.bin') + bug_nodes(Path(t['source_state']).resolve().parent /
+                                                                                'eeMemory.bin')))
     with rc.open_session(Path(t['source_state']).resolve(), log_dir=OUT / 'logs' / beat) as s:
         block = s.u32(STATE_BLOCK)
         far = 0
         for f in range(t['frames'] + 1):
             states.append(s.u32(block + 0x58))
+            if BUGS:
+                bugs[f] = {n: (s.read(n, 16).hex(), s.read(n + 0xB0, 12).hex()) for n in nodes}
             if f % 50 == 0:
                 x, z = struct.unpack('<ff', s.read(0x810350, 4) + s.read(0x810358, 4)) if hasattr(s, 'read') else (None, None)
                 if x is not None:
@@ -57,10 +69,15 @@ def record(beat):
             s.step(1)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f'{beat}.txt').write_text(''.join(f'{r + 1} {w:08x}\n' for r, w in enumerate(states)))
+    if BUGS:
+        (OUT / f'{beat}.bugs.json').write_text(json.dumps(bugs))
     print(f'{beat}: {len(states)} rows, largest position difference at the 50-row samples {far:.3f}', flush=True)
 
 
 def main(argv):
+    global BUGS
+    BUGS = '--bugs' in argv
+    argv = [a for a in argv if a != '--bugs']
     for beat in argv:
         record(beat)
     return 0

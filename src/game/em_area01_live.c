@@ -371,6 +371,7 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if((p=write ? em_rcl_bytes_mut(a,n) : (uint8_t *)(void *)em_rcl_bytes(a,n)))return p;
     if(l->host.bytes && (p=l->host.bytes(l->host.ctx,a,n,write)))return p;
     if((p=em_effects_live_window_mutable(a,n)))return p;
+    if((p=em_sfx_track_words(a,n)))return p;
     /* Words only AREA19's code reaches, behind every shared storage:
      * 0x70003910..1F, 0x827DD0's hit direction (its trackers); D_00275C10 /
      * 14, 001E7D20's once-a-frame step. */

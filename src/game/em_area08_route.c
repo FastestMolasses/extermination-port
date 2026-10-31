@@ -938,6 +938,34 @@ static int32_t open_001BD370(A08R *o, uint32_t rec)
     return 0;
 }
 
+/* func_001BD460.c: the doors closing. */
+static int32_t close_001BD460(A08R *o, uint32_t rec)
+{
+    uint32_t a = A08R_SUB(R(rec + 0x14), F(0.2f)), b, table, f10, f14;
+    W(rec + 0x14, a);
+    if (A08R_LE(a, F(2.0f))) {
+        if (A08R_LE(a, 0)) W(rec + 0x14, 0);
+        b = A08R_SUB(R(rec + 0x10), F(0.2f));
+        W(rec + 0x10, b);
+        if (A08R_LE(b, 0)) W(rec + 0x10, 0);
+    }
+    table = R(0x275B40);
+    f14 = R(rec + 0x14);
+    W(R(table + 4) + 0x7C, A08R_NEG(f14));
+    table = R(0x275B40);
+    f10 = R(rec + 0x10);
+    f14 = R(rec + 0x14);
+    W(R(table + 8) + 0x7C, A08R_SUB(A08R_NEG(f10), f14));
+    table = R(0x275B40);
+    f10 = R(rec + 0x10);
+    f14 = R(rec + 0x14);
+    W(R(table + 0xC) + 0x7C, A08R_ADD(f10, f14));
+    table = R(0x275B40);
+    f14 = R(rec + 0x14);
+    W(R(table + 0x10) + 0x7C, f14);
+    return A08R_EQ(R(rec + 0x10), 0) ? 1 : 0;
+}
+
 /* func_00157360.c: the switch's camera beat (script D_00246A20's op09). */
 static int32_t beat_00157360(A08R *o, uint32_t self, uint32_t rec, uint32_t cam)
 {
@@ -1111,6 +1139,15 @@ int em_area08_route_0012DD70(const EmArea08RouteHooks *h, uint32_t self, uint32_
 {
     A08R o; if (a08r_begin(&o, h, fault)) return -1;
     fall_0012DD70(&o, self, ctl); return a08r_end(&o);
+}
+
+int em_area08_route_001BD460(const EmArea08RouteHooks *h, uint32_t rec, int32_t *result, EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = close_001BD460(&o, rec);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
 }
 
 int em_area08_route_001BD370(const EmArea08RouteHooks *h, uint32_t rec, int32_t *result, EmArea08RouteFault *fault)
