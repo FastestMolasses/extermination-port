@@ -199,7 +199,9 @@ def prepare(name, beats):
         sent = (0, 127, 127)
     for b, t in zip(beats, traces):
         off = t['first_counter'] - base + lead
-        assert off >= len(path), (b, 'beats overlap', off, len(path))
+        # the sixteenth level's beats start on the previous beat's last counter
+        assert off >= len(path) - 1, (b, 'beats overlap', off, len(path))
+        del path[off:]
         while len(path) < off:
             path.append(path[-1])
         for r in t['inputs']:

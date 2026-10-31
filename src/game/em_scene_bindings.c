@@ -4222,6 +4222,8 @@ static int area01_missing_worker(void *ctx, EmArea01Call *call)
         return area_spawn_deferred(call, 8u, 0x00825100u, 0x00827F00u);
     if (s_state.d810700 == 7 && call->function == 0x001B6660u)
         return area_spawn_deferred(call, 7u, 0x00825B80u, 0x00828080u);
+    if ((s_state.d810700 == 8 || s_state.d810700 == 7) && call->function == 0x001B0460u && call->na >= 1)
+        return em_area11_script_host_001B0460((int)call->a[0]);
     int rc;
     if (call->function < 0x00823500u && em_area01_runtime_later(&s_area01_live.runtime, call, &rc))
         return rc;

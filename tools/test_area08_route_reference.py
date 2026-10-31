@@ -20,6 +20,7 @@ SET = DECOMP / 'build/fork_refs/levels-recordings-20261030-1/s87'
 U, I, F, S = O.U, O.I, O.F, O.S
 FUNCS = {
     0x001BD370: ('em_area08_route_001BD370', 0xF0, [U], I),
+    0x00157360: ('em_area08_route_00157360', 0x248, [U, U, U], I),
     0x0015A070: ('em_area08_route_0015A070', 0x170, [U], None),
     0x00823580: ('em_area08_route_00823580', 0x54, [U], I),
     0x008235E0: ('em_area08_route_008235E0', 0x4C, [U], I),
@@ -59,6 +60,8 @@ HOOKS = [
     ('w_00158590', 0x00158590, [('u', 4), ('i', 5), ('i', 6)], None),
     ('w_00159FC0', 0x00159FC0, [('u', 4), ('u', 5)], 'i'),
     ('w_00182F90', 0x00182F90, [('u', 4), ('u', 5)], None),
+    ('w_00102948', 0x00102948, [('u', 4), ('u', 5)], None),
+    ('w_001B0460', 0x001B0460, [('i', 4)], None),
     ('w_001AFC10', 0x001AFC10, [('u', 4)], None),
     ('w_001B0FD0', 0x001B0FD0, [('u', 4)], 'i'),
     ('w_001B10B0', 0x001B10B0, [('u', 4), ('i', 5), ('i', 6)], None),
@@ -136,7 +139,7 @@ def configure(oid):
     used = {8: [h[0] for h in HOOKS], 7: a07, 159: ('w_001B6F00', 'w_001BA1A0', 'w_001BA1F0')}[oid]
     O.CONTRACT_UNREACHABLE = {h[0]: 'not called in this pass' for h in HOOKS if h[0] not in used}
     O.LOCAL_STORES = set()
-    O.DEFAULT_ARGS = {e: [O.STACK_TOP if k == S else ((P if i else A)) for i, k in enumerate(f[2])]
+    O.DEFAULT_ARGS = {e: [O.STACK_TOP if k == S else (A, P, V)[i] for i, k in enumerate(f[2])]
                       for e, f in funcs.items()}
     O.image_for = lambda _: O.CAPTURES[beats[0]][0]
     O.CAPTURES.clear()
@@ -185,6 +188,14 @@ def cases(oid):
         return out
     for e in (0x15A070, 0x823870, 0x823AC0, 0x824210, 0x8245E0, 0x8249F0, 0x824BC0, 0x824790, 0x824870):
         steps(e)
+    # 0x157360
+    for area in (7, 8):
+        for step in (0, 1, 2, 3, 4, 5):
+            for timer in (0.0, 29.0, 30.0, 59.0, 60.0):
+                for bit in (0, 1, 9):
+                    add(f'beat/{area}/{step}/{timer}/{bit}', 0x157360,
+                        [(P+4, b(step)), (V+0x10, f(timer)), (A+0x2E, b(bit)), (0x810700, b(area)), (0x810841+area, b(1)),
+                         (V+0x20, O.fw(1.0, 2.0, 3.0, 1.0)), (V+0x30, O.fw(4.0, 5.0, 6.0, 1.0))])
     # 0x1BD370
     for a in (1.0, 2.8, 2.9, 3.0, 4.9, 5.0):
         for c in (0.0, 4.7, 4.8, 4.9, 5.0):

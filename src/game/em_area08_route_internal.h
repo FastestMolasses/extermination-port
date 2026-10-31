@@ -310,6 +310,22 @@ static inline int a08r_c_00182F90(A08R *o, uint32_t a0, uint32_t a1)
     return 0;
 }
 
+static inline int a08r_c_00102948(A08R *o, uint32_t a0, uint32_t a1)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_00102948) return a08r_latch(o, 0x00102948u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    if (o->h->w_00102948(o->h->ctx, a0, a1) < 0) return a08r_latch(o, 0x00102948u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+static inline int a08r_c_001B0460(A08R *o, int32_t a0)
+{
+    if (a08r_failed(o)) return -1;
+    if (!o->h->w_001B0460) return a08r_latch(o, 0x001B0460u, EM_AREA08_ROUTE_FAULT_NULL_WORKER);
+    if (o->h->w_001B0460(o->h->ctx, a0) < 0) return a08r_latch(o, 0x001B0460u, EM_AREA08_ROUTE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
 static inline int a08r_c_001AFC10(A08R *o, uint32_t a0)
 {
     if (a08r_failed(o)) return -1;

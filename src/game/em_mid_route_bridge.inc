@@ -12872,6 +12872,25 @@ static int r08_w_00182F90(void *ctx, uint32_t a0, uint32_t a1)
     return rc;
 }
 
+static int r08_w_00102948(void *ctx, uint32_t a0, uint32_t a1)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x00102948u, .sp = r->sp, .na = 2, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    c.a[1] = (uint64_t)(int64_t)(int32_t)a1;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int r08_w_001B0460(void *ctx, int32_t a0)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001B0460u, .sp = r->sp, .na = 1, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)a0;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
 static int r08_w_001AFC10(void *ctx, uint32_t a0)
 {
     EmArea01Runtime *r = ctx;
@@ -13342,6 +13361,8 @@ static inline void r08_hooks(EmArea01Runtime *r, EmArea08RouteHooks *h)
     h->w_00158590 = r08_w_00158590;
     h->w_00159FC0 = r08_w_00159FC0;
     h->w_00182F90 = r08_w_00182F90;
+    h->w_00102948 = r08_w_00102948;
+    h->w_001B0460 = r08_w_001B0460;
     h->w_001AFC10 = r08_w_001AFC10;
     h->w_001B0FD0 = r08_w_001B0FD0;
     h->w_001B10B0 = r08_w_001B10B0;

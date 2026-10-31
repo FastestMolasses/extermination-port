@@ -668,6 +668,52 @@ static int32_t open_001BD370(A08R *o, uint32_t rec)
     return 0;
 }
 
+/* func_00157360.c: the switch's camera beat (script D_00246A20's op09). */
+static int32_t beat_00157360(A08R *o, uint32_t self, uint32_t rec, uint32_t cam)
+{
+    uint32_t v, bit;
+    switch (B(rec + 4)) {
+    case 0:
+        if (B(0x810700) == 7) {
+            CV(00102948, 0x8105D0, cam + 0x20);
+            CV(00102948, 0x8105E0, cam + 0x30);
+            CV(00102948, 0x8101F0, cam + 0x20);
+            CV(00102948, 0x810200, cam + 0x30);
+        } else {
+            W(0x8105D0, 0x43A78000u); W(0x8105D4, 0x436F0000u); W(0x8105D8, 0x44117333u); W(0x8105DC, ONE);
+            W(0x8105E0, 0x43A78000u); W(0x8105E4, 0x436D0000u); W(0x8105E8, 0x4405C000u); W(0x8105EC, ONE);
+            CV(00102948, 0x8101F0, 0x8105D0);
+            CV(00102948, 0x810200, 0x8105E0);
+        }
+        W(cam + 0x10, 0);
+        WB(rec + 4, B(rec + 4) + 1);
+        break;
+    case 1:
+        v = A08R_ADD(R(cam + 0x10), ONE);
+        W(cam + 0x10, v);
+        if (A08R_LT(F(30.0f), v)) WB(rec + 4, B(rec + 4) + 1);
+        break;
+    case 2:
+        v = B(0x810700);
+        bit = B(self + 0x2E);
+        WB(0x810841u + v, B(0x810841u + v) | 1u << (bit & 31u));
+        CV(001FB9F0, 0x3EE, 0x1000, 0x1000, 0x1000);
+        W(cam + 0x10, 0);
+        WB(rec + 4, B(rec + 4) + 1);
+        break;
+    case 3:
+        v = A08R_ADD(R(cam + 0x10), ONE);
+        W(cam + 0x10, v);
+        if (A08R_LT(F(60.0f), v)) WB(rec + 4, B(rec + 4) + 1);
+        break;
+    case 4:
+        CV(001B0460, 1);
+        return 1;
+    default: break;
+    }
+    return 0;
+}
+
 /* func_00159FC0.c: the switch's Use. */
 static int32_t use_00159FC0(A08R *o, uint32_t self, uint32_t who)
 {
@@ -772,6 +818,16 @@ int em_area08_route_001BD370(const EmArea08RouteHooks *h, uint32_t rec, int32_t 
     A08R o; int32_t r;
     if (!result || a08r_begin(&o, h, fault)) return -1;
     r = open_001BD370(&o, rec);
+    if (a08r_failed(&o)) return -1;
+    *result = r; return 0;
+}
+
+int em_area08_route_00157360(const EmArea08RouteHooks *h, uint32_t self, uint32_t rec, uint32_t cam, int32_t *result,
+                             EmArea08RouteFault *fault)
+{
+    A08R o; int32_t r;
+    if (!result || a08r_begin(&o, h, fault)) return -1;
+    r = beat_00157360(&o, self, rec, cam);
     if (a08r_failed(&o)) return -1;
     *result = r; return 0;
 }

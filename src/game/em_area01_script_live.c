@@ -72,7 +72,7 @@ uint8_t *em_area01_script_bytes(EmArea01Script *s,uint32_t a,uint32_t n,int writ
         if (!p) continue;
         /* The walk table and door sound descriptors are read-only. The
          * script windows contain mutable op00 targets and kickoff patches. */
-        if (write && !(contains(a,n,0x00246C20u,0x00248120u) ||
+        if (write && !(contains(a,n,0x00246A20u,0x00248120u) ||
                        contains(a,n,0x0024D900u,0x0024DB80u) ||
                        contains(a,n,0x0024DBC0u,0x0024DF80u) ||
                        contains(a,n,0x0024E1A0u,0x0024E960u) ||
@@ -213,6 +213,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     case 0x00157F30u: case 0x001575E0u: /* the medical station's (D_00247F60, D_00247FE0) */
     case 0x001BB400u: case 0x001BB310u: case 0x001BBAE0u: case 0x001BBBF0u:
     case 0x001BC560u: case 0x001BC6D0u: /* the lift scripts' (D_0024E560, D_0024E7E0) */
+    case 0x00157360u: /* the switch's (D_00246A20; em_area08_route) */
         break;
     case 0x00825130u: case 0x00825240u: case 0x00825910u: case 0x00826950u:
         if (s->area!=1) return -1;
@@ -269,7 +270,7 @@ int em_area01_script_bind_area(EmArea01Script *s,const EmArea01RuntimeHost *host
                               unsigned area_id)
 {
     if (!s || !host || !host->worker || !loader || s->bound || !area_scripts(area_id)) return -1;
-    const uint32_t lo[5]={0x00246C20u,0x0024D8F0u,0x002482C0u,0x00266620u,0x0024E1A0u};
+    const uint32_t lo[5]={0x00246A20u,0x0024D8F0u,0x002482C0u,0x00266620u,0x0024E1A0u};
     /* panels: through the medical station's scripts; lift: 001BC960 /
      * 001BD560's scripts (export_area01_boot_scripts.py). */
     const uint32_t hi[5]={0x00248120u,0x0024DF80u,0x00248540u,0x002668A0u,0x0024E960u};
