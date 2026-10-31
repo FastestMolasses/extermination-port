@@ -898,6 +898,28 @@ int em_pose_host_001C68C0(EmPoseHost *h, uint8_t *record, uint32_t size)
     return em_pose_host_001C9940(h, bones, bsize, record[0xC], record + 0xD0);
 }
 
+/* 001C6910(o): 001C9570(+D0, +B0, +C0, +60), then 001C9940(+110, +C, +D0). */
+int em_pose_host_001C6910(EmPoseHost *h, uint8_t *record, uint32_t size)
+{
+    FAULT(host_ready(h));
+    FAULT(record_ready(record, size));
+    const uint8_t *bones;
+    uint32_t bsize;
+    bones_of(record, size, &bones, &bsize);
+    FAULT(nodes_ready(h, bones, bsize, record[0xC], 0));
+    FAULT(parents_ready(h, bones, bsize, 0, record[0xC]));
+    uint32_t m[16], pos[3], rot[3], sc[3];
+    for (int k = 0; k < 3; ++k) {
+        pos[k] = rd32(record + 0xB0 + 4 * k);
+        rot[k] = rd32(record + 0xC0 + 4 * k);
+        sc[k] = rd32(record + 0x60 + 4 * k);
+    }
+    load_matrix(m, record + 0xD0);
+    FAULT(ee_ok(em_owner_services_001C9570((float *)m, (const float *)pos, (const float *)rot, (const float *)sc)));
+    store_matrix(record + 0xD0, m);
+    return em_pose_host_001C9940(h, bones, bsize, record[0xC], record + 0xD0);
+}
+
 /* 001C6960(o): 001029C0(+D0), then 001C9940(+110, +C, +D0). */
 int em_pose_host_001C6960(EmPoseHost *h, uint8_t *record, uint32_t size)
 {

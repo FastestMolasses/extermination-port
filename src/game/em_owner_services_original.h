@@ -283,6 +283,8 @@ int em_owner_services_translate_00102918(float dst[16], const float src[16], con
 /* build_trs_matrix (0x001C94B0)(m, pos, rot, scale). */
 int em_owner_services_build_trs_matrix(float m[16], const float pos[3], const float rot[3],
                                        const float scale[3]);
+/* 001C9570(m, pos, rot, scale): 001C6910's matrix. */
+int em_owner_services_001C9570(float m[16], const float pos[3], const float rot[3], const float scale[3]);
 
 /* ---- publication ---- */
 

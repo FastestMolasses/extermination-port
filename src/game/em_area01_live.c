@@ -516,6 +516,7 @@ static int model_function(uint32_t fn)
     case 0x001C62C0u: case 0x001C63E0u: case 0x001C67E0u: case 0x001C68C0u: case 0x001C69A0u:
     case 0x001C64F0u: case 0x001C2360u: case 0x001C22A0u: case 0x001C5C90u:
     case 0x001C6960u: /* AREA01 revisit: 0x823CD0 states 4 / 5 */
+    case 0x001C6910u: /* 001383C0's (AREA08, AREA07) */
     case 0x001C63D0u: /* 001BE6C0 (AREA01's way back, a01v) */
     case 0x001CA5F0u: /* AREA15's 0x826850 */
         return 1;

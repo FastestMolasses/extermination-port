@@ -474,6 +474,8 @@ def build_library():
         getattr(lib, 'em_owner_services_' + name).restype = C.c_int
     lib.em_owner_services_euler_00102C58.argtypes = [PF, PF, PF]
     lib.em_owner_services_translate_00102918.argtypes = [PF, PF, PF]
+    lib.em_owner_services_001C9570.argtypes = [PF, PF, PF, PF]
+    lib.em_owner_services_001C9570.restype = C.c_int
     for name in ('euler_00102C58', 'translate_00102918'):
         getattr(lib, 'em_owner_services_' + name).restype = C.c_int
     lib.em_owner_services_copy_qw4_00102958.argtypes = [PF, PF]
@@ -909,6 +911,16 @@ def case_sdk(args):
     o.run(0x102918, (0x500040, 0x500000, 0x500100))
     assert LIB.em_owner_services_translate_00102918(dst, n_src, n_vec) == 0, ('translate', seed)
     assert bytes(dst) == o.read(0x500040, 64), ('translate', seed)
+    pos, rot, scale = [angle(rng) for _ in range(3)], vec, [bits(rng.uniform(-3, 3)) for _ in range(3)]
+    o.put(0x500180, struct.pack('<4I', *pos, 0))
+    o.put(0x500190, struct.pack('<4I', *rot, 0))
+    o.put(0x5001A0, struct.pack('<4I', *scale, 0))
+    o.put(0x500040, bytes(64))
+    o.run(0x1C9570, (0x500040, 0x500180, 0x500190, 0x5001A0))
+    n_pos = (C.c_float * 3).from_buffer_copy(struct.pack('<3I', *pos))
+    n_scale = (C.c_float * 3).from_buffer_copy(struct.pack('<3I', *scale))
+    assert LIB.em_owner_services_001C9570(dst, n_pos, n_vec, n_scale) == 0, ('001C9570', seed)
+    assert bytes(dst) == o.read(0x500040, 64), ('001C9570', seed)
     o.run(0x102958, (0x500080, 0x500000))
     LIB.em_owner_services_copy_qw4_00102958(dst, n_src)
     assert bytes(dst) == o.read(0x500080, 64), ('copy_qw4', seed)

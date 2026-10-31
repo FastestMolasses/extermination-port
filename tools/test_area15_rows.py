@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('EM_MID_ROUTE_BIN', str(ROOT / 'build/extermination'))).resolve()
 END = re.compile(r'block at the pad end|the pack does not hold lsn|FAULT at')
 # chain: the area-sub the alignment waits for (a row's first three area bytes)
-ANCHORS = {'a15a': (15, 0, 0), 'a15b': (15, 0, 0), 'a03': (3, 0, 1), 'a15c': (15, 0, 0)}
+ANCHORS = {'a15a': (15, 0, 0), 'a15b': (15, 0, 0), 'a03': (3, 0, 1), 'a15c': (15, 0, 0), 'a08': (8, 0, 0), 'a07': (7, 0, 0)}
 
 
 def f32(word):
@@ -40,7 +40,10 @@ def f32(word):
 
 
 def run(chain):
-    card, beats = m.CHAINS[chain]
+    if chain in m.CHAINS:
+        card, beats = m.CHAINS[chain]
+    else:
+        card, beats = m.BEATS[chain][0], (chain,)
     out = ROOT / 'build/k1rows' / chain
     out.mkdir(parents=True, exist_ok=True)
     pad, path, marks, traces = m.prepare(f'rows_{chain}', beats)
@@ -92,9 +95,10 @@ def row_problems(r, n):
 
 def compare(chain, traces, ticks):
     native = list(native_rows(ticks))
-    anchor = ANCHORS[chain]
-    key = bytes(anchor[:3]).hex()
     rows = [r for t in traces for r in t['rows']]
+    anchor = ANCHORS.get(chain) or (int(rows[0]['area4'][:2], 16), int(rows[0]['area4'][2:4], 16),
+                                    int(rows[0]['area4'][4:6], 16))
+    key = bytes(anchor[:3]).hex()
     start = next(i for i, r in enumerate(rows) if r['area4'].startswith(key))
     # the anchor row's place (a load's first frames sit at the spawn entry)
     nstart = None
