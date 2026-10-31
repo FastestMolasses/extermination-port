@@ -1,4 +1,5 @@
 #include "game/em_aim_fire_runtime.h"
+#include "game/em_module_loader.h"
 #include "game/em_collision_world.h"
 #include "game/em_pad_actuator.h"
 #include "game/em_aim_fire_binding.h"
@@ -261,6 +262,13 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         TRY(append(out,capacity,count,0x0081070Au,1,b70A,0));
     }
     {
+        /* D_0028A490, the resource table, read only (0022BBC0's model switch
+         * of a burning creature, D_0028A4D0). */
+        EmModuleLoader *ml=em_module_loader_live();
+        EmStatusSceneLoader *ld=ml ? em_module_loader_state(ml) : NULL;
+        if (ld) TRY(append(out,capacity,count,0x0028A490u,(uint32_t)sizeof ld->d28A490,(void *)ld->d28A490,0));
+    }
+    {
         /* The render context's storage (the muzzle node's lines read the
          * context, the clip matrix 001CD370 names and the scratchpad
          * view-projection; 001CB5F0 / 001CB6B0 / 001CB900 write the arena). */
@@ -340,7 +348,9 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         /* Only original fields with actual native owners are enumerated.
          * The effect owner separately omits +24 until its observed write. */
         static const uint32_t spans[][2]={{0,0x14},{0x14,4},{0x2E,2},{0x34,2},{0x36,2},
-            {0xB0,16},{0xC0,16},{0xD0,64},{0x28,2},{0xA0,16}};
+            {0xB0,16},{0xC0,16},{0xD0,64},{0x28,2},{0xA0,16},
+            /* a bone burst on a creature: its scale and tint (0022BBC0) */
+            {0x60,16},{0x80,16}};
         for (unsigned j=0;j<sizeof spans/sizeof spans[0];++j) {
             uint32_t at=address+spans[j][0],n=spans[j][1];
             p=pool_field(at,n,0);

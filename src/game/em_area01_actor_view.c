@@ -120,6 +120,11 @@ uint8_t *em_area01_actor_view_bytes(EmArea01ActorView *v, uint32_t address, uint
         static uint8_t free_status;
         return &free_status;
     }
+    /* The bytes 001AFC10 leaves in a freed record keep their last values: a
+     * tracker's stale pointer reads them (AREA19's 0x827DD0, whose target
+     * +0x204 died: its +0xB0, before the tracker drops the pointer). */
+    if (!write && (!a->allocated || a->self != a) && offset >= 0xA0u && offset + size <= 0x1F0u)
+        return r->image + offset;
     if (em_area01_actor_view_touch(v, address - offset) < 0) return NULL;
     if (!a->allocated || a->self != a || a->generation != r->generation) {
         fail(v, address, 2); return NULL;

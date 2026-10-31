@@ -230,6 +230,11 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return em_area01_player_view_bytes(&l->player,a,n,write);
     if(overlaps(a,n,LOCAL_BASE,sizeof l->locals))
         return contains(a,n,LOCAL_BASE,sizeof l->locals) ? l->locals+a-LOCAL_BASE : NULL;
+    /* 0x70003910..1F: 0x827DD0's hit direction (AREA19's trackers). */
+    if(overlaps(a,n,0x70003910u,16)) {
+        static uint8_t s3910[16];
+        return contains(a,n,0x70003910u,16) ? s3910+a-0x70003910u : NULL;
+    }
     /* D_00275C10 / 14: 001E7D20's words (its once-a-frame step, AREA19). */
     if(overlaps(a,n,0x00275C10u,8)) {
         static uint8_t d275C10[8];

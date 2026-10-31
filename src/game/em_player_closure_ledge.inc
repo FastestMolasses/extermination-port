@@ -7,27 +7,55 @@
 static struct {
     const EmPlayerProbeHit *hit;
     uint8_t rec[0x40];
-    uint8_t s38B0[16], s3A24[4];
-    uint32_t word_31D0, root_word;
+    uint8_t s38B0[16], s3A24[8];
+    uint32_t word_31D0, word_30C, root_word, grid_word;
 } LG;
 
 static uint8_t *ledge_bytes(void *ctx, uint32_t a, uint32_t n)
 {
     EmPlayerLiveActor *p = ctx;
+    /* +0x30C keeps a grid node as 0x40000000 | node (the ladder entry's
+     * record word): 0019F680 reads the node at its original address. */
+    if (a == 0x008102B0u + 0x30Cu && n == 4) {
+        uint32_t word = 0;
+        memcpy(&word, p->bytes + 0x30C, 4);
+        if ((word & 0xFF000000u) == 0x40000000u) {
+            LG.word_30C = em_scene_bindings_grid_node_address(word & 0xFFFFFFu);
+            return (uint8_t *)&LG.word_30C;
+        }
+    }
     if (a >= 0x008102B0u && n <= EM_PLAYER_ACTOR_SIZE && a - 0x008102B0u <= EM_PLAYER_ACTOR_SIZE - n)
         return p->bytes + (a - 0x008102B0u);
     if (a == 0x70003A20u && n == 4) return (uint8_t *)&L.land.s3A20;
-    if (a == 0x70003A24u && n == 4) return LG.s3A24;
+    if (a >= 0x70003A24u && a + n <= 0x70003A2Cu) return LG.s3A24 + (a - 0x70003A24u);
     if (a >= 0x700038A0u && a + n <= 0x700038B0u) return (uint8_t *)L.land.s38A0 + (a - 0x700038A0u);
     if (a >= 0x700038B0u && a + n <= 0x700038C0u) return LG.s38B0 + (a - 0x700038B0u);
     if (a == 0x700031D0u && n == 4) return (uint8_t *)&LG.word_31D0;
     if (a >= LEDGE_HIT && a + n <= LEDGE_HIT + sizeof LG.rec) return LG.rec + (a - LEDGE_HIT);
     if (a == 0x00275B40u && n == 4) return (uint8_t *)&L.d275B40;
+    /* the area bytes and D_008106F2, the world's (00169250 / 00194240) */
+    if (a == 0x00810700u && n == 1) return &scene()->d810700;
+    if (a == 0x00810701u && n == 1) return &scene()->d810701;
+    if (a == 0x008106F2u && n == 1) return em_scene_req_at(scene(), a);
+    /* 0x700031FC / 0x70003204: the collision file's vertex and index pools
+     * (00199C50's staging of the D_0028A598 header), for 0019F680. */
+    if ((a == 0x700031FCu || a == 0x70003204u) && n == 4) {
+        EmModuleLoader *ml = em_module_loader_live();
+        EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+        const uint32_t base = ld ? ld->d28A490[(0x0028A598u - 0x0028A490u) / 4u] : 0;
+        const uint8_t *h = base ? em_module_loader_memory(ml, base, 12) : NULL;
+        if (!h) return NULL;
+        memcpy(&LG.grid_word, h + (a == 0x700031FCu ? 0u : 8u), 4);
+        LG.grid_word += base;
+        return (uint8_t *)&LG.grid_word;
+    }
     /* the root node's clock word, **0x275B40 (the record's +0x110 names it) */
     uint32_t root = 0;
     memcpy(&root, p->bytes + 0x110, 4);
     if (a == root && n == 4 && w_root_node(NULL, 0, &LG.root_word) >= 0) return (uint8_t *)&LG.root_word;
-    return (uint8_t *)(uintptr_t)em_effects_live_window(a, n);
+    const uint8_t *q = em_effects_live_window(a, n);
+    if (!q && em_module_loader_live()) q = em_module_loader_memory(em_module_loader_live(), a, n);
+    return (uint8_t *)(uintptr_t)q;
 }
 static void *ledge_map(void *ctx, uint32_t a, size_t n, int write)
 {
@@ -173,6 +201,84 @@ static int ledge_state(void *c, EmPlayerLiveActor *a)
     EmLevel12PortFault f = {0, 0};
     return em_level12_port_0016EF50(&h, 0x008102B0u, &f) < 0 ? ledge_report("0016EF50", &f) : 0;
 }
+/* +5 0x0F (00169250, em_area06_port's: the walk onto a bar) and 0x11
+ * (0016AC50, em_level14_port's: the walk under a ceiling hang), over the same
+ * record; 00194240 is em_level13_port's. */
+static int lg_sqrt(void *c, float x, float *r) { return w_sqrt_r(c, x, r); }
+static int lg_fabs(void *c, float x, float *r) { (void)c; *r = em_sdk_math_original_0011DF78(x); return 0; }
+static int lg_001281C0(void *c, float x, int32_t *r)
+{
+    (void)c;
+    *r = (int32_t)em_stream_lanes_001281C0(fbits(x));
+    return 0;
+}
+static int lg_001B12B0(void *c, float target, float current, float rate, float *r)
+{
+    (void)c;
+    uint32_t out = 0;
+    if (em_script_host_001B12B0(NULL, fbits(target), fbits(current), fbits(rate), &out) < 0) return -1;
+    *r = bfloat(out);
+    return 0;
+}
+static int lg_001FBD50(void *c, uint32_t a0, int32_t id, int32_t flags, float range)
+{
+    (void)a0;
+    return w_sound_full(NULL, c, id, flags, range);
+}
+static int lg_00194240(void *c, uint32_t a0)
+{
+    EmLevel13PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = c;
+    h.bytes = ledge_bytes;
+    h.w_0011DF78 = lg_fabs;
+    EmLevel13PortFault f = {0, 0};
+    int32_t r = 0;
+    return em_level13_port_00194240(&h, a0, &r, &f) < 0 ? -1 : 0;
+}
+static int bar_state(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    EmArea06PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = a;
+    h.bytes = ledge_bytes;
+    h.w_0011E748 = lg_sqrt;
+    h.w_001281C0 = lg_001281C0;
+    h.w_001749A0 = lg_001749A0;
+    h.w_00194240 = lg_00194240;
+    h.w_001B12B0 = lg_001B12B0;
+    h.w_001FBD50 = lg_001FBD50;
+    EmArea06PortFault f = {0, 0};
+    if (em_area06_port_00169250(&h, 0x008102B0u, &f) < 0) {
+        fprintf(stderr, "player closure: 00169250 fault code %d at %08X\n", (int)f.code, (unsigned)f.address);
+        return -1;
+    }
+    return 0;
+}
+static int lg_001885B0(void *c, uint32_t a0, int32_t *clip)
+{
+    (void)a0;
+    return x_001885B0(NULL, c, clip);
+}
+static int ceiling_state(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    EmLevel14PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = a;
+    h.bytes = ledge_bytes;
+    h.w_001749A0 = lg_001749A0;
+    h.w_001885B0 = lg_001885B0;
+    h.w_001FBD50 = lg_001FBD50;
+    EmLevel14PortFault f = {0, 0};
+    if (em_level14_port_0016AC50(&h, 0x008102B0u, &f) < 0) {
+        fprintf(stderr, "player closure: 0016AC50 fault code %d at %08X\n", (int)f.code, (unsigned)f.address);
+        return -1;
+    }
+    return 0;
+}
+
 /* 00175CF0's surface-0x39 handlers: 0017F9E0 (0); 0017FB90 (1) has no
  * translation and faults here. The hit is the floor service's. */
 int em_player_closure_live_surface39(EmPlayerLiveActor *actor, int handler, const EmPlayerProbeHit *hit)

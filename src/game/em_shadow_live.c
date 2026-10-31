@@ -723,8 +723,10 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
     const uint32_t kind = bytes && size >= 0x100u ? rd32(bytes + 0x94) >> 16 : 0;
     if (!bytes || size < 0x100u || !nodes || !node_count || node_count > NODES ||
         (node_count != NODES && !(node_count == 20u && kind == EM_SHADOW_LIVE_KIND_2A) &&
-         !(node_count == 19u && kind == EM_SHADOW_LIVE_KIND_34)))
+         !(node_count == 19u && kind == EM_SHADOW_LIVE_KIND_34))) {
+        fprintf(stderr, "shadow: actor %08X kind %X nodes %u\n", (unsigned)record, (unsigned)kind, (unsigned)node_count);
         return fail(0x001DA6A0u, "an actor record or its node records are not mapped");
+    }
     for (unsigned i = 0; i < NODES; ++i) {
         if (i < node_count && !nodes[i]) return fail(0x001DA6A0u, "an actor node record is not mapped");
         S.nodes[i] = i < node_count ? nodes[i] : NULL;

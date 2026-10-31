@@ -1265,6 +1265,8 @@ void player_states_stage(void)
          * snap in the second). */
         live.rebuild = 0;
     } else if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
+        fprintf(stderr, "player states: +4 %u +5 %02X +6 %u +1F0 %02X\n", live.a.bytes[4], live.a.bytes[5], live.a.bytes[6],
+                live.a.bytes[0x1F0]);
         live_fault("player stage worker or state callback fault");
         return;
     }

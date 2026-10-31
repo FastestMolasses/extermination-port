@@ -2600,6 +2600,13 @@ uint32_t em_scene_bindings_grid_node_address(uint32_t node)
  * loader delivered holds them: `size` bytes at `address` inside the node
  * array of the loaded grid (em_scene_bindings_grid_node_address(0) ..
  * + 64 * count), or NULL. */
+int em_scene_bindings_owner_model(uint32_t owner, uint32_t handle)
+{
+    if (!s_area01_live.bound) return -1;
+    EmArea01Call c = {.function = 0x001CA6E0u, .a = {owner, handle}, .na = 2};
+    return s_area01_live.active ? em_area01_live_call_active(&s_area01_live, &c)
+                                : em_area01_live_call(&s_area01_live, &c);
+}
 const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size)
 {
     const EmCollSegment *seg = em_collision_world_segment();
@@ -3871,7 +3878,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * families): the runtime's owners or its fallback
      * (em_area01_runtime_later); an untranslated one faults at its address
      * when it runs. */
-    if (s_state.d810700 == 0x13 && fn < 0x00823500u && fn)
+    if (s_state.d810700 == 0x13 && fn < 0x00823500u && fn && fn != 0x001F5040u)
         goto bind;
     /* AREA06's boot owners: g[11]'s node 00219870 and the debris spawner
      * 0021AE90 (effect 0x80000044; em_area06_port through em_area01_runtime
@@ -3885,7 +3892,7 @@ static int area01_rebind(void *ctx, EmActor *a, uint32_t fn)
      * 001B0CD0; em_aim_fire_runtime adopted it at the allocation), or one an
      * AREA01 spawner pointed at 001F5040 (adopted here): its behaviour
      * 001F5040 is bound by em_aim_fire_runtime (em_aim_fire_flash). */
-    if (s_state.d810700 == 1 && fn == 0x001F5040u) {
+    if ((s_state.d810700 == 1 || s_state.d810700 == 0x13) && fn == 0x001F5040u) {
         if (!em_aim_fire_flash_owns(a) && em_area01_live_adopt_flash(&s_area01_live, a) < 0)
             return -1;
         a->callback = fn;

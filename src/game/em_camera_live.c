@@ -16,6 +16,7 @@
 #include "game/em_area01_room.h"
 #include "game/em_area22_port.h"
 #include "game/em_area06_port.h"
+#include "game/em_effects_live.h"
 #include "game/em_level9_port.h"
 #include "game/em_level13_port.h"
 #include "game/em_scene_bindings.h"
@@ -1152,7 +1153,9 @@ static uint8_t *a06c_bytes(void *ctx, uint32_t a, uint32_t n)
     void *p;
     if (C.tables_loaded && (p = span(a, n, TABLES_BASE, 4u * TABLES_WORDS, C.tables))) return p;
     if (s && (p = span(a, n, 0x00810701u, 1, &s->d810701))) return p;
-    return aim_map(ctx, a, n, 1);
+    p = aim_map(ctx, a, n, 1);
+    /* the regions' rows D_0024A6B0.. of 00196CE0 / 00197390: read-only */
+    return p ? p : (uint8_t *)(uintptr_t)em_effects_live_window(a, n);
 }
 static int a06c_call(EmAimFireTargetCall *f) { return aim_call(NULL, f) < 0 ? -1 : 0; }
 static int a06c_f1(uint32_t fn, float x, float *out)
@@ -1309,6 +1312,7 @@ static int later_handler(uint32_t fn, EmCameraFollowRecord *cam, EmPlayerLiveAct
         memset(&h, 0, sizeof h);
         h.bytes = a06c_bytes;
         h.w_00102948 = later_00102948;
+        h.w_0011DE90 = later_0011DE90;
         h.w_0011E2A8 = later_0011E2A8;
         h.w_0018C0C0 = later_0018C0C0;
         h.w_0018C4B0 = a06c_0018C4B0;

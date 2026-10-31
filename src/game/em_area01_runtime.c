@@ -618,6 +618,15 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     if (r->area == 2 && c->function >= 0x00823500u)
         return dispatch_overlay02(r, c);
     int rc;
+    /* 001CB1F0: the draw method of AREA19's tendril field (0x26E310 kind 10).
+     * Its 001D42E0 calls the VU1 program 0x0023D4D0, which has no
+     * translation yet: the pieces are not drawn (an open item of
+     * docs/LEVEL3_BINDING.md, lane J1). */
+    if (r->area == 0x13 && c->function == 0x001CB1F0u) {
+        static int noted;
+        if (!noted++) fprintf(stderr, "em_area01: 001CB1F0: VU1 program 0023D4D0 not translated, the field is not drawn\n");
+        return 0;
+    }
     /* The creature family's entries and the script actors serve AREA19 too. */
     const int creatures = r->area == 4 || r->area == 0x13;
     if (r->area == 0x13 && c->function >= 0x00823500u)

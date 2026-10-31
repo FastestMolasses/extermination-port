@@ -648,6 +648,12 @@ static int world_call(void *context,EmAimFireLive *h,EmAimFireTargetCall *c,Brid
     v->bridge=&b;
     b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
+    if(c->function==0x0022BBC0u) {
+        /* A burst on a creature (node +0x24): its +0x110 words and bones. */
+        const uint8_t *pp=em_aim_fire_live_map(h,a+0x24u,4,0);
+        const uint32_t scn=pp?(uint32_t)pp[0]|(uint32_t)pp[1]<<8|(uint32_t)pp[2]<<16|(uint32_t)pp[3]<<24:0;
+        if(scn && scn!=h->player_address)b.target_node=scn;
+    }
     /* 001DF5A0's 001DF180 keeps a 0x10F0-byte frame (its 16 x 16 grid):
      * the runtime's private stack view below 0x7E001400 (em_aim_fire_runtime
      * add_windows), which its SDK callees reach through the same map. */
