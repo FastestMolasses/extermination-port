@@ -535,8 +535,6 @@ static int grid_walk(const EmCollProbeGrid *g, EmCollProbeState *s, int walk)
             if (!segment_kind_passes(s->span_hi, s->query_class)) continue;   /* 0x19D614..0x19D694 */
         } else if (walk == WALK_CAMERA) {
             if (s->span_hi >= 0x51 && s->span_hi < 0x54) continue;    /* 0x19DA54, 0x19DA60 */
-        } else if (attr >= 0x5A) {
-            continue;                                                 /* 0019DB50's filter */
         }
         const int r = em_coll_probe_0019ED80(g, s, node);             /* 0x19D69C / 0x19DA74 */
         if (r < 0) return -1;
