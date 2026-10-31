@@ -325,6 +325,12 @@ static int lg_001FBD50(void *c, uint32_t a0, int32_t id, int32_t flags, float ra
     (void)a0;
     return w_sound_full(NULL, c, id, flags, range);
 }
+static int lg14_001FBD50(void *c, uint32_t a0, int32_t id, int32_t flags, float range, int32_t *result)
+{
+    (void)a0;
+    *result = 0;
+    return w_sound_full(NULL, c, id, flags, range);
+}
 static int lg_00194240(void *c, uint32_t a0)
 {
     EmLevel13PortHooks h;
@@ -370,7 +376,7 @@ static int ceiling_state(void *c, EmPlayerLiveActor *a)
     h.bytes = ledge_bytes;
     h.w_001749A0 = lg_001749A0;
     h.w_001885B0 = lg_001885B0;
-    h.w_001FBD50 = lg_001FBD50;
+    h.w_001FBD50 = lg14_001FBD50;
     EmLevel14PortFault f = {0, 0};
     if (em_level14_port_0016AC50(&h, 0x008102B0u, &f) < 0) {
         fprintf(stderr, "player closure: 0016AC50 fault code %d at %08X\n", (int)f.code, (unsigned)f.address);

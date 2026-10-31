@@ -976,6 +976,13 @@ static inline int l9_c_001CB760(L9 *o, uint32_t a0, uint32_t a1, uint32_t a2, in
     return o->h->w_001CB760(o->h->ctx, a0, a1, a2, n3) < 0 ? l9_latch(o, 0x001CB760u, EM_LEVEL9_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l9_c_001CCF70(L9 *o, uint32_t a0, int32_t *result)
+{
+    if (l9_failed(o)) return -1;
+    if (!o->h->w_001CCF70) return l9_latch(o, 0x001CCF70u, EM_LEVEL9_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001CCF70(o->h->ctx, a0, result) < 0 ? l9_latch(o, 0x001CCF70u, EM_LEVEL9_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l9_c_001CD070(L9 *o, uint32_t a0, int32_t n1, int32_t *result)
 {
     if (l9_failed(o)) return -1;

@@ -4334,6 +4334,16 @@ static int m09_w_001CB760(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, int3
     return rc;
 }
 
+static int m09_w_001CCF70(void *ctx, uint32_t a0, int32_t *result)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x001CCF70u, .sp = r->sp, .na = 1, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = (int32_t)c.v0;
+    return rc;
+}
+
 static int m09_w_001CD070(void *ctx, uint32_t a0, int32_t n1, int32_t *result)
 {
     EmArea01Runtime *r = ctx;
@@ -4882,6 +4892,7 @@ static inline void m09_hooks(EmArea01Runtime *r, EmLevel9PortHooks *h)
     h->w_001CB5B0 = m09_w_001CB5B0;
     h->w_001CB5F0 = m09_w_001CB5F0;
     h->w_001CB760 = m09_w_001CB760;
+    h->w_001CCF70 = m09_w_001CCF70;
     h->w_001CD070 = m09_w_001CD070;
     h->w_001CD2B0 = m09_w_001CD2B0;
     h->w_001CD520 = m09_w_001CD520;
@@ -10218,7 +10229,7 @@ static int m14_w_001FAE70(void *ctx, int32_t n0)
     return rc;
 }
 
-static int m14_w_001FBD50(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3)
+static int m14_w_001FBD50(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3, int32_t *result)
 {
     EmArea01Runtime *r = ctx;
     EmArea01Call c = {.function = 0x001FBD50u, .sp = r->sp, .na = 3, .nf = 1};
@@ -10227,6 +10238,7 @@ static int m14_w_001FBD50(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float 
     c.a[2] = (uint64_t)(int64_t)n2;
     c.f[0] = em_ee_bits(f3);
     int rc = em_area01_runtime_call(r, &c);
+    if (rc == 0 && result) *result = (int32_t)c.v0;
     return rc;
 }
 
@@ -10321,6 +10333,15 @@ static int m14_w_00824C90(void *ctx, uint32_t a0)
     EmArea01Runtime *r = ctx;
     EmArea01Call c = {.function = 0x00824C90u, .sp = r->sp, .na = 1, .nf = 0};
     c.a[0] = (uint64_t)(int64_t)(int32_t)a0;
+    int rc = em_area01_runtime_call(r, &c);
+    return rc;
+}
+
+static int m14_w_0011A070(void *ctx, int32_t n0)
+{
+    EmArea01Runtime *r = ctx;
+    EmArea01Call c = {.function = 0x0011A070u, .sp = r->sp, .na = 1, .nf = 0};
+    c.a[0] = (uint64_t)(int64_t)n0;
     int rc = em_area01_runtime_call(r, &c);
     return rc;
 }
@@ -10428,6 +10449,7 @@ static inline void m14_hooks(EmArea01Runtime *r, EmLevel14PortHooks *h)
     h->w_008243E0 = m14_w_008243E0;
     h->w_00824B40 = m14_w_00824B40;
     h->w_00824C90 = m14_w_00824C90;
+    h->w_0011A070 = m14_w_0011A070;
     h->w_callback = m14_w_callback;
 }
 
