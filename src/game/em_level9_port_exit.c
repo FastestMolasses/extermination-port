@@ -1520,3 +1520,171 @@ int em_level9_port_0013B9A0(const EmLevel9PortHooks *h, uint32_t self, uint32_t 
     l9_c_001AFC10(&o, self);
     return l9_end(&o);
 }
+
+/* ------------------------------------------------------------------------
+ * 001F28D0 (p; NEARMISS C 98.80%, only a scheduling order differs): the ring
+ * burst: +4 0: eight slots of base = p + 0x1F0: ages -0.02 i at +0x80, points
+ * from the bones of the node +0x24 (table D_0025A330) at +0, the largest
+ * 001CCF70 + 8 at +0xA8 (the page key), +0xA0 = 0, the seed +0xA4 = rand; then
+ * as +4 1: the seed steps LCG 37 / 11 per slot; a slot younger than 1.7 builds
+ * the identity with its point, 001CFAE0 and two 001CFBE0 (D_0025A210, 2A0),
+ * and ages 0.025. No slot left: +4 3. +4 2, 3: 001AFC10.
+ * ---------------------------------------------------------------------- */
+int em_level9_port_001F28D0(const EmLevel9PortHooks *h, uint32_t p, uint32_t sp, EmLevel9PortFault *fault)
+{
+    L9 o;
+    if (l9_begin(&o, h, fault)) return -1;
+    const uint32_t tbl = l9_u32(&o, p + 0x24), base = p + 0x1F0, buf = sp - 0x60u;
+    const uint32_t state = l9_u8(&o, p + 4);
+    int32_t t = 0;
+    if (state == 2 || state == 3) {
+        l9_c_001AFC10(&o, p);
+        return l9_end(&o);
+    }
+    if (state > 3) return l9_end(&o);
+    if (state == 0) {
+        l9_w32(&o, base + 0xA8, 0);
+        for (int32_t i = 0; i < 8; ++i) {
+            l9_w32(&o, base + 0x80 + 4u * (uint32_t)i, L9_MUL(0xBCA3D70Au, L9_CVT(i)));
+            const uint32_t bone = l9_u32(&o, tbl + l9_u32(&o, 0x0025A330u + 4u * (uint32_t)i) * 4u + 0x110u);
+            if (l9_c_00102948(&o, base + 0x10u * (uint32_t)i, bone + 0xC0)) return -1;
+            if (l9_c_001CCF70(&o, base + 0x10u * (uint32_t)i, &t)) return -1;
+            const int32_t top = (int32_t)l9_u32(&o, base + 0xA8);
+            l9_w32(&o, base + 0xA8, (uint32_t)(top < t ? t : top));
+        }
+        l9_w32(&o, base + 0xA8, l9_u32(&o, base + 0xA8) + 8u);
+        l9_w32(&o, base + 0xA0, 0);
+        if (l9_c_00122BB8(&o, &t)) return -1;
+        l9_w32(&o, base + 0xA4, (uint32_t)t);
+        l9_w8(&o, p + 4, 1);
+    }
+    uint32_t rng = l9_u32(&o, base + 0xA4);
+    int32_t cnt = 0;
+    for (uint32_t j = 0; j < 8; ++j) {
+        const uint32_t f = L9_ADD(L9_DIV(L9_CVT((rng >> 16) & 0xFFFFu), 0x477FFF00u), 0x38D1B717u);
+        l9_w32(&o, 0x70003A20u, f);
+        rng = rng * 0x25u + 0xBu;
+        const uint32_t age = l9_u32(&o, base + 0x80 + 4u * j);
+        if (L9_LT(age, 0x3FD9999Au)) {
+            if (l9_c_001029C0(&o, 0x700036A0u)) return -1;
+            if (l9_c_00102918(&o, 0x700036A0u, 0x700036A0u, base + 0x10u * j)) return -1;
+            if (l9_c_001CFAE0(&o, buf, 0, 0x700036A0u, l9_u32(&o, base + 0x80 + 4u * j), l9_u32(&o, 0x70003A20u),
+                              0x3F800000u, 0x358637BDu)) return -1;
+            if (l9_c_001CFBE0(&o, (int32_t)l9_u32(&o, base + 0xA8), 1, 0x0025A210u, buf, 0)) return -1;
+            if (l9_c_001CFBE0(&o, (int32_t)l9_u32(&o, base + 0xA8), 1, 0x0025A2A0u, buf, 0)) return -1;
+            cnt++;
+            l9_w32(&o, base + 0x80 + 4u * j, L9_ADD(l9_u32(&o, base + 0x80 + 4u * j), 0x3CCCCCCDu));
+        }
+    }
+    if (!L9_LE(l9_u32(&o, base + 0x80), 0x3F000000u)) {
+        if (l9_u32(&o, base + 0xA0) == 0) l9_w32(&o, base + 0xA0, 1);
+    }
+    if (cnt == 0) l9_w8(&o, p + 4, 3);
+    return l9_end(&o);
+}
+
+/* ------------------------------------------------------------------------
+ * 00188340 (self; byte-matched C): the crawl node 0016BAE0 spawns: +4 0: the
+ * setup 00188430 (model 0x46 / 0x47 by +0xD, its bones, the default pose
+ * 0xE / 0xC) until it holds; 1: +0x2E = 001C64F0(self, 1.0), the type's step
+ * 00188180 / 00188250 (+5: the clip's end, then D_00275B08 starts clip 0xF /
+ * 0xD, whose end frees it; the node follows the player's matrix D_00810380;
+ * 00188250 also ends when the player's +4 is 2), the +0x4C method; 2, 3:
+ * 001AFC10.
+ * ---------------------------------------------------------------------- */
+static int32_t l9_00188430(L9 *o, uint32_t p)
+{
+    int32_t n = 0, id = 0, c = 0;
+    uint32_t handle = 0;
+    const uint32_t kind = l9_u8(o, p + 0xD);
+    if (kind == 0) { n = 0xE; id = 0x46; }
+    else if (kind == 1) { n = 0xC; id = 0x47; }
+    if (l9_c_001C6120(o, l9_u32(o, 0x0028A56Cu), id, &handle)) return 1;
+    if (l9_c_001CA6E0(o, p, handle)) return 1;
+    if (l9_c_001C6150(o, l9_u32(o, p + 0x44), &c)) return 1;
+    l9_w8(o, p + 0xC, (uint32_t)c);
+    if (l9_s16(o, 0x00275BCCu) < (int32_t)l9_u8(o, p + 0xC)) return 1;
+    uint32_t e = p;
+    uint32_t count;
+    for (int32_t i = 0; (count = l9_u8(o, p + 0xC)), i < (int32_t)count; ++i) {
+        uint32_t slot = 0;
+        if (l9_c_001AF780(o, &slot)) return 1;
+        l9_w32(o, e + 0x110, slot);
+        e += 4;
+    }
+    l9_w8(o, p + 9, count);
+    if (l9_c_001CB5B0(o, (int32_t)l9_u8(o, p + 0xC))) return 1;
+    l9_w32(o, p + 0x40, l9_u32(o, 0x0028A574u));
+    if (l9_c_001C63E0(o, p, n)) return 1;
+    return 0;
+}
+
+static void crawl_follow(L9 *o, uint32_t p)
+{
+    if (l9_c_00102958(o, p + 0xD0, 0x00810380u)) return;
+    l9_c_001C9940(o, p + 0x110, (int32_t)l9_u8(o, p + 0xC), p + 0xD0);
+}
+
+static void l9_00188180(L9 *o, uint32_t p)
+{
+    const uint32_t st = l9_u8(o, p + 5);
+    if (st == 0) {
+        if (l9_u16(o, p + 0x2E) & 0x1000u) l9_w8(o, p + 5, st + 1u);
+    } else if (st == 1) {
+        if ((int32_t)l9_u32(o, 0x00275B08u) != 0) {
+            l9_w8(o, p + 5, 2);
+            if (l9_c_001C67E0(o, p, 0xF, 0, 0)) return;
+        }
+    } else if (st == 2) {
+        if (l9_u16(o, p + 0x2E) & 0x1000u) l9_w8(o, p + 4, 3);
+    }
+    crawl_follow(o, p);
+}
+
+static void l9_00188250(L9 *o, uint32_t p)
+{
+    const uint32_t st = l9_u8(o, p + 5);
+    if (st == 0 && (l9_u16(o, p + 0x2E) & 0x1000u)) l9_w8(o, p + 5, st + 1u);
+    if (st <= 1) {
+        if ((int32_t)l9_u32(o, 0x00275B08u) != 0) {
+            l9_w8(o, p + 5, 2);
+            if (l9_c_001C67E0(o, p, 0xD, 0, 0)) return;
+        }
+    } else if (st == 2) {
+        if (l9_u16(o, p + 0x2E) & 0x1000u) l9_w8(o, p + 4, 3);
+    }
+    crawl_follow(o, p);
+    if (l9_failed(o)) return;
+    if (l9_u8(o, 0x008102B4u) == 2u) l9_w8(o, p + 4, 3);
+}
+
+int em_level9_port_00188340(const EmLevel9PortHooks *h, uint32_t self, EmLevel9PortFault *fault)
+{
+    L9 o;
+    if (l9_begin(&o, h, fault)) return -1;
+    int32_t v = 0;
+    switch (l9_u8(&o, self + 4)) {
+    case 0: {
+        const int32_t r = l9_00188430(&o, self);
+        if (!l9_failed(&o) && r == 0) l9_w8(&o, self + 4, 1);
+        break;
+    }
+    case 1: {
+        if (l9_c_001C64F0(&o, self, 0x3F800000u, &v)) break;
+        l9_w16(&o, self + 0x2E, (uint32_t)v);
+        const uint32_t kind = l9_u8(&o, self + 0xD);
+        if (kind == 0) l9_00188180(&o, self);
+        else if (kind == 1) l9_00188250(&o, self);
+        if (l9_failed(&o)) break;
+        l9_callback(&o, l9_u32(&o, self + 0x4C), self);
+        break;
+    }
+    case 2:
+    case 3:
+        l9_c_001AFC10(&o, self);
+        break;
+    default:
+        break;
+    }
+    return l9_end(&o);
+}

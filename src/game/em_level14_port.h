@@ -146,7 +146,7 @@ typedef struct {
     int (*w_001F5940)(void *ctx, int32_t n0, uint32_t a1, int32_t n2);
     int (*w_001F66F0)(void *ctx, uint32_t a0);
     int (*w_001FAE70)(void *ctx, int32_t n0);
-    int (*w_001FBD50)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3);
+    int (*w_001FBD50)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3, int32_t *result);
     int (*w_001FC3C0)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, float f3, float f4);
     int (*w_001FC520)(void *ctx, uint32_t a0);
     int (*w_0021C040)(void *ctx, uint32_t a0, uint32_t a1);
@@ -157,6 +157,7 @@ typedef struct {
     int (*w_008243E0)(void *ctx, uint32_t a0);
     int (*w_00824B40)(void *ctx, uint32_t a0);
     int (*w_00824C90)(void *ctx, uint32_t a0);
+    int (*w_0011A070)(void *ctx, int32_t n0);
 /* END GENERATED HOOKS */
 
     /* the indirect call through a function word (the actor's +0x4C method) */
@@ -190,6 +191,9 @@ int em_level14_port_00826600(const H14 *h, uint32_t self, F14 *fault);
 int em_level14_port_00826850(const H14 *h, uint32_t self, F14 *fault);
 
 /* ---- AREA19 overlay: two script callbacks (both return 1) ---- */
+int em_level14_port_00826470(const H14 *h, uint32_t self, int32_t *result, F14 *fault);
+int em_level14_port_00826500(const H14 *h, uint32_t self, int32_t *result, F14 *fault);
+int em_level14_port_00826540(const H14 *h, uint32_t self, int32_t *result, F14 *fault);
 int em_level14_port_00826B30(const H14 *h, uint32_t self, int32_t *result, F14 *fault);
 int em_level14_port_00827540(const H14 *h, uint32_t a0, int32_t *result, F14 *fault);
 

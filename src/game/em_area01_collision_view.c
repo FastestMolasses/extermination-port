@@ -309,8 +309,8 @@ int em_area01_collision_view_call(EmArea01CollisionView *v,EmArea01Call *c)
     EmActorCollisionQuery query={0};uint8_t *feet_out=NULL;
     EmCollMoveActor mover;memset(&mover,0,sizeof mover);uint8_t *mover_x=NULL,*mover_z=NULL;
     switch(c->function){
-    case 0x19A570:case 0x19A910:case 0x19B6C0:case 0x19A440:
-        if(c->na<(c->function==0x19A570?4u:c->function==0x19A910||c->function==0x19A440?3u:2u)||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
+    case 0x19A570:case 0x19A910:case 0x19A440:case 0x19B6C0:
+        if(c->na<(c->function==0x19A570?4u:c->function==0x19B6C0?2u:3u)||get(v,(uint32_t)c->a[0],a,12)<0||get(v,(uint32_t)c->a[1],b,12)<0)return -1;
         break;
     case 0x19AB20:{
         uint32_t self;

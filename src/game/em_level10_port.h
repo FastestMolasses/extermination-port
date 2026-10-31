@@ -81,12 +81,17 @@ typedef struct {
     int (*w_001028B8)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_001028D0)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00102948)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_001029C0)(void *ctx, uint32_t a0);
+    int (*w_00102BB0)(void *ctx, uint32_t a0, uint32_t a1, float f2);
     int (*w_001031E0)(void *ctx, uint32_t a0, uint32_t a1);
+    int (*w_0011DF78)(void *ctx, float f0, float *result);
     int (*w_00122BB8)(void *ctx, int32_t *result);
     int (*w_00131F20)(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2);
     int (*w_00132490)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001662D0)(void *ctx, uint32_t a0);
+    int (*w_00182F90)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_001831F0)(void *ctx, int32_t n0);
+    int (*w_0019A440)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, int32_t *result);
     int (*w_0019A570)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, int32_t n3, int32_t *result);
     int (*w_0019AA80)(void *ctx, uint32_t a0, uint32_t a1, int32_t n2, int32_t *result);
     int (*w_0019C6F0)(void *ctx, int32_t n0, int32_t n1, int32_t *result);
@@ -98,6 +103,7 @@ typedef struct {
     int (*w_001B10B0)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, int32_t *result);
     int (*w_001B1240)(void *ctx, uint32_t a0, float f1, float f2, float *result);
     int (*w_001B12B0)(void *ctx, float f0, float f1, float f2, float *result);
+    int (*w_001B1470)(void *ctx, float f0, float *result);
     int (*w_001B1560)(void *ctx, uint32_t a0, uint32_t a1, float f2, int32_t *result);
     int (*w_001B17A0)(void *ctx, uint32_t a0, int32_t *result);
     int (*w_001B1E20)(void *ctx, int32_t n0, int32_t n1);
@@ -131,11 +137,14 @@ typedef struct {
     int (*w_001E8B40)(void *ctx, int32_t n0);
     int (*w_001EFD90)(void *ctx, int32_t n0, uint32_t a1, uint32_t a2);
     int (*w_001EFE00)(void *ctx, int32_t n0, uint32_t a1, int32_t *result);
+    int (*w_001EFEB0)(void *ctx, int32_t n0, uint32_t a1);
     int (*w_001F5940)(void *ctx, int32_t n0, uint32_t a1, int32_t n2);
     int (*w_001FAE70)(void *ctx, int32_t n0);
     int (*w_001FBD50)(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3, int32_t *result);
     int (*w_001FC580)(void *ctx, uint32_t a0, int32_t n1);
     int (*w_0021BE40)(void *ctx, uint32_t a0, int32_t *result);
+    int (*w_0021BED0)(void *ctx, uint32_t a0, int32_t *result);
+    int (*w_0021BF90)(void *ctx, uint32_t a0, uint32_t a1);
     int (*w_00825420)(void *ctx, uint32_t a0);
     int (*w_00825930)(void *ctx, uint32_t a0);
 /* END GENERATED HOOKS */
@@ -164,6 +173,8 @@ int em_level10_port_008236E0(const EmLevel10PortHooks *h, EmLevel10PortFault *fa
 
 /* ---- boot ---- */
 int em_level10_port_00118790(const EmLevel10PortHooks *h, uint32_t p, int32_t *result, EmLevel10PortFault *fault);
+int em_level10_port_00133CD0(const EmLevel10PortHooks *h, uint32_t self, int32_t *result, EmLevel10PortFault *fault);
+int em_level10_port_00130AB0(const EmLevel10PortHooks *h, uint32_t p, uint32_t e, uint32_t sp, EmLevel10PortFault *fault);
 int em_level10_port_001305B0(const EmLevel10PortHooks *h, uint32_t self, uint32_t ent, EmLevel10PortFault *fault);
 int em_level10_port_001833F0(const EmLevel10PortHooks *h, uint32_t self, EmLevel10PortFault *fault);
 int em_level10_port_001885F0(const EmLevel10PortHooks *h, uint32_t self, int32_t *result, EmLevel10PortFault *fault);

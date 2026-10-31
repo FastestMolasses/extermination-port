@@ -319,3 +319,6 @@ Translated from the byte-matched C; test_player_major2_reference covers it. Its
 exits are +4 1 / +5 0x1B, the ledge, with +1F0 0x2F. Two workers came with it:
 w00188610 and w001026A0. It differs from 00222AD0 in its landing (clip 0x2B, the
 cue 1, 0xEE, 0x3C, 1) and in sub-state 0xC, which has no floor call.
+
+The latch states (+5 0xD, 0xE, kinds 0 and 1) and +5 0x15 are in em_level12_port:
+docs/AREA19_PORT.md.

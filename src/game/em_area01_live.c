@@ -372,6 +372,8 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if(l->host.bytes && (p=l->host.bytes(l->host.ctx,a,n,write)))return p;
     if((p=em_effects_live_window_mutable(a,n)))return p;
     if((p=em_sfx_track_words(a,n)))return p;
+    /* D_00275B08: the crawl's and the bars' word, the player closure's. */
+    if(contains(a,n,0x00275B08u,4))return (uint8_t *)em_player_closure_live_d275B08()+(a-0x00275B08u);
     /* Words only AREA19's code reaches, behind every shared storage:
      * 0x70003910..1F, 0x827DD0's hit direction (its trackers); D_00275C10 /
      * 14, 001E7D20's once-a-frame step. */
@@ -1133,6 +1135,17 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_timeline_call(&host,c,&fault);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x0021BF90u && c->na==2 && (uint32_t)c->a[0]==0x008102B0u) {
+        /* 0021BF90(the player, hit): the latch's start (the record's own
+         * translations); the hit's +3 byte through this map. */
+        const uint8_t *k=bytes(l,(uint32_t)c->a[1]+3u,1,0);
+        if(!k)return worker_result(l,-1,c->function);
+        const uint8_t kind=*k;
+        if(em_area01_live_suspend(l)<0)return -1;
+        const int rc=em_player_closure_live_0021BF90(kind);
+        if(em_area01_live_resume(l)<0)return -1;
+        return worker_result(l,rc,rc<0 ? c->function : 0);
+    }
     if(c->function==0x001CD370u && c->na==1) {
         /* 001CD370(i): D_00275670 + i * 0x40 + 0x2240, the clip matrices. */
         const uint8_t *context=bytes(l,0x00275670u,4,0);
@@ -1441,8 +1454,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return rc;
     }
     case 0x0019AA80u: /* the AREA01 revisit's 0x8282F0 probe */
-    case 0x0019A440u: /* 00133CD0's rays */
-    case 0x0019A570u: case 0x0019A910u: case 0x0019B6C0u: case 0x0019AB20u:
+    case 0x0019A570u: case 0x0019A910u: case 0x0019A440u: case 0x0019B6C0u: case 0x0019AB20u:
     case 0x001A0B10u: case 0x0019D330u: case 0x001A7280u:
     case 0x0019F1A0u: case 0x0019ED80u: case 0x001A4030u: case 0x001A50A0u:
     case 0x001A5C30u: case 0x0019AD00u: case 0x0019AFE0u: case 0x0019B2C0u: {

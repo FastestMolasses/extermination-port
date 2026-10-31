@@ -379,7 +379,7 @@ static int cell_walk(const EmCollProbeWorld *world, const EmSdkMathContext *math
         } else {
             if (word & 0x60000000u) continue;                         /* 0x1A14AC */
             if (static_kind(w, i, &kind)) return -1;                  /* 0x1A14E8 */
-            if (kind >= (walk == WALK_CAMERA ? 0x51 : 0x5A)) continue;   /* 0x1A14EC */
+            if (kind >= (walk == WALK_SIGHT ? 0x5A : 0x51)) continue;  /* 0x1A14EC */
         }
         const uint32_t hull = static_hull(word);                      /* 0x1A1004 / 0x1A14FC */
         if ((uint64_t)hull + 0x18 > t->size) return -1;
@@ -423,7 +423,7 @@ static int cell_walk(const EmCollProbeWorld *world, const EmSdkMathContext *math
         if ((uint64_t)word + 0x18 > t->size) return -1;
         if (!box_overlaps(&box, t->bytes + word)) continue;           /* 0x1A1084..0x1A10F4 */
         const uint8_t kind = (uint8_t)a->kind;                        /* 0x1A10FC: +0x54 byte */
-        if (kind >= (walk == WALK_SEGMENT ? 0x50 : walk == WALK_CAMERA ? 0x51 : 0x5A)) continue;   /* 0x1A1100 / 0x1A18F8 */
+        if (kind >= (walk == WALK_SEGMENT ? 0x50 : walk == WALK_SIGHT ? 0x5A : 0x51)) continue;   /* 0x1A1100 / 0x1A18F8 */
         if ((uint64_t)word + 0x1A > t->size) return -1;
         const int16_t count = rd_s16(t->bytes, word + 0x18);          /* 0x1A1280 */
         uint32_t cursor = word + 0x1C;                                /* 0x1A1110 */
@@ -458,6 +458,7 @@ int em_coll_segment_001A1390(const EmCollProbeWorld *world, const EmSdkMathConte
     return cell_walk(world, math, s, x, WALK_CAMERA);
 }
 
+/* 001A1B80: 001A1390's instructions with the kind threshold 0x5A. */
 int em_coll_segment_001A1B80(const EmCollProbeWorld *world, const EmSdkMathContext *math,
                              EmCollProbeState *s, EmCollSegmentFaceScratch *x)
 {
@@ -525,7 +526,11 @@ static int grid_walk(const EmCollProbeGrid *g, EmCollProbeState *s, int walk)
         if (s->rank[2] < wd[8]) continue;                             /* 0x19D5DC: +0x10 */
         if (wd[9] < s->rank[3]) continue;                             /* 0x19D5F4: +0x12 */
         const uint8_t attr = g->emcl->polys[g->first + (uint32_t)node].attr;   /* 0x19D600: +0x1A */
-        if (walk != WALK_SIGHT) s->span_hi = attr;                    /* 0x19D608: 0x70003B88 */
+        if (walk == WALK_SIGHT) {
+            if (attr >= 0x5A) continue;                               /* 0019DB50: no scratch store */
+        } else {
+            s->span_hi = attr;                                        /* 0x19D608: 0x70003B88 */
+        }
         if (walk == WALK_SEGMENT) {
             if (!segment_kind_passes(s->span_hi, s->query_class)) continue;   /* 0x19D614..0x19D694 */
         } else if (walk == WALK_CAMERA) {
@@ -581,7 +586,7 @@ static int query(const EmCollSegment *seg, const float from[3], const float to[3
     const unsigned m = mask & 0xFF;                                   /* 0x19A5DC / 0x19A984 */
     s.entity = NULL;                                                  /* 0x19A5EC / 0x19A994 */
     int r = 0;                                                        /* s0 */
-    if (m & 1) {
+    if ((m & 1) && walk != WALK_SIGHT) {   /* 0019A440 has no hull step */
         if (!seg->world->cells || !seg->world->cells->lists) return -1;
         EmCollHullScratch h;
         memset(&h, 0, sizeof h);
@@ -614,15 +619,15 @@ static int query(const EmCollSegment *seg, const float from[3], const float to[3
     if (walk == WALK_SEGMENT) s.query_class = -1;                     /* 0x19A63C: 0x7000324E (0019A910 does not) */
     if (m & 2) {
         s.self = NULL;                                                /* 0x19A650 / 0x19A9E8: 0x70003254 */
-        const int hit = walk == WALK_SIGHT ? em_coll_segment_001A1B80(seg->world, seg->math, &s, &x) :
-                        walk == WALK_SEGMENT ? em_coll_segment_001A0B10(seg->world, seg->math, &s, &x)   /* 0x19A64C */
+        const int hit = walk == WALK_SIGHT ? em_coll_segment_001A1B80(seg->world, seg->math, &s, &x)
+                                           : walk == WALK_SEGMENT ? em_coll_segment_001A0B10(seg->world, seg->math, &s, &x)   /* 0x19A64C */
                                              : em_coll_segment_001A1390(seg->world, seg->math, &s, &x);  /* 0x19A9E4 */
         if (hit < 0) return -1;
         if (hit) r = 2;
     }
     if (m & 4) {
-        const int hit = walk == WALK_SIGHT ? em_coll_segment_0019DB50(seg->world->grid, &s) :
-                        walk == WALK_SEGMENT ? em_coll_segment_0019D330(seg->world->grid, &s)   /* 0x19A670 */
+        const int hit = walk == WALK_SIGHT ? em_coll_segment_0019DB50(seg->world->grid, &s)
+                                           : walk == WALK_SEGMENT ? em_coll_segment_0019D330(seg->world->grid, &s)   /* 0x19A670 */
                                              : em_coll_segment_0019D770(seg->world->grid, &s);  /* 0x19AA04 */
         if (hit < 0) return -1;
         if (hit) r = 4;
@@ -647,12 +652,10 @@ int em_coll_segment_0019A910(const EmCollSegment *seg, const float from[3], cons
     return query(seg, from, to, mask, 0, WALK_CAMERA);
 }
 
-/* 0019A440 (a0, a1, 6 in 00133CD0): the two later passes with 001A1B80 and
- * 0019DB50; a mask's bit 0 has no pass here. */
 int em_coll_segment_0019A440(const EmCollSegment *seg, const float from[3], const float to[3],
                              unsigned mask)
 {
-    return query(seg, from, to, mask & ~1u, 0, WALK_SIGHT);
+    return query(seg, from, to, mask, 0, WALK_SIGHT);
 }
 
 /* ---- Binding adapters ------------------------------------------------------------ */

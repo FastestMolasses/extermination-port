@@ -231,6 +231,7 @@ static int record(void *ctx,uint32_t fn,uint32_t actor,uint32_t block,
     /* AREA19's op09 callbacks: the lift's (script 0x82D290) and [34]'s
      * (script 0x82E090; em_area01_runtime's dispatch_area19). */
     case 0x00826B30u: case 0x00827540u: case 0x00827B10u: case 0x00827B20u:
+    case 0x00826470u: case 0x00826500u: case 0x00826540u:   /* script 0x82C6E0's */
         if (s->area!=0x13) return -1;
         break;
     /* AREA13's op09 callbacks: em_level9_port (script 0x82A770's item 0x1A,

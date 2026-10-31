@@ -60,14 +60,14 @@ import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 OUT = ROOT / 'build/coll_segment_walkers_reference'
 ROUTE, BEATS = cp.ROUTE, cp.BEATS
 
-SEG, CAM = 0x19A570, 0x19A910
-SIGHT, CELLS_SIGHT, GRID_SIGHT = 0x19A440, 0x1A1B80, 0x19DB50    # 00133CD0's rays
+SEG, CAM, SIGHT = 0x19A570, 0x19A910, 0x19A440
+CELLS_SIGHT, GRID_SIGHT = 0x1A1B80, 0x19DB50
 CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM = 0x1A0B10, 0x1A1390, 0x19D330, 0x19D770
 FACE, ROUND, LOCK_SEG, LOCK_CAM = 0x1A50A0, 0x1A5C30, 0x1A6440, 0x1A6AD0
 HEAD = 0x19B6C0
 JUMP_TABLE = 0x26DA80        # 001A50A0's face-code table (7 words)
 MODE_WORD = 0x26C5D0         # D_0026C5D0, the SDK math error mode 0011E748 reads
-CODE = cp.CODE + [(SIGHT, 0x124), (CELLS_SIGHT, 0x7F0), (GRID_SIGHT, 0x3C0), (SEG, 0x178), (CAM, 0x16C), (CELLS_SEG, 0x878), (CELLS_CAM, 0x7F0), (GRID_SEG, 0x440),
+CODE = cp.CODE + [(SIGHT, 0x130), (CELLS_SIGHT, 0x7F0), (GRID_SIGHT, 0x3C0), (SEG, 0x178), (CAM, 0x16C), (CELLS_SEG, 0x878), (CELLS_CAM, 0x7F0), (GRID_SEG, 0x440),
                   (GRID_CAM, 0x3D8), (FACE, 0x600), (ROUND, 0x808), (0x1028E8, 0x14), (0x11E748, 0x114),
                   (0x11CB90, 0x138), (0x11E080, 0x24), (0x11DF78, 0x1C), (0x128350, 0x40), (0x1278C0, 0x90),
                   (0x127728, 0x2C), (0x126AB8, 0x12C), (0x1000C0, 0x20), (0x100110, 0x20), (0x1274B0, 0x4C),
@@ -79,8 +79,7 @@ FACE_WORDS = ([0x70003600 + 4 * k for k in range(3)] + [0x70003610 + 4 * k for k
               + [0x70003684, 0x70003688] + [0x700030CC, 0x700030D0])     # the last two: the locks' words
 STATE_SPAN = cp.STATE_SPAN + [(0x70003600, 0x7000360C), (0x70003610, 0x7000361C), (0x70003620, 0x7000362C),
                               (0x70003630, 0x7000363C), (0x70003684, 0x7000368C), (0x700030CC, 0x700030D4)]
-WHICH = {SEG: 0, CAM: 1, CELLS_SEG: 2, CELLS_CAM: 3, GRID_SEG: 4, GRID_CAM: 5, FACE: 6, ROUND: 7,
-         SIGHT: 9, CELLS_SIGHT: 10, GRID_SIGHT: 11}
+WHICH = {SEG: 0, CAM: 1, CELLS_SEG: 2, CELLS_CAM: 3, GRID_SEG: 4, GRID_CAM: 5, FACE: 6, ROUND: 7, SIGHT: 9, CELLS_SIGHT: 10, GRID_SIGHT: 11}
 
 u32, s16, u16, f32 = cp.u32, cp.s16, cp.u16, cp.f32
 
@@ -599,6 +598,7 @@ class Pair:
         return self.both(where, case, SIGHT, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
 
     def camera(self, case, where, a, c, mask):
+        self.both(where, case, SIGHT, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
         return self.both(where, case, CAM, (ARGS, ARGS + 0x10, mask), a, c, mask=mask, stage=self.args(a, c))
 
     def head(self, case, where, top, bottom):
@@ -896,9 +896,9 @@ def run_units(item):
         word = u32(ram, table + 4 + 4 * uid) if uid < world.count else 0
         if word:
             owner_hulls.append(table + word)
-    walkers = (CELLS_SEG, CELLS_CAM, GRID_SEG, GRID_CAM)
+    walkers = (CELLS_SEG, CELLS_CAM, CELLS_SIGHT, GRID_SEG, GRID_CAM, GRID_SIGHT)
     for k in range(count):
-        entry = walkers[k % 4]
+        entry = walkers[k % len(walkers)]
         if owner_hulls and entry in (CELLS_SEG, CELLS_CAM) and k % 8 < 6:
             hull = rng.choice(owner_hulls)
             lo, hi = struct.unpack_from('<3f', ram, hull), struct.unpack_from('<3f', ram, hull + 0xC)

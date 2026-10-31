@@ -139,6 +139,14 @@ FUNCS = {
     0x16EF50: ('em_level12_port_0016EF50', 0x5D4, [U], None),
     0x179560: ('em_level12_port_00179560', 0x118, [U], None),
     0x17F9E0: ('em_level12_port_0017F9E0', 0x1A4, [U], None),
+    0x17FB90: ('em_level12_port_0017FB90', 0xF0, [U], None),
+    0x1751A0: ('em_level12_port_001751A0', 0x1B8, [U], None),
+    0x21BF90: ('em_level12_port_0021BF90', 0xB0, [U, U], None),
+    0x21FB40: ('em_level12_port_0021FB40', 0x390, [U], None),
+    0x21FED0: ('em_level12_port_0021FED0', 0x3F0, [U], None),
+    0x2208C0: ('em_level12_port_002208C0', 0x290, [U], None),
+    0x220B50: ('em_level12_port_00220B50', 0x1E0, [U], None),
+    0x224FE0: ('em_level12_port_00224FE0', 0x590, [U], None),
     0x1821E0: ('em_level12_port_001821E0', 0x68, [U], I),
     0x1831F0: ('em_level12_port_001831F0', 0x4C, [I], None),
     0x1A96F0: ('em_level12_port_001A96F0', 0xC0, [U, U], None),
@@ -199,12 +207,20 @@ HOOKS = [
     ('w_00128250', 0x128250, [(F, 12)], I),
     ('w_00128350', 0x128350, [(F, 12)], Q),
     ('w_001749A0', 0x1749A0, [(U, 4), (I, 5), (I, 6), (F, 12)], None),
+    ('w_001749F0', 0x1749F0, [(U, 4), (I, 5), (F, 12), (F, 13)], None),
     ('w_00174A50', 0x174A50, [(U, 4), (F, 12)], None),
     ('w_00174AB0', 0x174AB0, [(U, 4)], None),
+    ('w_00174AC0', 0x174AC0, [(U, 4), (I, 5)], None),
     ('w_001751A0', 0x1751A0, [(U, 4)], None),
-    ('w_00175900', 0x175900, [(U, 4), (I, 5)], None),
+    ('w_001754E0', 0x1754E0, [(U, 4), (I, 5)], I),
+    ('w_00175900', 0x175900, [(U, 4), (I, 5)], I),
     ('w_001764E0', 0x1764E0, [(U, 4)], None),
+    ('w_00178B90', 0x178B90, [(U, 4), (I, 5)], None),
     ('w_001796C0', 0x1796C0, [(U, 4)], None),
+    ('w_00179880', 0x179880, [(U, 4), (U, 5)], None),
+    ('w_0017C370', 0x17C370, [(U, 4)], None),
+    ('w_0017C540', 0x17C540, [(U, 4)], None),
+    ('w_00182430', 0x182430, [(U, 4), (I, 5)], None),
     ('w_00188610', 0x188610, [(U, 4)], I),
     ('w_0019A310', 0x19A310, [(U, 4)], I),
     ('w_0019A6F0', 0x19A6F0, [(U, 4), (U, 5), (U, 6), (I, 7), (I, 8)], I),
@@ -225,10 +241,12 @@ HOOKS = [
     ('w_001B17A0', 0x1B17A0, [(U, 4)], None),
     ('w_001B1EA0', 0x1B1EA0, [(I, 4), (U, 5), (U, 6), (I, 7)], I),
     ('w_001B2B10', 0x1B2B10, [(U, 4), (U, 5), (U, 6)], None),
+    ('w_001B61C0', 0x1B61C0, [(I, 4), (I, 5), (I, 6), (I, 7)], None),
     ('w_001B6F00', 0x1B6F00, [(U, 4), (U, 5), (F, 12)], None),
     ('w_001BA1A0', 0x1BA1A0, [(U, 4), (U, 5)], None),
     ('w_001BA1F0', 0x1BA1F0, [(U, 4)], I),
     ('w_001C6160', 0x1C6160, [(U, 4)], I),
+    ('w_001C61D0', 0x1C61D0, [(U, 4), (I, 5)], I),
     ('w_001C64F0', 0x1C64F0, [(U, 4), (F, 12)], None),
     ('w_001C67E0', 0x1C67E0, [(U, 4), (I, 5), (F, 12), (F, 13)], None),
     ('w_001C68C0', 0x1C68C0, [(U, 4)], None),
@@ -255,6 +273,14 @@ HOOKS = [
     ('w_001FAE70', 0x1FAE70, [(I, 4)], None),
     ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], None),
     ('w_0021BE40', 0x21BE40, [(U, 4), (U, 5)], I),
+    ('w_0021C120', 0x21C120, [(U, 4)], None),
+    ('w_0021C190', 0x21C190, [(U, 4)], I),
+    ('w_0021C200', 0x21C200, [(U, 4)], None),
+    ('w_0021C270', 0x21C270, [(U, 4)], None),
+    ('w_0021C350', 0x21C350, [(U, 4)], None),
+    ('w_0021D250', 0x21D250, [(U, 4), (I, 5)], None),
+    ('w_0021D2E0', 0x21D2E0, [(U, 4), (I, 5), (I, 6)], None),
+    ('w_0021D490', 0x21D490, [(U, 4)], None),
 # END GENERATED HOOKS
 ]
 BY_ADDRESS = {address: (name, args, result) for name, address, args, result in HOOKS}
@@ -269,7 +295,7 @@ RUN = {0x1026A0, 0x102738, 0x102760, 0x1028B8, 0x1028D0, 0x102918, 0x102948, 0x1
        0x1C6160}
 
 # No jump tables in this module's entries (every dispatch is a compare chain).
-JUMP_TABLES = {}
+JUMP_TABLES = {0x21FF00: (0x273880, 7)}
 TABLE_BYTES = frozenset()
 CALLBACK_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_uint32)
 def stack_frame_op(word):
@@ -619,6 +645,8 @@ class Oracle:
         self.script, self.run_set = script, run_set
         ee.save, ee.write, ee.load = self.save, self.write, self.load
         for address in BY_ADDRESS:
+            if address == entry:   # a hook of its callers: here it is the entry
+                continue
             ee.hooks[address] = self.handler(address)
         for callback in args[1]:
             assert callback not in ee.hooks, hex(callback)
@@ -1949,6 +1977,39 @@ def player_cases(add, rng):
     bytes patched) and 001831F0."""
     B = A1
     p = PLAYER
+    # 0021BF90 by the hit kind, 0017FB90, the latch family by +6
+    H = 0x1C00000
+    for k in (1, 4, 7, 6, 5, 3):
+        add('latch 21BF90 %d' % k, B, 0x21BF90, [p, H], [(H + 3, b8(k))])
+    # 001751A0, the stick classifier: gated, no gait, each answer
+    add('latch 1751A0 gated', B, 0x1751A0, [p], [(0x70003B8D, b8(1))])
+    add('latch 1751A0 still', B, 0x1751A0, [p], [(0x70003B8D, b8(0)), (0x810E57, b8(0))])
+    for lx, ly, yaw in [(lx, ly, y) for lx, ly in ((0, 128), (128, 0), (64, 200), (200, 64))
+                        for y in (0.0, 0.5, 1.5, 2.6, -1.5, -2.6)]:
+        add('latch 1751A0 %d %d %g' % (lx, ly, yaw), B, 0x1751A0, [p],
+            [(0x70003B8D, b8(0)), (0x810E57, b8(1)), (0x810E64, b8(lx)), (0x810E65, b8(ly)), (p + 0xC4, fw(yaw))])
+    add('latch 17FB90', B, 0x17FB90, [p], [(0x700031D0, w32(H)), (H + 0x34, w32(0x3F800000))])
+    for hit, hp, sub, c28, flags in ((1.0, 50.0, 0, 0, 0), (1.0, 0.0, 0, 0, 0), (0.0, 50.0, 0, 1, 0), (0.0, 50.0, 0, 0, 0),
+                                     (0.0, 50.0, 1, 0, 0x1000), (0.0, 50.0, 1, 0, 0), (0.0, 50.0, 2, 0, 0)):
+        add('latch 2208C0 hold %g %g %d %d %X' % (hit, hp, sub, c28, flags), B, 0x2208C0, [p],
+            [(p + 6, b8(1)), (p + 7, b8(sub)), (p + 0x224, fw(hit)), (p + 0x220, fw(hp)), (p + 0x28, h16(c28)),
+             (p + 0x2FE, b8(2)), (p + 0x200, w32(flags)), (0x70003B8D, b8(0))], queues={0x1754E0: [0]})
+    for inf, f1 in ((100.0, 1), (100.0, 0), (50.0, 1)):
+        add('latch 220B50 land %g %d' % (inf, f1), B, 0x220B50, [p],
+            [(p + 6, b8(2)), (p + 0x228, fw(inf)), (0x8106F1, b8(f1))], queues={0x175900: [1]})
+    for f, states in ((0x224FE0, (0, 1, 2, 3, 10, 11, 12, 13, 20, 21, 22, 30, 31)), (0x21FB40, (0, 1, 2, 3, 4, 5)),
+                      (0x21FED0, (0, 1, 2, 3, 4, 5, 6, 7)), (0x2208C0, (0, 1, 2, 3, 4)), (0x220B50, (0, 1, 2, 3, 4))):
+        for st in states:
+            for flags in (0, 0x1000, 0x8000):
+                for hp, sub, t3c, cool in ((50.0, 0, 18.0, 0), (0.0, 1, 30.0, 3), (50.0, 1, 30.0, 1)):
+                    for f63, inf, mode, r in ((0, 0.0, 0, 0), (0x63, 100.0, 0, 1), (2, 100.0, 3, 1)):
+                        add('latch %X %d %X %g %d %d %X %g %d' % (f, st, flags, hp, sub, cool, f63, inf, r), B, f, [p],
+                            [(p + 6, b8(st)), (p + 7, b8(sub)), (p + 0x200, w32(flags)), (p + 0x220, fw(hp)),
+                             (p + 0x3C, fw(t3c)), (p + 0x2FE, b8(cool)), (p + 0xF, b8(f63)), (p + 0x228, fw(inf)),
+                             (p + 0x224, fw(1.0 if r else 0.0)), (p + 0x22C, fw(1.0 if r else 0.0)),
+                             (p + 0x23A, b8(0x5D if r else 0)), (p + 0x234, b8(r)), (p + 0x28, h16(cool)),
+                             (0x8106F1, b8(r)), (0x70003B8D, b8(mode))],
+                            queues={0x1754E0: [r], 0x175900: [r], 0x19AFE0: [r], 0x21C190: [r], 0x1C61D0: [60]})
     for st in (0, 0x14):
         for f2f1 in (0, 1):
             add('pl 16EF50 s%X f%d' % (st, f2f1), B, 0x16EF50, [p], [(p + 6, b8(st)), (p + 0x2F1, b8(f2f1))])
@@ -2319,6 +2380,10 @@ DEFAULT_ARGS = {entry: [STACK_TOP if k == S else (fb(1.0) if k == F else FREE) f
 # Words the static walk reaches that no input can reach, and why (each
 # word's instruction class was checked, never its text reproduced).
 DEAD_WORDS = {
+    # 001751A0's (float)(unsigned) conversions of the two stick bytes: the arm
+    # for a value with bit 31 set (a byte never has it).
+    **{a: 'a byte has no bit 31' for a in (0x175204, 0x175208, 0x17520C, 0x175210, 0x175214, 0x175218, 0x175250, 0x175254,
+                                            0x175258, 0x17525C, 0x175260, 0x175264, 0x175268)},
     # 0013C8C0: the fall-through after the two compares of the coin
     # ((0x70003B68 + 0x70003B8A) & 1 is 0 or 1): the slot of a branch no
     # coin reaches
@@ -2762,7 +2827,7 @@ DEFAULT_KEEP = frozenset([
     'x 1B2F70 0 ',
     'x 1B2F70 2 2.0',
 ])
-SURVIVORS = ('survivor ',)
+SURVIVORS = ('survivor ', 'latch ')
 
 
 def select_cases(elf):

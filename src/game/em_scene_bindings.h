@@ -187,6 +187,12 @@ int em_scene_bindings_record_image(uint32_t address, uint8_t *out);
 uint32_t em_scene_bindings_grid_node_address(uint32_t node);
 /* 001CA6E0(owner, handle) from outside the composition's running owner. */
 int em_scene_bindings_owner_model(uint32_t owner, uint32_t handle);
+/* 001AFA90(cls) for a player-side spawn (0016BAE0): 1 with the record held
+ * for em_scene_bindings_node_commit, 0 when the pool is full, -1. commit
+ * places the image's +3, +0xD, +0x10, +0x60.., +0xB0.., +0xC0.. and binds the
+ * record's owner. */
+int em_scene_bindings_node_alloc(uint8_t cls);
+int em_scene_bindings_node_commit(const uint8_t *image);
 /* The grid node records' bytes (read only) as the loader delivered them:
  * `size` bytes at `address` inside the node array, or NULL. */
 const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size);

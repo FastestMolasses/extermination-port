@@ -18,8 +18,8 @@ row-exact from New Game.
     (door [6]), 0x823AC0 (sub 2's emitter), 0x824210, 0x824460, 0x824490, 0x8245E0
     (terminal [2]), 0x824790, 0x824870, 0x8249F0 (sliders), 0x824BC0 (the flame
     columns); AREA07's 0x823DA0, 0x823990 (terminal [7]), 0x823B40, 0x823C20; boot
-    0012DD70, 00130AB0, 00133CD0, 00157360, 00159FC0, 0015A070, 0015A750, 001BD370,
-    001BD460. `make test-area08-route-reference`.
+    0012DD70, 00157360, 00159FC0, 0015A070, 0015A750, 001BD370, 001BD460.
+    `make test-area08-route-reference`.
   - `em_area07_route`: 0x823F80 (the turret), 0x825940, 0x8259D0, from the AREA03
     twin. `make test-area07-route-reference`.
   - `em_area07_probe`: 0x825470. `make test-area07-probe-reference`.
@@ -33,6 +33,12 @@ row-exact from New Game.
   155 of 155 reachable words),
   001FBE80 (`em_area01_audio_services`: composed from the translated 001FBF50 and
   the driver's status, request and stop; **no oracle case of its own yet**).
+- **Shared with AREA19 (lane J1's bindings, one definition each):** the grab
+  00130AB0 and 00133CD0 (`em_level10_port`, test_level10_port_reference), the
+  ring 001F28D0 (`em_level9_port`, test_level9_port_reference), 0019A440 with
+  001A1B80 and 0019DB50 (`em_coll_segment_walkers`,
+  test_coll_segment_walkers_reference). This lane's cases for them moved into
+  those oracles (labels `grab p1`, `ring p1`).
 - **Scripts** (`em_area01_script_live.c`): AREA08's seven chains, window 0x825880 ..
   0x8274F0; AREA07's four, 0x8264B0 .. 0x827520. The boot panels window now starts
   at D_00246A20, the switch's script.

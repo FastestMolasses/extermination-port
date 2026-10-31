@@ -123,6 +123,7 @@ static inline int32_t l10_sra(uint32_t v, unsigned n)
 #define L10_MUL(a, b) em_ee_mul_bits((a), (b))
 #define L10_LT(a, b) em_ee_c_lt_bits((a), (b))
 #define L10_LE(a, b) em_ee_c_le_bits((a), (b))
+#define L10_EQ(a, b) em_ee_c_eq_bits((a), (b))
 
 static inline int l10_begin(L10 *o, const EmLevel10PortHooks *h, EmLevel10PortFault *fault)
 {
@@ -188,11 +189,35 @@ static inline int l10_c_00102948(L10 *o, uint32_t a0, uint32_t a1)
     return o->h->w_00102948(o->h->ctx, a0, a1) < 0 ? l10_latch(o, 0x00102948u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l10_c_001029C0(L10 *o, uint32_t a0)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_001029C0) return l10_latch(o, 0x001029C0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001029C0(o->h->ctx, a0) < 0 ? l10_latch(o, 0x001029C0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l10_c_00102BB0(L10 *o, uint32_t a0, uint32_t a1, uint32_t f2)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_00102BB0) return l10_latch(o, 0x00102BB0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_00102BB0(o->h->ctx, a0, a1, l10_float(f2)) < 0 ? l10_latch(o, 0x00102BB0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l10_c_001031E0(L10 *o, uint32_t a0, uint32_t a1)
 {
     if (l10_failed(o)) return -1;
     if (!o->h->w_001031E0) return l10_latch(o, 0x001031E0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
     return o->h->w_001031E0(o->h->ctx, a0, a1) < 0 ? l10_latch(o, 0x001031E0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l10_c_0011DF78(L10 *o, uint32_t f0, uint32_t *result)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_0011DF78) return l10_latch(o, 0x0011DF78u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    float r = 0.0f;
+    if (o->h->w_0011DF78(o->h->ctx, l10_float(f0), &r) < 0) return l10_latch(o, 0x0011DF78u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED);
+    *result = l10_bits(r);
+    return 0;
 }
 
 static inline int l10_c_00122BB8(L10 *o, int32_t *result)
@@ -223,11 +248,25 @@ static inline int l10_c_001662D0(L10 *o, uint32_t a0)
     return o->h->w_001662D0(o->h->ctx, a0) < 0 ? l10_latch(o, 0x001662D0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l10_c_00182F90(L10 *o, uint32_t a0, uint32_t a1)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_00182F90) return l10_latch(o, 0x00182F90u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_00182F90(o->h->ctx, a0, a1) < 0 ? l10_latch(o, 0x00182F90u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l10_c_001831F0(L10 *o, int32_t n0)
 {
     if (l10_failed(o)) return -1;
     if (!o->h->w_001831F0) return l10_latch(o, 0x001831F0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
     return o->h->w_001831F0(o->h->ctx, n0) < 0 ? l10_latch(o, 0x001831F0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l10_c_0019A440(L10 *o, uint32_t a0, uint32_t a1, int32_t n2, int32_t *result)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_0019A440) return l10_latch(o, 0x0019A440u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0019A440(o->h->ctx, a0, a1, n2, result) < 0 ? l10_latch(o, 0x0019A440u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l10_c_0019A570(L10 *o, uint32_t a0, uint32_t a1, int32_t n2, int32_t n3, int32_t *result)
@@ -309,6 +348,16 @@ static inline int l10_c_001B12B0(L10 *o, uint32_t f0, uint32_t f1, uint32_t f2, 
     if (!o->h->w_001B12B0) return l10_latch(o, 0x001B12B0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
     float r = 0.0f;
     if (o->h->w_001B12B0(o->h->ctx, l10_float(f0), l10_float(f1), l10_float(f2), &r) < 0) return l10_latch(o, 0x001B12B0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED);
+    *result = l10_bits(r);
+    return 0;
+}
+
+static inline int l10_c_001B1470(L10 *o, uint32_t f0, uint32_t *result)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_001B1470) return l10_latch(o, 0x001B1470u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    float r = 0.0f;
+    if (o->h->w_001B1470(o->h->ctx, l10_float(f0), &r) < 0) return l10_latch(o, 0x001B1470u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED);
     *result = l10_bits(r);
     return 0;
 }
@@ -544,6 +593,13 @@ static inline int l10_c_001EFE00(L10 *o, int32_t n0, uint32_t a1, int32_t *resul
     return o->h->w_001EFE00(o->h->ctx, n0, a1, result) < 0 ? l10_latch(o, 0x001EFE00u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
+static inline int l10_c_001EFEB0(L10 *o, int32_t n0, uint32_t a1)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_001EFEB0) return l10_latch(o, 0x001EFEB0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_001EFEB0(o->h->ctx, n0, a1) < 0 ? l10_latch(o, 0x001EFEB0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
 static inline int l10_c_001F5940(L10 *o, int32_t n0, uint32_t a1, int32_t n2)
 {
     if (l10_failed(o)) return -1;
@@ -577,6 +633,20 @@ static inline int l10_c_0021BE40(L10 *o, uint32_t a0, int32_t *result)
     if (l10_failed(o)) return -1;
     if (!o->h->w_0021BE40) return l10_latch(o, 0x0021BE40u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
     return o->h->w_0021BE40(o->h->ctx, a0, result) < 0 ? l10_latch(o, 0x0021BE40u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l10_c_0021BED0(L10 *o, uint32_t a0, int32_t *result)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_0021BED0) return l10_latch(o, 0x0021BED0u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021BED0(o->h->ctx, a0, result) < 0 ? l10_latch(o, 0x0021BED0u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
+}
+
+static inline int l10_c_0021BF90(L10 *o, uint32_t a0, uint32_t a1)
+{
+    if (l10_failed(o)) return -1;
+    if (!o->h->w_0021BF90) return l10_latch(o, 0x0021BF90u, EM_LEVEL10_PORT_FAULT_NULL_WORKER);
+    return o->h->w_0021BF90(o->h->ctx, a0, a1) < 0 ? l10_latch(o, 0x0021BF90u, EM_LEVEL10_PORT_FAULT_WORKER_FAILED) : 0;
 }
 
 static inline int l10_c_00825420(L10 *o, uint32_t a0)

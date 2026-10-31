@@ -142,6 +142,9 @@ FUNCS = {
     0x826850: ('em_level14_port_00826850', 0x120, [U], None),
     # AREA19 overlay (overlay id 16): two script callbacks
     0x826B30: ('em_level14_port_00826B30', 0xE0, [U], I),
+    0x826470: ('em_level14_port_00826470', 0x8C, [U], I),
+    0x826500: ('em_level14_port_00826500', 0x3C, [U], I),
+    0x826540: ('em_level14_port_00826540', 0x30, [U], I),
     0x827540: ('em_level14_port_00827540', 0xC, [U], I),
     # boot: the 0012E3A0 creatures' state handlers and pieces
     0x12F980: ('em_level14_port_0012F980', 0xD0, [U, U], None),
@@ -176,7 +179,7 @@ FUNCS = {
     0x1F8880: ('em_level14_port_001F8880', 0x40, [I], U),
     0x1F88C0: ('em_level14_port_001F88C0', 0x46C, [U], None),
 }
-OVERLAY_OF = {entry: (16 if entry in (0x826B30, 0x827540) else 12) for entry in FUNCS if entry >= ARENA}
+OVERLAY_OF = {entry: (16 if entry in (0x826B30, 0x827540, 0x826470, 0x826500, 0x826540) else 12) for entry in FUNCS if entry >= ARENA}
 # The entries whose passing cases are all contract sites (they return from
 # their own body): the default run and EM_TEST_FULL=1.
 RETURN_SITES = tuple(e for e, (_, _, _, r) in FUNCS.items() if r is not None)
@@ -265,7 +268,7 @@ HOOKS = [
     ('w_001F5940', 0x1F5940, [(I, 4), (U, 5), (I, 6)], None),
     ('w_001F66F0', 0x1F66F0, [(U, 4)], None),
     ('w_001FAE70', 0x1FAE70, [(I, 4)], None),
-    ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], None),
+    ('w_001FBD50', 0x1FBD50, [(U, 4), (I, 5), (I, 6), (F, 12)], I),
     ('w_001FC3C0', 0x1FC3C0, [(U, 4), (U, 5), (I, 6), (F, 12), (F, 13)], None),
     ('w_001FC520', 0x1FC520, [(U, 4)], None),
     ('w_0021C040', 0x21C040, [(U, 4), (U, 5)], None),
@@ -276,6 +279,7 @@ HOOKS = [
     ('w_008243E0', 0x8243E0, [(U, 4)], None),
     ('w_00824B40', 0x824B40, [(U, 4)], None),
     ('w_00824C90', 0x824C90, [(U, 4)], None),
+    ('w_0011A070', 0x11A070, [(I, 4)], None),
 # END GENERATED HOOKS
 ]
 BY_ADDRESS = {address: (name, args, result) for name, address, args, result in HOOKS}
@@ -1950,6 +1954,13 @@ def area19_cases(add, rng):
     """The two script callbacks on the lift node and on a designed record."""
     for beat in (B07, B03):
         add('a19 826B30 %s free' % beat, beat, 0x826B30, [NODE_A])
+        for t, flag, b8v in ((20.0, 0, 0), (20.0, 1, 1), (30.0, 0, 1), (23.0, 0, 1)):
+            add('a19 826470 %s %g %d %d' % (beat, t, flag, b8v), beat, 0x826470, [NODE_A],
+                [(0x8102EC, struct.pack('<f', t)), (0x275B08, struct.pack('<i', flag)), (0x8102BA, bytes([b8v]))])
+        add('a19 826500 %s' % beat, beat, 0x826500, [NODE_A], queues={0x1FBD50: [7]})
+        for handle in (5, -1):
+            add('a19 826540 %s %d' % (beat, handle), beat, 0x826540, [NODE_A],
+                [(NODE_A + 0x2EC, struct.pack('<i', handle))])
         add('a19 827540 %s free' % beat, beat, 0x827540, [NODE_A], [(NODE_A + 0x28, h16(0xFFFF))])
 
 
