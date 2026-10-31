@@ -133,6 +133,7 @@ BEATS = {
     # AREA13's second load (TENTH / ELEVENTH / TWELFTH_LEVEL_ROUTE.md, lane M1):
     # a13b_05 ends in AREA04 entry 7; a13d_07 ends at hatch [63], the beat
     # before AREA19's entry 10 (a19b is lane J1's).
+    'a13b_00': ('a19_02', 'levels-recordings-20261018-10/s87/route_a13b', 'a13b_00_ladder_up'),
     'a13b_01': ('a13b_01', A13B_ROUTE, 'a13b_01_door17'),
     'a13b_02': ('a13b_02', A13B_ROUTE, 'a13b_02_button15'),
     'a13b_03': ('a13b_03', A13B_ROUTE, 'a13b_03_door8'),
@@ -154,6 +155,7 @@ BEATS = {
     'a13d_05': ('a13d_05', A13D_ROUTE, 'a13d_05_ladder432'),
     'a13d_06': ('a13d_06', A13D_ROUTE, 'a13d_06_door20'),
     'a13d_07': ('a13d_07', A13D_ROUTE, 'a13d_07_hatch63'),
+    'a19b_00': ('a13d_07', A19B_ROUTE, 'a19b_00_arrival'),
     # AREA19 (lane J1): the entry-9 rooms, entry 10's side and sub 1. The
     # arrival by the hatch [63] (a19b_00) and door [50]'s AREA15 scene are
     # the other lanes'.
@@ -431,7 +433,11 @@ CHAINS = {
     'a19c': ('a19c_00', ('a19c_00', 'a19c_01', 'a19c_02', 'a19c_03', 'a19c_04', 'a19c_05', 'a19c_06', 'a19c_07')),
     'a19d': ('a19d_00', tuple(f'a19d_{k:02}' for k in range(21))),
     'a13': ('area13', ('a13_00', 'a13_01', 'a13_02', 'a13_03', 'a13_04', 'a13_05')),
+    # a13b_05's own card has the lift closed (a loaded game): the chain calls it.
     'a13b': ('a13b_01', ('a13b_01', 'a13b_02', 'a13b_03', 'a13b_04', 'a13b_05')),
+    'a13b_lift': ('a13b_04', ('a13b_04', 'a13b_05')),
+    'a13b_arrival': ('a19_02', ('a19_02', 'a13b_00')),
+    'a13d_hatch': ('a13d_07', ('a13d_07', 'a19b_00')),
     'a13c': ('a13c_00', ('a13c_00', 'a13c_01', 'a13c_02', 'a13c_03', 'a13c_04', 'a13c_05', 'a13c_06')),
     'a13d': ('a13d_00', ('a13d_00', 'a13d_01', 'a13d_02', 'a13d_03', 'a13d_04', 'a13d_05', 'a13d_06',
                          'a13d_07')),
