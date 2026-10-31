@@ -92,7 +92,8 @@ def run(beat):
     env = {k: v for k, v in os.environ.items() if not k.startswith('EM_')}
     env.update(EM_START_AT=card, EM_START_AT_PAD=str(pad), EM_START_AT_PATH=str(path), EM_HEADLESS='1',
                EM_UNCAPPED='1', EM_MUTE='1', EM_START_AT_RAND=f'{m.source_rand(beat):08x}',
-               EM_START_AT_FADE=str(m.row0_fade(beat)), EM_AREA_CHANGE_LOG=str(ticks), EM_START_AT_FINE='1')
+               EM_START_AT_FADE=str(m.row0_fade(beat)), EM_AREA_CHANGE_LOG=str(ticks),
+               EM_START_AT_FINE='2' if beat in ('a13c_04', 'a13c_05') else '1')
     with open(log, 'w') as f:
         p = subprocess.Popen([str(BIN)], cwd=ROOT, env=env, stdout=f, stderr=subprocess.STDOUT)
         start = time.time()

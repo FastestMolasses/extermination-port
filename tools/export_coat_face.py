@@ -30,11 +30,18 @@ def main():
     address = struct.unpack_from('<I', header, 32 + 4 * ROW)[0]
     face = (B.DECOMP / 'extract/chunk03/f17_id19.bin').read_bytes()
     assert len(face) == 0x4C800, len(face)
-    if any(a == address for a, *_ in regions):
+    if any(a <= address and address + len(face) <= a + len(r) for a, _w, _f, r in regions):
         print('coat face: already present')
         return 0
     assert not any(a < address + len(face) and address < a + len(r) for a, _w, _f, r in regions)
-    regions.append((address, 0, 0, face))
+    # row 0x18's region ends where this one starts: one region (the pose
+    # host's table holds twelve, EM_POSE_REGION_MAX)
+    for i, (a, w, f, r) in enumerate(regions):
+        if a + len(r) == address and (w, f) == (0, 0):
+            regions[i] = (a, 0, 0, r + face)
+            break
+    else:
+        regions.append((address, 0, 0, face))
     if len(regions) > 16:
         raise SystemExit(f'{len(regions)} regions: the provider holds 16')
     OUT.write_bytes(L2.rebuild(header[:16] + len(regions).to_bytes(4, 'little') + header[20:], regions))
