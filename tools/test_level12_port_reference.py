@@ -146,6 +146,11 @@ FUNCS = {
     0x21FED0: ('em_level12_port_0021FED0', 0x3F0, [U], None),
     0x2208C0: ('em_level12_port_002208C0', 0x290, [U], None),
     0x220B50: ('em_level12_port_00220B50', 0x1E0, [U], None),
+    0x220D30: ('em_level12_port_00220D30', 0x330, [U], None),
+    0x221060: ('em_level12_port_00221060', 0x5D0, [U], None),
+    0x221630: ('em_level12_port_00221630', 0x190, [U], None),
+    0x2217C0: ('em_level12_port_002217C0', 0x4B0, [U], None),
+    0x221C70: ('em_level12_port_00221C70', 0x350, [U], None),
     0x224FE0: ('em_level12_port_00224FE0', 0x590, [U], None),
     0x1821E0: ('em_level12_port_001821E0', 0x68, [U], I),
     0x1831F0: ('em_level12_port_001831F0', 0x4C, [I], None),
@@ -1994,11 +1999,55 @@ def player_cases(add, rng):
         add('latch 2208C0 hold %g %g %d %d %X' % (hit, hp, sub, c28, flags), B, 0x2208C0, [p],
             [(p + 6, b8(1)), (p + 7, b8(sub)), (p + 0x224, fw(hit)), (p + 0x220, fw(hp)), (p + 0x28, h16(c28)),
              (p + 0x2FE, b8(2)), (p + 0x200, w32(flags)), (0x70003B8D, b8(0))], queues={0x1754E0: [0]})
+    # 00221060's release: each arm the matrix below ties together
+    for f63, one in ((0x63, 0), (0x63, 1), (0, 1), (0, 0)):
+        add('latch 221060 dead %X %d' % (f63, one), B, 0x221060, [p],
+            [(p + 6, b8(3)), (p + 0x200, w32(0x1000)), (p + 0x220, fw(0.0)), (p + 0xF, b8(f63)), (p + 0x234, b8(one))])
+    for inf, f1 in ((100.0, 1), (100.0, 0), (50.0, 1), (50.0, 0)):
+        add('latch 221060 alive %g %d' % (inf, f1), B, 0x221060, [p],
+            [(p + 6, b8(3)), (p + 0x200, w32(0x1000)), (p + 0x220, fw(10.0)), (p + 0x228, fw(inf)), (0x8106F1, b8(f1))])
+    for st, keep in ((7, 0), (7, 1)):
+        add('latch 221060 lift %d' % keep, B, 0x221060, [p], [(p + 6, b8(st)), (p + 0x200, w32(0)), (p + 0x302, b8(keep))])
+    for st in (0, 1, 2):
+        for s23a in (0, 0x5D):
+            add('latch 221060 5D %d %X' % (st, s23a), B, 0x221060, [p],
+                [(p + 6, b8(st)), (p + 0x200, w32(0)), (p + 0x23A, b8(s23a))], queues={0x175900: [0]})
+    add('latch 221060 floor', B, 0x221060, [p], [(p + 6, b8(2)), (p + 0x200, w32(0))], queues={0x175900: [1]})
+    # 002217C0's landing: +0x314's gate and the floor, each of the two states
+    for st in (1, 2, 4):
+        for gate in (0, 0x10, 0x20, 0x40, 0x80, 0x1F):
+            for r in (0, 1):
+                for s23a in (0, 0x5D):
+                    add('latch 2217C0 gate %d %X %d %X' % (st, gate, r, s23a), B, 0x2217C0, [p],
+                        [(p + 6, b8(st)), (p + 0x314, b8(gate)), (p + 0x200, w32(0)), (p + 0x23A, b8(s23a))],
+                        queues={0x175900: [r]})
+    for hp, one in ((0.0, 0), (0.0, 1), (0.0, 2), (10.0, 0), (10.0, 1)):
+        add('latch 2217C0 s5 %g %d' % (hp, one), B, 0x2217C0, [p],
+            [(p + 6, b8(5)), (p + 0x220, fw(hp)), (p + 0x234, b8(one))])
+    for v in (18.0, 24.0, 24.5):
+        add('latch 2217C0 sB %g' % v, B, 0x2217C0, [p], [(p + 6, b8(0xB)), (p + 0x3C, fw(v))])
+        add('latch 221060 sB %g' % v, B, 0x221060, [p], [(p + 6, b8(0xB)), (p + 0x3C, fw(v))])
+    # 00221C70's struggle: freed, gated, a new hit (alive or dead, each +0x234)
+    for hit, hp, one, sub, c28, cool, r, gate, flags in (
+            (0.0, 50.0, 0, 0, 0, 0, 1, 0, 0), (0.0, 50.0, 0, 0, 0, 0, 0, 1, 0), (1.0, 50.0, 0, 0, 0, 2, 0, 0, 0),
+            (1.0, 0.0, 0, 0, 0, 2, 0, 0, 0), (1.0, 0.0, 1, 0, 0, 2, 0, 0, 0), (-1.0, 50.0, 0, 1, 1, 2, 0, 0, 0),
+            (0.0, 50.0, 0, 0, 1, 2, 0, 0, 0), (0.0, 50.0, 0, 0, 0, 2, 0, 0, 0), (0.0, 50.0, 0, 0, 1, 0, 0, 0, 0),
+            (0.0, 50.0, 0, 1, 0, 2, 0, 0, 0x1000), (0.0, 50.0, 0, 1, 0, 2, 0, 0, 0), (0.0, 50.0, 0, 2, 0, 2, 0, 0, 0)):
+        add('latch 221C70 s2 %g %g %d %d %d %d %d %d %X' % (hit, hp, one, sub, c28, cool, r, gate, flags), B, 0x221C70, [p],
+            [(p + 6, b8(2)), (p + 7, b8(sub)), (p + 0x224, fw(hit)), (p + 0x220, fw(hp)), (p + 0x234, b8(one)),
+             (p + 0x28, h16(c28)), (p + 0x2FE, b8(cool)), (p + 0x200, w32(flags)), (0x70003B8D, b8(gate))],
+            queues={0x1754E0: [r]})
+    for hp, one in ((0.0, 0), (0.0, 1), (10.0, 0)):
+        add('latch 221C70 s1 %g %d' % (hp, one), B, 0x221C70, [p],
+            [(p + 6, b8(1)), (p + 0x200, w32(0x1000)), (p + 0x220, fw(hp)), (p + 0x234, b8(one))])
     for inf, f1 in ((100.0, 1), (100.0, 0), (50.0, 1)):
         add('latch 220B50 land %g %d' % (inf, f1), B, 0x220B50, [p],
             [(p + 6, b8(2)), (p + 0x228, fw(inf)), (0x8106F1, b8(f1))], queues={0x175900: [1]})
     for f, states in ((0x224FE0, (0, 1, 2, 3, 10, 11, 12, 13, 20, 21, 22, 30, 31)), (0x21FB40, (0, 1, 2, 3, 4, 5)),
-                      (0x21FED0, (0, 1, 2, 3, 4, 5, 6, 7)), (0x2208C0, (0, 1, 2, 3, 4)), (0x220B50, (0, 1, 2, 3, 4))):
+                      (0x21FED0, (0, 1, 2, 3, 4, 5, 6, 7)), (0x2208C0, (0, 1, 2, 3, 4)), (0x220B50, (0, 1, 2, 3, 4)),
+                      (0x220D30, (0, 1, 2, 3)), (0x221630, (0, 1, 2, 3)), (0x221C70, (0, 1, 2, 3, 4)),
+                      (0x221060, (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xA, 0xB, 0xC, 0xD, 0xE, 0x14, 0x15)),
+                      (0x2217C0, (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xA, 0xB, 0xC, 0xD, 0xE, 0x63, 0x64))):
         for st in states:
             for flags in (0, 0x1000, 0x8000):
                 for hp, sub, t3c, cool in ((50.0, 0, 18.0, 0), (0.0, 1, 30.0, 3), (50.0, 1, 30.0, 1)):

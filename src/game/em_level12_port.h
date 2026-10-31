@@ -227,6 +227,11 @@ int em_level12_port_0021FB40(const EmLevel12PortHooks *h, uint32_t p, EmLevel12P
 int em_level12_port_0021FED0(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_002208C0(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_00220B50(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
+int em_level12_port_00220D30(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
+int em_level12_port_00221060(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
+int em_level12_port_00221630(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
+int em_level12_port_002217C0(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
+int em_level12_port_00221C70(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_00224FE0(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_0017F9E0(const EmLevel12PortHooks *h, uint32_t p, EmLevel12PortFault *fault);
 int em_level12_port_001821E0(const EmLevel12PortHooks *h, uint32_t a, int32_t *result, EmLevel12PortFault *fault);

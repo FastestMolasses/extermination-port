@@ -65,7 +65,23 @@ behaviour defects until a row comparison says so.
   0016AC50 (test_level14_port_reference), the stick classifier 001751A0 (now
   test_level12_port_reference). The closure's adapters to them have no oracle.
 - **The latch**: 0021BF90, 0021FB40, 0021FED0, 002208C0, 00220B50, 00224FE0, 0017FB90
-  (test_level12_port_reference); the grab 00130AB0, 00133CD0
+  and kinds 2, 3, 4 (test_level12_port_reference, every reachable word of each).
+  0015B770 runs them by +0xD:
+
+  | +0xD (hit +3) | +5 0xD | +5 0xE | what the code does |
+  |---|---|---|---|
+  | 2 (7) | 00220D30 | 00221060 | 0xD: clip 0x3C then 0x3D, moved by the root node through the matrix at +0xD0, swept against the wall. 0xE: 0x26, 0x27 at the landing, then the deaths or the recovery |
+  | 3 (6) | 00221630 | 002217C0 | 0xD: 0x39 then 0x3A, height from the root's +4, swept against the wall. 0xE: 0x3B, 0x1C5 while +0x314 & 0xE0, then 0x1C6 or the deaths |
+  | 4 (5) | 00221C70 | none | 0x33, 0x34; 001754E0(8) or the gate frees with 0x38 and D_008106BD; a hit in +0x224 goes through 0021C350, 0x1CA, and ends in +5 3 / 0x3F or +5 1 / 0x40. 0021C040 ends this kind outright |
+
+  Kind 4 has run live in a04d_01, which still does not reach its end. The recording
+  is never grabbed and stays at health 60. The port takes a second bite by pad frame
+  200 (health 55), is grabbed at (356.42, 14.42, 224.56), and the script has no
+  stick input for 001754E0(8), so bites of 25, 12, 12, then the remaining 6 kill the
+  player, with no fault. Why the port is bitten and grabbed is not established; it
+  starts before the latch. No beat has exercised kinds 2 and 3, so those rest on the
+  oracle alone.
+  The grab 00130AB0, 00133CD0
   (test_level10_port_reference); 0019A440 and its twins 001A1B80, 0019DB50
   (test_coll_segment_walkers_reference, the only sight probes over captures).
 - **Others**: the ring burst 001F28D0 (NEARMISS C at 98.80%, only a schedule differs),
@@ -114,8 +130,5 @@ behaviour defects until a row comparison says so.
    choosing a result is the user's decision.
 2. **Not drawn**: 001CB1F0, 001CB130, 001CB060, the tendril field's and the worms'
    draw methods, whose VU1 programs have no translation; reported once.
-3. **The latch kinds 2, 3 and 4** (hit kinds 7, 6, 5: 00220D30, 00221630, 00221C70,
-   00221060, 002217C0) have no translation and fail-stop. Every creature in the
-   AREA19 recordings has hit kind 0, 1 or 4 (latch kinds 0 and 1).
-4. **Scene 27's ramp** faults at +0x74; no recorded beat reaches it.
-5. **a19b_00**, the arrival by the hatch [63], is the AREA13 side's.
+3. **Scene 27's ramp** faults at +0x74; no recorded beat reaches it.
+4. **a19b_00**, the arrival by the hatch [63], is the AREA13 side's.

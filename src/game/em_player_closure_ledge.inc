@@ -387,8 +387,7 @@ int em_player_closure_live_surface39(EmPlayerLiveActor *actor, int handler, cons
 }
 
 /* +4 2 / +5 0xD, 0xE (0015B770's switches on +0xD) and 0x15: the latch,
- * em_level12_port's translations. Kinds 2, 3 and 4 have none yet: their phase
- * slots stay empty, and the dispatch fail-stops. */
+ * em_level12_port's translations. */
 static int latch_run(EmPlayerLiveActor *a, int (*fn)(const EmLevel12PortHooks *, uint32_t, EmLevel12PortFault *),
                      const char *name)
 {
@@ -401,6 +400,11 @@ static int latch_0(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a,
 static int latch_1(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_002208C0, "002208C0"); }
 static int throw_0(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_0021FED0, "0021FED0"); }
 static int throw_1(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_00220B50, "00220B50"); }
+static int latch_2(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_00220D30, "00220D30"); }
+static int latch_3(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_00221630, "00221630"); }
+static int latch_4(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_00221C70, "00221C70"); }
+static int throw_2(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_00221060, "00221060"); }
+static int throw_3(void *c, EmPlayerLiveActor *a) { (void)c; return latch_run(a, em_level12_port_002217C0, "002217C0"); }
 static int knees_state(void *c, EmPlayerLiveActor *a)
 {
     (void)c;

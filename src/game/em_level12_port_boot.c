@@ -1117,6 +1117,16 @@ int em_level12_port_001E8B40(const EmLevel12PortHooks *h, int32_t n, EmLevel12Po
  *   Kind 0: 0021FB40 (the hold: root-driven, a sweep against the wall, the
  *   shake count 001754E0(10) frees) and 0021FED0 (the throw).
  *   Kind 1: 002208C0 (the hold, 001754E0(8)) and 00220B50.
+ *   Kind 2: 00220D30 (the hold, carried by the root node's axis, 0x3C then
+ *   0x3D, a sweep against the wall each frame; it stays in its last sub-state
+ *   until 0021C040 moves +5) and 00221060 (+5 0xE: 0x26, 0x27 at the landing,
+ *   then the deaths and the recovery).
+ *   Kind 3: 00221630 (the hold, 0x39 then 0x3A, height from the root's +4)
+ *   and 002217C0 (+5 0xE: 0x3B, +0x314 & 0xE0 takes 0x1C5, then 0x1C6).
+ *   Kind 4 (hit kind 5, which 0021C040 ends outright): 00221C70 alone (0x33,
+ *   0x34, 001754E0(8) or the gate frees with 0x38 and D_008106BD; a hit in
+ *   +0x224 goes through 0021C350, 0x1CA and its two deaths). 0015B770's +5 0xE
+ *   has nothing for it.
  *   00224FE0 (+5 0x15): the fall to the knees, with its deaths.
  *   0017FB90 (surface 0x39's second handler): the climb from the hit node.
  * ---------------------------------------------------------------------- */
@@ -1534,6 +1544,448 @@ static void l12_00220B50(L12 *o, uint32_t p)
     lt_5d(o, p);
 }
 LT_ENTRY(00220B50)
+
+/* ------------------------------------------------------------------------
+ * The latch's kinds 2, 3 and 4.
+ * ---------------------------------------------------------------------- */
+/* +38 and +21C from the root's +8. */
+static void lt_clock_x(L12 *o, uint32_t p)
+{
+    const uint32_t ptr = l12_u32(o, 0x00275B40u);
+    const uint32_t last = l12_u32(o, p + 0x21C);
+    const uint32_t t = l12_u32(o, l12_u32(o, ptr) + 8);
+    l12_w32(o, p + 0x38, L12_SUB(t, last));
+    l12_w32(o, p + 0x21C, lt_node(o, 8));
+}
+
+/* The sweep from +0x290 to the pose, 10 above the pose's height, mask 6: a hit
+ * puts the actor 4.5 off the wall along its normal. */
+static int lt_wall(L12 *o, uint32_t p)
+{
+    int32_t r = 0;
+    if (l12_c_00102948(o, 0x700038A0u, p + 0x290)) return 1;
+    if (l12_c_00102948(o, 0x700038B0u, p + 0xB0)) return 1;
+    const uint32_t y = L12_ADD(0x41200000u, l12_u32(o, 0x700038B4u));
+    l12_w32(o, 0x700038B4u, y);
+    l12_w32(o, 0x700038A4u, y);
+    if (l12_c_0019AFE0(o, p, 0x700038A0u, 0x700038B0u, 6, &r)) return 1;
+    if (r != 0) {
+        const uint32_t rec = l12_u32(o, 0x700031D0u);
+        const uint32_t nx = l12_u32(o, rec + 0x24);
+        l12_w32(o, p + 0xB0, L12_ADD(l12_u32(o, 0x700031B0u), L12_MUL(0x40900000u, nx)));
+        const uint32_t nz = l12_u32(o, l12_u32(o, 0x700031D0u) + 0x2C);
+        l12_w32(o, p + 0xB8, L12_ADD(l12_u32(o, 0x700031B8u), L12_MUL(0x40900000u, nz)));
+    }
+    return 0;
+}
+
+/* The pose moved by the root's axis in 0x700038A0 (the matrix at +0xD0), the
+ * delta against +0x290. */
+static int lt_axis_move(L12 *o, uint32_t p)
+{
+    if (l12_c_001026A0(o, 0x700038B0u, p + 0xD0, 0x700038A0u)) return 1;
+    if (l12_c_001028B8(o, p + 0xB0, p + 0x290, 0x700038B0u)) return 1;
+    return lt_wall(o, p);
+}
+
+static void l12_00220D30(L12 *o, uint32_t p)
+{
+    const uint32_t st = l12_u8(o, p + 6);
+    switch (st) {
+    case 0:
+        l12_w8(o, p + 6, st + 1u);
+        if (l12_c_001749A0(o, p, 0x3C, 0, 0)) return;
+        l12_c_00102948(o, p + 0x290, p + 0xB0);
+        break;
+    case 1: {
+        const uint32_t ptr = l12_u32(o, 0x00275B40u);
+        l12_w32(o, 0x700038A0u, l12_u32(o, l12_u32(o, ptr)));
+        l12_w32(o, 0x700038A4u, l12_u32(o, l12_u32(o, ptr) + 4));
+        l12_w32(o, 0x700038A8u, l12_u32(o, l12_u32(o, ptr) + 8));
+        l12_w32(o, 0x700038ACu, 0);
+        if (lt_axis_move(o, p)) return;
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+            if (l12_c_001749A0(o, p, 0x3D, 0, F_ONE)) return;
+            l12_w32(o, p + 0x2E0, lt_node(o, 0));
+            l12_w32(o, p + 0x2E8, lt_node(o, 8));
+        }
+        break;
+    }
+    case 2: {
+        const uint32_t ptr = l12_u32(o, 0x00275B40u);
+        const uint32_t dx = l12_u32(o, p + 0x2E0);
+        l12_w32(o, 0x700038A0u, L12_ADD(l12_u32(o, l12_u32(o, ptr)), dx));
+        l12_w32(o, 0x700038A4u, l12_u32(o, l12_u32(o, ptr) + 4));
+        const uint32_t node = l12_u32(o, ptr);
+        const uint32_t dz = l12_u32(o, p + 0x2E8);
+        l12_w32(o, 0x700038A8u, L12_ADD(l12_u32(o, node + 8), dz));
+        l12_w32(o, 0x700038ACu, 0);
+        if (lt_axis_move(o, p)) return;
+        if (l12_u32(o, p + 0x200) & 0x1000u) l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+        break;
+    }
+    default:
+        break;
+    }
+}
+LT_ENTRY(00220D30)
+
+static void l12_00221060(L12 *o, uint32_t p)
+{
+    const uint32_t mode = l12_u8(o, p + 6);
+    int32_t r = 0;
+    switch (mode) {
+    case 0:
+        if (l12_c_001B61C0(o, 0, 0xC0, 5, 1)) return;
+        if (l12_c_001FBD50(o, p, 0x150, 0, 0x43960000u)) return;
+        l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+        if (l12_c_001749A0(o, p, 0x26, 0, F_ONE)) return;
+        l12_w32(o, p + 0x21C, 0);
+        l12_w32(o, p + 0x2E4, 0);
+        break;
+    case 1:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 6, mode + 1u);
+            break;
+        }
+        lt_clock_x(o, p);
+        l12_w32(o, p + 0x38, L12_MUL(l12_u32(o, p + 0x38), 0x3F400000u));
+        if (l12_c_00178B90(o, p, 1)) return;
+        lt_root_y(o, p);
+        if (l12_c_00175900(o, p, 1)) return;
+        break;
+    case 2:
+        if (l12_c_00178B90(o, p, 1)) return;
+        if (l12_c_00179880(o, p, p + 0x2EC)) return;
+        if (l12_c_00175900(o, p, 1)) return;
+        if (o->floor_result != 0) {
+            l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+            if (l12_c_001FBD50(o, p, 0x12F, 0, 0x43960000u)) return;
+            if (l12_c_001B61C0(o, 0, 0xD0, 0xA, 1)) return;
+            if (l12_c_001749A0(o, p, 0x27, 0, 0)) return;
+            l12_w32(o, p + 0x21C, 0);
+            l12_w32(o, p + 0x2E4, 0);
+        }
+        break;
+    case 3:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            if (L12_LE(l12_u32(o, p + 0x220), 0)) {
+                if (l12_u8(o, p + 0xF) == 0x63 || l12_u8(o, p + 0x234) == 1) {
+                    if (l12_c_0021C200(o, p)) return;
+                    l12_w8(o, p + 6, 0x14);
+                    if (l12_c_001749A0(o, p, 0x1C4, 0, 0x41800000u)) return;
+                } else {
+                    l12_w8(o, p + 6, 0xA);
+                    if (l12_c_001749A0(o, p, 0x29, 0, 0x40800000u)) return;
+                }
+            } else if (!L12_LT(l12_u32(o, p + 0x228), 0x42C80000u) && l12_u8(o, 0x008106F1u) != 0) {
+                l12_w8(o, p + 6, mode + 1u);
+                if (l12_c_0021C120(o, p)) return;
+                l12_w8(o, p + 0x302, 1);
+            } else {
+                l12_w8(o, p + 6, l12_u8(o, p + 6) + 2u);
+                l12_w8(o, p + 0x302, 0);
+            }
+        } else {
+            lt_clock_x(o, p);
+            if (l12_c_00178B90(o, p, 1)) return;
+            if (l12_c_00175900(o, p, 1)) return;
+        }
+        break;
+    case 4:
+        if (l12_c_0021C190(o, p, &r)) return;
+        if (r != 0) l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+        break;
+    case 5:
+        l12_w8(o, p + 6, mode + 1u);
+        if (l12_c_001749A0(o, p, 0x28, 0, 0x41000000u)) return;
+        l12_w32(o, p + 0x38, 0);
+        l12_w32(o, p + 0x21C, 0);
+        break;
+    case 6:
+        if (!(l12_u32(o, p + 0x200) & 0x8000u)) {
+            l12_w8(o, p + 6, mode + 1u);
+            l12_w32(o, p + 0x2EC, 0);
+            l12_w8(o, p + 0x1F1, 0);
+        }
+        break;
+    case 7:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 0xF, 0);
+            l12_w32(o, p + 0x224, 0);
+            l12_w32(o, p + 0x22C, 0);
+            l12_w16(o, p + 0x20E, 0x3C);
+            l12_w8(o, p + 0x25C, 0);
+            if (l12_c_0017C540(o, p)) return;
+        } else {
+            lt_clock_x(o, p);
+            if (l12_c_00178B90(o, p, 1)) return;
+            if (l12_u8(o, p + 0x302) != 0) l12_w32(o, p + 0x204, 0x3ECCCCCDu);
+        }
+        if (l12_c_00179880(o, p, p + 0x2EC)) return;
+        if (l12_c_00175900(o, p, 1)) return;
+        break;
+    case 0xA:
+        if (!(l12_u32(o, p + 0x200) & 0x8000u)) {
+            l12_w8(o, p + 6, mode + 1u);
+            if (l12_c_001FBD50(o, p, 0x156, 0, 0x43960000u)) return;
+        }
+        break;
+    case 0xB:
+        if (L12_LE(l12_u32(o, p + 0x3C), 0x41900000u)) {
+            l12_w8(o, p + 6, mode + 1u);
+            if (l12_c_0021D490(o, p)) return;
+        }
+        break;
+    case 0xC:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 6, mode + 1u);
+            l12_w8(o, p + 7, 0);
+            if (l12_c_001B61C0(o, 1, 0xEE, 0x3C, 1)) return;
+        }
+        break;
+    case 0xD:
+        if (l12_c_0021D2E0(o, p, 0x78, 0)) return;
+        break;
+    case 0x14:
+        if (!(l12_u32(o, p + 0x200) & 0x8000u)) {
+            l12_w8(o, p + 4, 2);
+            l12_w8(o, p + 5, 3);
+            l12_w8(o, p + 6, 0);
+            l12_w8(o, p + 0x1F0, 0x3F);
+        } else {
+            lt_clock_x(o, p);
+            if (l12_c_00178B90(o, p, 1)) return;
+        }
+        break;
+    default:
+        break;
+    }
+    if (l12_u8(o, p + 6) < 3 && l12_u8(o, p + 0x23A) == 0x5D) l12_c_0021D250(o, p, 1);
+}
+LT_ENTRY(00221060)
+
+static void l12_00221630(L12 *o, uint32_t p)
+{
+    const uint32_t st = l12_u8(o, p + 6);
+    switch (st) {
+    case 0:
+        l12_w8(o, p + 6, st + 1u);
+        if (l12_c_001749A0(o, p, 0x39, 0, 0)) return;
+        l12_w32(o, p + 0x2E4, 0);
+        l12_c_00102948(o, p + 0x290, p + 0xB0);
+        break;
+    case 1:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 6, st + 1u);
+            if (l12_c_001749A0(o, p, 0x3A, 0, 0)) return;
+        } else {
+            lt_root_y(o, p);
+        }
+        lt_wall(o, p);
+        break;
+    default:
+        break;
+    }
+}
+LT_ENTRY(00221630)
+
+static void l12_002217C0(L12 *o, uint32_t p)
+{
+    const uint32_t st = l12_u8(o, p + 6);
+    switch (st) {
+    case 0:
+        if (l12_c_001B61C0(o, 0, 0xC0, 5, 1)) return;
+        if (l12_c_001FBD50(o, p, 0x150, 0, 0x43960000u)) return;
+        l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+        if (l12_c_001749A0(o, p, 0x3B, 0, F_ONE)) return;
+        l12_w32(o, p + 0x38, 0);
+        l12_w32(o, p + 0x21C, 0);
+        break;
+    case 1:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 6, st + 1u);
+        } else {
+            lt_clock_x(o, p);
+            lt_root_y(o, p);
+            if (l12_c_00178B90(o, p, 1)) return;
+            if (l12_u8(o, p + 0x314) & 0xE0u) {
+                l12_w8(o, p + 6, 3);
+                if (l12_c_001749A0(o, p, 0x1C5, 0, F_ONE)) return;
+            }
+            if (l12_c_00175900(o, p, 1)) return;
+        }
+        break;
+    case 2:
+        if (l12_c_00179880(o, p, p + 0x2EC)) return;
+        if (l12_c_00178B90(o, p, 1)) return;
+        if (l12_u8(o, p + 0x314) & 0xE0u) {
+            l12_w8(o, p + 6, 3);
+            if (l12_c_001749A0(o, p, 0x1C5, 0, F_ONE)) return;
+        }
+        if (l12_c_00175900(o, p, 1)) return;
+        if (o->floor_result != 0) l12_w8(o, p + 6, 5);
+        if (l12_u8(o, p + 0x23A) == 0x5D && l12_c_0021D250(o, p, 0)) return;
+        break;
+    case 3:
+        if (l12_u32(o, p + 0x200) & 0x1000u) l12_w8(o, p + 6, st + 1u);
+        if (l12_c_001764E0(o, p)) return;
+        break;
+    case 4:
+        if (l12_c_00179880(o, p, p + 0x2EC)) return;
+        if (l12_c_001764E0(o, p)) return;
+        if (l12_c_00175900(o, p, 1)) return;
+        if (o->floor_result != 0) l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+        if (l12_u8(o, p + 0x23A) == 0x5D && l12_c_0021D250(o, p, 0)) return;
+        break;
+    case 5:
+        if (L12_LE(l12_u32(o, p + 0x220), 0)) {
+            l12_w8(o, p, 2);
+            if (l12_u8(o, p + 0x234) == 1) {
+                l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+                if (l12_c_001749A0(o, p, 0x1C6, 0, F_ONE)) return;
+            } else {
+                l12_w8(o, p + 6, 0xA);
+                if (l12_c_001749A0(o, p, 0x29, 0, 0x41000000u)) return;
+            }
+        } else {
+            l12_w8(o, p + 6, st + 1u);
+            if (l12_c_001749A0(o, p, 0x1C6, 0, F_ONE)) return;
+            l12_w8(o, p + 0x1F1, 0);
+        }
+        break;
+    case 6:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            if (L12_LE(l12_u32(o, p + 0x220), 0)) {
+                l12_w8(o, p + 4, 2);
+                l12_w8(o, p + 5, 3);
+                l12_w8(o, p + 6, 0);
+                l12_w8(o, p + 0x1F0, 0x3F);
+            } else {
+                l12_w16(o, p + 0x20E, 0x3C);
+                l12_w8(o, p + 0xF, 0);
+                l12_w32(o, p + 0x224, 0);
+                l12_w32(o, p + 0x22C, 0);
+                l12_w8(o, p + 0x25C, 0);
+                if (l12_c_0017C540(o, p)) return;
+            }
+        }
+        break;
+    case 0xA:
+        if (!(l12_u32(o, p + 0x200) & 0x8000u)) l12_w8(o, p + 6, st + 1u);
+        break;
+    case 0xB:
+        if (L12_LE(l12_u32(o, p + 0x3C), 0x41C00000u)) {
+            l12_w8(o, p + 6, st + 1u);
+            if (l12_c_0021D490(o, p)) return;
+        }
+        break;
+    case 0xC:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w8(o, p + 6, st + 1u);
+            l12_w8(o, p + 7, 0);
+            if (l12_c_001B61C0(o, 1, 0xEE, 0x3C, 1)) return;
+        }
+        break;
+    case 0xD:
+    case 0x63:
+        if (l12_c_0021D2E0(o, p, 0x78, 0)) return;
+        break;
+    default:
+        break;
+    }
+    if (l12_u8(o, p + 0x23A) == 0x5D) l12_c_0021D250(o, p, 0);
+}
+LT_ENTRY(002217C0)
+
+/* 00221C70's two deaths: +0x234 picks +5 3 / +1F0 0x3F or +5 1 / +1F0 0x40. */
+static void lt_kind4_death(L12 *o, uint32_t p)
+{
+    const int one = l12_u8(o, p + 0x234) == 1;
+    l12_w8(o, p + 4, 2);
+    l12_w8(o, p + 5, one ? 3 : 1);
+    l12_w8(o, p + 6, 0);
+    l12_w8(o, p + 0x1F0, one ? 0x3F : 0x40);
+}
+
+static void l12_00221C70(L12 *o, uint32_t p)
+{
+    const uint32_t st = l12_u8(o, p + 6);
+    int32_t r = 0;
+    switch (st) {
+    case 0:
+        l12_w8(o, p + 6, st + 1u);
+        if (l12_c_001749A0(o, p, 0x33, 0, 0)) return;
+        break;
+    case 1:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            if (l12_c_0021C350(o, p)) return;
+            if (L12_LE(l12_u32(o, p + 0x220), 0)) {
+                lt_kind4_death(o, p);
+                return;
+            }
+            l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+            l12_w8(o, p + 7, 0);
+            if (l12_c_001749A0(o, p, 0x34, 0, 0)) return;
+            l12_w16(o, p + 0x28, 0);
+            l12_w8(o, p + 0x2FE, 0);
+            if (l12_c_00174AC0(o, p, 0)) return;
+            l12_w32(o, p + 0x26C, l12_u32(o, p + 0x24C));
+            l12_w32(o, p + 0x2EC, 0);
+        }
+        break;
+    case 2: {
+        const int32_t dec = l12_s8(o, p + 0x2FE);
+        l12_w8(o, p + 0x2FE, (uint32_t)(dec - 1));
+        if (dec == 0) {
+            l12_w8(o, p + 0x2FE, 0);
+            l12_w16(o, p + 0x28, 0);
+        }
+        if (l12_c_00174AC0(o, p, 0)) return;
+        if (l12_c_001754E0(o, p, 8, &r)) return;
+        if (r != 0 || l12_u8(o, 0x70003B8Du) != 0) {
+            l12_w8(o, p + 6, l12_u8(o, p + 6) + 1u);
+            if (l12_c_001749A0(o, p, 0x38, 0, 0x40800000u)) return;
+            l12_w8(o, 0x008106BDu, 1);
+            l12_w32(o, p + 0x224, 0);
+            break;
+        }
+        l12_w32(o, p + 0x26C, l12_u32(o, p + 0x24C));
+        if (!L12_EQ(l12_u32(o, p + 0x224), 0)) {
+            if (l12_c_0021C350(o, p)) return;
+            if (L12_LE(l12_u32(o, p + 0x220), 0)) {
+                lt_kind4_death(o, p);
+                return;
+            }
+            if (l12_c_001B61C0(o, 0, 0xC0, 5, 1)) return;
+            if (l12_c_001FBD50(o, p, 0x154, 0, 0x43960000u)) return;
+            if (l12_c_001749A0(o, p, 0x1CA, 0, 0)) return;
+            l12_w8(o, p + 7, 1);
+        }
+        const uint32_t sub = l12_u8(o, p + 7);
+        if (sub == 0) {
+            l12_w32(o, p + 0x204, l12_u16(o, p + 0x28) != 0 ? 0x40000000u : 0x3F000000u);
+        } else if (sub == 1 && (l12_u32(o, p + 0x200) & 0x1000u)) {
+            if (l12_c_001749A0(o, p, 0x34, 0, F_ONE)) return;
+            l12_w8(o, p + 7, 0);
+        }
+        break;
+    }
+    case 3:
+        if (l12_u32(o, p + 0x200) & 0x1000u) {
+            l12_w16(o, p + 0x20E, 0x3C);
+            l12_w8(o, p + 0x25C, 0);
+            if (l12_c_0017C540(o, p)) return;
+        }
+        break;
+    default:
+        break;
+    }
+    if (l12_c_00179880(o, p, p + 0x2EC)) return;
+    l12_c_00175900(o, p, 1);
+}
+LT_ENTRY(00221C70)
 
 static void l12_00224FE0(L12 *o, uint32_t p)
 {
