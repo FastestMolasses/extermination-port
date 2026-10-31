@@ -384,6 +384,10 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
         if (address >= S.window[i].address && size <= S.window[i].size &&
             address - S.window[i].address <= S.window[i].size - size)
             return S.elf + ELF_AT(address);
+    /* D_00248200, 0015A750's descriptor, spans two exported windows. */
+    if (address >= 0x00248200u && size <= 0x90u && address - 0x00248200u <= 0x90u - size && size > 12u &&
+        em_effects_live_window(0x00248200u, 12) && em_effects_live_window(0x0024820Cu, 0x84))
+        return S.elf + ELF_AT(address);
     for (uint32_t i = 0; i < S.overlay_sources; ++i)
         if (address >= S.overlay_source[i].address && size <= 0x90u &&
             address - S.overlay_source[i].address <= 0x90u - size)
