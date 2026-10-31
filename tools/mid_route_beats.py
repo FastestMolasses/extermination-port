@@ -62,6 +62,11 @@ A15_ROUTE = 'levels-recordings-20261018-19/s87/route_a15'
 A15B_ROUTE = 'levels-recordings-20261018-19/s87/route_a15b'
 A15C_ROUTE = 'levels-recordings-20261018-25/s87/route_a15b'
 A03_ROUTE = 'levels-recordings-20261018-26/s87/route_a03'
+A03B_ROUTE = 'levels-recordings-20261030-1/s87/route_a03b'
+A08_ROUTE = 'levels-recordings-20261030-1/s87/route_a08'
+A03C_ROUTE = 'levels-recordings-20261030-1/s87/route_a03c'
+A04C_ROUTE = 'levels-recordings-20261030-1/s87/route_a04c'
+A07_ROUTE = 'levels-recordings-20261030-1/s87/route_a07'
 # beat: (start card, route recording, beat folder). A group's first beat
 # starts from the group's arrival card; a01u_s1 starts where a01u_00 does.
 BEATS = {
@@ -124,11 +129,35 @@ BEATS = {
     'a15b_04': ('a15b_04', A15C_ROUTE, 'a15b_04_door14'),
     # AREA03 sub 0's lift (the last recorded beat).
     'a03_00': ('a03_00', A03_ROUTE, 'a03_00_elevator'),
+    # The sixteenth level (SIXTEENTH_LEVEL_ROUTE.md).
+    'a03b_00': ('a03b_00', A03B_ROUTE, 'a03b_00_door13'),
+    'a03b_01': ('a03b_01', A03B_ROUTE, 'a03b_01_duct_west'),
+    'a03b_02': ('a03b_02', A03B_ROUTE, 'a03b_02_duct_east'),
+    'a03b_03': ('a03b_03', A03B_ROUTE, 'a03b_03_item2a'),
+    'a03b_04': ('a03b_04', A03B_ROUTE, 'a03b_04_back'),
+    'a03b_05': ('a03b_05', A03B_ROUTE, 'a03b_05_slider'),
+    'a03b_06': ('a03b_06', A03B_ROUTE, 'a03b_06_lift'),
+    'a08_00': ('a08_00', A08_ROUTE, 'a08_00_door17'),
+    'a08_01': ('a08_01', A08_ROUTE, 'a08_01_magazine'),
+    'a08_02': ('a08_02', A08_ROUTE, 'a08_02_switch'),
+    'a08_03': ('a08_03', A08_ROUTE, 'a08_03_slider'),
+    'a08_04': ('a08_04', A08_ROUTE, 'a08_04_ceiling'),
+    'a08_05': ('a08_05', A08_ROUTE, 'a08_05_terminal'),
+    'a08_06': ('a08_06', A08_ROUTE, 'a08_06_back'),
+    'a03c_00': ('a03c_00', A03C_ROUTE, 'a03c_00_slider'),
+    'a03c_01': ('a03c_01', A03C_ROUTE, 'a03c_01_duct'),
+    'a03c_02': ('a03c_02', A03C_ROUTE, 'a03c_02_seal'),
+    'a03c_03': ('a03c_03', A03C_ROUTE, 'a03c_03_door24'),
+    'a04c_00': ('a04c_00', A04C_ROUTE, 'a04c_00_event'),
+    'a04c_01': ('a04c_01', A04C_ROUTE, 'a04c_01_door73'),
+    'a04c_02': ('a04c_02', A04C_ROUTE, 'a04c_02_lift'),
+    'a07_00': ('a07_00', A07_ROUTE, 'a07_00_switch'),
 }
 GROUPS = {'a22': ('a22_',), 'a01u': ('a01u_',), 'a06': ('a06_',), 'a06b': ('a06b_',), 'a01v': ('a01v_',),
           'a22b': ('a22b_',), 'a04b': ('a04b_0',), 'boss': ('a04b_s',), 'bossg': ('a04b_g',),
           'a15a': ('a15a_',), 'a15': ('a15_',), 'a15b': ('a15b_',), 'a03': ('a03_',),
-          'a13': ('a13_',)}
+          'a13': ('a13_',),
+          'a03b': ('a03b_',), 'a08': ('a08_',), 'a03c': ('a03c_',), 'a04c': ('a04c_',), 'a07': ('a07_',)}
 FAULT = re.compile(r'FAULT|faulted|fault:|the game task is stopped|refused|Assertion|'
                    r'(?<!Mkdir, )fail-stop|reached without port code: (?!001D1EF0|00200830)')
 
@@ -317,6 +346,11 @@ CHAINS = {
     'a15b': ('a15b_00', ('a15b_00', 'a15b_01', 'a15b_02', 'a15b_03', 'a15b_04')),
     'a15c': ('a15b_03', ('a15b_03', 'a15b_04')),
     'a03': ('a03_00', ('a03_00',)),
+    'a03b': ('a03b_00', ('a03b_00', 'a03b_01', 'a03b_02', 'a03b_03', 'a03b_04', 'a03b_05', 'a03b_06',)),
+    'a08': ('a08_00', ('a08_00', 'a08_01', 'a08_02', 'a08_03', 'a08_04', 'a08_05', 'a08_06',)),
+    'a03c': ('a03c_00', ('a03c_00', 'a03c_01', 'a03c_02', 'a03c_03',)),
+    'a04c': ('a04c_00', ('a04c_00', 'a04c_01', 'a04c_02',)),
+    'a07': ('a07_00', ('a07_00',)),
 }
 
 
